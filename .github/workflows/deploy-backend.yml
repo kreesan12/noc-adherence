@@ -13,18 +13,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Check out repo
-      - name: Checkout code
+      # 1) Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       # 2) Install + log in to the Heroku CLI
       - name: Set up Heroku CLI
-        uses: heroku/actions/setup-heroku@v2
+        uses: heroku/actions/setup-heroku@v2         # ← full path, correct tag
         with:
           api-key: ${{ secrets.HEROKU_API_KEY }}
           email:   kreesangovender12@gmail.com
 
-      # 3) Deploy only the server/ folder (subtree push)
-      - name: Deploy server folder
+      # 3) Deploy the server/ folder by git push
+      - name: Deploy server/ to Heroku
         run: |
+          # push ONLY server/ as the app root
           git subtree push --prefix server https://git.heroku.com/noc-adherence-api.git main
