@@ -2,8 +2,12 @@ name: Deploy Backend
 
 on:
   push:
-    paths: [ "server/**", "prisma/**" ]
-    branches: [ main ]
+    paths:
+      - "server/**"
+      - "prisma/**"
+      - ".github/workflows/deploy-backend.yml"
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -12,10 +16,13 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: akhileshns/heroku-deploy@v4.3.8
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Heroku
+        uses: akhileshns/heroku-deploy@v4.3.8
         with:
           heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
-          heroku_app_name: noc-adherence-api      # ← your real app name
+          heroku_app_name: noc-adherence-api
           heroku_email: kreesangovender12@gmail.com
-            appdir:          server         # ← ADD THIS LINE
+          appdir: server           # tells action to deploy ./server
