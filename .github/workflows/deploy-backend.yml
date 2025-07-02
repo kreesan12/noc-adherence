@@ -6,27 +6,25 @@ on:
       - "server/**"
       - "prisma/**"
       - ".github/workflows/deploy-backend.yml"
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Check out repo ----------
+      # 1) Check out repo
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2) Install & log-in to Heroku ----------
+      # 2) Install + log in to the Heroku CLI
       - name: Set up Heroku CLI
-        uses: heroku/setup-heroku@v2
+        uses: heroku/actions/setup-heroku@v2
         with:
-          email:  kreesangovender12@gmail.com
-          api_key: ${{ secrets.HEROKU_API_KEY }}
+          api-key: ${{ secrets.HEROKU_API_KEY }}
+          email:   kreesangovender12@gmail.com
 
-      # 3) Push only the server/ folder ----------
-      - name: Deploy server/ to Heroku
+      # 3) Deploy only the server/ folder (subtree push)
+      - name: Deploy server folder
         run: |
-          # Create a lightweight subtree with just the server code
           git subtree push --prefix server https://git.heroku.com/noc-adherence-api.git main
