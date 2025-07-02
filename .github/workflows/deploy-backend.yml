@@ -26,3 +26,4 @@ jobs:
           heroku_app_name: noc-adherence-api
           heroku_email: kreesangovender12@gmail.com
           appdir: server           # tells action to deploy ./server
+          setup_heroku: true
