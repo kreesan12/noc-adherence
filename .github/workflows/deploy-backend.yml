@@ -17,4 +17,5 @@ jobs:
         with:
           heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
           heroku_app_name: noc-adherence-api      # ← your real app name
-          heroku_email: <YOUR_EMAIL>
+          heroku_email: kreesangovender12@gmail.com
+            appdir:          server         # ← ADD THIS LINE
