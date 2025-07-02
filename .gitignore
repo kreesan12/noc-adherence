@@ -1,0 +1,8 @@
+# Node
+node_modules
+npm-debug.log*
+.env
+# Build output
+frontend/build
+# Prisma
+prisma/.cache
