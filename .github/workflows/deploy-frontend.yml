@@ -47,4 +47,4 @@ jobs:
       # 5️⃣  🚀 Deploy that artifact to the gh-pages branch
       - name: Deploy to GitHub Pages
         id: deploy
-        u
+        uses: actions/deploy-pages@v4
