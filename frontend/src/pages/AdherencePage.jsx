@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react'
 import {
   DataGrid,
-  GridToolbar
+  GridToolbar,
+  GridActionsCellItem
 } from '@mui/x-data-grid'
 import {
   Box,
@@ -15,6 +16,9 @@ import {
   LocalizationProvider
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import EditIcon from '@mui/icons-material/Edit'
+import SaveIcon from '@mui/icons-material/Save'
+import CancelIcon from '@mui/icons-material/Close'
 import dayjs from 'dayjs'
 import api from '../api'
 
@@ -28,14 +32,14 @@ const statusOptions = [
 ]
 
 const dutyOptions = [
-  { value: '',               label: '' },
-  { value: 'Tickets/Calls',  label: 'Tickets/Calls' },
-  { value: 'Tickets',        label: 'Tickets' },
-  { value: 'Calls',          label: 'Calls' },
-  { value: 'WhatsApp/Tickets', label: 'WhatsApp/Tickets' },
-  { value: 'WhatsApp only',  label: 'WhatsApp only' },
-  { value: 'Changes',        label: 'Changes' },
-  { value: 'Adhoc',          label: 'Adhoc' },
+  { value: '',                  label: '' },
+  { value: 'Tickets/Calls',     label: 'Tickets/Calls' },
+  { value: 'Tickets',           label: 'Tickets' },
+  { value: 'Calls',             label: 'Calls' },
+  { value: 'WhatsApp/Tickets',  label: 'WhatsApp/Tickets' },
+  { value: 'WhatsApp only',     label: 'WhatsApp only' },
+  { value: 'Changes',           label: 'Changes' },
+  { value: 'Adhoc',             label: 'Adhoc' },
 ]
 
 const colorMap = {
@@ -45,12 +49,13 @@ const colorMap = {
 }
 
 export default function AdherencePage() {
-  const [rows, setRows] = useState([])
-  const [date, setDate] = useState(dayjs())
+  const [rows, setRows]           = useState([])
+  const [date, setDate]           = useState(dayjs())
+  const [rowModesModel, setRowModesModel] = useState({})
 
+  // Load whenever date changes
   useEffect(() => {
-    const d = date.format('YYYY-MM-DD')
-    api.get(`/schedule?date=${d}`)
+    api.get(`/schedule?date=${date.format('YYYY-MM-DD')}`)
       .then(res => {
         setRows(res.data.map(s => ({
           id:         s.id,
@@ -70,9 +75,19 @@ export default function AdherencePage() {
       })
   }, [date])
 
+  const processRowUpdate = async newRow => {
+    await api.patch(`/attendance/${newRow.id}`, {
+      status:     newRow.status,
+      dutyName:   newRow.duty,
+      lunchStart: newRow.lunchStart,
+      lunchEnd:   newRow.lunchEnd,
+    })
+    return newRow
+  }
+
   const columns = [
-    { field: 'agent',      headerName: 'Agent',   flex: 1 },
-    { field: 'phone',      headerName: 'Phone',   width: 120 },
+    { field: 'agent',      headerName: 'Agent', flex: 1 },
+    { field: 'phone',      headerName: 'Phone', width: 120 },
     {
       field: 'status',
       headerName: 'Status',
@@ -85,20 +100,14 @@ export default function AdherencePage() {
       renderEditCell: params => (
         <TextField
           select
-          value={params.value || ''}
+          value={params.value}
           onChange={e =>
-            params.api.setEditCellValue({
-              id: params.id,
-              field: params.field,
-              value: e.target.value
-            })
+            params.api.setEditCellValue({ id: params.id, field: 'status', value: e.target.value })
           }
           fullWidth
         >
           {statusOptions.map(o => (
-            <MenuItem key={o.value} value={o.value}>
-              {o.label}
-            </MenuItem>
+            <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
           ))}
         </TextField>
       )
@@ -115,20 +124,14 @@ export default function AdherencePage() {
       renderEditCell: params => (
         <TextField
           select
-          value={params.value || ''}
+          value={params.value}
           onChange={e =>
-            params.api.setEditCellValue({
-              id: params.id,
-              field: params.field,
-              value: e.target.value
-            })
+            params.api.setEditCellValue({ id: params.id, field: 'duty', value: e.target.value })
           }
           fullWidth
         >
           {dutyOptions.map(o => (
-            <MenuItem key={o.value} value={o.value}>
-              {o.label}
-            </MenuItem>
+            <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
           ))}
         </TextField>
       )
@@ -141,13 +144,9 @@ export default function AdherencePage() {
       renderEditCell: params => (
         <TextField
           type="time"
-          value={params.value || ''}
+          value={params.value}
           onChange={e =>
-            params.api.setEditCellValue({
-              id: params.id,
-              field: params.field,
-              value: e.target.value
-            })
+            params.api.setEditCellValue({ id: params.id, field: 'lunchStart', value: e.target.value })
           }
           fullWidth
         />
@@ -161,13 +160,9 @@ export default function AdherencePage() {
       renderEditCell: params => (
         <TextField
           type="time"
-          value={params.value || ''}
+          value={params.value}
           onChange={e =>
-            params.api.setEditCellValue({
-              id: params.id,
-              field: params.field,
-              value: e.target.value
-            })
+            params.api.setEditCellValue({ id: params.id, field: 'lunchEnd', value: e.target.value })
           }
           fullWidth
         />
@@ -175,6 +170,39 @@ export default function AdherencePage() {
     },
     { field: 'start', headerName: 'Start', width: 70 },
     { field: 'end',   headerName: 'End',   width: 70 },
+    {
+      field: 'actions',
+      type: 'actions',
+      headerName: 'Actions',
+      width: 100,
+      getActions: ({ id }) => {
+        const isEditing = rowModesModel[id]?.mode === 'edit'
+        if (isEditing) {
+          return [
+            <GridActionsCellItem
+              icon={<SaveIcon />}
+              label="Save"
+              onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'view' } })}
+              color="primary"
+            />,
+            <GridActionsCellItem
+              icon={<CancelIcon />}
+              label="Cancel"
+              onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'view', ignoreModifications: true } })}
+              color="inherit"
+            />
+          ]
+        }
+        return [
+          <GridActionsCellItem
+            icon={<EditIcon />}
+            label="Edit"
+            onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'edit' } })}
+            showInMenu
+          />
+        ]
+      }
+    }
   ]
 
   return (
@@ -188,22 +216,20 @@ export default function AdherencePage() {
         />
       </Box>
 
-      <Box sx={{ height:600 }}>
+      <Box sx={{ height: 600 }}>
         <DataGrid
           rows={rows}
           columns={columns}
           disableSelectionOnClick
           editMode="row"
+          processRowUpdate={processRowUpdate}
+          rowModesModel={rowModesModel}
+          onRowModesModelChange={setRowModesModel}
+          experimentalFeatures={{ newEditingApi: true }}
           slots={{ toolbar: GridToolbar }}
-          processRowUpdate={async newRow => {
-            await api.patch(`/attendance/${newRow.id}`, {
-              status:     newRow.status,
-              dutyName:   newRow.duty,
-              lunchStart: newRow.lunchStart,
-              lunchEnd:   newRow.lunchEnd,
-            })
-            return newRow
-          }}
+          initialState={{
+          sorting: {sortModel: [{ field: 'start', sort: 'asc' }]}
+        }}
         />
       </Box>
     </LocalizationProvider>
