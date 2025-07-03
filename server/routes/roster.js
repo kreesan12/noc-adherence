@@ -26,11 +26,15 @@ const rowSchema = z.object({
 export default prisma => {
   const r = Router()
 
+  // POST /api/roster
+  // Expects JSON: { csv: "agentId,shiftDate,startAt,endAt\n…" }
   r.post('/', async (req, res, next) => {
     try {
       const csv = req.body.csv
       if (!csv) {
-        return res.status(400).json({ error: 'Missing CSV payload in `csv` field' })
+        return res
+          .status(400)
+          .json({ error: 'Missing CSV payload in `csv` field' })
       }
 
       // 1️⃣ parse CSV → array of plain objects
