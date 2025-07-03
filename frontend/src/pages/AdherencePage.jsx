@@ -7,7 +7,8 @@ import {
 import {
   Box,
   Chip,
-  TextField
+  TextField,
+  MenuItem
 } from '@mui/material'
 import {
   DatePicker,
@@ -18,30 +19,35 @@ import dayjs from 'dayjs'
 import api from '../api'
 
 const statusOptions = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'present', label: 'On time' },
-  { value: 'late', label: 'Late' },
-  { value: 'off_sick', label: 'Off sick' },
+  { value: 'pending',         label: 'Pending' },
+  { value: 'present',         label: 'On time' },
+  { value: 'late',            label: 'Late' },
+  { value: 'off_sick',        label: 'Off sick' },
   { value: 'emergency_leave', label: 'Emergency leave' },
-  { value: 'awol', label: 'AWOL' },
+  { value: 'awol',            label: 'AWOL' },
 ]
 
 const dutyOptions = [
-  { value: '', label: '' },
-  { value: 'Tickets/Calls', label: 'Tickets/Calls' },
-  { value: 'Tickets',       label: 'Tickets' },
-  { value: 'Calls',         label: 'Calls' },
+  { value: '',               label: '' },
+  { value: 'Tickets/Calls',  label: 'Tickets/Calls' },
+  { value: 'Tickets',        label: 'Tickets' },
+  { value: 'Calls',          label: 'Calls' },
   { value: 'WhatsApp/Tickets', label: 'WhatsApp/Tickets' },
-  { value: 'WhatsApp only', label: 'WhatsApp only' },
-  { value: 'Changes',       label: 'Changes' },
-  { value: 'Adhoc',         label: 'Adhoc' },
+  { value: 'WhatsApp only',  label: 'WhatsApp only' },
+  { value: 'Changes',        label: 'Changes' },
+  { value: 'Adhoc',          label: 'Adhoc' },
 ]
+
+const colorMap = {
+  present: { background: '#00e676', color: '#000' },
+  late:    { background: '#ff1744', color: '#fff' },
+  pending: { background: '#2979ff', color: '#fff' },
+}
 
 export default function AdherencePage() {
   const [rows, setRows] = useState([])
   const [date, setDate] = useState(dayjs())
 
-  // reload whenever the date changes
   useEffect(() => {
     const d = date.format('YYYY-MM-DD')
     api.get(`/schedule?date=${d}`)
@@ -65,57 +71,107 @@ export default function AdherencePage() {
   }, [date])
 
   const columns = [
-    { field: 'agent', headerName: 'Agent', flex: 1 },
-    { field: 'phone', headerName: 'Phone', width: 120 },
+    { field: 'agent',      headerName: 'Agent',   flex: 1 },
+    { field: 'phone',      headerName: 'Phone',   width: 120 },
     {
       field: 'status',
       headerName: 'Status',
       width: 150,
       editable: true,
-      type: 'singleSelect',
-      valueOptions: statusOptions.map(o => o.value),
-      valueFormatter: params => {
-        const opt = statusOptions.find(o => o.value === params.value)
-        return opt?.label ?? ''
-      },
       renderCell: params => {
         const opt = statusOptions.find(o => o.value === params.value)
-        const colorMap = {
-          present: { background: '#00e676', color: '#000' },
-          late:    { background: '#ff1744', color: '#fff' },
-          pending: { background: '#2979ff', color: '#fff' },
-        }
-        return (
-          <Chip
-            label={opt?.label ?? ''}
-            sx={colorMap[params.value] ?? colorMap.pending}
-          />
-        )
-      }
+        return <Chip label={opt?.label || ''} sx={colorMap[params.value]}/>
+      },
+      renderEditCell: params => (
+        <TextField
+          select
+          value={params.value || ''}
+          onChange={e =>
+            params.api.setEditCellValue({
+              id: params.id,
+              field: params.field,
+              value: e.target.value
+            })
+          }
+          fullWidth
+        >
+          {statusOptions.map(o => (
+            <MenuItem key={o.value} value={o.value}>
+              {o.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )
     },
     {
       field: 'duty',
       headerName: 'Duty',
       width: 180,
       editable: true,
-      type: 'singleSelect',
-      valueOptions: dutyOptions.map(o => o.value),
-      valueFormatter: params => {
+      renderCell: params => {
         const opt = dutyOptions.find(o => o.value === params.value)
-        return opt?.label ?? ''
-      }
+        return opt?.label || ''
+      },
+      renderEditCell: params => (
+        <TextField
+          select
+          value={params.value || ''}
+          onChange={e =>
+            params.api.setEditCellValue({
+              id: params.id,
+              field: params.field,
+              value: e.target.value
+            })
+          }
+          fullWidth
+        >
+          {dutyOptions.map(o => (
+            <MenuItem key={o.value} value={o.value}>
+              {o.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      )
     },
     {
       field: 'lunchStart',
       headerName: 'Lunch Start',
       width: 120,
       editable: true,
+      renderEditCell: params => (
+        <TextField
+          type="time"
+          value={params.value || ''}
+          onChange={e =>
+            params.api.setEditCellValue({
+              id: params.id,
+              field: params.field,
+              value: e.target.value
+            })
+          }
+          fullWidth
+        />
+      )
     },
     {
       field: 'lunchEnd',
       headerName: 'Lunch End',
       width: 120,
       editable: true,
+      renderEditCell: params => (
+        <TextField
+          type="time"
+          value={params.value || ''}
+          onChange={e =>
+            params.api.setEditCellValue({
+              id: params.id,
+              field: params.field,
+              value: e.target.value
+            })
+          }
+          fullWidth
+        />
+      )
     },
     { field: 'start', headerName: 'Start', width: 70 },
     { field: 'end',   headerName: 'End',   width: 70 },
@@ -123,16 +179,16 @@ export default function AdherencePage() {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Box sx={{ p:2, display:'flex', alignItems:'center', gap:2 }}>
         <DatePicker
           label="Select date"
           value={date}
           onChange={newDate => setDate(newDate)}
-          renderInput={props => <TextField {...props} />}
+          renderInput={props => <TextField {...props}/>}
         />
       </Box>
 
-      <Box sx={{ height: 600 }}>
+      <Box sx={{ height:600 }}>
         <DataGrid
           rows={rows}
           columns={columns}
