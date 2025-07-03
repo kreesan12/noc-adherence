@@ -23,13 +23,13 @@ export default function SchedulePage () {
 
   // a little color palette, semi-transparent
   const shiftColors = [
-    'rgba(33,150,243,0.3)',   // blue
-    'rgba(76,175,80,0.3)',    // green
-    'rgba(255,193,7,0.3)',    // amber
-    'rgba(244,67,54,0.3)',    // red
-    'rgba(156,39,176,0.3)',   // purple
-    'rgba(0,188,212,0.3)',    // teal
-    'rgba(255,87,34,0.3)',    // deep orange
+    'rgba(33,150,243,0.5)',   // blue
+    'rgba(76,175,80,0.5)',    // green
+    'rgba(255,193,7,0.5)',    // amber
+    'rgba(244,67,54,0.5)',    // red
+    'rgba(156,39,176,0.5)',   // purple
+    'rgba(0,188,212,0.5)',    // teal
+    'rgba(255,87,34,0.5)',    // deep orange
   ]
 
   useEffect(() => {
@@ -89,18 +89,20 @@ export default function SchedulePage () {
       </Typography>
 
       <FullCalendar
-        plugins={[timeGridPlugin]}
-        initialView="timeGridWeek"
-        datesSet={arg => setWeekStart(dayjs(arg.start))}
-        events={events}
-        height="auto"
-        eventDidMount={info => {
-          // show names on hover
-          info.el.setAttribute(
-            'title',
-            info.event.extendedProps.names.join('\n')
-          )
-        }}
+      plugins={[timeGridPlugin]}
+      initialView="timeGridWeek"
+      timeZone="Africa/Johannesburg"        /* ← add this */
+      datesSet={arg => setWeekStart(dayjs(arg.start))}
+      events={events}
+      height="auto"
+      eventDidMount={info => {
+        info.el.setAttribute(
+          'title',
+          info.event.extendedProps.names.join('\n')
+        )
+      }}
+
+
       />
 
       {/* Hourly totals table */}
