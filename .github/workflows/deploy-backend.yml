@@ -4,50 +4,28 @@ on:
   push:
     branches: [ main ]
     paths:
-      - "server/**"
-      - "prisma/**"
+      - "**"
       - ".github/workflows/deploy-backend.yml"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     env:
       HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
       HEROKU_APP:     noc-adherence-api
       HEROKU_EMAIL:   kreesangovender12@gmail.com
 
     steps:
-      # 1️⃣  Checkout repository
       - uses: actions/checkout@v4
 
-      # 2️⃣  Install Heroku CLI
       - name: Install Heroku CLI
         run: |
           curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
           heroku --version
 
-      # 3️⃣  Verify authentication via API key
       - name: Verify Heroku auth
         run: heroku auth:whoami || echo "Authenticated with HEROKU_API_KEY"
 
-      # 4️⃣  Copy prisma folder into server/, split & push
-      - name: Deploy server/ (with prisma) to Heroku
+      - name: Push repo to Heroku
         run: |
-          # Committer identity
-          git config --global user.email "github-actions@github.com"
-          git config --global user.name  "github-actions"
-
-          # --- Copy prisma into server/ for this commit only ---
-          rm -rf server/prisma
-          cp -R prisma server/prisma
-
-          # Add the copied prisma folder to git index
-          git add server/prisma
-
-          # Split server/ subtree into a temporary commit
-          commit_sha=$(git subtree split --prefix server main)
-
-          # Push that commit to Heroku as refs/heads/main
-          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git \
-            $commit_sha:refs/heads/main --force
+          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git HEAD:main --force
