@@ -4,36 +4,53 @@ import { Router } from 'express'
 export default prisma => {
   const r = Router()
 
-  // PATCH /api/attendance/:id
-  r.patch('/:id', async (req, res, next) => {
+  // PATCH /api/attendance/:shiftId
+  r.patch('/:shiftId', async (req, res, next) => {
     try {
-      const id = Number(req.params.id)
+      const shiftId    = Number(req.params.shiftId)
       const { status, dutyName, lunchStart, lunchEnd } = req.body
 
-      // look up or create the duty:
-      let dutyId = undefined
+      // 1️⃣ find or create the duty record (if a name was supplied)
+      let dutyId = null
       if (dutyName) {
-        const found = await prisma.duty.findUnique({ where: { name: dutyName } })
-        if (found) {
-          dutyId = found.id
-        } else {
-          const created = await prisma.duty.create({ data: { name: dutyName } })
-          dutyId = created.id
+        const duty = await prisma.duty.findUnique({
+          where: { name: dutyName }
+        })
+        if (!duty) {
+          return res
+            .status(400)
+            .json({ error: `Unknown duty '${dutyName}'` })
         }
+        dutyId = duty.id
       }
 
-      const updated = await prisma.attendanceLog.update({
-        where: { id },
-        data: {
-          status,
-          dutyId,
-          lunchStart: lunchStart ? new Date(lunchStart) : undefined,
-          lunchEnd:   lunchEnd   ? new Date(lunchEnd)   : undefined,
-          updatedBy:  req.user.id,    // assuming verifyToken set req.user.id
-        },
+      // 2️⃣ build the data payload
+      const data = {
+        status,
+        dutyId,
+        lunchStart: lunchStart ? new Date(lunchStart) : null,
+        lunchEnd:   lunchEnd   ? new Date(lunchEnd)   : null,
+        updatedBy:  req.user.id
+      }
+
+      // 3️⃣ upsert on the unique shiftId
+      const saved = await prisma.attendanceLog.upsert({
+        where: { shiftId },
+        update: data,
+        create: {
+          shiftId,
+          ...data
+        }
       })
 
-      res.json(updated)
+      // 4️⃣ audit & return
+      await res.audit(
+        'update_attendance',
+        'AttendanceLog',
+        saved.id,
+        data
+      )
+      res.json(saved)
     } catch (err) {
       next(err)
     }
