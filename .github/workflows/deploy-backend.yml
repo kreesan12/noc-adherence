@@ -1,11 +1,12 @@
 # .github/workflows/deploy-backend.yml
-name: Deploy Backend
+name: Deploy Backend (server subtree)
 
 on:
   push:
     branches: [ main ]
     paths:
-      - "**"
+      - "server/**"
+      - "prisma/**"
       - ".github/workflows/deploy-backend.yml"
 
 jobs:
@@ -15,14 +16,12 @@ jobs:
     env:
       HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
       HEROKU_APP:     noc-adherence-api
-      HEROKU_EMAIL:   kreesangovender12@gmail.com
 
     steps:
-      # 1️⃣  Full-depth checkout so repo is NOT shallow
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      # 1️⃣  Full-depth checkout (needed for subtree)
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0            # <─ unshallow clone
+          fetch-depth: 0
 
       # 2️⃣  Install Heroku CLI
       - name: Install Heroku CLI
@@ -30,12 +29,21 @@ jobs:
           curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
           heroku --version
 
-      # 3️⃣  Verify auth (API key already in env)
-      - name: Verify Heroku auth
-        run: heroku auth:whoami || echo "Authenticated with HEROKU_API_KEY"
-
-      # 4️⃣  Push entire repo to Heroku (Procfile runs server/)
-      - name: Push repo to Heroku
+      # 3️⃣  Prepare commit that has server/ **and** prisma/
+      - name: Copy prisma into server and commit
         run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name  "github-actions"
+
+          rm -rf server/prisma
+          cp -R prisma server/prisma
+
+          git add server/prisma
+          git commit -m "temp: include prisma folder for deploy" --no-verify
+
+      # 4️⃣  Split server/ subtree & push it to Heroku main
+      - name: Deploy server subtree to Heroku
+        run: |
+          commit_sha=$(git subtree split --prefix server HEAD)
           git push https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git \
-            HEAD:main --force
+            $commit_sha:refs/heads/main --force
