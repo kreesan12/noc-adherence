@@ -1,96 +1,63 @@
-generator client {
-  provider = "prisma-client-js"
-}
+// server/routes/attendance.js
+import { Router } from 'express'
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
+export default prisma => {
+  const r = Router()
 
-// ---------- TABLES ----------
+  // PATCH /api/attendance/:shiftId
+  r.patch('/:shiftId', async (req, res, next) => {
+    try {
+      const shiftId = Number(req.params.shiftId)
+      const { status, dutyName, lunchStart, lunchEnd } = req.body
 
-model Agent {
-  id           Int          @id @default(autoincrement())
-  fullName     String
-  email        String?      @unique
-  hash         String?      // password hash
-  phone        String?
-  role         String?      // NOC-I, NOC-II …
-  standbyFlag  Boolean      @default(false)
-  shifts       Shift[]
-  auditEntries AuditLog[]
-}
+      // 1️⃣ find or create the duty record (if a name was supplied)
+      let dutyId = null
+      if (dutyName) {
+        const duty = await prisma.duty.findUnique({ where: { name: dutyName } })
+        if (!duty) {
+          return res.status(400).json({ error: `Unknown duty '${dutyName}'` })
+        }
+        dutyId = duty.id
+      }
 
-model Supervisor {
-  id        Int     @id @default(autoincrement())
-  fullName  String
-  email     String  @unique
-  hash      String              // bcrypt hash
-  role      String  @default("supervisor") // could be "manager" later
+      // 2️⃣ prepare the common data object
+      const data = {
+        status,
+        dutyId,
+        lunchStart: lunchStart ? new Date(lunchStart) : null,
+        lunchEnd:   lunchEnd   ? new Date(lunchEnd)   : null,
+        updatedBy:  req.user.id
+      }
 
-  @@map("Supervisor")
-}
+      // 3️⃣ see if an AttendanceLog already exists for this shift
+      const existing = await prisma.attendanceLog.findUnique({
+        where: { shiftId }
+      })
 
-model Shift {
-  id         Int           @id @default(autoincrement())
-  agentId    Int?
-  agent      Agent?        @relation(fields: [agentId], references: [id])
-  shiftDate  DateTime      @db.Date
-  startAt    DateTime
-  endAt      DateTime
-  attendance AttendanceLog?
-}
+      let saved
+      if (existing) {
+        // update
+        saved = await prisma.attendanceLog.update({
+          where: { id: existing.id },
+          data
+        })
+      } else {
+        // create
+        saved = await prisma.attendanceLog.create({
+          data: {
+            shiftId,
+            ...data
+          }
+        })
+      }
 
-model Duty {
-  id   Int    @id @default(autoincrement())
-  name String @unique
-  logs AttendanceLog[]
-}
+      // 4️⃣ audit & return
+      await res.audit('update_attendance','AttendanceLog', saved.id, data)
+      res.json(saved)
+    } catch (err) {
+      next(err)
+    }
+  })
 
-model AttendanceLog {
-  id            Int       @id @default(autoincrement())
-  shiftId       Int       @unique
-  shift         Shift     @relation(fields: [shiftId], references: [id])
-  status        Status    @default(pending)
-  checkIn       DateTime?
-  lunchStart    DateTime?
-  lunchEnd      DateTime?
-  overtimeStart DateTime?
-  overtimeEnd   DateTime?
-  dutyId        Int?
-  duty          Duty?     @relation(fields: [dutyId], references: [id])
-  updatedBy     Int?
-}
-
-model VolumeForecast {
-  id              Int @id @default(autoincrement())
-  dayOfWeek       Int // 0-6
-  hour            Int // 0-23
-  expectedCalls   Int
-  expectedTickets Int
-}
-
-model VolumeActual {
-  id        Int @id @default(autoincrement())
-  eventTime DateTime
-  calls     Int
-  tickets   Int
-}
-
-model AuditLog {
-  id       Int      @id @default(autoincrement())
-  actorId  Int?
-  actor    Agent?   @relation(fields: [actorId], references: [id]) // back-relation
-  action   String
-  table    String
-  recordId Int
-  delta    Json
-  ts       DateTime @default(now())
-}
-
-enum Status {
-  pending
-  present
-  late
-  no_show
+  return r
 }
