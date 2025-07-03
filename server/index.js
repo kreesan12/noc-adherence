@@ -6,17 +6,16 @@ import morgan           from 'morgan'
 import dotenv           from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
-import authRole                    from './middleware/auth.js'
-import audit                       from './middleware/audit.js'
-import authRoutesFactory, {
-  verifyToken                      // ← named export from routes/auth.js
-}                                  from './routes/auth.js'
+import authRole          from './middleware/auth.js'
+import audit             from './middleware/audit.js'
+import authRoutesFactory, { verifyToken } from './routes/auth.js'
 
-import rosterRoutes   from './routes/roster.js'
-import scheduleRoutes from './routes/schedule.js'
-import volumeRoutes   from './routes/volume.js'
-import reportRoutes   from './routes/reports.js'
-import agentsRoutes   from './routes/agents.js'
+import rosterRoutes      from './routes/roster.js'
+import scheduleRoutes    from './routes/schedule.js'
+import volumeRoutes      from './routes/volume.js'
+import reportRoutes      from './routes/reports.js'
+import agentsRoutes      from './routes/agents.js'
+import attendanceRoutes  from './routes/attendance.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -27,8 +26,6 @@ app.use(cors({
   origin: process.env.CLIENT_ORIGIN,   // e.g. https://kreesan12.github.io
   credentials: true
 }))
-app.options('*', cors())               // universal pre-flight
-
 app.use(express.json())
 app.use(morgan('dev'))
 
@@ -37,11 +34,42 @@ const authRoutes = authRoutesFactory(prisma)
 app.use('/api', authRoutes)
 
 /* ---------- Protected business routes ---------- */
-app.use('/api/roster',   verifyToken, authRole('supervisor'), audit(prisma), rosterRoutes(prisma))
-app.use('/api/schedule', verifyToken, authRole('supervisor'),                 scheduleRoutes(prisma))
-app.use('/api/volume',   verifyToken, authRole('supervisor'),                 volumeRoutes(prisma))
-app.use('/api/reports',  verifyToken, authRole('supervisor'),                 reportRoutes(prisma))
-app.use('/api/agents',   verifyToken, authRole('supervisor'),                 agentsRoutes(prisma))
+app.use(
+  '/api/roster',
+  verifyToken, authRole('supervisor'), audit(prisma),
+  rosterRoutes(prisma)
+)
+
+app.use(
+  '/api/schedule',
+  verifyToken, authRole('supervisor'),
+  scheduleRoutes(prisma)
+)
+
+app.use(
+  '/api/volume',
+  verifyToken, authRole('supervisor'),
+  volumeRoutes(prisma)
+)
+
+app.use(
+  '/api/reports',
+  verifyToken, authRole('supervisor'),
+  reportRoutes(prisma)
+)
+
+app.use(
+  '/api/agents',
+  verifyToken, authRole('supervisor'),
+  agentsRoutes(prisma)
+)
+
+// ← MISSING: mount attendance
+app.use(
+  '/api/attendance',
+  verifyToken, authRole('supervisor'),
+  attendanceRoutes(prisma)
+)
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
@@ -51,4 +79,6 @@ app.use((err, _req, res, _next) => {
 
 /* ---------- Start server ---------- */
 const PORT = process.env.PORT || 4000
-app.listen(PORT, () => console.log(`API • http://localhost:${PORT}`))
+app.listen(PORT, () =>
+  console.log(`API • http://localhost:${PORT}`)
+)
