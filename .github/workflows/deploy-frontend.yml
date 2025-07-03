@@ -38,6 +38,7 @@ jobs:
         run: |
           npm ci
           npm run build               # → outputs to frontend/build
+          ls -R dist
 
       # 4️⃣  Upload the static build as an artifact
       - uses: actions/upload-pages-artifact@v3
