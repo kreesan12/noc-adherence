@@ -1,61 +1,72 @@
 // frontend/src/pages/AdherencePage.jsx
 import { useEffect, useState } from 'react'
-import dayjs from 'dayjs'
-
 import {
-  DataGrid
+  DataGrid,
+  GridToolbar
 } from '@mui/x-data-grid'
 import {
   Box,
   Chip,
-  Stack,
   TextField
 } from '@mui/material'
 import {
-  LocalizationProvider,
   DatePicker,
+  LocalizationProvider
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-
+import dayjs from 'dayjs'
 import api from '../api'
-import TimeEditCell from '../components/TimeEditCell'
 
 const statusOptions = [
-  { value: 'on_time',         label: 'On time' },
-  { value: 'late',            label: 'Late' },
-  { value: 'off_sick',        label: 'Off sick' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'present', label: 'On time' },
+  { value: 'late', label: 'Late' },
+  { value: 'off_sick', label: 'Off sick' },
   { value: 'emergency_leave', label: 'Emergency leave' },
-  { value: 'awol',            label: 'AWOL' },
+  { value: 'awol', label: 'AWOL' },
+]
+
+const dutyOptions = [
+  { value: '', label: '' },
+  { value: 'Tickets/Calls', label: 'Tickets/Calls' },
+  { value: 'Tickets',       label: 'Tickets' },
+  { value: 'Calls',         label: 'Calls' },
+  { value: 'WhatsApp/Tickets', label: 'WhatsApp/Tickets' },
+  { value: 'WhatsApp only', label: 'WhatsApp only' },
+  { value: 'Changes',       label: 'Changes' },
+  { value: 'Adhoc',         label: 'Adhoc' },
 ]
 
 export default function AdherencePage() {
-  const [date, setDate] = useState(dayjs())
   const [rows, setRows] = useState([])
+  const [date, setDate] = useState(dayjs())
 
+  // reload whenever the date changes
   useEffect(() => {
-    const dstr = date.format('YYYY-MM-DD')
-    api.get('/schedule', { params: { date: dstr } })
+    const d = date.format('YYYY-MM-DD')
+    api.get(`/schedule?date=${d}`)
       .then(res => {
         setRows(res.data.map(s => ({
           id:         s.id,
           agent:      s.agent.fullName,
           phone:      s.agent.phone,
-          status:     s.attendance?.status    ?? 'on_time',
+          status:     s.attendance?.status ?? 'pending',
           duty:       s.attendance?.duty?.name ?? '',
-          lunchStart: s.attendance?.lunchStart ?? null,
-          lunchEnd:   s.attendance?.lunchEnd   ?? null,
+          lunchStart: s.attendance?.lunchStart
+                       ? dayjs(s.attendance.lunchStart).format('HH:mm')
+                       : '',
+          lunchEnd:   s.attendance?.lunchEnd
+                       ? dayjs(s.attendance.lunchEnd).format('HH:mm')
+                       : '',
           start:      dayjs(s.startAt).format('HH:mm'),
           end:        dayjs(s.endAt).format('HH:mm'),
         })))
       })
-      .catch(console.error)
   }, [date])
 
   const columns = [
     { field: 'agent', headerName: 'Agent', flex: 1 },
     { field: 'phone', headerName: 'Phone', width: 120 },
-
-    // ○ Status
     {
       field: 'status',
       headerName: 'Status',
@@ -63,55 +74,63 @@ export default function AdherencePage() {
       editable: true,
       type: 'singleSelect',
       valueOptions: statusOptions.map(o => o.value),
+      valueFormatter: params => {
+        const opt = statusOptions.find(o => o.value === params.value)
+        return opt?.label ?? ''
+      },
       renderCell: params => {
-        const opt = statusOptions.find(o => o.value === params.value) || statusOptions[0]
-
-        const bg =
-          params.value === 'late'            ? '#ff1744' :
-          params.value === 'on_time'         ? '#00e676' :
-                                              '#2979ff'
-
-        return <Chip label={opt.label} sx={{ background: bg, color: '#fff' }}/>
+        const opt = statusOptions.find(o => o.value === params.value)
+        const colorMap = {
+          present: { background: '#00e676', color: '#000' },
+          late:    { background: '#ff1744', color: '#fff' },
+          pending: { background: '#2979ff', color: '#fff' },
+        }
+        return (
+          <Chip
+            label={opt?.label ?? ''}
+            sx={colorMap[params.value] ?? colorMap.pending}
+          />
+        )
       }
     },
-
-    // ○ Duty (free‐text or you could make singleSelect)
-    { field: 'duty', headerName: 'Duty', flex: 1, editable: true },
-
-    // ○ Lunch Start
+    {
+      field: 'duty',
+      headerName: 'Duty',
+      width: 180,
+      editable: true,
+      type: 'singleSelect',
+      valueOptions: dutyOptions.map(o => o.value),
+      valueFormatter: params => {
+        const opt = dutyOptions.find(o => o.value === params.value)
+        return opt?.label ?? ''
+      }
+    },
     {
       field: 'lunchStart',
       headerName: 'Lunch Start',
-      width: 140,
+      width: 120,
       editable: true,
-      renderEditCell: p => <TimeEditCell {...p}/>,
-      valueFormatter: p => p.value ? dayjs(p.value).format('HH:mm') : ''
     },
-
-    // ○ Lunch End
     {
       field: 'lunchEnd',
       headerName: 'Lunch End',
-      width: 140,
+      width: 120,
       editable: true,
-      renderEditCell: p => <TimeEditCell {...p}/>,
-      valueFormatter: p => p.value ? dayjs(p.value).format('HH:mm') : ''
     },
-
     { field: 'start', headerName: 'Start', width: 70 },
     { field: 'end',   headerName: 'End',   width: 70 },
   ]
 
   return (
-    <Stack spacing={2} sx={{ p: 2 }}>
-      <LocalizationProvider dateAdapter={AdapterDayjs}>
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
         <DatePicker
           label="Select date"
           value={date}
-          onChange={newD => setDate(newD || dayjs())}
-          renderInput={params => <TextField {...params}/>}
+          onChange={newDate => setDate(newDate)}
+          renderInput={props => <TextField {...props} />}
         />
-      </LocalizationProvider>
+      </Box>
 
       <Box sx={{ height: 600 }}>
         <DataGrid
@@ -119,8 +138,8 @@ export default function AdherencePage() {
           columns={columns}
           disableSelectionOnClick
           editMode="row"
+          slots={{ toolbar: GridToolbar }}
           processRowUpdate={async newRow => {
-            // send all three back
             await api.patch(`/attendance/${newRow.id}`, {
               status:     newRow.status,
               dutyName:   newRow.duty,
@@ -131,6 +150,6 @@ export default function AdherencePage() {
           }}
         />
       </Box>
-    </Stack>
+    </LocalizationProvider>
   )
 }
