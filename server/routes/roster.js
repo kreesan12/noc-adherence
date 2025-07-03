@@ -1,10 +1,12 @@
 // server/routes/roster.js
 import { Router } from 'express'
-import pkg from 'papaparse'          // <- CJS default import
-const { parse } = pkg               // <- pull out the parse() fn
+import pkg from 'papaparse'          // CJS default import
+const { parse } = pkg               // pull out the parse() fn
 import { z } from 'zod'
 
-/** each CSV row is initially all strings */
+/**
+ * each CSV row is initially all strings, or accepts a JSON-parsed array from the client
+ */
 const rowSchema = z.object({
   agentId: z.string()
     .transform(s => {
@@ -26,30 +28,29 @@ const rowSchema = z.object({
 export default prisma => {
   const r = Router()
 
-  // POST /api/roster
-  // Expects JSON: { csv: "agentId,shiftDate,startAt,endAt\n…" }
   r.post('/', async (req, res, next) => {
     try {
-      const csv = req.body.csv
-      if (!csv) {
-        return res
-          .status(400)
-          .json({ error: 'Missing CSV payload in `csv` field' })
+      // Determine whether the client sent raw CSV string or already-parsed JSON rows
+      let rawRows
+      if (Array.isArray(req.body)) {
+        rawRows = req.body
+      } else if (typeof req.body.csv === 'string') {
+        const { data, errors: parseErrors } = parse(req.body.csv, {
+          header: true,
+          skipEmptyLines: true,
+        })
+        if (parseErrors.length) {
+          return res.status(400).json({ error: parseErrors })
+        }
+        rawRows = data
+      } else {
+        return res.status(400).json({ error: 'Missing CSV payload: provide raw CSV in `csv` field or JSON array in request body' })
       }
 
-      // 1️⃣ parse CSV → array of plain objects
-      const { data: rawRows, errors: parseErrors } = parse(csv, {
-        header: true,
-        skipEmptyLines: true,
-      })
-      if (parseErrors.length) {
-        return res.status(400).json({ error: parseErrors })
-      }
-
-      // 2️⃣ validate & transform each row
+      // Validate & transform each row
       const validated = rowSchema.array().parse(rawRows)
 
-      // 3️⃣ map to proper types for Prisma
+      // Map to the proper types for Prisma
       const toInsert = validated.map(r => ({
         agentId:   r.agentId,
         shiftDate: new Date(r.shiftDate),
@@ -57,7 +58,7 @@ export default prisma => {
         endAt:     new Date(r.endAt),
       }))
 
-      // 4️⃣ bulk create
+      // Bulk create shifts
       await prisma.shift.createMany({ data: toInsert })
 
       res.json({ added: toInsert.length })
