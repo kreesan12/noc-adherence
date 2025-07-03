@@ -6,9 +6,11 @@ import morgan           from 'morgan'
 import dotenv           from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
-import authRole         from './middleware/auth.js'
-import audit            from './middleware/audit.js'
-import authRoutes, { verifyToken } from './routes/auth.js'   // ⬅️ import both
+import authRole                    from './middleware/auth.js'
+import audit                       from './middleware/audit.js'
+import authRoutesFactory, {
+  verifyToken                      // ← named export from routes/auth.js
+}                                  from './routes/auth.js'
 
 import rosterRoutes   from './routes/roster.js'
 import scheduleRoutes from './routes/schedule.js'
@@ -22,13 +24,16 @@ const app    = express()
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN,
+  origin: process.env.CLIENT_ORIGIN,   // e.g. https://kreesan12.github.io
   credentials: true
 }))
+app.options('*', cors())               // universal pre-flight
+
 app.use(express.json())
 app.use(morgan('dev'))
 
-/* ---------- Public auth routes ---------- */
+/* ---------- Public auth routes (/api/login, /api/me) ---------- */
+const authRoutes = authRoutesFactory(prisma)
 app.use('/api', authRoutes)
 
 /* ---------- Protected business routes ---------- */
@@ -36,7 +41,7 @@ app.use('/api/roster',   verifyToken, authRole('supervisor'), audit(prisma), ros
 app.use('/api/schedule', verifyToken, authRole('supervisor'),                 scheduleRoutes(prisma))
 app.use('/api/volume',   verifyToken, authRole('supervisor'),                 volumeRoutes(prisma))
 app.use('/api/reports',  verifyToken, authRole('supervisor'),                 reportRoutes(prisma))
-app.use('/api/agents',   verifyToken, authRole('supervisor'),                 agentsRoutes(prisma)) // ⬅️ fixed
+app.use('/api/agents',   verifyToken, authRole('supervisor'),                 agentsRoutes(prisma))
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
