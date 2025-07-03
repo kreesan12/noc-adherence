@@ -1,3 +1,4 @@
+# .github/workflows/deploy-backend.yml
 name: Deploy Backend
 
 on:
@@ -11,20 +12,29 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      HEROKU_APP:     noc-adherence-api
+      HEROKU_EMAIL:   kreesangovender12@gmail.com
 
     steps:
-      # 1 Checkout
+      # 1  Check out repo
       - uses: actions/checkout@v4
 
-      # 2 Install + login Heroku CLI  ← **MUST be ONE un-wrapped line**
-      - uses: "heroku/actions/setup-heroku@v1.3.3"
-        with:
-          api-key: ${{ secrets.HEROKU_API_KEY }}
-          email:   kreesangovender12@gmail.com
+      # 2  Install the Heroku CLI directly
+      - name: Install Heroku CLI
+        run: |
+          curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
+          heroku --version
 
-      # 3 Push only server/ to Heroku (main branch)
-      - name: Deploy server folder
+      # 3  Authenticate the CLI (env var is enough)
+      - name: Verify auth
+        run: heroku auth:whoami || echo "Logged in via HEROKU_API_KEY"
+
+      # 4  Push only the server/ folder as the app root
+      - name: Deploy server/ to Heroku
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name  "github-actions"
-          git subtree push --prefix server https://git.heroku.com/noc-adherence-api.git main
+          # --force because subtree push creates a throw-away commit
+          git subtree push --prefix server https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git main --force
