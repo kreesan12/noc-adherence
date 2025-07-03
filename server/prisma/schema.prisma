@@ -1,3 +1,5 @@
+// server/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,20 +13,21 @@ model Agent {
   id           Int          @id @default(autoincrement())
   fullName     String
   email        String?      @unique
-  hash         String?
+  hash         String?      // password hash
   phone        String?
-  role         String?
+  role         String?      // NOC-I, NOC-II …
   standbyFlag  Boolean      @default(false)
   shifts       Shift[]
-  auditEntries AuditLog[]   @relation("AgentAuditEntries")
+  auditEntries AuditLog[]
 }
 
 model Supervisor {
-  id        Int     @id @default(autoincrement())
-  fullName  String
-  email     String  @unique
-  hash      String
-  role      String  @default("supervisor")
+  id                Int              @id @default(autoincrement())
+  fullName          String
+  email             String           @unique
+  hash              String           // bcrypt hash
+  role              String           @default("supervisor")
+  attendanceUpdates AttendanceLog[]  @relation("SupervisorUpdates")
 
   @@map("Supervisor")
 }
@@ -37,8 +40,6 @@ model Shift {
   startAt    DateTime
   endAt      DateTime
   attendance AttendanceLog?
-
-  @@index([shiftDate])
 }
 
 model Duty {
@@ -48,33 +49,33 @@ model Duty {
 }
 
 model AttendanceLog {
-  id            Int       @id @default(autoincrement())
-  shiftId       Int       @unique
-  shift         Shift     @relation(fields: [shiftId], references: [id])
-  status        Status    @default(pending)
+  id            Int         @id @default(autoincrement())
+  shiftId       Int         @unique
+  shift         Shift       @relation(fields: [shiftId], references: [id])
+  status        Status      @default(pending)
   checkIn       DateTime?
   lunchStart    DateTime?
   lunchEnd      DateTime?
   overtimeStart DateTime?
   overtimeEnd   DateTime?
   dutyId        Int?
-  duty          Duty?     @relation(fields: [dutyId], references: [id])
+  duty          Duty?       @relation(fields: [dutyId], references: [id])
   updatedBy     Int?
-  agentUpdated  Agent?    @relation("AgentAuditEntries", fields: [updatedBy], references: [id])
+  supervisor    Supervisor? @relation("SupervisorUpdates", fields: [updatedBy], references: [id])
 
   @@map("AttendanceLog")
 }
 
 model VolumeForecast {
   id              Int @id @default(autoincrement())
-  dayOfWeek       Int
-  hour            Int
+  dayOfWeek       Int // 0–6
+  hour            Int // 0–23
   expectedCalls   Int
   expectedTickets Int
 }
 
 model VolumeActual {
-  id        Int @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   eventTime DateTime
   calls     Int
   tickets   Int
@@ -83,7 +84,7 @@ model VolumeActual {
 model AuditLog {
   id       Int      @id @default(autoincrement())
   actorId  Int?
-  actor    Agent?   @relation("AgentAuditEntries", fields: [actorId], references: [id])
+  actor    Agent?   @relation(fields: [actorId], references: [id])
   action   String
   table    String
   recordId Int
