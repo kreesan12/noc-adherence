@@ -10,6 +10,7 @@
     "migrate": "prisma migrate deploy",
     "seed": "node prisma/seed.js",
     "generate": "prisma generate",
+    "seed:demo": "node prisma/seed.demo.js",
     "heroku-postbuild": "npm run generate && npm run migrate && npm run seed"
   },
   "engines": {
