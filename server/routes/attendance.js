@@ -13,14 +13,11 @@ export default prisma => {
       // 1️⃣ find or create the duty record (if a name was supplied)
       let dutyId = null
       if (dutyName) {
-        const duty = await prisma.duty.findUnique({
-          where: { name: dutyName }
+        const duty = await prisma.duty.upsert({
+          where:  { name: dutyName },
+          create: { name: dutyName },
+          update: {}                    // no-op if it already exists
         })
-        if (!duty) {
-          return res
-            .status(400)
-            .json({ error: `Unknown duty '${dutyName}'` })
-        }
         dutyId = duty.id
       }
 
