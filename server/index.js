@@ -6,16 +6,16 @@ import morgan           from 'morgan'
 import dotenv           from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
-import authRole          from './middleware/auth.js'
-import audit             from './middleware/audit.js'
+import authRole                            from './middleware/auth.js'
+import audit                               from './middleware/audit.js'
 import authRoutesFactory, { verifyToken } from './routes/auth.js'
 
-import rosterRoutes      from './routes/roster.js'
-import scheduleRoutes    from './routes/schedule.js'
-import volumeRoutes      from './routes/volume.js'
-import reportRoutes      from './routes/reports.js'
-import agentsRoutes      from './routes/agents.js'
-import attendanceRoutes  from './routes/attendance.js'
+import rosterRoutes     from './routes/roster.js'
+import scheduleRoutes   from './routes/schedule.js'
+import volumeRoutes     from './routes/volume.js'
+import reportRoutes     from './routes/reports.js'
+import agentsRoutes     from './routes/agents.js'
+import attendanceRoutes from './routes/attendance.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -23,7 +23,7 @@ const app    = express()
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN,   // e.g. https://kreesan12.github.io
+  origin:      process.env.CLIENT_ORIGIN,   // e.g. https://kreesan12.github.io
   credentials: true
 }))
 app.use(express.json())
@@ -64,10 +64,10 @@ app.use(
   agentsRoutes(prisma)
 )
 
-// ← MISSING: mount attendance
+/* ---------- Mount attendance WITH audit middleware ---------- */
 app.use(
   '/api/attendance',
-  verifyToken, authRole('supervisor'),
+  verifyToken, authRole('supervisor'), audit(prisma),
   attendanceRoutes(prisma)
 )
 
