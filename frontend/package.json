@@ -1,4 +1,13 @@
 {
+  "name": "noc-adherence-frontend",
+  "private": true,
+
+  "scripts": {
+    "dev": "vite",            // local dev   →  http://localhost:5173
+    "build": "vite build",    // static build →  frontend/dist
+    "preview": "vite preview" // optional local preview of dist/
+  },
+
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
@@ -12,6 +21,14 @@
     "axios": "^1.10.0",
     "dayjs": "^1.11.13",
     "papaparse": "^5.5.3",
-    "recharts": "^3.0.2"
+    "recharts": "^3.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1"
+  },
+
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "vite": "^5.2.0"
   }
 }
