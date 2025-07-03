@@ -12,27 +12,26 @@ datasource db {
 // ---------- TABLES ----------
 
 model Agent {
-  id          Int       @id @default(autoincrement())
-  fullName    String
-  email       String?   @unique
-  hash        String?
-  phone       String?
-  role        String?   // NOC-I, NOC-II …
-  standbyFlag Boolean   @default(false)
+  id           Int          @id @default(autoincrement())
+  fullName     String
+  email        String?      @unique
+  hash         String?
+  phone        String?
+  role         String?      // NOC-I, NOC-II …
+  standbyFlag  Boolean      @default(false)
 
-  shifts      Shift[]
-  // ——— removed auditEntries here ———
+  shifts       Shift[]
+  auditEntries AuditLog[]   @relation("AgentAuditEntries")
 }
 
 model Supervisor {
-  id         Int       @id @default(autoincrement())
-  fullName   String
-  email      String    @unique
-  hash       String
-  role       String    @default("supervisor")
+  id           Int          @id @default(autoincrement())
+  fullName     String
+  email        String       @unique
+  hash         String
+  role         String       @default("supervisor")
 
-  // all audit‐logs this supervisor has created:
-  auditEntries AuditLog[] @relation("SupervisorAuditEntries")
+  auditEntries AuditLog[]   @relation("SupervisorAuditEntries")
 }
 
 model Shift {
@@ -52,36 +51,50 @@ model Duty {
 }
 
 model AttendanceLog {
-  id            Int       @id @default(autoincrement())
-  shiftId       Int       @unique
-  shift         Shift     @relation(fields: [shiftId], references: [id])
-  status        Status    @default(pending)
+  id            Int        @id @default(autoincrement())
+  shiftId       Int        @unique
+  shift         Shift      @relation(fields: [shiftId], references: [id])
+  status        Status     @default(pending)
   checkIn       DateTime?
   lunchStart    DateTime?
   lunchEnd      DateTime?
   overtimeStart DateTime?
   overtimeEnd   DateTime?
   dutyId        Int?
-  duty          Duty?     @relation(fields: [dutyId], references: [id])
+  duty          Duty?      @relation(fields: [dutyId], references: [id])
 
-  // was updatedBy → now supervisorId
+  // who last updated this attendance?
   supervisorId  Int?
   supervisor    Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
 }
 
 model VolumeForecast {
   id              Int @id @default(autoincrement())
-  dayOfWeek       Int
-  hour            Int
+  dayOfWeek       Int // 0–6
+  hour            Int // 0–23
   expectedCalls   Int
   expectedTickets Int
 }
 
 model VolumeActual {
-  id        Int @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   eventTime DateTime
   calls     Int
   tickets   Int
+}
+
+model AuditLog {
+  id        Int       @id @default(autoincrement())
+  actorId   Int?
+  actor     Agent?    @relation("AgentAuditEntries", fields: [actorId], references: [id])
+  supervisorId Int?
+  supervisor   Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
+
+  action    String
+  table     String
+  recordId  Int
+  delta     Json
+  ts        DateTime  @default(now())
 }
 
 enum Status {
