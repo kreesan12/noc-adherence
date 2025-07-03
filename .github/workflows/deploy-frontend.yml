@@ -42,7 +42,7 @@ jobs:
       # 4️⃣  Upload the static build as an artifact
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/build
+          path: frontend/dist
 
       # 5️⃣  🚀 Deploy that artifact to the gh-pages branch
       - name: Deploy to GitHub Pages
