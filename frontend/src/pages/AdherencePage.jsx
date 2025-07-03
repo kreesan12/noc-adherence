@@ -64,7 +64,8 @@ export default function AdherencePage() {
       type: 'singleSelect',
       valueOptions: statusOptions.map(o => o.value),
       renderCell: params => {
-        const opt = statusOptions.find(o => o.value === params.value)!
+        const opt = statusOptions.find(o => o.value === params.value) || statusOptions[0]
+
         const bg =
           params.value === 'late'            ? '#ff1744' :
           params.value === 'on_time'         ? '#00e676' :
