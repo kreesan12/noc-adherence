@@ -4,24 +4,32 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
+
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
     "migrate": "prisma migrate deploy",
     "seed": "node prisma/seed.js",
-    "heroku-postbuild": "npm run migrate && npm run seed"
+    "generate": "prisma generate",
+    "heroku-postbuild": "npm run generate && npm run migrate && npm run seed"
   },
+
+  "engines": {
+    "node": ">=18 <23"
+  },
+
   "dependencies": {
     "@prisma/client": "^5.0.0",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.19.2",
     "express-async-errors": "^3.1.1",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "zod": "^3.24.4",
-    "bcryptjs": "^2.4.3"
+    "zod": "^3.24.4"
   },
+
   "devDependencies": {
     "nodemon": "^3.1.0",
     "prisma": "^5.0.0"
