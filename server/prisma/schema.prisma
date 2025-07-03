@@ -82,14 +82,14 @@ model VolumeActual {
 }
 
 model AuditLog {
-  id       Int      @id @default(autoincrement())
-  actorId  Int?
-  actor    Agent?   @relation(fields: [actorId], references: [id])
-  action   String
-  table    String
-  recordId Int
-  delta    Json
-  ts       DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  supervisorId  Int? 
+  supervisor    Supervisor? @relation(fields: [supervisorId], references: [id])
+  action        String
+  table         String
+  recordId      Int
+  delta         Json
+  ts            DateTime @default(now())
 }
 
 enum Status {
