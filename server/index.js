@@ -1,36 +1,49 @@
+// server/index.js
 import 'express-async-errors'
-import express from 'express'
-import cors from 'cors'
-import morgan from 'morgan'
-import dotenv from 'dotenv'
+import express          from 'express'
+import cors             from 'cors'
+import morgan           from 'morgan'
+import dotenv           from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
-import auth from './middleware/auth.js'
-import audit from './middleware/audit.js'
-import authRoutes from './routes/auth.js'
-import rosterRoutes from './routes/roster.js'
+import authRole         from './middleware/auth.js'      // role checker
+import audit            from './middleware/audit.js'
+import authRoutesFactory from './routes/auth.js'         // /login + /me (+ verifyToken)
+
+import rosterRoutes   from './routes/roster.js'
 import scheduleRoutes from './routes/schedule.js'
-import volumeRoutes from './routes/volume.js'
-import reportRoutes from './routes/reports.js'
+import volumeRoutes   from './routes/volume.js'
+import reportRoutes   from './routes/reports.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
-const app = express()
+const app    = express()
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN }))
+/* ---------- CORS / common middleware ---------- */
+app.use(cors({
+  origin: process.env.CLIENT_ORIGIN,      // e.g. https://kreesan12.github.io
+  credentials: true
+}))
 app.use(express.json())
 app.use(morgan('dev'))
 
-// public
-app.use('/api', authRoutes(prisma))
+/* ---------- Auth routes (public /login, token-protected /me) ---------- */
+const authRoutes   = authRoutesFactory(prisma)
+const verifyToken  = authRoutes.verifyToken     // exported helper
+app.use('/api', authRoutes)
 
-// protected
-app.use('/api/roster',   auth('supervisor'), audit(prisma), rosterRoutes(prisma))
-app.use('/api/schedule', auth('supervisor'), scheduleRoutes(prisma))
-app.use('/api/volume',   auth('supervisor'), volumeRoutes(prisma))
-app.use('/api/reports',  auth('supervisor'), reportRoutes(prisma))
+/* ---------- Protected business routes ---------- */
+app.use('/api/roster',   verifyToken, authRole('supervisor'), audit(prisma), rosterRoutes(prisma))
+app.use('/api/schedule', verifyToken, authRole('supervisor'),                 scheduleRoutes(prisma))
+app.use('/api/volume',   verifyToken, authRole('supervisor'),                 volumeRoutes(prisma))
+app.use('/api/reports',  verifyToken, authRole('supervisor'),                 reportRoutes(prisma))
 
-app.use((err,_req,res,_next)=>res.status(400).json({ error:err.message }))
+/* ---------- Global error handler ---------- */
+app.use((err, _req, res, _next) => {
+  console.error(err)
+  res.status(400).json({ error: err.message })
+})
 
-app.listen(process.env.PORT||4000,
-  ()=>console.log('API • http://localhost:'+ (process.env.PORT||4000)))
+/* ---------- Start server ---------- */
+const PORT = process.env.PORT || 4000
+app.listen(PORT, () => console.log(`API • http://localhost:${PORT}`))
