@@ -1,25 +1,50 @@
-name: Deploy Frontend
+# .github/workflows/deploy-frontend.yml
+name: Deploy Frontend (GitHub Pages)
 
 on:
   push:
-    paths: [ "frontend/**" ]
     branches: [ main ]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
 
 jobs:
-  build-deploy:
+  build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+
+    # Pages needs this block to publish
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    # Required permissions for deploy-pages
+    permissions:
+      contents: read      # actions/checkout
+      pages: write        # actions/deploy-pages
+      id-token: write     # actions/deploy-pages
+
     steps:
+      # 1️⃣  Checkout repo
       - uses: actions/checkout@v4
+
+      # 2️⃣  Set up Node (latest LTS 20.x)
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
-      - run: npm ci
-      - run: npm run build
-      - uses: peaceiris/actions-gh-pages@v4
+          node-version: 20
+
+      # 3️⃣  Install deps & build React bundle
+      - name: Install & build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build               # → outputs to frontend/build
+
+      # 4️⃣  Upload the static build as an artifact
+      - uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./frontend/build
-          publish_branch: gh-pages
+          path: frontend/build
+
+      # 5️⃣  🚀 Deploy that artifact to the gh-pages branch
+      - name: Deploy to GitHub Pages
+        id: deploy
+        u
