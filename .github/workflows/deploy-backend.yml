@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # 2 Install + login Heroku CLI  ← **MUST be ONE un-wrapped line**
-      - uses: "heroku/actions/setup-heroku@v1"
+      - uses: "heroku/actions/setup-heroku@main"
         with:
           api-key: ${{ secrets.HEROKU_API_KEY }}
           email:   kreesangovender12@gmail.com
