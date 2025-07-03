@@ -7,25 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/* ---------- TABLES ---------- */
+
 model Agent {
-  id           Int       @id @default(autoincrement())
+  id           Int          @id @default(autoincrement())
   fullName     String
-  email        String?   @unique
-  hash         String?   // password hash
+  email        String?      @unique
+  hash         String?      // password hash
   phone        String?
-  role         String?   // NOC-I, NOC-II …
-  standbyFlag  Boolean   @default(false)
+  role         String?      // NOC-I, NOC-II …
+  standbyFlag  Boolean      @default(false)
   shifts       Shift[]
-  auditEntries AuditLog[]
+  auditEntries AuditLog[]   // 1-to-many ↔ AuditLog.actor
 }
 
 model Shift {
-  id        Int       @id @default(autoincrement())
-  agentId   Int?
-  agent     Agent?    @relation(fields: [agentId], references: [id])
-  shiftDate DateTime  @db.Date
-  startAt   DateTime
-  endAt     DateTime
+  id         Int           @id @default(autoincrement())
+  agentId    Int?
+  agent      Agent?        @relation(fields: [agentId], references: [id])
+  shiftDate  DateTime      @db.Date
+  startAt    DateTime
+  endAt      DateTime
   attendance AttendanceLog?
 }
 
@@ -66,13 +68,14 @@ model VolumeActual {
 }
 
 model AuditLog {
-  id       Int      @id @default(autoincrement())
-  actorId  Int?
-  action   String
-  table    String
-  recordId Int
-  delta    Json
-  ts       DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  actorId   Int?
+  actor     Agent?   @relation(fields: [actorId], references: [id])  // ← back-relation
+  action    String
+  table     String
+  recordId  Int
+  delta     Json
+  ts        DateTime @default(now())
 }
 
 enum Status {
