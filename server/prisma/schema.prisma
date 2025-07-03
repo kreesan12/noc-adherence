@@ -1,4 +1,4 @@
-// server/prisma/schema.prisma
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -9,27 +9,30 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------- TABLES ----------
+
 model Agent {
-  id           Int          @id @default(autoincrement())
-  fullName     String
-  email        String?      @unique
-  hash         String?      // password hash
-  phone        String?
-  role         String?      // NOC-I, NOC-II …
-  standbyFlag  Boolean      @default(false)
-  shifts       Shift[]
-  auditEntries AuditLog[]
+  id          Int       @id @default(autoincrement())
+  fullName    String
+  email       String?   @unique
+  hash        String?
+  phone       String?
+  role        String?   // NOC-I, NOC-II …
+  standbyFlag Boolean   @default(false)
+
+  shifts      Shift[]
+  // ——— removed auditEntries here ———
 }
 
 model Supervisor {
-  id                Int              @id @default(autoincrement())
-  fullName          String
-  email             String           @unique
-  hash              String           // bcrypt hash
-  role              String           @default("supervisor")
-  attendanceUpdates AttendanceLog[]  @relation("SupervisorUpdates")
+  id         Int       @id @default(autoincrement())
+  fullName   String
+  email      String    @unique
+  hash       String
+  role       String    @default("supervisor")
 
-  @@map("Supervisor")
+  // all audit‐logs this supervisor has created:
+  auditEntries AuditLog[] @relation("SupervisorAuditEntries")
 }
 
 model Shift {
@@ -49,47 +52,36 @@ model Duty {
 }
 
 model AttendanceLog {
-  id            Int         @id @default(autoincrement())
-  shiftId       Int         @unique
-  shift         Shift       @relation(fields: [shiftId], references: [id])
-  status        Status      @default(pending)
+  id            Int       @id @default(autoincrement())
+  shiftId       Int       @unique
+  shift         Shift     @relation(fields: [shiftId], references: [id])
+  status        Status    @default(pending)
   checkIn       DateTime?
   lunchStart    DateTime?
   lunchEnd      DateTime?
   overtimeStart DateTime?
   overtimeEnd   DateTime?
   dutyId        Int?
-  duty          Duty?       @relation(fields: [dutyId], references: [id])
-  updatedBy     Int?
-  supervisor    Supervisor? @relation("SupervisorUpdates", fields: [updatedBy], references: [id])
+  duty          Duty?     @relation(fields: [dutyId], references: [id])
 
-  @@map("AttendanceLog")
+  // was updatedBy → now supervisorId
+  supervisorId  Int?
+  supervisor    Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
 }
 
 model VolumeForecast {
   id              Int @id @default(autoincrement())
-  dayOfWeek       Int // 0–6
-  hour            Int // 0–23
+  dayOfWeek       Int
+  hour            Int
   expectedCalls   Int
   expectedTickets Int
 }
 
 model VolumeActual {
-  id        Int      @id @default(autoincrement())
+  id        Int @id @default(autoincrement())
   eventTime DateTime
   calls     Int
   tickets   Int
-}
-
-model AuditLog {
-  id            Int      @id @default(autoincrement())
-  supervisorId  Int? 
-  supervisor    Supervisor? @relation(fields: [supervisorId], references: [id])
-  action        String
-  table         String
-  recordId      Int
-  delta         Json
-  ts            DateTime @default(now())
 }
 
 enum Status {
