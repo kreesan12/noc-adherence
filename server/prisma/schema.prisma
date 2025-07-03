@@ -21,6 +21,16 @@ model Agent {
   auditEntries AuditLog[]
 }
 
+model Supervisor {
+  id        Int     @id @default(autoincrement())
+  fullName  String
+  email     String  @unique
+  hash      String              // bcrypt hash
+  role      String  @default("supervisor") // could be "manager" later
+
+  @@map("Supervisor")
+}
+
 model Shift {
   id         Int           @id @default(autoincrement())
   agentId    Int?

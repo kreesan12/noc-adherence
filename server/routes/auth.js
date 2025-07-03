@@ -24,14 +24,14 @@ export default prisma => {
   // POST /api/login { email, password }
   r.post('/login', async (req, res) => {
     const { email, password } = req.body
-    const user = await prisma.agent.findUnique({ where: { email } })
+    const user = await prisma.supervisor.findUnique({ where: { email } })
 
     if (!user || !user.hash || !bcrypt.compareSync(password, user.hash)) {
       return res.status(401).json({ error: 'bad credentials' })
     }
 
     const token = jwt.sign(
-      { id: user.id, name: user.fullName, role: 'supervisor' },
+      { id: user.id, name: user.fullName, role: user.role },
       SECRET,
       { expiresIn: '8h' }
     )

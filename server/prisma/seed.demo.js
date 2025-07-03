@@ -1,90 +1,121 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import dayjs from 'dayjs';
+/* server/prisma/seed.demo.js  */
+import { PrismaClient } from '@prisma/client'
+import bcrypt   from 'bcryptjs'
+import dayjs    from 'dayjs'
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient()
+const hash = pwd => bcrypt.hashSync(pwd, 10)
 
-// ------- helpers
-const hash = pwd => bcrypt.hashSync(pwd, 10);
-const startOfMonth = dayjs().startOf('month');
-const roles = ['NOC-I', 'NOC-II', 'Supervisor'];
+/* ------------------------------------------------------------------ */
+/* demo data                                                           */
+/* ------------------------------------------------------------------ */
+const startOfMonth = dayjs().startOf('month')
 
-const agents = [
+const agentRows = [
   ['Alice Mokoena',  'alice@nocs.local',  'NOC-I'],
   ['Bongani Dlamini','bongani@nocs.local','NOC-I'],
   ['Carmen Naidoo',  'carmen@nocs.local', 'NOC-II'],
-  ['Darren Pillay',  'darren@nocs.local', 'NOC-II'],
-  ['Esmé Jacobs',    'esme@nocs.local',   'Supervisor']
-];
+  ['Darren Pillay',  'darren@nocs.local', 'NOC-II']
+]
 
-async function main () {
-  // 1️⃣  clear previous demo data (optional)
-  await prisma.auditLog.deleteMany();
-  await prisma.attendanceLog.deleteMany();
-  await prisma.shift.deleteMany();
-  await prisma.duty.deleteMany();
-  await prisma.agent.deleteMany();
-  await prisma.volumeForecast.deleteMany();
-  await prisma.volumeActual.deleteMany();
+const demoSupervisor = {
+  fullName: 'Demo Supervisor',
+  email:    'supervisor@frogfoot.net',
+  password: 'Password!23',
+  role:     'supervisor'
+}
 
-  // 2️⃣  duties
-  await prisma.duty.createMany({
-    data: ['Monitoring', 'Escalations', 'Vendor Liaison', 'QC']
-      .map(name => ({ name }))
-  });
+/* ------------------------------------------------------------------ */
+/* reset tables                                                        */
+/* ------------------------------------------------------------------ */
+await prisma.auditLog.deleteMany()
+await prisma.attendanceLog.deleteMany()
+await prisma.shift.deleteMany()
+await prisma.duty.deleteMany()
+await prisma.agent.deleteMany()
+await prisma.supervisor.deleteMany()       // new
+await prisma.volumeForecast.deleteMany()
+await prisma.volumeActual.deleteMany()
 
-  // 3️⃣  agents
-  const createdAgents = await Promise.all(
-    agents.map(([name,email,role],i)=>prisma.agent.create({
-      data:{
+/* ------------------------------------------------------------------ */
+/* duties                                                              */
+/* ------------------------------------------------------------------ */
+await prisma.duty.createMany({
+  data: ['Monitoring', 'Escalations', 'Vendor Liaison', 'QC']
+    .map(name => ({ name }))
+})
+
+/* ------------------------------------------------------------------ */
+/* agents                                                              */
+/* ------------------------------------------------------------------ */
+const createdAgents = await Promise.all(
+  agentRows.map(([name,email,role]) =>
+    prisma.agent.create({
+      data: {
         fullName: name,
         email,
         hash: hash('Password!23'),
         role,
-        standbyFlag: i===4  // make Esmé on standby
+        standbyFlag: false
       }
-    }))
-  );
+    })
+  )
+)
 
-  // 4️⃣  shifts for the entire current month (24 × 7 coverage)
-  const shiftPromises = [];
-  for (let d = 0; d < 31; d++) {
-    const day = startOfMonth.add(d,'day');
-    if (day.month() !== startOfMonth.month()) break; // stop after the month
-    createdAgents.forEach((ag,i)=>{
-      // simple pattern: two 12-h shifts, staggered
-      const start = day.add(i%2 ? 12 : 0,'hour'); // 00:00 or 12:00
-      shiftPromises.push(prisma.shift.create({
-        data:{
-          agentId: ag.id,
+/* ------------------------------------------------------------------ */
+/* supervisor (login user)                                             */
+/* ------------------------------------------------------------------ */
+await prisma.supervisor.create({
+  data: {
+    fullName: demoSupervisor.fullName,
+    email:    demoSupervisor.email,
+    hash:     hash(demoSupervisor.password),
+    role:     demoSupervisor.role
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* shifts for current month                                            */
+/* ------------------------------------------------------------------ */
+const shiftPromises = []
+for (let d = 0; d < 31; d++) {
+  const day = startOfMonth.add(d, 'day')
+  if (day.month() !== startOfMonth.month()) break
+
+  createdAgents.forEach((ag, i) => {
+    const start = day.add(i % 2 ? 12 : 0, 'hour')   // 00:00 or 12:00
+    shiftPromises.push(
+      prisma.shift.create({
+        data: {
+          agentId:   ag.id,
           shiftDate: day.toDate(),
-          startAt:  start.toDate(),
-          endAt:    start.add(12,'hour').toDate()
+          startAt:   start.toDate(),
+          endAt:     start.add(12, 'hour').toDate()
         }
-      }));
-    });
-  }
-  await Promise.all(shiftPromises);
-
-  // 5️⃣  volume forecast – typical Mon-Sun pattern
-  const dowPattern = [ // calls, tickets per hour base load
-    25, 25, 25, 25, 30, 30, 20 // Sun…Sat
-  ];
-  const volRows = [];
-  for (let dow=0; dow<7; dow++){
-    for (let hr=0; hr<24; hr++){
-      const factor = hr>=8 && hr<17 ? 2 : 1;        // daytime busier
-      volRows.push({
-        dayOfWeek: dow,
-        hour: hr,
-        expectedCalls:   dowPattern[dow]*factor,
-        expectedTickets: Math.round(dowPattern[dow]*0.6*factor)
-      });
-    }
-  }
-  await prisma.volumeForecast.createMany({ data: volRows });
-
-  console.log('🌱  Demo seed complete');
+      })
+    )
+  })
 }
+await Promise.all(shiftPromises)
 
-main().finally(()=>prisma.$disconnect());
+/* ------------------------------------------------------------------ */
+/* volume forecast                                                     */
+/* ------------------------------------------------------------------ */
+const dowPattern = [25, 25, 25, 25, 30, 30, 20]   // Sun…Sat
+const rows = []
+
+for (let dow = 0; dow < 7; dow++) {
+  for (let hr = 0; hr < 24; hr++) {
+    const factor = hr >= 8 && hr < 17 ? 2 : 1
+    rows.push({
+      dayOfWeek:       dow,
+      hour:            hr,
+      expectedCalls:   dowPattern[dow] * factor,
+      expectedTickets: Math.round(dowPattern[dow] * 0.6 * factor)
+    })
+  }
+}
+await prisma.volumeForecast.createMany({ data: rows })
+
+console.log('🌱  Demo seed with Supervisor complete')
+process.exit()
