@@ -1,4 +1,3 @@
-# .github/workflows/deploy-backend.yml
 name: Deploy Backend
 
 on:
@@ -13,38 +12,42 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    # Re-use these everywhere in the job
     env:
       HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
       HEROKU_APP:     noc-adherence-api
       HEROKU_EMAIL:   kreesangovender12@gmail.com
 
     steps:
-      # 1️⃣  Check out the repository
-      - name: Checkout code
-        uses: actions/checkout@v4
+      # 1️⃣  Checkout repository
+      - uses: actions/checkout@v4
 
-      # 2️⃣  Install and verify the Heroku CLI
+      # 2️⃣  Install Heroku CLI
       - name: Install Heroku CLI
         run: |
           curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
           heroku --version
 
-      # 3️⃣  Confirm authentication via HEROKU_API_KEY
+      # 3️⃣  Verify authentication via API key
       - name: Verify Heroku auth
-        run: |
-          heroku auth:whoami || echo "Authenticated with HEROKU_API_KEY for $HEROKU_APP"
+        run: heroku auth:whoami || echo "Authenticated with HEROKU_API_KEY"
 
-      # 4️⃣  Build a commit containing ONLY server/ and push it to Heroku
-      - name: Deploy server/ to Heroku
+      # 4️⃣  Copy prisma folder into server/, split & push
+      - name: Deploy server/ (with prisma) to Heroku
         run: |
-          # Generic committer identity for the temp commit
+          # Committer identity
           git config --global user.email "github-actions@github.com"
           git config --global user.name  "github-actions"
 
-          # Split the server/ subtree to a standalone commit
+          # --- Copy prisma into server/ for this commit only ---
+          rm -rf server/prisma
+          cp -R prisma server/prisma
+
+          # Add the copied prisma folder to git index
+          git add server/prisma
+
+          # Split server/ subtree into a temporary commit
           commit_sha=$(git subtree split --prefix server main)
 
-          # Force-push that commit as refs/heads/main on Heroku
+          # Push that commit to Heroku as refs/heads/main
           git push https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git \
             $commit_sha:refs/heads/main --force
