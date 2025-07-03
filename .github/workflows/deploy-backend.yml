@@ -13,6 +13,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    # Re-use these everywhere in the job
     env:
       HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
       HEROKU_APP:     noc-adherence-api
@@ -20,28 +21,30 @@ jobs:
 
     steps:
       # 1️⃣  Check out the repository
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣  Install the Heroku CLI directly and verify
+      # 2️⃣  Install and verify the Heroku CLI
       - name: Install Heroku CLI
         run: |
           curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
           heroku --version
 
-      # 3️⃣  Authenticate via API key (already present as env var)
+      # 3️⃣  Confirm authentication via HEROKU_API_KEY
       - name: Verify Heroku auth
-        run: heroku auth:whoami || echo "Authenticated via HEROKU_API_KEY"
+        run: |
+          heroku auth:whoami || echo "Authenticated with HEROKU_API_KEY for $HEROKU_APP"
 
-      # 4️⃣  Split the server/ folder and push it to Heroku
+      # 4️⃣  Build a commit containing ONLY server/ and push it to Heroku
       - name: Deploy server/ to Heroku
         run: |
-          # Configure a generic committer identity
+          # Generic committer identity for the temp commit
           git config --global user.email "github-actions@github.com"
           git config --global user.name  "github-actions"
 
-          # Create a commit containing ONLY server/
-          commit=$(git subtree split --prefix server main)
+          # Split the server/ subtree to a standalone commit
+          commit_sha=$(git subtree split --prefix server main)
 
-          # Force-push that commit to the Heroku app's main branch
-          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git $commit:main --force
+          # Force-push that commit as refs/heads/main on Heroku
+          git push https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP.git \
+            $commit_sha:refs/heads/main --force
