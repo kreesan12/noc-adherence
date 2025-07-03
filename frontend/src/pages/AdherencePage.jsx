@@ -76,11 +76,19 @@ export default function AdherencePage() {
   }, [date])
 
   const processRowUpdate = async newRow => {
+    // build full ISO strings for lunchStart / lunchEnd
+    const ls = newRow.lunchStart
+      ? dayjs(`${date.format('YYYY-MM-DD')}T${newRow.lunchStart}`).toISOString()
+      : null
+    const le = newRow.lunchEnd
+      ? dayjs(`${date.format('YYYY-MM-DD')}T${newRow.lunchEnd}`).toISOString()
+      : null
+
     await api.patch(`/attendance/${newRow.id}`, {
       status:     newRow.status,
       dutyName:   newRow.duty,
-      lunchStart: newRow.lunchStart,
-      lunchEnd:   newRow.lunchEnd,
+      lunchStart: ls,
+      lunchEnd:   le,
     })
     return newRow
   }
