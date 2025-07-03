@@ -4,30 +4,35 @@ import {
 } from '@mui/x-data-grid'
 import {
   Button, Dialog, DialogTitle, DialogContent,
-  Stack, TextField, Checkbox, FormControlLabel
+  Stack, TextField, Checkbox, FormControlLabel, MenuItem
 } from '@mui/material'
 import api from '../api'
 
 export default function AgentsPage () {
-  const [rows, setRows] = useState([])
-  const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({
+  const [rows, setRows]   = useState([])
+  const [open, setOpen]   = useState(false)
+  const [form, setForm]   = useState({
     fullName:'', email:'', role:'NOC-I', standby:false
   })
 
+  /* ───────── fetch once ───────── */
   useEffect(() => {
     api.get('/agents').then(r => setRows(r.data))
   }, [])
 
+  /* ───────── grid columns ─────── */
   const cols = [
-    { field:'id',      headerName:'ID', width:70 },
-    { field:'fullName',headerName:'Name', flex:1 },
-    { field:'email',   headerName:'Email', flex:1 },
-    { field:'role',    headerName:'Role', width:100 },
-    { field:'standbyFlag', headerName:'Stand-by', width:100,
-      valueGetter: p => p.row.standbyFlag ? '✔' : '' }
+    { field:'id',       headerName:'ID',      width:70 },
+    { field:'fullName', headerName:'Name',    flex:1  },
+    { field:'email',    headerName:'Email',   flex:1  },
+    { field:'role',     headerName:'Role',    width:110 },
+    {
+      field:'standbyFlag', headerName:'Stand-by', width:110,
+      valueGetter: ({ row }) => row?.standbyFlag ? '✅' : '—'
+    }
   ]
 
+  /* ───────── save new agent ───── */
   async function handleSave () {
     await api.post('/agents', {
       fullName: form.fullName,
@@ -54,12 +59,15 @@ export default function AgentsPage () {
         <DialogTitle>New agent</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt:1, width:320 }}>
-            <TextField  label="Full name" value={form.fullName} required
-                         onChange={e=>setForm({ ...form, fullName:e.target.value })}/>
-            <TextField  label="Email" type="email" value={form.email} required
-                         onChange={e=>setForm({ ...form, email:e.target.value })}/>
-            <TextField  label="Role (NOC-I/II/III)" value={form.role} required
-                         onChange={e=>setForm({ ...form, role:e.target.value })}/>
+            <TextField label="Full name" value={form.fullName} required
+                       onChange={e=>setForm({ ...form, fullName:e.target.value })}/>
+            <TextField label="Email" type="email" value={form.email} required
+                       onChange={e=>setForm({ ...form, email:e.target.value })}/>
+            <TextField label="Role" select value={form.role}
+                       onChange={e=>setForm({ ...form, role:e.target.value })}>
+              {['NOC-I','NOC-II','Supervisor'].map(r=>
+                <MenuItem key={r} value={r}>{r}</MenuItem>)}
+            </TextField>
             <FormControlLabel control={
               <Checkbox checked={form.standby}
                         onChange={e=>setForm({ ...form, standby:e.target.checked })}/>
