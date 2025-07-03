@@ -13,6 +13,7 @@ import SchedulePage  from './pages/SchedulePage'
 import VolumePage    from './pages/VolumePage'
 import RosterUpload  from './components/RosterUpload'
 import LoginPage     from './pages/LoginPage'
+import AgentsPage    from './pages/AgentsPage'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute   from './components/ProtectedRoute'
@@ -24,6 +25,7 @@ function SideNav () {
   const items = [
     ['Adherence'   , '/'],
     ['Schedule'    , '/schedule'],
+    ['Agents','/agents'],
     ['Volume'      , '/volume'],
     ['Roster Upload', '/roster']
   ]
@@ -62,6 +64,7 @@ export default function App () {
                 <Route path="/schedule"  element={<SchedulePage  />} />
                 <Route path="/volume"    element={<VolumePage    />} />
                 <Route path="/roster"    element={<RosterUpload  />} />
+                <Route path="/agents"    element={<AgentsPage/>}/>
               </Route>
             </Routes>
           </main>

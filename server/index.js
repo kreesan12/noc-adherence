@@ -6,14 +6,15 @@ import morgan           from 'morgan'
 import dotenv           from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
-import authRole         from './middleware/auth.js'      // role checker
+import authRole         from './middleware/auth.js'
 import audit            from './middleware/audit.js'
-import authRoutesFactory from './routes/auth.js'         // /login + /me (+ verifyToken)
+import authRoutes, { verifyToken } from './routes/auth.js'   // ⬅️ import both
 
 import rosterRoutes   from './routes/roster.js'
 import scheduleRoutes from './routes/schedule.js'
 import volumeRoutes   from './routes/volume.js'
 import reportRoutes   from './routes/reports.js'
+import agentsRoutes   from './routes/agents.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -21,15 +22,13 @@ const app    = express()
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN,      // e.g. https://kreesan12.github.io
+  origin: process.env.CLIENT_ORIGIN,
   credentials: true
 }))
 app.use(express.json())
 app.use(morgan('dev'))
 
-/* ---------- Auth routes (public /login, token-protected /me) ---------- */
-const authRoutes   = authRoutesFactory(prisma)
-const verifyToken  = authRoutes.verifyToken     // exported helper
+/* ---------- Public auth routes ---------- */
 app.use('/api', authRoutes)
 
 /* ---------- Protected business routes ---------- */
@@ -37,6 +36,7 @@ app.use('/api/roster',   verifyToken, authRole('supervisor'), audit(prisma), ros
 app.use('/api/schedule', verifyToken, authRole('supervisor'),                 scheduleRoutes(prisma))
 app.use('/api/volume',   verifyToken, authRole('supervisor'),                 volumeRoutes(prisma))
 app.use('/api/reports',  verifyToken, authRole('supervisor'),                 reportRoutes(prisma))
+app.use('/api/agents',   verifyToken, authRole('supervisor'),                 agentsRoutes(prisma)) // ⬅️ fixed
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
