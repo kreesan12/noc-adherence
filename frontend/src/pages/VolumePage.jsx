@@ -1,5 +1,5 @@
 // frontend/src/pages/VolumePage.jsx
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import {
   Box,
@@ -31,7 +31,7 @@ export default function VolumePage() {
   const [hourlyData,   setHourlyData]   = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
 
-  // 1️⃣ load roles on mount
+  // 1️⃣ load roles once
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -40,8 +40,8 @@ export default function VolumePage() {
     })
   }, [])
 
-  // 2️⃣ define loadDaily *before* using it
-  const loadDaily = useCallback(() => {
+  // 2️⃣ reload daily data whenever team, startDate or endDate change
+  useEffect(() => {
     if (!team) return
     api.get('/reports/volume', {
       params: {
@@ -58,14 +58,9 @@ export default function VolumePage() {
     .catch(console.error)
   }, [team, startDate, endDate])
 
-  // 3️⃣ reload whenever team, startDate or endDate change
-  useEffect(() => {
-    loadDaily()
-  }, [loadDaily])
-
-  // 4️⃣ drill into hourly
+  // 3️⃣ drill into hourly when clicking a bar
   function onBarClick({ activePayload }) {
-    if (!activePayload || !activePayload.length) return
+    if (!activePayload?.length) return
     const { date } = activePayload[0].payload
     setSelectedDate(date)
     api.get('/reports/volume/hourly', {
@@ -75,7 +70,7 @@ export default function VolumePage() {
     .catch(console.error)
   }
 
-  // 5️⃣ CSV upload handler
+  // 4️⃣ CSV upload
   const handleUpload = (file, endpoint) => {
     Papa.parse(file, {
       header: true,
@@ -88,7 +83,16 @@ export default function VolumePage() {
           tickets: Number(row.tickets)
         }))
         await api.post(`/volume/${endpoint}`, { role: team, data: payload })
-        loadDaily()
+        // refresh daily
+        api.get('/reports/volume', {
+          params: {
+            role:  team,
+            start: startDate.format('YYYY-MM-DD'),
+            end:   endDate  .format('YYYY-MM-DD')
+          }
+        })
+        .then(r => setDailyData(r.data))
+        .catch(console.error)
       }
     })
   }
@@ -107,9 +111,7 @@ export default function VolumePage() {
               label="Team"
               onChange={e => setTeam(e.target.value)}
             >
-              {roles.map(r => (
-                <MenuItem key={r} value={r}>{r}</MenuItem>
-              ))}
+              {roles.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
             </Select>
           </FormControl>
 
