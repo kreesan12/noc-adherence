@@ -21,7 +21,9 @@ import ProtectedRoute   from './components/ProtectedRoute'
 /* -------- Drawer rendered only when a user is logged in -------- */
 function SideNav () {
   const { user } = useAuth()
-  if (!user) return null          // hide drawer on /login
+  const { pathname } = useLocation()
+  if (!user || pathname === '/login') return null
+
   const items = [
     ['Adherence'   , '/'],
     ['Schedule'    , '/schedule'],
