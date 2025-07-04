@@ -16,6 +16,7 @@ import volumeRoutes     from './routes/volume.js'
 import reportRoutes     from './routes/reports.js'
 import agentsRoutes     from './routes/agents.js'
 import attendanceRoutes from './routes/attendance.js'
+import supervisorRoutes  from './routes/supervisors.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -70,6 +71,13 @@ app.use(
   '/api/agents',
   verifyToken, authRole('supervisor'),
   agentsRoutes(prisma)
+)
+
+// Supervisors management (only accessible to supervisors)
+app.use(
+  '/api/supervisors',
+  verifyToken, authRole('supervisor'),
+  supervisorRoutes(prisma)
 )
 
 /* ---------- Mount attendance WITH audit middleware ---------- */
