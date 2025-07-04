@@ -121,6 +121,7 @@ export default function SchedulePage () {
         plugins={[timeGridPlugin]}
         initialView="timeGridWeek"
         timeZone="Africa/Johannesburg"
+        headerToolbar={false}       // ← disable the built-in nav header
         datesSet={arg => setWeekStart(dayjs(arg.start))}
         events={events}
         height="auto"
