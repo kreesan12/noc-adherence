@@ -59,9 +59,9 @@ export default function VolumePage() {
   }, [team, startDate, endDate])
 
   // 3️⃣ drill into hourly when clicking a bar
-  function onBarClick({ activePayload }) {
-    if (!activePayload?.length) return
-    const { date } = activePayload[0].payload
+  function onBarClick(bar, type) {
+    // bar is the payload object passed by recharts
+    const { date } = bar.payload
     setSelectedDate(date)
     api.get('/reports/volume/hourly', {
       params: { role: team, date }
@@ -84,15 +84,14 @@ export default function VolumePage() {
         }))
         await api.post(`/volume/${endpoint}`, { role: team, data: payload })
         // refresh daily
-        api.get('/reports/volume', {
+        const r = await api.get('/reports/volume', {
           params: {
             role:  team,
             start: startDate.format('YYYY-MM-DD'),
             end:   endDate  .format('YYYY-MM-DD')
           }
         })
-        .then(r => setDailyData(r.data))
-        .catch(console.error)
+        setDailyData(r.data)
       }
     })
   }
@@ -147,15 +146,22 @@ export default function VolumePage() {
         {/* Daily Chart */}
         <Typography variant="h6" gutterBottom>Daily Volume</Typography>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart
-            data={dailyData}
-            onClick={onBarClick}
-          >
+          <BarChart data={dailyData}>
             <XAxis dataKey="date" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" />
-            <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" />
+            <Bar
+              dataKey="forecastCalls"
+              name="Forecast"
+              fill="#8884d8"
+              onClick={onBarClick}
+            />
+            <Bar
+              dataKey="actualCalls"
+              name="Actual"
+              fill="#82ca9d"
+              onClick={onBarClick}
+            />
           </BarChart>
         </ResponsiveContainer>
 
