@@ -58,7 +58,7 @@ export default prisma => {
     }
   })
 
-  // ─── 2) Daily volume report ──────────────────────────────────────
+    // ─── Daily volume report ────────────────────────────────────
   // GET /api/reports/volume?role=NOC-I
   r.get('/volume', async (req, res, next) => {
     try {
@@ -68,39 +68,43 @@ export default prisma => {
         prisma.volumeForecast.findMany({ where: { role } }),
         prisma.volumeActual.findMany({ where: { role } })
       ])
-      // aggregate per dayOfWeek 0–6
-      const days = Array.from({ length: 7 }, (_, d) => ({
-        dayOfWeek: d,
-        forecastCalls: fcs
-          .filter(f => f.dayOfWeek === d)
-          .reduce((sum, f) => sum + f.expectedCalls, 0),
-        actualCalls: acs
-          .filter(a => a.dayOfWeek === d)
-          .reduce((sum, a) => sum + a.calls, 0)
-      }))
-      res.json(days)
+      // group by actual date
+      const byDate = {}
+      fcs.forEach(f => {
+        const d = dayjs(f.date).format('YYYY-MM-DD')
+        byDate[d] = byDate[d] || { date: d, forecastCalls: 0, actualCalls: 0 }
+        byDate[d].forecastCalls += f.expectedCalls
+      })
+      acs.forEach(a => {
+        const d = dayjs(a.date).format('YYYY-MM-DD')
+        byDate[d] = byDate[d] || { date: d, forecastCalls: 0, actualCalls: 0 }
+        byDate[d].actualCalls += a.calls
+      })
+      res.json(Object.values(byDate).sort((a,b) => a.date.localeCompare(b.date)))
     } catch (err) {
       next(err)
     }
   })
 
-  // ─── 3) Hourly drilldown ─────────────────────────────────────────
-  // GET /api/reports/volume/hourly?dayOfWeek=2&role=NOC-I
+  // ─── Hourly drilldown ────────────────────────────────────────
+  // GET /api/reports/volume/hourly?role=NOC-I&date=2025-07-04
   r.get('/volume/hourly', async (req, res, next) => {
     try {
-      const d = Number(req.query.dayOfWeek)
-      const role = req.query.role
+      const { role, date } = req.query
+      const d0 = dayjs(date).startOf('day').toDate()
+      const d1 = dayjs(date).endOf('day').toDate()
       const [fcs, acs] = await Promise.all([
-        prisma.volumeForecast.findMany({ where: { dayOfWeek: d, role } }),
-        prisma.volumeActual.findMany({ where: { dayOfWeek: d, role } })
+        prisma.volumeForecast.findMany({ where: { role, date: { gte: d0, lte: d1 } } }),
+        prisma.volumeActual.findMany({ where: { role, date: { gte: d0, lte: d1 } } })
       ])
+      // aggregate by hour
       const hours = Array.from({ length: 24 }, (_, h) => ({
         hour: h,
         forecastCalls: fcs
-          .filter(f => f.hour === h)
+          .filter(f => dayjs(f.date).hour() === h)
           .reduce((sum, f) => sum + f.expectedCalls, 0),
         actualCalls: acs
-          .filter(a => a.hour === h)
+          .filter(a => dayjs(a.date).hour() === h)
           .reduce((sum, a) => sum + a.calls, 0)
       }))
       res.json(hours)

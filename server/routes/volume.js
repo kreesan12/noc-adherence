@@ -4,36 +4,41 @@ export default prisma => {
   const r = Router()
 
   // POST /api/volume/forecast
-  // body: { role, data:[{ dayOfWeek, hour, calls, tickets }] }
+  // body: { role, data: [{ date, hour, calls, tickets }] }
   r.post('/forecast', async (req, res, next) => {
     try {
       const { role, data } = req.body
-      // upsert each entry with role
       const payload = data.map(d => ({
-        ...d,
         role,
-        expectedCalls: d.calls,
+        date: new Date(d.date),
+        hour: d.hour,
+        expectedCalls:   d.calls,
         expectedTickets: d.tickets
       }))
       await prisma.volumeForecast.createMany({ data: payload })
       res.json({ ok: true })
-    } catch (err) { next(err) }
+    } catch (err) {
+      next(err)
+    }
   })
 
   // POST /api/volume/actual
+  // body: { role, data: [{ date, hour, calls, tickets }] }
   r.post('/actual', async (req, res, next) => {
     try {
       const { role, data } = req.body
       const payload = data.map(d => ({
-        ...d,
         role,
+        date: new Date(d.date),
+        hour: d.hour,
         calls:   d.calls,
-        tickets: d.tickets,
-        eventTime: new Date()  // or compute from dayOfWeek+hour
+        tickets: d.tickets
       }))
       await prisma.volumeActual.createMany({ data: payload })
       res.json({ ok: true })
-    } catch (err) { next(err) }
+    } catch (err) {
+      next(err)
+    }
   })
 
   return r

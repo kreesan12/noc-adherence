@@ -77,7 +77,7 @@ model AttendanceLog {
 model VolumeForecast {
   id              Int @id @default(autoincrement())
   role            String
-  dayOfWeek       Int // 0–6
+  date            DateTime @db.Date
   hour            Int // 0–23
   expectedCalls   Int
   expectedTickets Int
@@ -86,7 +86,8 @@ model VolumeForecast {
 model VolumeActual {
   id        Int      @id @default(autoincrement())
   role      String
-  eventTime DateTime
+  date      DateTime @db.Date
+  hour      Int
   calls     Int
   tickets   Int
 }
