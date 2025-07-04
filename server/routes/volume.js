@@ -1,5 +1,6 @@
 // server/routes/volume.js
 import { Router } from 'express'
+
 export default prisma => {
   const r = Router()
 
@@ -8,13 +9,15 @@ export default prisma => {
   r.post('/forecast', async (req, res, next) => {
     try {
       const { role, data } = req.body
+
       const payload = data.map(d => ({
         role,
-        date: new Date(d.date),
+        date: new Date(d.date),        // ← now stored as actual date
         hour: d.hour,
         expectedCalls:   d.calls,
         expectedTickets: d.tickets
       }))
+
       await prisma.volumeForecast.createMany({ data: payload })
       res.json({ ok: true })
     } catch (err) {
@@ -27,6 +30,7 @@ export default prisma => {
   r.post('/actual', async (req, res, next) => {
     try {
       const { role, data } = req.body
+
       const payload = data.map(d => ({
         role,
         date: new Date(d.date),
@@ -34,6 +38,7 @@ export default prisma => {
         calls:   d.calls,
         tickets: d.tickets
       }))
+
       await prisma.volumeActual.createMany({ data: payload })
       res.json({ ok: true })
     } catch (err) {
