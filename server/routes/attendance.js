@@ -27,7 +27,7 @@ export default prisma => {
         dutyId,
         lunchStart: lunchStart ? new Date(lunchStart) : null,
         lunchEnd:   lunchEnd   ? new Date(lunchEnd)   : null,
-        updatedBy:  req.user.id
+        supervisorId:  req.user.id
       }
 
       // 3️⃣ upsert on the unique shiftId
