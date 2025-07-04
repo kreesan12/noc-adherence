@@ -9,183 +9,174 @@ import {
   InputLabel,
   FormControl,
   Typography,
-  Paper
+  Paper,
+  TextField
 } from '@mui/material'
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  CartesianGrid,
-  ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer
 } from 'recharts'
-import dayjs from 'dayjs'
+import {
+  LocalizationProvider,
+  DatePicker
+} from '@mui/x-date-pickers'
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import api from '../api'
+import dayjs from 'dayjs'
 
 export default function VolumePage() {
-  const [roles, setRoles]         = useState([])
-  const [forecastRole, setForecastRole] = useState('')
-  const [actualRole, setActualRole]     = useState('')
-  const [dailyData, setDailyData]       = useState([])
-  const [hourlyData, setHourlyData]     = useState([])
-  const [selectedDate, setSelectedDate] = useState(null)
+  const [roles, setRoles]           = useState([])
+  const [team, setTeam]             = useState('')
+  const [startDate, setStartDate]   = useState(dayjs().subtract(6, 'day'))
+  const [endDate, setEndDate]       = useState(dayjs())
+  const [dailyData, setDailyData]   = useState([])
+  const [hourlyData, setHourlyData] = useState([])
+  const [selectedDate, setSelected] = useState(null)
 
-  // load roles
+  // load roles once
   useEffect(() => {
     api.get('/agents').then(r => {
-      const uniq = [...new Set(r.data.map(a=>a.role))]
+      const uniq = [...new Set(r.data.map(a => a.role))]
       setRoles(uniq)
-      if (uniq.length) {
-        setForecastRole(uniq[0])
-        setActualRole(uniq[0])
-      }
+      if (uniq[0]) setTeam(uniq[0])
     })
   }, [])
 
-  // upload helper
-  const handleUpload = (file, endpoint, role) => {
+  // load daily whenever team, startDate or endDate change
+  useEffect(loadDaily, [team, startDate, endDate])
+
+  function loadDaily() {
+    api.get('/reports/volume', {
+      params: {
+        role:  team,
+        start: startDate.format('YYYY-MM-DD'),
+        end:   endDate  .format('YYYY-MM-DD')
+      }
+    })
+    .then(r => {
+      setDailyData(r.data)
+      setSelected(null)
+      setHourlyData([])
+    })
+    .catch(console.error)
+  }
+
+  // drill in
+  function onBarClick(bar) {
+    const date = bar.payload.date
+    setSelected(date)
+    api.get('/reports/volume/hourly', {
+      params: { role: team, date }
+    })
+    .then(r => setHourlyData(r.data))
+    .catch(console.error)
+  }
+
+  // common CSV upload handler
+  const handleUpload = (file, endpoint) => {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       complete: async ({ data }) => {
-        const payload = data.map(r => ({
-          date: r.date,
-          hour: Number(r.hour),
-          calls: Number(r.calls),
-          tickets: Number(r.tickets)
+        const payload = data.map(row => ({
+          date:    row.date,
+          hour:    Number(row.hour),
+          calls:   Number(row.calls),
+          tickets: Number(row.tickets),
         }))
-        await api.post(`/volume/${endpoint}`, { role, data: payload })
+        await api.post(`/volume/${endpoint}`, { role: team, data: payload })
         loadDaily()
       }
     })
   }
 
-  // load daily
-  const loadDaily = () => {
-    api.get('/reports/volume', {
-      params: {
-        role:  forecastRole,
-        start: dayjs(startDate).format('YYYY-MM-DD'),
-        end:   dayjs(endDate  ).format('YYYY-MM-DD')
-      }
-    })
-  }
-  useEffect(loadDaily, [forecastRole])
-
-  // drill into hourly
-  const onBarClick = d => {
-    setSelectedDate(d.date)
-    api.get('/reports/volume/hourly', {
-      params: { role: forecastRole, date: d.date }
-    }).then(r => setHourlyData(r.data))
-  }
-
   return (
-    <Box sx={{ p:3 }}>
-      <Typography variant="h5" gutterBottom>
-        Volume Upload & Reporting
-      </Typography>
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Box sx={{ p:3 }}>
+        <Typography variant="h4" gutterBottom>Volume Dashboard</Typography>
 
-      <Box sx={{ display:'flex', gap:2, mb:4 }}>
-        <Paper sx={{ p:2, flex:1 }}>
-          <Typography variant="subtitle1">Forecast CSV</Typography>
-          <FormControl fullWidth sx={{ my:1 }}>
+        {/* top controls */}
+        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4 }}>
+          <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
             <Select
-              value={forecastRole}
+              value={team}
               label="Team"
-              onChange={e=>setForecastRole(e.target.value)}
+              onChange={e => setTeam(e.target.value)}
             >
-              {roles.map(r=>(
+              {roles.map(r => (
                 <MenuItem key={r} value={r}>{r}</MenuItem>
               ))}
             </Select>
           </FormControl>
-          <Button variant="contained" component="label">
-            Upload…
-            <input
-              type="file"
-              hidden accept=".csv"
-              onChange={e=>handleUpload(e.target.files[0],'forecast',forecastRole)}
-            />
-          </Button>
-        </Paper>
 
-        <Paper sx={{ p:2, flex:1 }}>
-          <Typography variant="subtitle1">Actual CSV</Typography>
-          <FormControl fullWidth sx={{ my:1 }}>
-            <InputLabel>Team</InputLabel>
-            <Select
-              value={actualRole}
-              label="Team"
-              onChange={e=>setActualRole(e.target.value)}
-            >
-              {roles.map(r=>(
-                <MenuItem key={r} value={r}>{r}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button variant="contained" component="label">
-            Upload…
+          <DatePicker
+            label="Start Date"
+            value={startDate}
+            onChange={d => d && setStartDate(d)}
+            renderInput={params => <TextField {...params} size="small" />}
+          />
+          <DatePicker
+            label="End Date"
+            value={endDate}
+            onChange={d => d && setEndDate(d)}
+            renderInput={params => <TextField {...params} size="small" />}
+          />
+
+          <Button
+            variant="outlined"
+            component="label"
+          >
+            Upload Forecast
             <input
-              type="file"
-              hidden accept=".csv"
-              onChange={e=>handleUpload(e.target.files[0],'actual',actualRole)}
+              type="file" hidden accept=".csv"
+              onChange={e => handleUpload(e.target.files[0], 'forecast')}
             />
           </Button>
-        </Paper>
+          <Button
+            variant="outlined"
+            component="label"
+          >
+            Upload Actual
+            <input
+              type="file" hidden accept=".csv"
+              onChange={e => handleUpload(e.target.files[0], 'actual')}
+            />
+          </Button>
+        </Box>
+
+        {/* daily bar chart */}
+        <Typography variant="h6" gutterBottom>Daily Volume</Typography>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart
+            data={dailyData}
+            onClick={onBarClick}
+          >
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" />
+            <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" />
+          </BarChart>
+        </ResponsiveContainer>
+
+        {/* hourly drill-down */}
+        {selectedDate && (
+          <>
+            <Typography variant="h6" sx={{ mt:4 }}>
+              Hourly Detail for {dayjs(selectedDate).format('YYYY-MM-DD')}
+            </Typography>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={hourlyData}>
+                <XAxis dataKey="hour" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" />
+                <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" />
+              </BarChart>
+            </ResponsiveContainer>
+          </>
+        )}
       </Box>
-
-      <Typography variant="h6" gutterBottom>
-        Daily Forecast vs Actual ({forecastRole})
-      </Typography>
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart
-          data={dailyData}
-          margin={{ top:20, right:30, left:0, bottom:40 }}
-          onClick={({ activePayload })=>{
-            if(activePayload?.length) onBarClick(activePayload[0].payload)
-          }}
-        >
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis
-            dataKey="date"
-            angle={-45}
-            textAnchor="end"
-            tickFormatter={d=>dayjs(d).format('MMM D')}
-          />
-          <YAxis />
-          <Tooltip
-            labelFormatter={d=>dayjs(d).format('dddd, MMM D')}
-          />
-          <Legend verticalAlign="top" />
-          <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" barSize={20} />
-          <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" barSize={20} />
-        </BarChart>
-      </ResponsiveContainer>
-
-      {selectedDate && (
-        <>
-          <Typography variant="h6" sx={{ mt:4 }}>
-            Hourly on {dayjs(selectedDate).format('dddd, MMM D')}
-          </Typography>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={hourlyData}
-              margin={{ top:20, right:30, left:0, bottom:20 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="hour" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" barSize={15} />
-              <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" barSize={15} />
-            </BarChart>
-          </ResponsiveContainer>
-        </>
-      )}
-    </Box>
+    </LocalizationProvider>
   )
 }
