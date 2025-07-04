@@ -1,8 +1,14 @@
 // frontend/src/App.js
 import { ThemeProvider } from '@mui/material/styles'
 import theme            from './theme'
-import { CssBaseline, Drawer, List, ListItem, ListItemText } from '@mui/material'
+import {CssBaseline, Drawer, List, ListItem, ListItemIcon, ListItemText} from '@mui/material'
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
+
+import DashboardIcon          from '@mui/icons-material/Dashboard'
+import CalendarTodayIcon      from '@mui/icons-material/CalendarToday'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import BarChartIcon           from '@mui/icons-material/BarChart'
+import UploadIcon             from '@mui/icons-material/Upload'
 
 import AdherencePage  from './pages/AdherencePage'
 import SchedulePage   from './pages/SchedulePage'
@@ -18,18 +24,27 @@ function SideNav() {
   const { user } = useAuth()
   if (!user) return null
   const items = [
-    ['Adherence'    , '/'],
-    ['Schedule'     , '/schedule'],
-    ['Agents'       , '/agents'],
-    ['Volume'       , '/volume'],
-    ['Roster Upload', '/roster'],
+    { label: 'Adherence',    path: '/',          icon: <DashboardIcon /> },
+    { label: 'Schedule',     path: '/schedule',  icon: <CalendarTodayIcon /> },
+    { label: 'Admin',        path: '/agents',    icon: <AdminPanelSettingsIcon /> },
+    { label: 'Volume',       path: '/volume',    icon: <BarChartIcon /> },
+    { label: 'Upload Roster',path: '/roster',    icon: <UploadIcon /> },
   ]
+
   return (
     <Drawer variant="permanent" sx={{ width:200, '& .MuiDrawer-paper':{ width:200 } }}>
       <List>
-        {items.map(([label, path]) => (
-          <ListItem button key={label} component={Link} to={path}>
-            <ListItemText primary={label}/>
+        {items.map(item => (
+          <ListItem
+            button
+            key={item.label}
+            component={Link}
+            to={item.path}
+          >
+            <ListItemIcon>
+              {item.icon}
+            </ListItemIcon>
+            <ListItemText primary={item.label} />
           </ListItem>
         ))}
       </List>
