@@ -1,7 +1,13 @@
+// frontend/src/components/ProtectedRoute.jsx
+import { useAuth }     from '../context/AuthContext'
 import { Navigate, Outlet } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
 
-export default function ProtectedRoute () {
+export default function ProtectedRoute() {
   const { user } = useAuth()
-  return user ? <Outlet /> : <Navigate to="/login" replace />
+  // if no user, send them to /login
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+  // otherwise render whatever nested routes are inside
+  return <Outlet />
 }

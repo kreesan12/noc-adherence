@@ -1,43 +1,35 @@
 // frontend/src/App.js
 import { ThemeProvider } from '@mui/material/styles'
-import theme              from './theme'
-import {
-  CssBaseline,
-  Drawer,
-  List, ListItem, ListItemText
-}                         from '@mui/material'
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import theme            from './theme'
+import { CssBaseline, Drawer, List, ListItem, ListItemText } from '@mui/material'
+import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
 
-import AdherencePage from './pages/AdherencePage'
-import SchedulePage  from './pages/SchedulePage'
-import VolumePage    from './pages/VolumePage'
-import RosterUpload  from './components/RosterUpload'
-import LoginPage     from './pages/LoginPage'
-import AgentsPage    from './pages/AgentsPage'
+import AdherencePage  from './pages/AdherencePage'
+import SchedulePage   from './pages/SchedulePage'
+import VolumePage     from './pages/VolumePage'
+import RosterUpload   from './components/RosterUpload'
+import LoginPage      from './pages/LoginPage'
+import AgentsPage     from './pages/AgentsPage'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
-import ProtectedRoute   from './components/ProtectedRoute'
+import ProtectedRoute from './components/ProtectedRoute'
 
-/* -------- Drawer rendered only when a user is logged in -------- */
-function SideNav () {
+function SideNav() {
   const { user } = useAuth()
-  const { pathname } = useLocation()
-  if (!user || pathname === '/login') return null
-
+  if (!user) return null
   const items = [
-    ['Adherence'   , '/'],
-    ['Schedule'    , '/schedule'],
-    ['Agents','/agents'],
-    ['Volume'      , '/volume'],
-    ['Roster Upload', '/roster']
+    ['Adherence'    , '/'],
+    ['Schedule'     , '/schedule'],
+    ['Agents'       , '/agents'],
+    ['Volume'       , '/volume'],
+    ['Roster Upload', '/roster'],
   ]
   return (
-    <Drawer variant="permanent"
-            sx={{ width:200, [`& .MuiDrawer-paper`]:{ width:200 } }}>
+    <Drawer variant="permanent" sx={{ width:200, '& .MuiDrawer-paper':{ width:200 } }}>
       <List>
         {items.map(([label, path]) => (
           <ListItem button key={label} component={Link} to={path}>
-            <ListItemText primary={label} />
+            <ListItemText primary={label}/>
           </ListItem>
         ))}
       </List>
@@ -45,32 +37,31 @@ function SideNav () {
   )
 }
 
-export default function App () {
+export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider theme={theme}>
-        <CssBaseline />
+        <CssBaseline/>
         <BrowserRouter basename="/noc-adherence">
-
-          {/* drawer appears only when authenticated */}
-          <SideNav />
-
+          <SideNav/>
           <main style={{ marginLeft:200, padding:24 }}>
             <Routes>
-              {/* -------- public route -------- */}
-              <Route path="/login" element={<LoginPage />} />
+              {/* Public */}
+              <Route path="/login" element={<LoginPage/>}/>
 
-              {/* -------- protected routes ----- */}
-              <Route element={<ProtectedRoute />}>
-                <Route path="/"          element={<AdherencePage />} />
-                <Route path="/schedule"  element={<SchedulePage  />} />
-                <Route path="/volume"    element={<VolumePage    />} />
-                <Route path="/roster"    element={<RosterUpload  />} />
+              {/* Protected */}
+              <Route element={<ProtectedRoute/>}>
+                <Route path="/"          element={<AdherencePage/>}/>
+                <Route path="/schedule"  element={<SchedulePage/>}/>
+                <Route path="/volume"    element={<VolumePage/>}/>
+                <Route path="/roster"    element={<RosterUpload/>}/>
                 <Route path="/agents"    element={<AgentsPage/>}/>
               </Route>
+
+              {/* Catch-all → if you hit any other path, send to "/" (which will itself redirect to /login if unauth'd) */}
+              <Route path="*" element={<Navigate to="/" replace/>}/>
             </Routes>
           </main>
-
         </BrowserRouter>
       </ThemeProvider>
     </AuthProvider>
