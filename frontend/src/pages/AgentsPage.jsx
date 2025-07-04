@@ -47,11 +47,11 @@ export default function AgentsPage() {
     { field:'email',    headerName:'Email',   flex:1  },
     { field:'role',     headerName:'Role',    width:110 },
     {
-      field:'standbyFlag', headerName:'Stand-by', width:110,
-      valueGetter: params => {
-      const flag = params.row?.standbyFlag
-      return (flag === true) ? '✅' : '—'
-      }
+      field: 'standbyFlag',
+      headerName: 'Stand-by',
+      width: 110,
+      // just look at the cell value, no row dereferencing
+      renderCell: params => (params.value ? '✅' : '—')
     },
   ]
 
