@@ -7,7 +7,7 @@ export default prisma => {
   // PATCH /api/attendance/:shiftId
   r.patch('/:shiftId', async (req, res, next) => {
     try {
-      const shiftId    = Number(req.params.shiftId)
+      const shiftId = Number(req.params.shiftId)
       const { status, dutyName, lunchStart, lunchEnd } = req.body
 
       // 1️⃣ find or create the duty record (if a name was supplied)
@@ -32,7 +32,7 @@ export default prisma => {
 
       // 3️⃣ upsert on the unique shiftId
       const saved = await prisma.attendanceLog.upsert({
-        where: { shiftId },
+        where:  { shiftId },
         update: data,
         create: {
           shiftId,
@@ -40,14 +40,14 @@ export default prisma => {
         }
       })
 
-      // 4️⃣ audit & return
-      await res.audit(
-        'update_attendance',
-        'AttendanceLog',
-        saved.id,
-        data
-      )
+      // 4️⃣ respond immediately
       res.json(saved)
+
+      // 5️⃣ fire-and-forget the audit (errors logged but won’t block the response)
+      res
+        .audit('update_attendance', 'AttendanceLog', saved.id, data)
+        .catch(err => console.warn('⚠️ audit failed:', err))
+
     } catch (err) {
       next(err)
     }
