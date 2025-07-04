@@ -48,8 +48,11 @@ export default function AgentsPage() {
     { field:'role',     headerName:'Role',    width:110 },
     {
       field:'standbyFlag', headerName:'Stand-by', width:110,
-      valueGetter: ({ row }) => (row.standbyFlag ?? false) ? '✅' : '—'
-    }
+      valueGetter: params => {
+      const flag = params.row?.standbyFlag
+      return (flag === true) ? '✅' : '—'
+      }
+    },
   ]
 
   // Supervisor grid columns
