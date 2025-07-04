@@ -2,7 +2,7 @@
 import { ThemeProvider } from '@mui/material/styles'
 import theme            from './theme'
 import {CssBaseline, Drawer, List, ListItem, ListItemIcon, ListItemText} from '@mui/material'
-import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 
 import DashboardIcon          from '@mui/icons-material/Dashboard'
 import CalendarTodayIcon      from '@mui/icons-material/CalendarToday'
@@ -22,7 +22,9 @@ import ProtectedRoute from './components/ProtectedRoute'
 
 function SideNav() {
   const { user } = useAuth()
-  if (!user) return null
+  const { pathname } = useLocation()
+  if (!user || pathname === '/login') return null
+
   const items = [
     { label: 'Adherence',    path: '/',          icon: <DashboardIcon /> },
     { label: 'Schedule',     path: '/schedule',  icon: <CalendarTodayIcon /> },
