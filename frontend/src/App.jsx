@@ -16,6 +16,7 @@ import VolumePage     from './pages/VolumePage'
 import RosterUpload   from './components/RosterUpload'
 import LoginPage      from './pages/LoginPage'
 import AgentsPage     from './pages/AgentsPage'
+import StaffingPage   from './pages/StaffingPage'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -73,6 +74,7 @@ export default function App() {
                 <Route path="/volume"    element={<VolumePage/>}/>
                 <Route path="/roster"    element={<RosterUpload/>}/>
                 <Route path="/agents"    element={<AgentsPage/>}/>
+                <Route path="/staffing"  element={<StaffingPage />} />
               </Route>
 
               {/* Catch-all → if you hit any other path, send to "/" (which will itself redirect to /login if unauth'd) */}

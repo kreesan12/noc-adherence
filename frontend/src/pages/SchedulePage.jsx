@@ -12,20 +12,32 @@ import {
   TableRow,
   TableCell,
   Typography,
-  TextField
+  TextField,
+  Paper
 } from '@mui/material'
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import {
+  ComposedChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer
+} from 'recharts'
 import api from '../api'
 
 export default function SchedulePage () {
-  const [events, setEvents] = useState([])
-  const [weekStart, setWeekStart] = useState(dayjs().startOf('week'))
-  const [hourlyTotals, setTotals] = useState(
+  const [events,        setEvents]        = useState([])
+  const [weekStart,     setWeekStart]     = useState(dayjs().startOf('week'))
+  const [hourlyTotals,  setHourlyTotals]  = useState(
     Array(7).fill(null).map(() => Array(24).fill(0))
   )
+  const [staffingDate,  setStaffingDate]  = useState(dayjs())         // for staffing report
+  const [staffingData,  setStaffingData]  = useState([])              // {hour, staffedHeads, requiredHeads}
 
-  // semi‐transparent shift colors
+  // Colors for shift‐bars
   const shiftColors = [
     'rgba(33,150,243,0.5)',
     'rgba(76,175,80,0.5)',
@@ -36,127 +48,165 @@ export default function SchedulePage () {
     'rgba(255,87,34,0.5)',
   ]
 
+  // 1) Load schedule & hourlyTotals when weekStart changes
   useEffect(() => {
-    api.get('/schedule', {
-      params: { week: weekStart.format('YYYY-MM-DD') }
+    api.get('/schedule', { params: { week: weekStart.format('YYYY-MM-DD') } })
+      .then(res => {
+        const shifts = res.data
+        // group identical start/end
+        const groups = {}
+        shifts.forEach(s => {
+          const key = `${s.startAt}|${s.endAt}`
+          if (!groups[key]) {
+            const idx = Object.keys(groups).length
+            groups[key] = {
+              start: s.startAt,
+              end:   s.endAt,
+              count: 0,
+              names: [],
+              color: shiftColors[idx % shiftColors.length]
+            }
+          }
+          groups[key].count++
+          groups[key].names.push(s.agent.fullName)
+        })
+        // build calendar events
+        setEvents(Object.values(groups).map(g => ({
+          title: String(g.count),
+          start: g.start,
+          end:   g.end,
+          backgroundColor: g.color,
+          borderColor:     g.color.replace(/0\.5\)$/, '0.8)'),
+          extendedProps: { names: g.names }
+        })))
+        // compute hourly totals per weekday
+        const counts = Array(7).fill(null).map(() => Array(24).fill(0))
+        shifts.forEach(s => {
+          const di = dayjs(s.startAt).diff(weekStart, 'day')
+          const sh = dayjs(s.startAt).hour()
+          const eh = dayjs(s.endAt).hour()
+          for (let h = sh; h < eh; h++) counts[di][h]++
+        })
+        setHourlyTotals(counts)
+      })
+      .catch(console.error)
+  }, [weekStart])
+
+  // 2) Load staffing requirements whenever staffingDate changes
+  useEffect(() => {
+    api.get('/reports/staffing', {
+      params: { date: staffingDate.format('YYYY-MM-DD') }
     })
     .then(res => {
-      const shifts = res.data
-
-      // group identical start/end into buckets
-      const groups = {}
-      shifts.forEach(s => {
-        const key = `${s.startAt}|${s.endAt}`
-        if (!groups[key]) {
-          const idx = Object.keys(groups).length
-          groups[key] = {
-            start: s.startAt,
-            end:   s.endAt,
-            count: 0,
-            names: [],
-            color: shiftColors[idx % shiftColors.length]
-          }
-        }
-        groups[key].count++
-        groups[key].names.push(s.agent.fullName)
-      })
-
-      // calendar events: one bar per bucket
-      setEvents(Object.values(groups).map(g => ({
-        title: String(g.count),
-        start: g.start,
-        end:   g.end,
-        backgroundColor: g.color,
-        borderColor:     g.color.replace(/0\.5\)$/, '0.8)'),
-        extendedProps: { names: g.names }
-      })))
-
-      // compute per‐hour totals
-      const counts = Array(7).fill(null).map(() => Array(24).fill(0))
-      shifts.forEach(s => {
-        const dayIdx = dayjs(s.startAt).diff(weekStart, 'day')
-        const startH = dayjs(s.startAt).hour()
-        const endH   = dayjs(s.endAt).hour()
-        for (let h = startH; h < endH; h++) {
-          counts[dayIdx][h]++
-        }
-      })
-      setTotals(counts)
+      // res.data is [{hour, staffedHeads, requiredHeads}, …]
+      setStaffingData(res.data)
     })
     .catch(console.error)
-  }, [weekStart])
+  }, [staffingDate])
 
   const prevWeek = () => setWeekStart(w => w.subtract(1, 'week'))
   const nextWeek = () => setWeekStart(w => w.add(1, 'week'))
 
   return (
-    <Box sx={{ p:2 }}>
-      {/* header with title + controls */}
-      <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'center', mb:2 }}>
-        <Typography variant="h6">
-          Week of {weekStart.format('MMM D, YYYY')}
-        </Typography>
-        <Box sx={{ display:'flex', alignItems:'center' }}>
-          <Button onClick={prevWeek} variant="outlined" sx={{ mr:1 }}>
-            Prev
-          </Button>
-          <LocalizationProvider dateAdapter={AdapterDayjs}>
+    <LocalizationProvider dateAdapter={AdapterDayjs}>
+      <Box sx={{ p:2 }}>
+        {/* ─── Header ───────────────────────────────────── */}
+        <Box sx={{ display:'flex', justifyContent:'space-between', alignItems:'center', mb:2 }}>
+          <Typography variant="h6">
+            Week of {weekStart.format('MMM D, YYYY')}
+          </Typography>
+          <Box sx={{ display:'flex', alignItems:'center' }}>
+            <Button onClick={prevWeek} variant="outlined" sx={{ mr:1 }}>Prev</Button>
             <DatePicker
               label="Jump to week"
+              views={['day']}
               value={weekStart}
-              onChange={newDate => {
-                if (newDate) setWeekStart(dayjs(newDate).startOf('week'))
-              }}
+              onChange={d => d && setWeekStart(dayjs(d).startOf('week'))}
               renderInput={params => <TextField {...params} size="small" sx={{ mx:1 }} />}
             />
-          </LocalizationProvider>
-          <Button onClick={nextWeek} variant="outlined" sx={{ ml:1 }}>
-            Next
-          </Button>
+            <Button onClick={nextWeek} variant="outlined" sx={{ ml:1 }}>Next</Button>
+          </Box>
         </Box>
-      </Box>
 
-      {/* calendar */}
-      <FullCalendar
-        plugins={[timeGridPlugin]}
-        initialView="timeGridWeek"
-        timeZone="Africa/Johannesburg"
-        headerToolbar={false}       // ← disable the built-in nav header
-        datesSet={arg => setWeekStart(dayjs(arg.start))}
-        events={events}
-        height="auto"
-        eventDidMount={info => {
-          info.el.setAttribute('title', info.event.extendedProps.names.join('\n'))
-        }}
-      />
+        {/* ─── Calendar ─────────────────────────────────── */}
+        <Paper variant="outlined" sx={{ mb:4 }}>
+          <FullCalendar
+            plugins={[timeGridPlugin]}
+            initialView="timeGridWeek"
+            timeZone="Africa/Johannesburg"
+            headerToolbar={false}
+            datesSet={arg => setWeekStart(dayjs(arg.start))}
+            events={events}
+            height="auto"
+            eventDidMount={info =>
+              info.el.setAttribute('title', info.event.extendedProps.names.join('\n'))
+            }
+          />
+        </Paper>
 
-      {/* hourly totals */}
-      <Box sx={{ mt:4, overflowX:'auto' }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Hour</TableCell>
-              {Array.from({ length:7 }).map((_, di) => (
-                <TableCell key={di} align="center">
-                  {weekStart.add(di,'day').format('ddd D')}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {Array.from({ length:24 }).map((_, hour) => (
-              <TableRow key={hour}>
-                <TableCell>{`${hour}:00`}</TableCell>
-                {hourlyTotals.map((dayCounts, di) => (
+        {/* ─── Staffing chart ───────────────────────────── */}
+        <Box sx={{ display:'flex', alignItems:'center', mb:2, gap:2 }}>
+          <Typography variant="h6">Staffing vs Required</Typography>
+          <DatePicker
+            label="Select Day"
+            value={staffingDate}
+            onChange={d => d && setStaffingDate(d)}
+            renderInput={params => <TextField {...params} size="small" />}
+          />
+        </Box>
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={staffingData}>
+            <XAxis dataKey="hour" />
+            <YAxis />
+            <Tooltip />
+            <Bar
+              dataKey="staffedHeads"
+              name="On Shift"
+              fill="#00e676"
+              barSize={20}
+            />
+            <Line
+              type="monotone"
+              dataKey="requiredHeads"
+              name="Required"
+              stroke="#ff1744"
+              dot={false}
+              strokeWidth={2}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+
+        {/* ─── Hourly totals table ───────────────────────── */}
+        <Box sx={{ mt:4, overflowX:'auto' }}>
+          <Typography variant="h6" gutterBottom>
+            Shift Counts by Hour &amp; Day
+          </Typography>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Hour</TableCell>
+                {Array.from({ length:7 }).map((_, di) => (
                   <TableCell key={di} align="center">
-                    {dayCounts[hour]}
+                    {weekStart.add(di,'day').format('ddd D')}
                   </TableCell>
                 ))}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {hourlyTotals[0].map((_, hour) => (
+                <TableRow key={hour}>
+                  <TableCell>{`${hour}:00`}</TableCell>
+                  {hourlyTotals.map((dayCounts, di) => (
+                    <TableCell key={di} align="center">
+                      {dayCounts[hour]}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
       </Box>
-    </Box>
+    </LocalizationProvider>
   )
 }

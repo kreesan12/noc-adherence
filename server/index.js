@@ -16,7 +16,8 @@ import volumeRoutes     from './routes/volume.js'
 import reportRoutes     from './routes/reports.js'
 import agentsRoutes     from './routes/agents.js'
 import attendanceRoutes from './routes/attendance.js'
-import supervisorRoutes  from './routes/supervisors.js'
+import supervisorRoutes from './routes/supervisors.js'
+import erlangRoutes     from './routes/erlang.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -86,6 +87,8 @@ app.use(
   verifyToken, authRole('supervisor'), audit(prisma),
   attendanceRoutes(prisma)
 )
+
+app.use('/api/erlang', verifyToken, authRole('supervisor'), erlangRoutes(prisma))
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
