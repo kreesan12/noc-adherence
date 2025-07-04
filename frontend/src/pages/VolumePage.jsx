@@ -1,5 +1,5 @@
 // frontend/src/pages/VolumePage.jsx
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Papa from 'papaparse'
 import {
   Box,
@@ -9,7 +9,6 @@ import {
   InputLabel,
   FormControl,
   Typography,
-  Paper,
   TextField
 } from '@mui/material'
 import {
@@ -24,27 +23,26 @@ import api from '../api'
 import dayjs from 'dayjs'
 
 export default function VolumePage() {
-  const [roles, setRoles]           = useState([])
-  const [team, setTeam]             = useState('')
-  const [startDate, setStartDate]   = useState(dayjs().subtract(6, 'day'))
-  const [endDate, setEndDate]       = useState(dayjs())
-  const [dailyData, setDailyData]   = useState([])
-  const [hourlyData, setHourlyData] = useState([])
-  const [selectedDate, setSelected] = useState(null)
+  const [roles,        setRoles]        = useState([])
+  const [team,         setTeam]         = useState('')
+  const [startDate,    setStartDate]    = useState(dayjs().subtract(6, 'day'))
+  const [endDate,      setEndDate]      = useState(dayjs())
+  const [dailyData,    setDailyData]    = useState([])
+  const [hourlyData,   setHourlyData]   = useState([])
+  const [selectedDate, setSelectedDate] = useState(null)
 
-  // load roles once
+  // 1️⃣ load roles on mount
   useEffect(() => {
-    api.get('/agents').then(r => {
-      const uniq = [...new Set(r.data.map(a => a.role))]
+    api.get('/agents').then(res => {
+      const uniq = [...new Set(res.data.map(a => a.role))]
       setRoles(uniq)
-      if (uniq[0]) setTeam(uniq[0])
+      if (uniq.length) setTeam(uniq[0])
     })
   }, [])
 
-  // load daily whenever team, startDate or endDate change
-  useEffect(loadDaily, [team, startDate, endDate])
-
-  function loadDaily() {
+  // 2️⃣ define loadDaily *before* using it
+  const loadDaily = useCallback(() => {
+    if (!team) return
     api.get('/reports/volume', {
       params: {
         role:  team,
@@ -52,26 +50,32 @@ export default function VolumePage() {
         end:   endDate  .format('YYYY-MM-DD')
       }
     })
-    .then(r => {
-      setDailyData(r.data)
-      setSelected(null)
+    .then(res => {
+      setDailyData(res.data)
+      setSelectedDate(null)
       setHourlyData([])
     })
     .catch(console.error)
-  }
+  }, [team, startDate, endDate])
 
-  // drill in
-  function onBarClick(bar) {
-    const date = bar.payload.date
-    setSelected(date)
+  // 3️⃣ reload whenever team, startDate or endDate change
+  useEffect(() => {
+    loadDaily()
+  }, [loadDaily])
+
+  // 4️⃣ drill into hourly
+  function onBarClick({ activePayload }) {
+    if (!activePayload || !activePayload.length) return
+    const { date } = activePayload[0].payload
+    setSelectedDate(date)
     api.get('/reports/volume/hourly', {
       params: { role: team, date }
     })
-    .then(r => setHourlyData(r.data))
+    .then(res => setHourlyData(res.data))
     .catch(console.error)
   }
 
-  // common CSV upload handler
+  // 5️⃣ CSV upload handler
   const handleUpload = (file, endpoint) => {
     Papa.parse(file, {
       header: true,
@@ -81,7 +85,7 @@ export default function VolumePage() {
           date:    row.date,
           hour:    Number(row.hour),
           calls:   Number(row.calls),
-          tickets: Number(row.tickets),
+          tickets: Number(row.tickets)
         }))
         await api.post(`/volume/${endpoint}`, { role: team, data: payload })
         loadDaily()
@@ -94,7 +98,7 @@ export default function VolumePage() {
       <Box sx={{ p:3 }}>
         <Typography variant="h4" gutterBottom>Volume Dashboard</Typography>
 
-        {/* top controls */}
+        {/* Controls */}
         <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4 }}>
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
@@ -122,20 +126,14 @@ export default function VolumePage() {
             renderInput={params => <TextField {...params} size="small" />}
           />
 
-          <Button
-            variant="outlined"
-            component="label"
-          >
+          <Button variant="outlined" component="label">
             Upload Forecast
             <input
               type="file" hidden accept=".csv"
               onChange={e => handleUpload(e.target.files[0], 'forecast')}
             />
           </Button>
-          <Button
-            variant="outlined"
-            component="label"
-          >
+          <Button variant="outlined" component="label">
             Upload Actual
             <input
               type="file" hidden accept=".csv"
@@ -144,7 +142,7 @@ export default function VolumePage() {
           </Button>
         </Box>
 
-        {/* daily bar chart */}
+        {/* Daily Chart */}
         <Typography variant="h6" gutterBottom>Daily Volume</Typography>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart
@@ -159,7 +157,7 @@ export default function VolumePage() {
           </BarChart>
         </ResponsiveContainer>
 
-        {/* hourly drill-down */}
+        {/* Hourly Drilldown */}
         {selectedDate && (
           <>
             <Typography variant="h6" sx={{ mt:4 }}>
