@@ -64,12 +64,13 @@ export default function VolumePage() {
 
   // load daily
   const loadDaily = () => {
-    api.get('/reports/volume', { params: { role: forecastRole } })
-       .then(r => {
-         setDailyData(r.data)
-         setSelectedDate(null)
-         setHourlyData([])
-       })
+    api.get('/reports/volume', {
+      params: {
+        role:  forecastRole,
+        start: dayjs(startDate).format('YYYY-MM-DD'),
+        end:   dayjs(endDate  ).format('YYYY-MM-DD')
+      }
+    })
   }
   useEffect(loadDaily, [forecastRole])
 
