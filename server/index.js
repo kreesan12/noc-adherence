@@ -29,6 +29,13 @@ app.use(cors({
 app.use(express.json())
 app.use(morgan('dev'))
 
+app.options('*',
+  cors({
+    origin: process.env.CLIENT_ORIGIN,
+    credentials: true
+  })
+)
+
 /* ---------- Public auth routes (/api/login, /api/me) ---------- */
 const authRoutes = authRoutesFactory(prisma)
 app.use('/api', authRoutes)
