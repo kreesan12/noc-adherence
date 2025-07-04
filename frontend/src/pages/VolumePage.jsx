@@ -12,7 +12,8 @@ import {
   TextField
 } from '@mui/material'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, Legend
 } from 'recharts'
 import {
   LocalizationProvider,
@@ -53,20 +54,27 @@ export default function VolumePage() {
     .then(res => {
       setDailyData(res.data)
       setSelectedDate(null)
-      setHourlyData([])
+      setHourlyData(new Array(24).fill({ hour: 0, forecastCalls:0, actualCalls:0 }))
     })
     .catch(console.error)
   }, [team, startDate, endDate])
 
   // 3️⃣ drill into hourly when clicking a bar
-  function onBarClick(bar, type) {
-    // bar is the payload object passed by recharts
-    const { date } = bar.payload
+  function onBarClick({ activePayload }) {
+    if (!activePayload?.length) return
+    const { date } = activePayload[0].payload
     setSelectedDate(date)
     api.get('/reports/volume/hourly', {
       params: { role: team, date }
     })
-    .then(res => setHourlyData(res.data))
+    .then(res => {
+      // ensure we have an entry for every hour 0–23
+      const filled = Array.from({ length: 24 }, (_, h) => {
+        const entry = res.data.find(e => e.hour === h)
+        return entry || { hour: h, forecastCalls: 0, actualCalls: 0 }
+      })
+      setHourlyData(filled)
+    })
     .catch(console.error)
   }
 
@@ -146,10 +154,15 @@ export default function VolumePage() {
         {/* Daily Chart */}
         <Typography variant="h6" gutterBottom>Daily Volume</Typography>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={dailyData}>
+          <BarChart
+            data={dailyData}
+            margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis />
             <Tooltip />
+            <Legend />
             <Bar
               dataKey="forecastCalls"
               name="Forecast"
@@ -172,10 +185,20 @@ export default function VolumePage() {
               Hourly Detail for {dayjs(selectedDate).format('YYYY-MM-DD')}
             </Typography>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={hourlyData}>
-                <XAxis dataKey="hour" />
+              <BarChart
+                data={hourlyData}
+                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="hour"
+                  type="number"
+                  domain={[0, 23]}
+                  tickFormatter={h => `${h}:00`}
+                />
                 <YAxis />
-                <Tooltip />
+                <Tooltip formatter={val => val} labelFormatter={hour => `${hour}:00`} />
+                <Legend />
                 <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" />
                 <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" />
               </BarChart>
