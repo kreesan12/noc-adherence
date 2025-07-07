@@ -106,7 +106,7 @@ export async function computeDayStaffing({
     })
 
     return {
-      hour,
+      hour:           h,
       calls,
       tickets,
       requiredAgents: callAgents + ticketAgents
