@@ -1,11 +1,11 @@
 // server/routes/erlang.js
 import { Router } from 'express'
 import dayjs from 'dayjs'
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'   // ← import the plugin
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'
 import { requiredAgents, computeDayStaffing } from '../utils/erlang.js'
-import { assignRotationalShifts, autoAssignRotations } from '../utils/scheduler.js'
+import { autoAssignRotations } from '../utils/scheduler.js'
 
-dayjs.extend(isSameOrBefore)                              // ← activate it
+dayjs.extend(isSameOrBefore)
 
 export default prisma => {
   const r = Router()
@@ -24,8 +24,8 @@ export default prisma => {
       const agents = requiredAgents({
         callsPerHour,
         ahtSeconds,
-        targetServiceLevel:     serviceLevel,
-        serviceThresholdSeconds: thresholdSeconds,
+        targetServiceLevel:       serviceLevel,
+        serviceThresholdSeconds:  thresholdSeconds,
         shrinkage
       })
 
@@ -49,7 +49,7 @@ export default prisma => {
       } = req.body
 
       const start = dayjs(date).startOf('day').toDate()
-      const end   = dayjs(date).endOf('day')  .toDate()
+      const end   = dayjs(date).endOf('day').toDate()
 
       const actuals = await prisma.volumeActual.findMany({
         where: { role, date: { gte: start, lte: end } }
@@ -57,23 +57,23 @@ export default prisma => {
 
       const hours = Array.from({ length: 24 }, (_, h) => {
         const slice   = actuals.filter(a => a.hour === h)
-        const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
+        const calls   = slice.reduce((sum, a) => sum + a.calls, 0)
         const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
         return { hour: h, calls, tickets }
       })
 
       const staffing = hours.map(({ hour, calls, tickets }) => {
-        const callAgents   = requiredAgents({
-          callsPerHour:          calls,
-          ahtSeconds:            callAhtSeconds,
-          targetServiceLevel:    serviceLevel,
+        const callAgents = requiredAgents({
+          callsPerHour:            calls,
+          ahtSeconds:              callAhtSeconds,
+          targetServiceLevel:      serviceLevel,
           serviceThresholdSeconds: thresholdSeconds,
           shrinkage
         })
         const ticketAgents = requiredAgents({
-          callsPerHour:          tickets,
-          ahtSeconds:            ticketAhtSeconds,
-          targetServiceLevel:    serviceLevel,
+          callsPerHour:            tickets,
+          ahtSeconds:              ticketAhtSeconds,
+          targetServiceLevel:      serviceLevel,
           serviceThresholdSeconds: thresholdSeconds,
           shrinkage
         })
@@ -96,7 +96,8 @@ export default prisma => {
     try {
       const {
         role,
-        start, end,
+        start,
+        end,
         callAhtSeconds,
         ticketAhtSeconds,
         serviceLevel,
@@ -106,8 +107,6 @@ export default prisma => {
 
       const days = []
       let cursor = dayjs(start)
-
-      // now isSameOrBefore works as expected
       while (cursor.isSameOrBefore(dayjs(end))) {
         const date     = cursor.format('YYYY-MM-DD')
         const staffing = await computeDayStaffing({
@@ -130,12 +129,20 @@ export default prisma => {
     }
   })
 
-  // ─── 4) Shift-schedule generator ─────────────────────────────────
+  // ─── 4) Shift-schedule generator using auto-assign rotations ──────
   r.post('/staff/schedule', (req, res, next) => {
     try {
-      const { staffing, shiftLength = 8 } = req.body
-      const shifts = autoAssignRotations(staffing, shiftLength)
-      res.json(shifts)
+      const { forecast, weeks = 3, shiftLength = 8, topN = 5 } = req.body
+      if (!Array.isArray(forecast) || forecast.length === 0) {
+        return res.status(400).json({ error: 'Missing or empty `forecast`' })
+      }
+
+      const { bestStartHours, solution } = autoAssignRotations(
+        forecast,
+        { weeks, shiftLength, topN }
+      )
+
+      res.json({ bestStartHours, solution })
     } catch (err) {
       next(err)
     }
