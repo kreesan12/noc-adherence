@@ -1,7 +1,7 @@
 // server/routes/erlang.js
 import { Router } from 'express'
 import dayjs from 'dayjs'
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'   // ← import the plugin
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'   // ← import the plugin
 import { requiredAgents, computeDayStaffing } from '../utils/erlang.js'
 import { generateShifts } from '../utils/scheduler.js'
 
