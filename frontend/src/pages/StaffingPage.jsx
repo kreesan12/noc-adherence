@@ -1,23 +1,12 @@
 // frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState } from 'react'
 import {
-  Box,
-  TextField,
-  Button,
-  Typography,
-  MenuItem,
-  Select,
-  InputLabel,
-  FormControl,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell
+  Box, TextField, Button, Typography,
+  MenuItem, Select, InputLabel, FormControl,
+  Table, TableHead, TableBody, TableRow, TableCell
 } from '@mui/material'
 import {
-  LocalizationProvider,
-  DatePicker
+  LocalizationProvider, DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import api from '../api'
@@ -34,9 +23,12 @@ export default function StaffingPage() {
   const [threshold, setThreshold] = useState(20)
   const [shrinkage, setShrinkage] = useState(0.3)
 
+  // forecast: [{ date, staffing: [{ hour, requiredAgents }] }]
   const [forecast, setForecast]   = useState([])
+  // employees: [{ id, shifts:[{date,startHour,length}], totalHours }]
   const [employees, setEmployees] = useState([])
 
+  // 1️⃣ load roles once
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -45,12 +37,13 @@ export default function StaffingPage() {
     })
   }, [])
 
+  // 2️⃣ calculate multi-day forecast
   const calcForecast = async () => {
     try {
       const params = {
         role: team,
         start: startDate.format('YYYY-MM-DD'),
-        end:   endDate.format('YYYY-MM-DD'),
+        end:   endDate  .format('YYYY-MM-DD'),
         callAhtSeconds:   callAht,
         ticketAhtSeconds: ticketAht,
         serviceLevel:     sl,
@@ -58,87 +51,99 @@ export default function StaffingPage() {
         shrinkage
       }
       const res = await api.post('/erlang/staff/bulk-range', params)
-      console.log('Forecast:', res.data)
       setForecast(res.data)
       setEmployees([])
     } catch (err) {
-      console.error('Error fetching forecast', err)
-      alert(`Failed to get forecast: ${err.message}`)
+      console.error(err)
+      alert('Forecast failed: ' + err.message)
     }
   }
 
-  const assignToStaff = async () => {
-    console.log('🔔 assignToStaff() running…');
+  // 3️⃣ assign sliding 5-day blocks
+  const assignToStaff = () => {
     if (!forecast.length) {
       alert('Please calculate a forecast first.')
       return
     }
-    try {
-      console.log('Building daily blocks…')
-      const allBlocks = []
-      // for each day, fetch that day's shift‐blocks
-      for (const day of forecast) {
-        const resp = await api.post('/erlang/staff/schedule', {
-          staffing: day.staffing.map(h => ({
-            hour:           h.hour,
-            requiredAgents: h.requiredAgents
-          })),
-          shiftLength: 9
-        })
-        console.log(`Day ${day.date} blocks:`, resp.data)
-        resp.data.forEach(s => {
-          allBlocks.push({
-            date:      day.date,
-            startHour: s.startHour,
-            length:    s.length
-          })
-        })
-      }
 
-      console.log('Sending to /schedule/assign:', allBlocks.length, 'blocks')
-      const out = await api.post('/schedule/assign', { shiftBlocks: allBlocks })
-      console.log('Assign result:', out.data)
-      setEmployees(out.data)
-    } catch (err) {
-      console.error('Error assigning to staff', err)
-      alert(`Failed to assign shifts: ${err.message}`)
+    const dates = forecast.map(d => d.date)
+    const N     = dates.length
+    const emps  = []
+    let   id    = 1
+
+    // slide a full 5-day window, starting each day until there aren't 5 days left
+    for (let i = 0; i + 5 <= N; i++) {
+      const win = dates.slice(i, i + 5)  // e.g. ['2025-07-01',…,'2025-07-05']
+      // for each hour 0–23
+      for (let h = 0; h < 24; h++) {
+        // how many agents needed = max requiredAgents across those 5 days
+        const needed = Math.max(
+          ...win.map(date => {
+            const day = forecast.find(d => d.date === date)
+            return day.staffing.find(s => s.hour === h).requiredAgents
+          })
+        )
+        // spin up `needed` employees for that block
+        for (let k = 0; k < needed; k++) {
+          const shifts = win.map(date => ({
+            date,
+            startHour: h,
+            length:    9    // fixed 9-hour shift (incl. 1h lunch)
+          }))
+          emps.push({
+            id,
+            shifts,
+            totalHours: shifts.length * 9
+          })
+          id++
+        }
+      }
     }
+
+    setEmployees(emps)
   }
 
+  // heatmap helpers
   const maxReq = forecast.length
-    ? Math.max(...forecast.flatMap(d => d.staffing.map(h => h.requiredAgents)))
+    ? Math.max(...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents)))
     : 0
 
-  // build a coverage map once we have employees
+  // build scheduled coverage map
   const coverageMap = {}
   if (forecast.length && employees.length) {
     forecast.forEach(d => {
       coverageMap[d.date] = Array(24).fill(0)
     })
-    employees.forEach(emp => {
+    employees.forEach(emp =>
       emp.shifts.forEach(({ date, startHour, length }) => {
         const row = coverageMap[date]
         for (let h = startHour; h < startHour + length; h++) {
           if (row[h] != null) row[h]++
         }
       })
-    })
+    )
   }
   const maxCov = Math.max(0, ...Object.values(coverageMap).flat())
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ p:3 }}>
-        <Typography variant="h4" gutterBottom>Staffing Forecast & Scheduling</Typography>
+        <Typography variant="h4" gutterBottom>
+          Staffing Forecast & Scheduling
+        </Typography>
 
+        {/* Controls */}
         <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
-            <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
+            <Select
+              value={team}
+              label="Team"
+              onChange={e => setTeam(e.target.value)}
+            >
               {roles.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
             </Select>
           </FormControl>
-
           <DatePicker
             label="Start Date"
             value={startDate}
@@ -183,23 +188,19 @@ export default function StaffingPage() {
           </Button>
           <Button
             variant="contained"
-            onClick={() => {
-              console.log('🔔 Assign to Staff clicked — forecast.length=', forecast.length);
-              if (forecast.length === 0) {
-                alert('Please calculate a forecast first.');
-                return;
-              }
-              assignToStaff();
-            }}
+            onClick={assignToStaff}
+            sx={{ ml:1 }}
           >
             Assign to Staff
           </Button>
         </Box>
 
-        {/* Required heatmap */}
+        {/* Required Agents Heatmap */}
         {forecast.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
-            <Typography variant="h6" gutterBottom>Required Agents Heatmap</Typography>
+            <Typography variant="h6" gutterBottom>
+              Required Agents Heatmap
+            </Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -212,8 +213,8 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const req = d.staffing.find(x => x.hour === h)?.requiredAgents || 0
-                      const alpha = maxReq ? req / maxReq * 0.8 + 0.2 : 0.2
+                      const req = d.staffing.find(s => s.hour === h)?.requiredAgents || 0
+                      const alpha = maxReq ? (req/maxReq)*0.8 + 0.2 : 0.2
                       return (
                         <TableCell
                           key={d.date}
@@ -230,10 +231,12 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* Coverage heatmap */}
+        {/* Scheduled Coverage Heatmap */}
         {employees.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
-            <Typography variant="h6" gutterBottom>Scheduled Coverage Heatmap</Typography>
+            <Typography variant="h6" gutterBottom>
+              Scheduled Coverage Heatmap
+            </Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -249,7 +252,7 @@ export default function StaffingPage() {
                     <TableCell>{h}:00</TableCell>
                     {Object.values(coverageMap).map((row, i) => {
                       const cov = row[h] || 0
-                      const alpha = maxCov ? cov / maxCov * 0.8 + 0.2 : 0.2
+                      const alpha = maxCov ? (cov/maxCov)*0.8 + 0.2 : 0.2
                       return (
                         <TableCell
                           key={i}
@@ -266,14 +269,16 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* Final schedules */}
+        {/* Final Assigned Schedules */}
         {employees.length > 0 && (
           <Box sx={{ mt:4 }}>
-            <Typography variant="h6" gutterBottom>Assigned Staff Schedules</Typography>
+            <Typography variant="h6" gutterBottom>
+              Assigned Staff Schedules
+            </Typography>
             {employees.map(emp => (
               <Box key={emp.id} sx={{ mb:2, p:2, border:'1px solid #ccc' }}>
                 <Typography variant="subtitle1">
-                  Employee {emp.id} (Total Hours: {emp.totalHours})
+                  Employee {emp.id} — {emp.totalHours} hrs total
                 </Typography>
                 <Table size="small">
                   <TableHead>
