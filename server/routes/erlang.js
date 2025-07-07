@@ -35,7 +35,7 @@ export default prisma => {
     }
   })
 
-  // ─── 2) One-day bulk staffing ──────────────────────────────────────
+  // ─── 2) One-day bulk staffing ─────────────────────────────────────
   r.post('/staff/bulk', async (req, res, next) => {
     try {
       const {
@@ -57,24 +57,24 @@ export default prisma => {
 
       const hours = Array.from({ length: 24 }, (_, h) => {
         const slice   = actuals.filter(a => a.hour === h)
-        const calls   = slice.reduce((sum, a) => sum + a.calls, 0)
+        const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
         const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
         return { hour: h, calls, tickets }
       })
 
       const staffing = hours.map(({ hour, calls, tickets }) => {
-        const callAgents = requiredAgents({
-          callsPerHour:            calls,
-          ahtSeconds:              callAhtSeconds,
-          targetServiceLevel:      serviceLevel,
-          serviceThresholdSeconds: thresholdSeconds,
+        const callAgents   = requiredAgents({
+          callsPerHour:             calls,
+          ahtSeconds:               callAhtSeconds,
+          targetServiceLevel:       serviceLevel,
+          serviceThresholdSeconds:  thresholdSeconds,
           shrinkage
         })
         const ticketAgents = requiredAgents({
-          callsPerHour:            tickets,
-          ahtSeconds:              ticketAhtSeconds,
-          targetServiceLevel:      serviceLevel,
-          serviceThresholdSeconds: thresholdSeconds,
+          callsPerHour:             tickets,
+          ahtSeconds:               ticketAhtSeconds,
+          targetServiceLevel:       serviceLevel,
+          serviceThresholdSeconds:  thresholdSeconds,
           shrinkage
         })
         return {
@@ -96,8 +96,7 @@ export default prisma => {
     try {
       const {
         role,
-        start,
-        end,
+        start, end,
         callAhtSeconds,
         ticketAhtSeconds,
         serviceLevel,
@@ -129,12 +128,20 @@ export default prisma => {
     }
   })
 
-  // ─── 4) Shift-schedule generator using auto-assign rotations ──────
+  // ─── 4) Shift-schedule generator ─────────────────────────────────
   r.post('/staff/schedule', (req, res, next) => {
     try {
-      const { forecast, weeks = 3, shiftLength = 8, topN = 5 } = req.body
-      if (!Array.isArray(forecast) || forecast.length === 0) {
-        return res.status(400).json({ error: 'Missing or empty `forecast`' })
+      const {
+        staffing: forecast,
+        weeks       = 3,
+        shiftLength = 9,
+        topN        = 5
+      } = req.body
+
+      if (!Array.isArray(forecast) || !forecast.length) {
+        return res
+          .status(400)
+          .json({ error: 'Missing or empty `staffing` in request body' })
       }
 
       const { bestStartHours, solution } = autoAssignRotations(

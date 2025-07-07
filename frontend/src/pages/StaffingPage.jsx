@@ -12,23 +12,21 @@ import api from '../api'
 import dayjs from 'dayjs'
 
 export default function StaffingPage() {
-  const [roles, setRoles]         = useState([])
-  const [team, setTeam]           = useState('')
-  const [startDate, setStartDate] = useState(dayjs())
-  const [endDate, setEndDate]     = useState(dayjs())
-  const [callAht, setCallAht]     = useState(300)
-  const [ticketAht, setTicketAht] = useState(600)
-  const [sl, setSL]               = useState(0.8)
-  const [threshold, setThreshold] = useState(20)
-  const [shrinkage, setShrinkage] = useState(0.3)
+  const [roles, setRoles]             = useState([])
+  const [team, setTeam]               = useState('')
+  const [startDate, setStartDate]     = useState(dayjs())
+  // call/ticket AHT, SL params
+  const [callAht, setCallAht]         = useState(300)
+  const [ticketAht, setTicketAht]     = useState(600)
+  const [sl, setSL]                   = useState(0.8)
+  const [threshold, setThreshold]     = useState(20)
+  const [shrinkage, setShrinkage]     = useState(0.3)
 
-  // demand heatmap
-  const [forecast, setForecast] = useState([])
+  const [forecast, setForecast]       = useState([]) // array of {date, staffing}
+  const [blocks, setBlocks]           = useState([]) // returned solution
+  const [bestStartHours, setBestStart] = useState([])
 
-  // solution blocks: array of { startDate, startHour, length, count }
-  const [blocks, setBlocks]     = useState([])
-
-  // load roles
+  // load agent roles
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -37,12 +35,16 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // 1) forecast demand
+  // 1) Calculate a 3-week forecast automatically
   const calcForecast = async () => {
+    // enforce 3 full weeks
+    const start = startDate.format('YYYY-MM-DD')
+    const end   = startDate.add(3, 'week').subtract(1, 'day').format('YYYY-MM-DD')
+
     const res = await api.post('/erlang/staff/bulk-range', {
       role:             team,
-      start:            startDate.format('YYYY-MM-DD'),
-      end:              endDate.format('YYYY-MM-DD'),
+      start,
+      end,
       callAhtSeconds:   callAht,
       ticketAhtSeconds: ticketAht,
       serviceLevel:     sl,
@@ -51,41 +53,51 @@ export default function StaffingPage() {
     })
     setForecast(res.data)
     setBlocks([])
+    setBestStart([])
   }
 
-  // 2) assign using 3-week rotation auto-assign
+  // 2) Auto-assign 3-week rotations
   const assignToStaff = async () => {
     if (!forecast.length) {
       alert('Run Forecast first')
       return
     }
-    const res = await api.post('/schedule/auto-assign', {
-      forecast,
-      weeks:       3,
+    const res = await api.post('/erlang/staff/schedule', {
+      staffing:   forecast,
+      weeks:      3,
       shiftLength: 9,
-      topN:        5
+      topN:       5
     })
-    const { solution, bestStartHours } = res.data
-    setBlocks(solution)
-    console.log('Recommended start hours:', bestStartHours)
+    setBestStart(res.data.bestStartHours)
+    setBlocks(res.data.solution)
   }
 
-  // build scheduled coverage map
+  // helper: get the 5 workdays per week over n weeks
+  function getWorkDates(start, weeks) {
+    const dates = []
+    for (let w = 0; w < weeks; w++) {
+      const base = dayjs(start).add(w * 7, 'day')
+      for (let d = 0; d < 5; d++) {
+        dates.push(base.add(d, 'day').format('YYYY-MM-DD'))
+      }
+    }
+    return dates
+  }
+
+  // build coverage and deficit maps
   const scheduled = {}
+  const deficit   = {}
+  // populate scheduled from blocks
   blocks.forEach(b => {
-    const days = Array.from({ length: 5 }, (_, i) =>
-      dayjs(b.startDate).add(i, 'day').format('YYYY-MM-DD')
-    )
-    days.forEach(d => {
+    const workDates = getWorkDates(b.startDate, 3)
+    workDates.forEach(date => {
       for (let h = b.startHour; h < b.startHour + b.length; h++) {
-        const key = `${d}|${h}`
+        const key = `${date}|${h}`
         scheduled[key] = (scheduled[key] || 0) + b.count
       }
     })
   })
-
-  // build deficit map (assigned - required)
-  const deficit = {}
+  // compute deficit = assigned – required
   forecast.forEach(day => {
     day.staffing.forEach(({ hour, requiredAgents }) => {
       const key = `${day.date}|${hour}`
@@ -94,20 +106,15 @@ export default function StaffingPage() {
     })
   })
 
-  // calculate scales for heatmaps
-  const maxReq = Math.max(
-    0,
-    ...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents))
+  // heatmap scales
+  const maxReq  = Math.max(
+    0, ...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents))
   )
-  const maxSch = Math.max(
-    0,
-    ...forecast.flatMap(d => {
-      const key = `${d.date}|${d.staffing[0]?.hour}`
-      return d.staffing.map(s => scheduled[`${d.date}|${s.hour}`] || 0)
-    })
+  const maxSch  = Math.max(
+    0, ...forecast.flatMap(d => scheduled[`${d.date}|${d.staffing[0]?.hour}`] || 0)
   )
-  const maxAbsDef = Math.max(
-    ...Object.values(deficit).map(v => Math.abs(v)), 0
+  const maxDef  = Math.max(
+    0, ...Object.values(deficit).map(v => Math.abs(v))
   )
 
   return (
@@ -133,15 +140,9 @@ export default function StaffingPage() {
           </FormControl>
 
           <DatePicker
-            label="Start Date"
+            label="Forecast Start"
             value={startDate}
             onChange={d => d && setStartDate(d)}
-            renderInput={params => <TextField {...params} size="small" />}
-          />
-          <DatePicker
-            label="End Date"
-            value={endDate}
-            onChange={d => d && setEndDate(d)}
             renderInput={params => <TextField {...params} size="small" />}
           />
 
@@ -150,30 +151,35 @@ export default function StaffingPage() {
             type="number"
             value={callAht}
             onChange={e => setCallAht(+e.target.value)}
+            size="small"
           />
           <TextField
             label="Ticket AHT (sec)"
             type="number"
             value={ticketAht}
             onChange={e => setTicketAht(+e.target.value)}
+            size="small"
           />
           <TextField
             label="Service Level %"
             type="number"
-            value={sl*100}
-            onChange={e => setSL(+e.target.value/100)}
+            value={sl * 100}
+            onChange={e => setSL(+e.target.value / 100)}
+            size="small"
           />
           <TextField
             label="Threshold (sec)"
             type="number"
             value={threshold}
             onChange={e => setThreshold(+e.target.value)}
+            size="small"
           />
           <TextField
             label="Shrinkage %"
             type="number"
-            value={shrinkage*100}
-            onChange={e => setShrinkage(+e.target.value/100)}
+            value={shrinkage * 100}
+            onChange={e => setShrinkage(+e.target.value / 100)}
+            size="small"
           />
 
           <Button variant="contained" onClick={calcForecast}>
@@ -207,12 +213,14 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const req = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
-                      const alpha = maxReq ? (req/maxReq)*0.8+0.2 : 0.2
+                      const req = d.staffing.find(s => s.hour === h)?.requiredAgents || 0
+                      const alpha = maxReq
+                        ? (req / maxReq) * 0.8 + 0.2
+                        : 0.2
                       return (
                         <TableCell
                           key={d.date}
-                          sx={{ backgroundColor:`rgba(33,150,243,${alpha})` }}
+                          sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}
                         >
                           {req}
                         </TableCell>
@@ -243,12 +251,14 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const cov = scheduled[`${d.date}|${h}`]||0
-                      const alpha = maxSch ? (cov/maxSch)*0.8+0.2 : 0.2
+                      const cov = scheduled[`${d.date}|${h}`] || 0
+                      const alpha = maxSch
+                        ? (cov / maxSch) * 0.8 + 0.2
+                        : 0.2
                       return (
                         <TableCell
                           key={d.date}
-                          sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}
+                          sx={{ backgroundColor: `rgba(76,175,80,${alpha})` }}
                         >
                           {cov}
                         </TableCell>
@@ -261,10 +271,10 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* Deficit Heatmap (Assigned - Required) */}
+        {/* Deficit Heatmap */}
         {blocks.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
-            <Typography variant="h6">Deficit Heatmap (Assigned - Required)</Typography>
+            <Typography variant="h6">Deficit Heatmap (Assigned − Required)</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -279,14 +289,14 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const key = `${d.date}|${h}`
-                      const diff = deficit[key] || 0
-                      const alpha = maxAbsDef
-                        ? (Math.abs(diff)/maxAbsDef)*0.8 + 0.2
+                      const diff = deficit[`${d.date}|${h}`] || 0
+                      const absDiff = Math.abs(diff)
+                      const alpha = maxDef
+                        ? (absDiff / maxDef) * 0.8 + 0.2
                         : 0.2
                       const bg = diff >= 0
-                        ? `rgba(76,175,80,${alpha})`  // green for surplus
-                        : `rgba(244,67,54,${alpha})`  // red for deficit
+                        ? `rgba(76,175,80,${alpha})`
+                        : `rgba(244,67,54,${alpha})`
                       return (
                         <TableCell
                           key={d.date}
@@ -313,17 +323,17 @@ export default function StaffingPage() {
                   <TableCell>#</TableCell>
                   <TableCell>Start Date</TableCell>
                   <TableCell>Start Hour</TableCell>
-                  <TableCell>Length</TableCell>
+                  <TableCell>Length (h)</TableCell>
                   <TableCell>Count</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {blocks.map((b,i) => (
+                {blocks.map((b, i) => (
                   <TableRow key={i}>
-                    <TableCell>{i+1}</TableCell>
+                    <TableCell>{i + 1}</TableCell>
                     <TableCell>{b.startDate}</TableCell>
                     <TableCell>{b.startHour}:00</TableCell>
-                    <TableCell>{b.length}h</TableCell>
+                    <TableCell>{b.length}</TableCell>
                     <TableCell>{b.count}</TableCell>
                   </TableRow>
                 ))}
