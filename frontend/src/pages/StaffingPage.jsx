@@ -259,3 +259,18 @@ function CalendarView({ scheduleByEmp }) {
                 {allDates.map(d=>(
                   <TableCell 
                     key={d}
+                    sx={{
+                      backgroundColor: set.has(d)? color+'33' : undefined
+                    }}
+                  >
+                    {set.has(d) ? '●' : ''}
+                  </TableCell>
+                ))}
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </Box>
+  )
+}
