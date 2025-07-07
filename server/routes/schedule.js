@@ -1,7 +1,8 @@
 // server/routes/schedule.js
 import { Router } from 'express'
 import dayjs from 'dayjs'                    // ← make sure dayjs is imported
-import { assignShifts } from '../utils/scheduler.js'
+import { autoAssignRotations } from '../utils/scheduler.js'
+
 
 export default prisma => {
   const r = Router()
@@ -78,6 +79,22 @@ export default prisma => {
       next(err)
     }
   })
+
+  r.post('/auto-assign', (req, res, next) => {
+  try {
+    const { forecast, weeks = 3, shiftLength = 9, topN = 5 } = req.body
+    if (!Array.isArray(forecast) || forecast.length === 0) {
+      return res.status(400).json({ error: 'Missing or empty `forecast`' })
+    }
+    const { bestStartHours, solution } = autoAssignRotations(
+      forecast,
+      { weeks, shiftLength, topN }
+    )
+    return res.json({ bestStartHours, solution })
+  } catch (err) {
+    next(err)
+  }
+})
 
 
   return r

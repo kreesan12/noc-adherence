@@ -1,4 +1,3 @@
-// frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState } from 'react'
 import {
   Box, TextField, Button, Typography,
@@ -41,31 +40,34 @@ export default function StaffingPage() {
   // 1) forecast demand
   const calcForecast = async () => {
     const res = await api.post('/erlang/staff/bulk-range', {
-      role:               team,
-      start:              startDate.format('YYYY-MM-DD'),
-      end:                endDate  .format('YYYY-MM-DD'),
-      callAhtSeconds:     callAht,
-      ticketAhtSeconds:   ticketAht,
-      serviceLevel:       sl,
-      thresholdSeconds:   threshold,
+      role:             team,
+      start:            startDate.format('YYYY-MM-DD'),
+      end:              endDate.format('YYYY-MM-DD'),
+      callAhtSeconds:   callAht,
+      ticketAhtSeconds: ticketAht,
+      serviceLevel:     sl,
+      thresholdSeconds: threshold,
       shrinkage
     })
     setForecast(res.data)
     setBlocks([])
   }
 
-  // 2) assign minimal shift-block types
+  // 2) assign minimal shift-block types using 3-week rotation auto-assign
   const assignToStaff = async () => {
     if (!forecast.length) {
       alert('Run Forecast first')
       return
     }
-    const res = await api.post('/schedule/assign', {
+    const res = await api.post('/schedule/auto-assign', {
       forecast,
-      windowDays: 5,
-      shiftLength: 9
+      weeks:       3,
+      shiftLength: 9,
+      topN:        5
     })
-    setBlocks(res.data)
+    const { solution, bestStartHours } = res.data
+    setBlocks(solution)
+    console.log('Recommended start hours:', bestStartHours)
   }
 
   // build scheduled coverage map
