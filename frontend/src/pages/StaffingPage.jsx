@@ -25,7 +25,7 @@ export default function StaffingPage() {
   // demand heatmap
   const [forecast, setForecast] = useState([])
 
-  // array of { startDate, startHour, length, count }
+  // solution blocks: array of { startDate, startHour, length, count }
   const [blocks, setBlocks]     = useState([])
 
   // load roles
@@ -53,7 +53,7 @@ export default function StaffingPage() {
     setBlocks([])
   }
 
-  // 2) assign minimal shift-block types using 3-week rotation auto-assign
+  // 2) assign using 3-week rotation auto-assign
   const assignToStaff = async () => {
     if (!forecast.length) {
       alert('Run Forecast first')
@@ -84,14 +84,30 @@ export default function StaffingPage() {
     })
   })
 
-  // heatmap scales
+  // build deficit map (assigned - required)
+  const deficit = {}
+  forecast.forEach(day => {
+    day.staffing.forEach(({ hour, requiredAgents }) => {
+      const key = `${day.date}|${hour}`
+      const got = scheduled[key] || 0
+      deficit[key] = got - requiredAgents
+    })
+  })
+
+  // calculate scales for heatmaps
   const maxReq = Math.max(
     0,
     ...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents))
   )
   const maxSch = Math.max(
     0,
-    ...forecast.flatMap(d => d.staffing.map(s => scheduled[`${d.date}|${s.hour}`]||0))
+    ...forecast.flatMap(d => {
+      const key = `${d.date}|${d.staffing[0]?.hour}`
+      return d.staffing.map(s => scheduled[`${d.date}|${s.hour}`] || 0)
+    })
+  )
+  const maxAbsDef = Math.max(
+    ...Object.values(deficit).map(v => Math.abs(v)), 0
   )
 
   return (
@@ -235,6 +251,48 @@ export default function StaffingPage() {
                           sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}
                         >
                           {cov}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* Deficit Heatmap (Assigned - Required) */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Deficit Heatmap (Assigned - Required)</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d =>
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  )}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length:24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const key = `${d.date}|${h}`
+                      const diff = deficit[key] || 0
+                      const alpha = maxAbsDef
+                        ? (Math.abs(diff)/maxAbsDef)*0.8 + 0.2
+                        : 0.2
+                      const bg = diff >= 0
+                        ? `rgba(76,175,80,${alpha})`  // green for surplus
+                        : `rgba(244,67,54,${alpha})`  // red for deficit
+                      return (
+                        <TableCell
+                          key={d.date}
+                          sx={{ backgroundColor: bg }}
+                        >
+                          {diff}
                         </TableCell>
                       )
                     })}
