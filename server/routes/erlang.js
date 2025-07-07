@@ -3,7 +3,7 @@ import { Router } from 'express'
 import dayjs from 'dayjs'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'   // ← import the plugin
 import { requiredAgents, computeDayStaffing } from '../utils/erlang.js'
-import { generateShifts } from '../utils/scheduler.js'
+import { assignRotationalShifts, autoAssignRotations } from '../utils/scheduler.js'
 
 dayjs.extend(isSameOrBefore)                              // ← activate it
 
@@ -134,7 +134,7 @@ export default prisma => {
   r.post('/staff/schedule', (req, res, next) => {
     try {
       const { staffing, shiftLength = 8 } = req.body
-      const shifts = generateShifts(staffing, shiftLength)
+      const shifts = autoAssignRotations(staffing, shiftLength)
       res.json(shifts)
     } catch (err) {
       next(err)
