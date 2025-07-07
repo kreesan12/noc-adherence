@@ -24,23 +24,23 @@ import api from '../api'
 import dayjs from 'dayjs'
 
 export default function StaffingPage() {
-  const [roles, setRoles]         = useState([])
-  const [team, setTeam]           = useState('')
+  const [roles, setRoles] = useState([])
+  const [team, setTeam] = useState('')
   const [startDate, setStartDate] = useState(dayjs())
-  const [endDate, setEndDate]     = useState(dayjs())
-  const [callAht, setCallAht]     = useState(300)
+  const [endDate, setEndDate] = useState(dayjs())
+  const [callAht, setCallAht] = useState(300)
   const [ticketAht, setTicketAht] = useState(600)
-  const [sl, setSL]               = useState(0.8)
+  const [sl, setSL] = useState(0.8)
   const [threshold, setThreshold] = useState(20)
   const [shrinkage, setShrinkage] = useState(0.3)
 
   // forecast: [{ date, staffing: [{ hour, calls, tickets, requiredAgents }] }]
-  const [forecast, setForecast]   = useState([])
+  const [forecast, setForecast] = useState([])
 
   // assigned employees: [{ id, shifts:[…], totalHours }]
   const [employees, setEmployees] = useState([])
 
-  // load available roles once
+  // load available roles
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -52,12 +52,12 @@ export default function StaffingPage() {
   // 1️⃣ compute multi-day staffing forecast
   const calcForecast = async () => {
     const params = {
-      role:             team,
-      start:            startDate.format('YYYY-MM-DD'),
-      end:              endDate.format('YYYY-MM-DD'),
-      callAhtSeconds:   callAht,
+      role: team,
+      start: startDate.format('YYYY-MM-DD'),
+      end: endDate.format('YYYY-MM-DD'),
+      callAhtSeconds: callAht,
       ticketAhtSeconds: ticketAht,
-      serviceLevel:     sl,
+      serviceLevel: sl,
       thresholdSeconds: threshold,
       shrinkage
     }
@@ -66,21 +66,33 @@ export default function StaffingPage() {
     setEmployees([])
   }
 
-  // 2️⃣ assign forecast blocks to staff
+  // 2️⃣ for each forecast day, build that day's shift-blocks
+  //    then send all blocks to /schedule/assign
   const assignToStaff = async () => {
-    // build one block per required agent per day/hour
-    const shiftBlocks = forecast.flatMap(day =>
-      day.staffing.flatMap(h =>
-        Array.from({ length: h.requiredAgents }, () => ({
-          date:      day.date,
-          startHour: h.hour,
-          length:    9      // fixed 9h shift including 1h lunch
-        }))
-      )
-    )
+    // collect all days' blocks
+    const allBlocks = []
+    for (const day of forecast) {
+      // call backend to generate the 9h shifts for that one day
+      const resp = await api.post('/erlang/staff/schedule', {
+        staffing: day.staffing.map(h => ({
+          hour: h.hour,
+          requiredAgents: h.requiredAgents
+        })),
+        shiftLength: 9
+      })
+      // attach the date to each
+      resp.data.forEach(s => {
+        allBlocks.push({
+          date: day.date,
+          startHour: s.startHour,
+          length: s.length
+        })
+      })
+    }
 
-    const res = await api.post('/schedule/assign', { shiftBlocks })
-    setEmployees(res.data)
+    // now assign 5-day runs
+    const out = await api.post('/schedule/assign', { shiftBlocks: allBlocks })
+    setEmployees(out.data)
   }
 
   // for heatmap coloring
@@ -90,14 +102,14 @@ export default function StaffingPage() {
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p:3 }}>
+      <Box sx={{ p: 3 }}>
         <Typography variant="h4" gutterBottom>
           Staffing Forecast & Scheduling
         </Typography>
 
         {/* Controls */}
-        <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
-          <FormControl sx={{ minWidth:140 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
+          <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
             <Select
               value={team}
@@ -166,9 +178,9 @@ export default function StaffingPage() {
           </Button>
         </Box>
 
-        {/* Heatmap of required agents */}
+        {/* Heatmap */}
         {forecast.length > 0 && (
-          <Box sx={{ mb:4, overflowX:'auto' }}>
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6" gutterBottom>
               Required Agents Heatmap
             </Typography>
@@ -186,13 +198,14 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const entry = d.staffing.find(x => x.hour === h) || { requiredAgents: 0 }
-                      const val   = entry.requiredAgents
-                      const alpha = maxAgents ? (val / maxAgents * 0.8 + 0.2) : 0.2
-                      const bg    = `rgba(33,150,243,${alpha})`
+                      const req = d.staffing.find(x => x.hour === h)?.requiredAgents || 0
+                      const alpha = maxAgents ? (req / maxAgents * 0.8 + 0.2) : 0.2
                       return (
-                        <TableCell key={d.date} sx={{ backgroundColor: bg }}>
-                          {val}
+                        <TableCell
+                          key={d.date}
+                          sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}
+                        >
+                          {req}
                         </TableCell>
                       )
                     })}
@@ -203,9 +216,9 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* Assigned employees */}
+        {/* Final 5-day Employee Schedules */}
         {employees.length > 0 && (
-          <Box sx={{ mt:4 }}>
+          <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>
               Assigned Staff Schedules
             </Typography>
@@ -217,10 +230,10 @@ export default function StaffingPage() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Shift #</TableCell>
+                      <TableCell>#</TableCell>
                       <TableCell>Date</TableCell>
                       <TableCell>Start</TableCell>
-                      <TableCell>Length (hrs)</TableCell>
+                      <TableCell>Length</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
