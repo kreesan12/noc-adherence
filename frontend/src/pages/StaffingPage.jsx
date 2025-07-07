@@ -307,3 +307,51 @@ export default function StaffingPage() {
                           key={i}
                           sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}
                         >
+                          {cov}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* Assigned staff */}
+        {employees.length > 0 && (
+          <Box sx={{ mt:4 }}>
+            <Typography variant="h6">Assigned Staff Schedules</Typography>
+            {employees.map(emp => (
+              <Box key={emp.id} sx={{ mb:2, p:2, border:'1px solid #ccc' }}>
+                <Typography variant="subtitle1">
+                  Employee {emp.id} — {emp.totalHours} hrs
+                </Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>#</TableCell>
+                      <TableCell>Date</TableCell>
+                      <TableCell>Start</TableCell>
+                      <TableCell>Length</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {emp.shifts.map((sh,idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>{idx+1}</TableCell>
+                        <TableCell>{sh.date}</TableCell>
+                        <TableCell>{sh.startHour}:00</TableCell>
+                        <TableCell>{sh.length}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </Box>
+    </LocalizationProvider>
+  )
+}
