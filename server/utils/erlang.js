@@ -1,38 +1,117 @@
 // server/utils/erlang.js
+import dayjs from 'dayjs'
+
+/**
+ * Erlang C formula
+ * A = offered traffic in Erlangs (callsPerHour * AHT in hours)
+ * N = number of agents
+ * returns probability a caller must wait (P(wait > 0))
+ */
 export function erlangC(A, N) {
-  // A = offered traffic (calls/hour * AHT in hours)
-  // N = number of agents
-  let invFact = 1;
-  let sum = 1;
+  let invFact = 1
+  let sum     = 1
   for (let k = 1; k < N; k++) {
-    invFact = invFact * (A / k);
-    sum += invFact;
+    invFact = invFact * (A / k)
+    sum    += invFact
   }
-  const P0 = 1 / (sum + invFact * (A / N) / (1 - A / N));
-  const PC = (invFact * (A / N) * P0) / (1 - A / N);
-  return PC; // probability a caller waits
+  const P0 = 1 / (sum + invFact * (A / N) / (1 - A / N))
+  const PC = (invFact * (A / N) * P0) / (1 - A / N)
+  return PC
 }
 
+/**
+ * Compute required agents for a single traffic load
+ * @param callsPerHour
+ * @param ahtSeconds
+ * @param targetServiceLevel e.g. 0.8 for 80%
+ * @param serviceThresholdSeconds
+ * @param shrinkage e.g. 0.3 for 30%
+ */
 export function requiredAgents({
   callsPerHour,
   ahtSeconds,
-  targetServiceLevel, // e.g. 0.8 → 80% answered within threshold
+  targetServiceLevel,
   serviceThresholdSeconds,
-  shrinkage,          // e.g. 0.3 for 30%
+  shrinkage
 }) {
-  // 1) compute traffic intensity A
-  const A = callsPerHour * (ahtSeconds / 3600);
-  // 2) brute-force search for smallest N where the SL is met:
+  // traffic intensity in Erlangs
+  const A = callsPerHour * (ahtSeconds / 3600)
+
+  // brute‐force search for smallest N that meets SL
   for (let N = 1; N < 500; N++) {
-    const PC = erlangC(A, N);
+    const PC = erlangC(A, N)
     // P(wait ≤ T) = 1 – P(wait > T)
-    // P(wait > T) = PC * exp(-(N – A) * T / (AHT hours * 3600))
-    const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds));
-    const SL = 1 - PC * expTerm;
-    // adjust for shrinkage
+    // P(wait > T) = PC * exp(-(N – A) * T / AHT)
+    const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds))
+    const SL      = 1 - PC * expTerm
+
     if (SL >= targetServiceLevel) {
-      return Math.ceil(N / (1 - shrinkage));
+      // account for shrinkage
+      return Math.ceil(N / (1 - shrinkage))
     }
   }
-  throw new Error("Couldn't meet service level with N<500");
+
+  throw new Error("Couldn't meet service level with N < 500")
+}
+
+/**
+ * Compute per‐hour staffing requirements for one date
+ * @param prisma          Prisma client
+ * @param role            team/role name string
+ * @param date            'YYYY-MM-DD'
+ * @param callAhtSeconds
+ * @param ticketAhtSeconds
+ * @param serviceLevel
+ * @param thresholdSeconds
+ * @param shrinkage
+ * @returns [{ hour, calls, tickets, requiredAgents }]
+ */
+export async function computeDayStaffing({
+  prisma,
+  role,
+  date,
+  callAhtSeconds,
+  ticketAhtSeconds,
+  serviceLevel,
+  thresholdSeconds,
+  shrinkage
+}) {
+  const start = dayjs(date).startOf('day').toDate()
+  const end   = dayjs(date).endOf('day')  .toDate()
+
+  // fetch all actuals for that role + day
+  const actuals = await prisma.volumeActual.findMany({
+    where: { role, date: { gte: start, lte: end } }
+  })
+
+  // bucket into 24 hours and compute required agents
+  const hours = Array.from({ length: 24 }, (_, h) => {
+    const slice   = actuals.filter(a => a.hour === h)
+    const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
+    const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
+
+    const callAgents   = requiredAgents({
+      callsPerHour:          calls,
+      ahtSeconds:            callAhtSeconds,
+      targetServiceLevel:    serviceLevel,
+      serviceThresholdSeconds: thresholdSeconds,
+      shrinkage
+    })
+    const ticketAgents = requiredAgents({
+      callsPerHour:          tickets,
+      ahtSeconds:            ticketAhtSeconds,
+      targetServiceLevel:    serviceLevel,
+      serviceThresholdSeconds: thresholdSeconds,
+      shrinkage
+    })
+
+    return {
+      hour,
+      calls,
+      tickets,
+      requiredAgents: callAgents + ticketAgents
+    }
+  })
+
+  return hours
 }
