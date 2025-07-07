@@ -63,45 +63,54 @@ export default prisma => {
     try {
       const { forecast, windowDays = 5, shiftLength = 9 } = req.body
 
-      // 1) build a map of remaining needs: { "YYYY-MM-DD|HH": units }
+      // ① validate
+      if (!Array.isArray(forecast) || forecast.length === 0) {
+        return res
+          .status(400)
+          .json({ error: 'Missing or empty `forecast` in request body' })
+      }
+
+      // ② build remaining‐need map
       const needs = {}
-      forecast.forEach(day => {
-        day.staffing.forEach(({hour, requiredAgents}) => {
+      for (const day of forecast) {
+        if (!Array.isArray(day.staffing)) continue
+        for (const { hour, requiredAgents } of day.staffing) {
           needs[`${day.date}|${hour}`] = requiredAgents
-        })
-      })
-
-      // 2) generate all *candidate* 5-day blocks
-      //    candidates: { startDate, startHour, coverCells: [ "YYYY-MM-DD|HH", ... ] }
-      const candidates = []
-      const dates = forecast.map(d => d.date)
-      const dateSet = new Set(dates)
-      for (let d of dates) {
-        for (let h = 0; h <= 24 - shiftLength; h++) {
-          // ensure the 5-day window fits in your forecast range
-          const window = Array.from({length: windowDays}, (_, i) => dayjs(d).add(i,'day').format('YYYY-MM-DD'))
-          if (!window.every(dd => dateSet.has(dd))) continue
-
-          // collect covered cells
-          const cells = []
-          window.forEach(dd => {
-            for (let hh = h; hh < h + shiftLength; hh++) {
-              cells.push(`${dd}|${hh}`)
-            }
-          })
-
-          candidates.push({ startDate: d, startHour: h, cover: cells })
         }
       }
 
-      // 3) greedy cover: at each step pick the block whose *max* coverage need is highest
+      // ③ generate all candidate 5-day/shiftLength blocks
+      const dates = forecast.map(d => d.date)
+      const dateSet = new Set(dates)
+      const candidates = []
+
+      for (const startDate of dates) {
+        // only consider a block if you can fit `windowDays` into your range
+        const window = Array.from({ length: windowDays }, (_, i) =>
+          dayjs(startDate).add(i, 'day').format('YYYY-MM-DD')
+        )
+        if (!window.every(d => dateSet.has(d))) continue
+
+        for (let startHour = 0; startHour <= 24 - shiftLength; startHour++) {
+          const cover = []
+          for (const d of window) {
+            for (let h = startHour; h < startHour + shiftLength; h++) {
+              cover.push(`${d}|${h}`)
+            }
+          }
+          candidates.push({ startDate, startHour, length: shiftLength, cover })
+        }
+      }
+
+      // ④ greedy cover: pick the block with the highest single‐hour unmet need
       const solution = []
       while (true) {
-        let best = null, bestScore = 0
+        let best = null
+        let bestScore = 0
 
-        for (let c of candidates) {
-          // score = maximum remaining need over its cells
-          const score = Math.max(0, ...c.cover.map(key => needs[key] || 0))
+        for (const c of candidates) {
+          // score = max remaining need in its cover
+          const score = Math.max(0, ...c.cover.map(k => needs[k] || 0))
           if (score > bestScore) {
             best = c
             bestScore = score
@@ -110,18 +119,18 @@ export default prisma => {
 
         if (!best || bestScore === 0) break
 
-        // assign exactly bestScore employees to this block
+        // assign exactly `bestScore` staff to this block
         solution.push({
-          startDate:   best.startDate,
-          startHour:   best.startHour,
-          length:      shiftLength,
-          count:       bestScore
+          startDate: best.startDate,
+          startHour: best.startHour,
+          length:    best.length,
+          count:     bestScore
         })
 
-        // subtract that many from each covered cell
-        best.cover.forEach(key => {
+        // subtract that many from every hour it covers
+        for (const key of best.cover) {
           needs[key] = Math.max(0, (needs[key] || 0) - bestScore)
-        })
+        }
       }
 
       return res.json(solution)
