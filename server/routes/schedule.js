@@ -62,13 +62,21 @@ export default prisma => {
   r.post('/assign', (req, res, next) => {
     try {
       const { shiftBlocks } = req.body
-      const employees = assignShifts(shiftBlocks, {
-        shiftLength:    9,
-        lunchBreak:     1,
-        maxWeeklyHours: 45,
-        minRestHours:   48
+      const map = {}
+      shiftBlocks.forEach(b => {
+        const key = `${b.date}|${b.startHour}|${b.length}`
+        if (!map[key]) {
+          map[key] = {
+            startDate:   b.date,
+            startHour:   b.startHour,
+            length:      b.length,
+            count:       0
+          }
+        }
+        map[key].count++
       })
-      res.json(employees)
+      // return an array of block-types with how many employees needed
+      res.json(Object.values(map))
     } catch (err) {
       next(err)
     }

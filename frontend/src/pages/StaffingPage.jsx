@@ -23,12 +23,14 @@ export default function StaffingPage() {
   const [threshold, setThreshold] = useState(20)
   const [shrinkage, setShrinkage] = useState(0.3)
 
-  // forecast: [{ date, staffing: [{ hour, requiredAgents }] }]
-  const [forecast, setForecast]   = useState([])
+  // block-type recurrence settings
+  const [repeatWeeks, setRepeat]  = useState(3)
+  const [breakDays, setBreak]     = useState(3)
 
-  // employee assignments: [{ id, shifts:[{date,startHour,length}], totalHours }]
-  const [employees, setEmployees] = useState([])
-
+  // fetched forecast and grouped blocks
+  const [forecast, setForecast]   = useState([])    // [{ date, staffing:[{hour, requiredAgents}] }]
+  const [blocks, setBlocks]       = useState([])    // [{ startDate, startHour, length, count }]
+  
   // load roles once
   useEffect(() => {
     api.get('/agents').then(res => {
@@ -38,7 +40,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // fetch multi-day forecast
+  // 1) fetch multi-day staffing requirement
   const calcForecast = async () => {
     try {
       const params = {
@@ -53,159 +55,67 @@ export default function StaffingPage() {
       }
       const res = await api.post('/erlang/staff/bulk-range', params)
       setForecast(res.data)
-      setEmployees([])
-    } catch (err) {
-      console.error(err)
-      alert('Forecast failed: ' + err.message)
+      setBlocks([])
+    } catch (e) {
+      console.error(e)
+      alert('Forecast error: ' + e.message)
     }
   }
 
-  // greedy assign 5-day/9-hour blocks
-  const assignToStaff = () => {
+  // 2) send your raw 5-day blocks to be grouped into block-types
+  const assignBlocks = async () => {
     if (!forecast.length) {
-      alert('Please calculate a forecast first.')
+      alert('Run forecast first.')
       return
     }
-
-    const DATES = forecast.map(d => d.date)
-    const N     = DATES.length
-    const L     = 9   // 9h per shift (incl. lunch)
-    // build demand matrix D[dayIndex][hour]
-    const D = forecast.map(d =>
-      d.staffing.map(s => s.requiredAgents)
+    // flatten into raw 5-day/9h blocks
+    const raw = forecast.flatMap(day =>
+      day.staffing.map(s => ({
+        date:      day.date,
+        startHour: s.hour,
+        length:    9
+      }))
     )
-
-    // precompute all possible 5-day windows × start-hours
-    const patterns = []
-    for (let startDay = 0; startDay + 5 <= N; startDay++) {
-      for (let startHour = 0; startHour + L <= 24; startHour++) {
-        // collect all covered (day,hour) cells
-        const coords = []
-        for (let di = 0; di < 5; di++) {
-          for (let hh = 0; hh < L; hh++) {
-            coords.push([startDay + di, startHour + hh])
-          }
-        }
-        patterns.push({ startDay, startHour, coords })
-      }
-    }
-
-    const assignments = []
-    // keep going until all demands are zero
-    while (true) {
-      // find pattern with largest *sum* of remaining demand
-      let best = null, bestSum = 0
-      for (const p of patterns) {
-        const sum = p.coords.reduce((acc, [di, hh]) =>
-          acc + Math.max(0, D[di][hh])
-        , 0)
-        if (sum > bestSum) {
-          bestSum = sum
-          best    = p
-        }
-      }
-      if (!best || bestSum <= 0) break
-
-      // how many employees do we need on *this* block?
-      // equal to the *max* remaining demand in its coords
-      const count = best.coords.reduce((m, [di, hh]) =>
-        Math.max(m, D[di][hh])
-      , 0)
-
-      // record assignment
-      assignments.push({
-        startDay:   best.startDay,
-        startHour:  best.startHour,
-        count
-      })
-
-      // subtract coverage from D
-      for (const [di, hh] of best.coords) {
-        D[di][hh] = Math.max(0, D[di][hh] - count)
-      }
-    }
-
-    // expand into per-employee records
-    const emps = []
-    let   id   = 1
-    for (const a of assignments) {
-      for (let i = 0; i < a.count; i++) {
-        const shifts = []
-        for (let di = 0; di < 5; di++) {
-          shifts.push({
-            date:      DATES[a.startDay + di],
-            startHour: a.startHour,
-            length:    L
-          })
-        }
-        emps.push({
-          id,
-          shifts,
-          totalHours: 5 * L
-        })
-        id++
-      }
-    }
-
-    setEmployees(emps)
+    const res = await api.post('/schedule/assign', { shiftBlocks: raw })
+    setBlocks(res.data)
   }
 
-  // compute heatmap maxima
+  // heatmap helpers
   const maxReq = Math.max(
     0,
     ...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents))
-  )
-  // build coverage map
-  const coverageMap = {}
-  for (const d of forecast) {
-    coverageMap[d.date] = Array(24).fill(0)
-  }
-  for (const emp of employees) {
-    for (const sh of emp.shifts) {
-      const row = coverageMap[sh.date]
-      for (let hh = sh.startHour; hh < sh.startHour + sh.length; hh++) {
-        if (row[hh] != null) row[hh]++
-      }
-    }
-  }
-  const maxCov = Math.max(
-    0,
-    ...Object.values(coverageMap).flat()
   )
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ p:3 }}>
         <Typography variant="h4" gutterBottom>
-          Staffing Forecast & Scheduling
+          Staffing Forecast & Blocks
         </Typography>
 
-        {/* controls */}
+        {/* ── controls ────────────────────────────────────────── */}
         <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
             <Select
-              value={team}
-              label="Team"
+              value={team} label="Team"
               onChange={e => setTeam(e.target.value)}
             >
-              {roles.map(r => (
+              {roles.map(r =>
                 <MenuItem key={r} value={r}>{r}</MenuItem>
-              ))}
+              )}
             </Select>
           </FormControl>
 
           <DatePicker
-            label="Start Date"
-            value={startDate}
+            label="Start Date" value={startDate}
             onChange={d => d && setStartDate(d)}
-            renderInput={params => <TextField {...params} size="small" />}
+            renderInput={params => <TextField {...params} size="small"/>}
           />
           <DatePicker
-            label="End Date"
-            value={endDate}
+            label="End Date" value={endDate}
             onChange={d => d && setEndDate(d)}
-            renderInput={params => <TextField {...params} size="small" />}
+            renderInput={params => <TextField {...params} size="small"/>}
           />
 
           <TextField
@@ -219,7 +129,7 @@ export default function StaffingPage() {
             onChange={e => setTicketAht(+e.target.value)}
           />
           <TextField
-            label="Service Level (%)" type="number"
+            label="SL (%)" type="number"
             value={sl * 100}
             onChange={e => setSL(+e.target.value / 100)}
           />
@@ -239,14 +149,27 @@ export default function StaffingPage() {
           </Button>
           <Button
             variant="contained"
-            onClick={assignToStaff}
+            onClick={assignBlocks}
             sx={{ ml:1 }}
           >
-            Assign to Staff
+            Generate Block-Types
           </Button>
+
+          <TextField
+            label="Repeat (weeks)" type="number"
+            value={repeatWeeks}
+            onChange={e => setRepeat(+e.target.value)}
+            sx={{ width:120 }}
+          />
+          <TextField
+            label="Break (days)" type="number"
+            value={breakDays}
+            onChange={e => setBreak(+e.target.value)}
+            sx={{ width:120 }}
+          />
         </Box>
 
-        {/* Required heatmap */}
+        {/* ── Required Agents Heatmap ────────────────────────── */}
         {forecast.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6">Required Agents Heatmap</Typography>
@@ -254,18 +177,20 @@ export default function StaffingPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Hour</TableCell>
-                  {forecast.map(d => (
+                  {forecast.map(d =>
                     <TableCell key={d.date}>{d.date}</TableCell>
-                  ))}
+                  )}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Array.from({ length: 24 }, (_, h) => (
+                {Array.from({ length:24 }, (_, h) => (
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
                       const req = d.staffing.find(s => s.hour===h)?.requiredAgents||0
-                      const alpha = maxReq ? (req/maxReq)*0.8 + 0.2 : 0.2
+                      const alpha = maxReq
+                        ? (req / maxReq)*0.8 + 0.2
+                        : 0.2
                       return (
                         <TableCell
                           key={d.date}
@@ -282,73 +207,39 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* Coverage heatmap */}
-        {employees.length > 0 && (
+        {/* ── Shift-Block Types ───────────────────────────────── */}
+        {blocks.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
-            <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
-            <Table size="small">
+            <Typography variant="h6">Shift-Block Types</Typography>
+            <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Hour</TableCell>
-                  {Object.keys(coverageMap).map(date => (
-                    <TableCell key={date}>{date}</TableCell>
-                  ))}
+                  <TableCell>#</TableCell>
+                  <TableCell>Start Date</TableCell>
+                  <TableCell>Start Hour</TableCell>
+                  <TableCell>Length (h)</TableCell>
+                  <TableCell>Count</TableCell>
+                  <TableCell>Repeat (wks)</TableCell>
+                  <TableCell>Break (days)</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <TableRow key={h}>
-                    <TableCell>{h}:00</TableCell>
-                    {Object.values(coverageMap).map((row,i) => {
-                      const cov = row[h] || 0
-                      const alpha = maxCov ? (cov/maxCov)*0.8 + 0.2 : 0.2
-                      return (
-                        <TableCell
-                          key={i}
-                          sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}
-                        >
-                          {cov}
-                        </TableCell>
-                      )
-                    })}
+                {blocks.map((b,i) => (
+                  <TableRow key={i}>
+                    <TableCell>{i+1}</TableCell>
+                    <TableCell>{b.startDate}</TableCell>
+                    <TableCell>{b.startHour}:00</TableCell>
+                    <TableCell>{b.length}</TableCell>
+                    <TableCell>{b.count}</TableCell>
+                    <TableCell>{repeatWeeks}</TableCell>
+                    <TableCell>{breakDays}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </Box>
-        )}
-
-        {/* Assigned staff */}
-        {employees.length > 0 && (
-          <Box sx={{ mt:4 }}>
-            <Typography variant="h6">Assigned Staff Schedules</Typography>
-            {employees.map(emp => (
-              <Box key={emp.id} sx={{ mb:2, p:2, border:'1px solid #ccc' }}>
-                <Typography variant="subtitle1">
-                  Employee {emp.id} — {emp.totalHours} hrs
-                </Typography>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>#</TableCell>
-                      <TableCell>Date</TableCell>
-                      <TableCell>Start</TableCell>
-                      <TableCell>Length</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {emp.shifts.map((sh,idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>{idx+1}</TableCell>
-                        <TableCell>{sh.date}</TableCell>
-                        <TableCell>{sh.startHour}:00</TableCell>
-                        <TableCell>{sh.length}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            ))}
+            <Typography variant="body2" sx={{ mt:1 }}>
+              Each block runs {repeatWeeks} weeks on schedule, then {breakDays} days off before rotating to the next block-type.
+            </Typography>
           </Box>
         )}
       </Box>
