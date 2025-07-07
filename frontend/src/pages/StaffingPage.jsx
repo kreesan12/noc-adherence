@@ -1,3 +1,4 @@
+// frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState } from 'react'
 import {
   Box,
@@ -23,26 +24,23 @@ import api from '../api'
 import dayjs from 'dayjs'
 
 export default function StaffingPage() {
-  const [roles, setRoles]           = useState([])
-  const [team, setTeam]             = useState('')
-  const [startDate, setStartDate]   = useState(dayjs())
-  const [endDate, setEndDate]       = useState(dayjs())
-  const [callAht, setCallAht]       = useState(300)
-  const [ticketAht, setTicketAht]   = useState(600)
-  const [sl, setSL]                 = useState(0.8)
-  const [threshold, setThreshold]   = useState(20)
-  const [shrinkage, setShrinkage]   = useState(0.3)
+  const [roles, setRoles]         = useState([])
+  const [team, setTeam]           = useState('')
+  const [startDate, setStartDate] = useState(dayjs())
+  const [endDate, setEndDate]     = useState(dayjs())
+  const [callAht, setCallAht]     = useState(300)
+  const [ticketAht, setTicketAht] = useState(600)
+  const [sl, setSL]               = useState(0.8)
+  const [threshold, setThreshold] = useState(20)
+  const [shrinkage, setShrinkage] = useState(0.3)
 
   // forecast: [{ date, staffing: [{ hour, calls, tickets, requiredAgents }] }]
-  const [forecast, setForecast]     = useState([])
-
-  // raw shift blocks: [{ startHour, length }]
-  const [shifts, setShifts]         = useState([])
+  const [forecast, setForecast]   = useState([])
 
   // assigned employees: [{ id, shifts:[…], totalHours }]
-  const [employees, setEmployees]   = useState([])
+  const [employees, setEmployees] = useState([])
 
-  // load available roles
+  // load available roles once
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -51,7 +49,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // compute multi-day staffing forecast
+  // 1️⃣ compute multi-day staffing forecast
   const calcForecast = async () => {
     const params = {
       role:             team,
@@ -65,24 +63,23 @@ export default function StaffingPage() {
     }
     const res = await api.post('/erlang/staff/bulk-range', params)
     setForecast(res.data)
-    setShifts([])
     setEmployees([])
   }
 
-  // generate raw shift blocks
-  const calcSchedule = async () => {
-    const allHours = forecast.flatMap(day => day.staffing)
-    const res      = await api.post('/erlang/staff/schedule', {
-      staffing:    allHours,
-      shiftLength: 9
-    })
-    setShifts(res.data)
-    setEmployees([])
-  }
-
-  // auto-assign blocks to staff
+  // 2️⃣ assign forecast blocks to staff
   const assignToStaff = async () => {
-    const res = await api.post('/schedule/assign', { shiftBlocks: shifts })
+    // build one block per required agent per day/hour
+    const shiftBlocks = forecast.flatMap(day =>
+      day.staffing.flatMap(h =>
+        Array.from({ length: h.requiredAgents }, () => ({
+          date:      day.date,
+          startHour: h.hour,
+          length:    9      // fixed 9h shift including 1h lunch
+        }))
+      )
+    )
+
+    const res = await api.post('/schedule/assign', { shiftBlocks })
     setEmployees(res.data)
   }
 
@@ -161,15 +158,8 @@ export default function StaffingPage() {
             Calculate Forecast
           </Button>
           <Button
-            variant="outlined"
-            disabled={!forecast.length}
-            onClick={calcSchedule}
-          >
-            Generate Shifts
-          </Button>
-          <Button
             variant="contained"
-            disabled={!shifts.length}
+            disabled={!forecast.length}
             onClick={assignToStaff}
           >
             Assign to Staff
@@ -213,33 +203,6 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* Raw shift blocks */}
-        {shifts.length > 0 && (
-          <Box sx={{ mt:4, overflowX:'auto' }}>
-            <Typography variant="h6" gutterBottom>
-              Shift Blocks
-            </Typography>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>Start Hour</TableCell>
-                  <TableCell>Length (hrs)</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {shifts.map((s,i) => (
-                  <TableRow key={i}>
-                    <TableCell>{i+1}</TableCell>
-                    <TableCell>{s.startHour}:00</TableCell>
-                    <TableCell>{s.length}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-        )}
-
         {/* Assigned employees */}
         {employees.length > 0 && (
           <Box sx={{ mt:4 }}>
@@ -255,6 +218,7 @@ export default function StaffingPage() {
                   <TableHead>
                     <TableRow>
                       <TableCell>Shift #</TableCell>
+                      <TableCell>Date</TableCell>
                       <TableCell>Start</TableCell>
                       <TableCell>Length (hrs)</TableCell>
                     </TableRow>
@@ -263,6 +227,7 @@ export default function StaffingPage() {
                     {emp.shifts.map((sh, idx) => (
                       <TableRow key={idx}>
                         <TableCell>{idx+1}</TableCell>
+                        <TableCell>{sh.date}</TableCell>
                         <TableCell>{sh.startHour}:00</TableCell>
                         <TableCell>{sh.length}</TableCell>
                       </TableRow>

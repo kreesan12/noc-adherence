@@ -63,10 +63,10 @@ export default prisma => {
     try {
       const { shiftBlocks } = req.body
       const employees = assignShifts(shiftBlocks, {
-        shiftLength:    9,    // hrs per shift (incl. 1h lunch)
-        lunchBreak:     1,    // part of shiftLength
-        maxWeeklyHours: 45,   // including breaks
-        minRestHours:   48    // hours between shifts
+        shiftLength:    9,
+        lunchBreak:     1,
+        maxWeeklyHours: 45,
+        minRestHours:   48
       })
       res.json(employees)
     } catch (err) {
