@@ -1,15 +1,29 @@
 // frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState } from 'react'
 import {
-  Box, TextField, Button, Typography, MenuItem, Select, InputLabel, FormControl
+  Box,
+  TextField,
+  Button,
+  Typography,
+  MenuItem,
+  Select,
+  InputLabel,
+  FormControl
 } from '@mui/material'
 import {
-  LocalizationProvider, DatePicker
+  LocalizationProvider,
+  DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, Legend
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Legend
 } from 'recharts'
 import api from '../api'
 import dayjs from 'dayjs'
@@ -25,9 +39,12 @@ export default function StaffingPage() {
   const [threshold, setThreshold]   = useState(20)
   const [shrinkage, setShrinkage]   = useState(0.3)
 
-  const [forecast, setForecast]     = useState([]) // [{ date, staffing: [...] }]
-  const [shifts, setShifts]         = useState([]) // [{ startHour, length }]
+  // forecast: [{ date, staffing: [{ hour, calls, tickets, requiredAgents }] }]
+  const [forecast, setForecast]     = useState([])
+  // shifts: [{ startHour, length }]
+  const [shifts, setShifts]         = useState([])
 
+  // load available roles once
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -36,6 +53,7 @@ export default function StaffingPage() {
     })
   }, [])
 
+  // calculate multi-day staffing forecast
   const calcForecast = async () => {
     const params = {
       role:               team,
@@ -49,12 +67,12 @@ export default function StaffingPage() {
     }
     const res = await api.post('/erlang/staff/bulk-range', params)
     setForecast(res.data)
-    setShifts([])
+    setShifts([]) // clear any previous shifts
   }
 
+  // generate shift blocks from the forecast
   const calcSchedule = async () => {
-    // flatten all days into one 24*h array or just pick one day
-    const allHours = forecast.flatMap(d => d.staffing)
+    const allHours = forecast.flatMap(day => day.staffing)
     const res      = await api.post('/erlang/staff/schedule', {
       staffing:    allHours,
       shiftLength: 8
@@ -65,70 +83,74 @@ export default function StaffingPage() {
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ p:3 }}>
-        <Typography variant="h4" gutterBottom>Staffing</Typography>
+        <Typography variant="h4" gutterBottom>
+          Staffing Forecast & Scheduling
+        </Typography>
 
         {/* controls */}
-        <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, my:2 }}>
+        <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
             <Select
               value={team}
-              label='Team'
+              label="Team"
               onChange={e => setTeam(e.target.value)}
             >
-              {roles.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+              {roles.map(r => (
+                <MenuItem key={r} value={r}>{r}</MenuItem>
+              ))}
             </Select>
           </FormControl>
 
           <DatePicker
-            label='Start Date'
+            label="Start Date"
             value={startDate}
             onChange={d => d && setStartDate(d)}
-            renderInput={params => <TextField {...params} size='small' />}
+            renderInput={params => <TextField {...params} size="small" />}
           />
           <DatePicker
-            label='End Date'
+            label="End Date"
             value={endDate}
             onChange={d => d && setEndDate(d)}
-            renderInput={params => <TextField {...params} size='small' />}
+            renderInput={params => <TextField {...params} size="small" />}
           />
 
           <TextField
-            label='Call AHT (sec)'
-            type='number'
+            label="Call AHT (sec)"
+            type="number"
             value={callAht}
             onChange={e => setCallAht(+e.target.value)}
           />
           <TextField
-            label='Ticket AHT (sec)'
-            type='number'
+            label="Ticket AHT (sec)"
+            type="number"
             value={ticketAht}
             onChange={e => setTicketAht(+e.target.value)}
           />
           <TextField
-            label='Service Level %'
-            type='number'
+            label="Service Level %"
+            type="number"
             value={sl * 100}
             onChange={e => setSL(+e.target.value / 100)}
           />
           <TextField
-            label='Threshold (sec)'
-            type='number'
+            label="Threshold (sec)"
+            type="number"
             value={threshold}
             onChange={e => setThreshold(+e.target.value)}
           />
           <TextField
-            label='Shrinkage %'
-            type='number'
+            label="Shrinkage %"
+            type="number"
             value={shrinkage * 100}
             onChange={e => setShrinkage(+e.target.value / 100)}
           />
 
-          <Button variant='contained' onClick={calcForecast}>
+          <Button variant="contained" onClick={calcForecast}>
             Calculate Forecast
           </Button>
           <Button
-            variant='outlined'
+            variant="outlined"
             disabled={!forecast.length}
             onClick={calcSchedule}
           >
@@ -139,15 +161,15 @@ export default function StaffingPage() {
         {/* multi-day charts */}
         {forecast.map(day => (
           <Box key={day.date} sx={{ mb:4 }}>
-            <Typography variant='h6'>{day.date}</Typography>
-            <ResponsiveContainer width='100%' height={200}>
+            <Typography variant="h6">{day.date}</Typography>
+            <ResponsiveContainer width="100%" height={200}>
               <BarChart data={day.staffing}>
-                <CartesianGrid strokeDasharray='3 3' />
-                <XAxis dataKey='hour' />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="hour" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey='requiredAgents' name='Agents Needed' />
+                <Bar dataKey="requiredAgents" name="Agents Needed" />
               </BarChart>
             </ResponsiveContainer>
           </Box>
@@ -156,8 +178,8 @@ export default function StaffingPage() {
         {/* shift blocks */}
         {shifts.length > 0 && (
           <Box sx={{ mt:4 }}>
-            <Typography variant='h6'>Shift Blocks</Typography>
-            {shifts.map((s,i) => (
+            <Typography variant="h6">Shift Blocks</Typography>
+            {shifts.map((s, i) => (
               <Typography key={i}>
                 Start {s.startHour}:00 for {s.length} hours
               </Typography>
