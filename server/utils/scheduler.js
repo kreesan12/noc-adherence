@@ -3,7 +3,6 @@ import dayjs from 'dayjs'
 
 /**
  * Legacy: generate individual shift blocks to cover a 1-day array of hourly requirements.
- * (Kept here in case you still need it for one-off/day-view charts.)
  */
 export function generateShifts(requirements, shiftLength = 9) {
   const coverage = Array(requirements.length).fill(0)
@@ -26,6 +25,8 @@ export function generateShifts(requirements, shiftLength = 9) {
 
 /**
  * Greedy block-cover solver over a multi-day forecast.
+ * Now picks the block that can staff the **most uniform** demand
+ * (i.e. highest min-remaining-need), so we never overshoot.
  *
  * @param forecast    Array of { date: 'YYYY-MM-DD', staffing: [ { hour, requiredAgents } ] }
  * @param options     { windowDays, shiftLength }
@@ -44,7 +45,7 @@ export function assignShifts(
     })
   })
 
-  // 2) prepare sorted list of dates and quick lookup
+  // 2) prepare sorted list of dates & quick lookup
   const dates = forecast.map(d => d.date).sort()
   const dateSet = new Set(dates)
 
@@ -71,35 +72,35 @@ export function assignShifts(
     }
   }
 
-  // 4) greedy selection: pick block covering the hour with highest unmet need
+  // 4) greedy selection: pick the block with the largest _minimum_ unmet need
   const solution = []
   while (true) {
     let best = null
-    let bestScore = 0
+    let bestCount = 0
 
     for (const c of candidates) {
-      // score = max(need) over this block’s hours
-      const score = Math.max(0, ...c.cover.map(k => needs[k] || 0))
-      if (score > bestScore) {
+      // how many could we staff on _every_ hour of this block?
+      const minCount = Math.min(...c.cover.map(k => needs[k] || 0))
+      if (minCount > bestCount) {
         best = c
-        bestScore = score
+        bestCount = minCount
       }
     }
 
-    // no more unmet need
-    if (!best || bestScore === 0) break
+    // if nothing left to assign, stop
+    if (!best || bestCount === 0) break
 
-    // assign exactly bestScore staff to that block
+    // assign exactly bestCount staff to this block
     solution.push({
       startDate: best.startDate,
       startHour: best.startHour,
       length:    best.length,
-      count:     bestScore
+      count:     bestCount
     })
 
-    // subtract that many from every hour in the block
+    // subtract that many from every hour it covers
     best.cover.forEach(k => {
-      needs[k] = Math.max(0, (needs[k] || 0) - bestScore)
+      needs[k] = Math.max(0, (needs[k] || 0) - bestCount)
     })
   }
 
