@@ -1,3 +1,4 @@
+// server/utils/scheduler.js
 import dayjs from 'dayjs'
 
 /**
@@ -8,13 +9,12 @@ import dayjs from 'dayjs'
  *   weeks            how many full 7-day weeks in the rotation (default 3)
  *   shiftLength      shift length in hours (default 9)
  *   startHours       optional array of allowed startHour values to try
- * @returns solution    Array of { startDate, startHour, length, count }
+ * @returns Array of { startDate, startHour, length, count }
  */
 export function assignRotationalShifts(
   forecast,
   { weeks = 3, shiftLength = 9, startHours } = {}
 ) {
-  // 1) build needs map
   const needs = {}
   const allDates = []
   forecast.forEach(day => {
@@ -27,61 +27,60 @@ export function assignRotationalShifts(
   allDates.sort()
   const dateSet = new Set(allDates)
 
-  // 2) limit startDates to the first-week window
+  // only allow startDates in the first week
   const firstWeek = allDates.filter(d => {
     const diff = dayjs(d).diff(dayjs(allDates[0]), 'day')
     return diff >= 0 && diff < 7
   })
 
-  // helper: given a startDate, return the 5 work-day dates for each week
+  // helper: get the five workdays for each of the n weeks
   function getWorkDates(startDate) {
     const dates = []
     for (let w = 0; w < weeks; w++) {
       const base = dayjs(startDate).add(w * 7, 'day')
-      for (let doff = 0; doff < 5; doff++) {
-        const d = base.add(doff, 'day').format('YYYY-MM-DD')
+      for (let i = 0; i < 5; i++) {
+        const d = base.add(i, 'day').format('YYYY-MM-DD')
         if (dateSet.has(d)) dates.push(d)
       }
     }
     return dates
   }
 
-  // 3) enumerate candidates (startDate × startHour)
+  // build all candidate rotation blocks
   const candidates = []
-  for (const startDate of firstWeek) {
+  firstWeek.forEach(startDate => {
     const workDates = getWorkDates(startDate)
-    if (workDates.length < weeks * 5) continue   // skip if forecast too short
+    if (workDates.length < weeks * 5) return
 
     const hoursToTry = Array.isArray(startHours)
       ? startHours
       : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h)
 
-    for (const startHour of hoursToTry) {
-      // build the cover‐set for this rotation block
+    hoursToTry.forEach(startHour => {
       const cover = []
-      for (const d of workDates) {
+      workDates.forEach(d => {
         for (let h = startHour; h < startHour + shiftLength; h++) {
           cover.push(`${d}|${h}`)
         }
-      }
+      })
       candidates.push({ startDate, startHour, length: shiftLength, cover })
-    }
-  }
+    })
+  })
 
-  // 4) greedy pick by max‐min unmet need
+  // greedy pick until all needs are zero
   const solution = []
   const localNeeds = { ...needs }
   while (true) {
     let best = null
     let bestCount = 0
 
-    for (const c of candidates) {
+    candidates.forEach(c => {
       const minCount = Math.min(...c.cover.map(k => localNeeds[k] || 0))
       if (minCount > bestCount) {
         best = c
         bestCount = minCount
       }
-    }
+    })
     if (!best || bestCount === 0) break
 
     solution.push({
@@ -99,31 +98,38 @@ export function assignRotationalShifts(
   return solution
 }
 
-
 /**
- * Top-level: auto-tune startHours then assign
+ * Top-level: recommend best start-hours, then return the full coverage solution
+ *
+ * @param forecast    same as above
+ * @param opts        { weeks, shiftLength, topN }
+ * @returns { bestStartHours: Array<{startHour, totalAssigned}>, solution }
  */
 export function autoAssignRotations(
   forecast,
   { weeks = 3, shiftLength = 9, topN = 5 } = {}
 ) {
-  // 1) full run over all hours
+  // 1) full greedy run
   const fullSolution = assignRotationalShifts(forecast, { weeks, shiftLength })
-  // 2) tally by startHour
+
+  // 2) tally total staff per startHour
   const tally = fullSolution.reduce((acc, { startHour, count }) => {
-    acc[startHour] = (acc[startHour]||0) + count
+    acc[startHour] = (acc[startHour] || 0) + count
     return acc
   }, {})
-  const best = Object.entries(tally)
-    .map(([h, total]) => ({ startHour: +h, totalAssigned: total }))
-    .sort((a,b) => b.totalAssigned - a.totalAssigned)
+
+  // 3) sort & pick topN for recommendations
+  const bestStartHours = Object.entries(tally)
+    .map(([h, totalAssigned]) => ({
+      startHour: +h,
+      totalAssigned
+    }))
+    .sort((a, b) => b.totalAssigned - a.totalAssigned)
     .slice(0, topN)
 
-  // 3) re-run restricted to those top startHours
-  const startHours = best.map(b => b.startHour)
-  const solution = assignRotationalShifts(forecast, {
-    weeks, shiftLength, startHours
-  })
-
-  return { bestStartHours: best, solution }
+  // 4) return both recommendations and full coverage
+  return {
+    bestStartHours,
+    solution: fullSolution
+  }
 }
