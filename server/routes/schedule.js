@@ -61,24 +61,6 @@ export default prisma => {
   // ─── Auto-assign shifts to employees ─────────────────────────
   // POST /api/schedule/assign
   // body: { forecast, windowDays?, shiftLength? }
-  r.post('/assign', (req, res, next) => {
-    try {
-      const { forecast, windowDays = 5, shiftLength = 9 } = req.body
-
-      // ① validate
-      if (!Array.isArray(forecast) || forecast.length === 0) {
-        return res
-          .status(400)
-          .json({ error: 'Missing or empty `forecast` in request body' })
-      }
-
-      // ② delegate to your helper
-      const solution = assignShifts(forecast, { windowDays, shiftLength })
-      return res.json(solution)
-    } catch (err) {
-      next(err)
-    }
-  })
 
   r.post('/auto-assign', (req, res, next) => {
   try {
