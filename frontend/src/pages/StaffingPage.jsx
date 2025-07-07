@@ -96,8 +96,8 @@ export default function StaffingPage() {
   forecast.forEach(day => {
     day.staffing.forEach(({ hour, requiredAgents }) => {
       const key = `${day.date}|${hour}`
-      deficit = scheduled[key] || 0
-      deficit[key] = deficit - requiredAgents
+      const got = scheduled[key] || 0      // how many we actually scheduled
+      deficit[key] = got - requiredAgents  // store surplus(+)/shortfall(-)
     })
   })
 
