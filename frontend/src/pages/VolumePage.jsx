@@ -54,7 +54,14 @@ export default function VolumePage() {
     .then(res => {
       setDailyData(res.data)
       setSelectedDate(null)
-      setHourlyData(new Array(24).fill({ hour: 0, forecastCalls:0, actualCalls:0 }))
+      // reset hourly placeholders with tickets
+      setHourlyData(Array.from({ length: 24 }, (_, h) => ({
+        hour: h,
+        forecastCalls:   0,
+        actualCalls:     0,
+        forecastTickets: 0,
+        actualTickets:   0
+      })))
     })
     .catch(console.error)
   }, [team, startDate, endDate])
@@ -68,10 +75,15 @@ export default function VolumePage() {
       params: { role: team, date }
     })
     .then(res => {
-      // ensure we have an entry for every hour 0–23
       const filled = Array.from({ length: 24 }, (_, h) => {
-        const entry = res.data.find(e => e.hour === h)
-        return entry || { hour: h, forecastCalls: 0, actualCalls: 0 }
+        const entry = res.data.find(e => e.hour === h) || {}
+        return {
+          hour:            h,
+          forecastCalls:   entry.forecastCalls   || 0,
+          actualCalls:     entry.actualCalls     || 0,
+          forecastTickets: entry.forecastTickets || 0,
+          actualTickets:   entry.actualTickets   || 0
+        }
       })
       setHourlyData(filled)
     })
@@ -165,14 +177,26 @@ export default function VolumePage() {
             <Legend />
             <Bar
               dataKey="forecastCalls"
-              name="Forecast"
+              name="Forecast Calls"
               fill="#8884d8"
               onClick={onBarClick}
             />
             <Bar
               dataKey="actualCalls"
-              name="Actual"
+              name="Actual Calls"
               fill="#82ca9d"
+              onClick={onBarClick}
+            />
+            <Bar
+              dataKey="forecastTickets"
+              name="Forecast Tickets"
+              fill="#ffc658"
+              onClick={onBarClick}
+            />
+            <Bar
+              dataKey="actualTickets"
+              name="Actual Tickets"
+              fill="#ff8042"
               onClick={onBarClick}
             />
           </BarChart>
@@ -197,10 +221,12 @@ export default function VolumePage() {
                   tickFormatter={h => `${h}:00`}
                 />
                 <YAxis />
-                <Tooltip formatter={val => val} labelFormatter={hour => `${hour}:00`} />
+                <Tooltip />
                 <Legend />
-                <Bar dataKey="forecastCalls" name="Forecast" fill="#8884d8" />
-                <Bar dataKey="actualCalls"   name="Actual"   fill="#82ca9d" />
+                <Bar dataKey="forecastCalls"   name="Forecast Calls"   fill="#8884d8" />
+                <Bar dataKey="actualCalls"     name="Actual Calls"     fill="#82ca9d" />
+                <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ffc658" />
+                <Bar dataKey="actualTickets"   name="Actual Tickets"   fill="#ff8042" />
               </BarChart>
             </ResponsiveContainer>
           </>

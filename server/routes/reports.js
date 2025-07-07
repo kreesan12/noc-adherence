@@ -56,40 +56,73 @@ export default prisma => {
     }
   })
 
-  // ─── 2) Daily volume report ──────────────────────────────────────
-  // GET /api/reports/volume?role=NOC-I
-  r.get('/volume', async (req, res, next) => {
-    try {
-      const role = req.query.role
+// ─── 2) Daily volume report ──────────────────────────────────────
+// GET /api/reports/volume?role=NOC-I&start=YYYY-MM-DD&end=YYYY-MM-DD
+r.get('/volume', async (req, res, next) => {
+  try {
+    const { role, start, end } = req.query
 
-      // fetch all forecasts & actuals for this role
-      const [fcs, acs] = await Promise.all([
-        prisma.volumeForecast.findMany({ where: { role } }),
-        prisma.volumeActual.findMany({ where: { role } })
-      ])
-
-      // group by calendar date
-      const byDate = {}
-      fcs.forEach(f => {
-        const d = dayjs(f.date).format('YYYY-MM-DD')
-        byDate[d] = byDate[d] || { date: d, forecastCalls: 0, actualCalls: 0 }
-        byDate[d].forecastCalls += f.expectedCalls
-      })
-      acs.forEach(a => {
-        const d = dayjs(a.date).format('YYYY-MM-DD')
-        byDate[d] = byDate[d] || { date: d, forecastCalls: 0, actualCalls: 0 }
-        byDate[d].actualCalls += a.calls
-      })
-
-      // return sorted array
-      res.json(
-        Object.values(byDate)
-          .sort((a, b) => a.date.localeCompare(b.date))
-      )
-    } catch (err) {
-      next(err)
+    if (!role || !start || !end) {
+      return res
+        .status(400)
+        .json({ error: 'Missing required query params: role, start, end' })
     }
-  })
+
+    // parse the requested window
+    const startDate = dayjs(start).startOf('day').toDate()
+    const endDate   = dayjs(end)  .endOf('day')  .toDate()
+
+    // fetch just this window
+    const [fcs, acs] = await Promise.all([
+      prisma.volumeForecast.findMany({
+        where: { role, date: { gte: startDate, lte: endDate } }
+      }),
+      prisma.volumeActual.findMany({
+        where: { role, date: { gte: startDate, lte: endDate } }
+      })
+    ])
+
+    // roll up per calendar date
+    const byDate = {}
+    fcs.forEach(f => {
+      const d = dayjs(f.date).format('YYYY-MM-DD')
+      if (!byDate[d]) {
+        byDate[d] = {
+          date:            d,
+          forecastCalls:   0,
+          forecastTickets: 0,
+          actualCalls:     0,
+          actualTickets:   0
+        }
+      }
+      byDate[d].forecastCalls   += f.expectedCalls
+      byDate[d].forecastTickets += f.expectedTickets
+    })
+    acs.forEach(a => {
+      const d = dayjs(a.date).format('YYYY-MM-DD')
+      if (!byDate[d]) {
+        byDate[d] = {
+          date:            d,
+          forecastCalls:   0,
+          forecastTickets: 0,
+          actualCalls:     0,
+          actualTickets:   0
+        }
+      }
+      byDate[d].actualCalls   += a.calls
+      byDate[d].actualTickets += a.tickets
+    })
+
+    // send back a sorted array
+    res.json(
+      Object.values(byDate)
+        .sort((a, b) => a.date.localeCompare(b.date))
+    )
+  } catch (err) {
+    next(err)
+  }
+})
+
 
   // ─── 3) Hourly drilldown ─────────────────────────────────────────
   // GET /api/reports/volume/hourly?role=NOC-I&date=2025-07-04
