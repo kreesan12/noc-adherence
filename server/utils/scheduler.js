@@ -3,13 +3,26 @@ import dayjs from 'dayjs'
 
 /**
  * Assign staff to cover a 3-week rotation of 5 days on/2 off + transition day,
- * greedily one agent at a time by summing unmet need.
+ * greedy “one agent at a time” by summing unmet need.
+ *
+ * @param forecast      Array<{ date: 'YYYY-MM-DD', staffing: [{ hour, requiredAgents }] }>
+ * @param opts
+ *   weeks           Number of 7-day weeks per rotation (default 3)
+ *   shiftLength     Hours per shift block (default 9)
+ *   startHours      Optional array of allowed startHour values
+ * @returns Array<{
+ *   startDate: string,
+ *   startHour: number,
+ *   length: number,
+ *   count: number,
+ *   patternIndex: number
+ * }>
  */
 export function assignRotationalShifts(
   forecast,
   { weeks = 3, shiftLength = 9, startHours } = {}
 ) {
-  // 1 Build unmet-needs map
+  // 1) Build unmet-needs map
   const needs = {}
   const allDates = []
   forecast.forEach(day => {
@@ -22,13 +35,13 @@ export function assignRotationalShifts(
   allDates.sort()
   const dateSet = new Set(allDates)
 
-  // 2 Only allow rotations starting in week 1
+  // 2) Only allow rotations starting in the first 7 days
   const firstWeek = allDates.filter(d => {
     const diff = dayjs(d).diff(dayjs(allDates[0]), 'day')
     return diff >= 0 && diff < 7
   })
 
-  // 3 Helper: collect the 5 “on” days for each of N weeks
+  // 3) Helper: get the 5 “on” days for each of N weeks
   function getWorkDates(startDate) {
     const dates = []
     for (let w = 0; w < weeks; w++) {
@@ -41,7 +54,7 @@ export function assignRotationalShifts(
     return dates
   }
 
-  // 4 Build all candidate blocks (startDate × startHour)
+  // 4) Build all candidate blocks (startDate × startHour)
   const candidates = firstWeek.flatMap(startDate => {
     const workDates = getWorkDates(startDate)
     if (workDates.length < weeks * 5) return []
@@ -61,7 +74,7 @@ export function assignRotationalShifts(
     })
   })
 
-  // 5 Greedy: assign one agent at a time to block with max total unmet need
+  // 5) Greedy: assign one agent at a time to the block with max total unmet need
   const localNeeds = { ...needs }
   const assignments = []
   while (true) {
@@ -82,7 +95,7 @@ export function assignRotationalShifts(
     })
   }
 
-  // 6 Collapse into blocks with counts, tagging patternIndex
+  // 6) Collapse into blocks with counts, tagging patternIndex
   const solutionMap = {}
   assignments.forEach(({ startDate, startHour }) => {
     const key = `${startDate}|${startHour}`
@@ -92,7 +105,7 @@ export function assignRotationalShifts(
         startHour,
         length: shiftLength,
         count: 0,
-        // patternIndex: 0=Sunday,1=Monday,...6=Saturday
+        // Which 5-day pattern (0=Sunday start, 1=Monday start, …)
         patternIndex: dayjs(startDate).day()
       }
     }
@@ -103,7 +116,20 @@ export function assignRotationalShifts(
 }
 
 /**
- * Top-level: returns both recommendations and the full coverage solution.
+ * Top-level: returns both the full coverage solution and the top-N start-hour recommendations.
+ *
+ * @param forecast    Same as above
+ * @param opts        { weeks, shiftLength, topN }
+ * @returns {{
+ *   bestStartHours: Array<{ startHour: number, totalAssigned: number }>,
+ *   solution: Array<{
+ *     startDate: string,
+ *     startHour: number,
+ *     length: number,
+ *     count: number,
+ *     patternIndex: number
+ *   }>
+ * }}
  */
 export function autoAssignRotations(
   forecast,
@@ -111,12 +137,13 @@ export function autoAssignRotations(
 ) {
   const solution = assignRotationalShifts(forecast, { weeks, shiftLength })
 
-  // tally recommended startHours
+  // Tally total staff per startHour
   const tally = solution.reduce((acc, b) => {
     acc[b.startHour] = (acc[b.startHour] || 0) + b.count
     return acc
   }, {})
 
+  // Pick topN startHours
   const bestStartHours = Object.entries(tally)
     .map(([h, total]) => ({ startHour: Number(h), totalAssigned: total }))
     .sort((a, b) => b.totalAssigned - a.totalAssigned)
