@@ -41,7 +41,7 @@ export default prisma => {
 
       // 3) group into 0–23 slots
       const hours = Array.from({ length: 24 }, (_, h) => {
-        const slice = actuals.filter(a => dayjs(a.date).hour() === h)
+        const slice = actuals.filter(a => a.hour === h)
         const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
         const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
         return { hour: h, calls, tickets }
