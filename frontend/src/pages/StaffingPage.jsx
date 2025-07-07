@@ -85,6 +85,8 @@ export default function StaffingPage() {
   // build maps
   const scheduled = {}
   const deficit   = {}
+
+  // 3-week scheduled coverage
   blocks.forEach(b => {
     getWorkDates(b.startDate, 3).forEach(date => {
       for (let h = b.startHour; h < b.startHour + b.length; h++) {
@@ -93,11 +95,13 @@ export default function StaffingPage() {
       }
     })
   })
+
+  // deficit = assigned - required
   forecast.forEach(day => {
     day.staffing.forEach(({ hour, requiredAgents }) => {
       const key = `${day.date}|${hour}`
-      const got = scheduled[key] || 0      // how many we actually scheduled
-      deficit[key] = got - requiredAgents  // store surplus(+)/shortfall(-)
+      const got = scheduled[key] || 0
+      deficit[key] = got - requiredAgents
     })
   })
 
@@ -106,11 +110,11 @@ export default function StaffingPage() {
   const maxSch  = Math.max(0, ...Object.values(scheduled))
   const maxDef  = Math.max(0, ...Object.values(deficit).map(v => Math.abs(v)))
 
-  // 3) build extended 12-week preview
+  // 12-week preview
   const extendedBlocks = blocks.flatMap(b =>
     Array.from({ length: 4 }, (_, i) => ({
       ...b,
-      cycle: i + 1,
+      cycle:     i + 1,
       startDate: dayjs(b.startDate).add(i * 3, 'week').format('YYYY-MM-DD')
     }))
   )
@@ -191,7 +195,132 @@ export default function StaffingPage() {
           </Button>
         </Box>
 
-        {/* ... existing heatmaps and Assigned Shift-Block Types ... */}
+        {/* Required Agents Heatmap */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Required Agents</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => <TableCell key={d.date}>{d.date}</TableCell>)}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length:24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const req = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
+                      const alpha = maxReq ? (req/maxReq)*0.8+0.2 : 0.2
+                      return (
+                        <TableCell key={d.date}
+                          sx={{ backgroundColor:`rgba(33,150,243,${alpha})` }}>
+                          {req}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* Scheduled Coverage Heatmap */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Scheduled Coverage</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => <TableCell key={d.date}>{d.date}</TableCell>)}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length:24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const cov = scheduled[`${d.date}|${h}`]||0
+                      const alpha = maxSch ? (cov/maxSch)*0.8+0.2 : 0.2
+                      return (
+                        <TableCell key={d.date}
+                          sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}>
+                          {cov}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* Deficit Heatmap */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Deficit (Assigned − Required)</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => <TableCell key={d.date}>{d.date}</TableCell>)}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length:24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const diff = deficit[`${d.date}|${h}`]||0
+                      const alpha = maxDef ? (Math.abs(diff)/maxDef)*0.8+0.2 : 0.2
+                      const bg = diff >= 0
+                        ? `rgba(76,175,80,${alpha})`
+                        : `rgba(244,67,54,${alpha})`
+                      return (
+                        <TableCell key={d.date} sx={{ backgroundColor:bg }}>
+                          {diff}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* Assigned Shift-Block Types */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Assigned Shift-Block Types</Typography>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Start Date</TableCell>
+                  <TableCell>Start Hour</TableCell>
+                  <TableCell>Length (h)</TableCell>
+                  <TableCell>Count</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {blocks.map((b,i) => (
+                  <TableRow key={i}>
+                    <TableCell>{i+1}</TableCell>
+                    <TableCell>{b.startDate}</TableCell>
+                    <TableCell>{b.startHour}:00</TableCell>
+                    <TableCell>{b.length}</TableCell>
+                    <TableCell>{b.count}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
 
         {/* 12-Week Rotation Preview */}
         {extendedBlocks.length > 0 && (
