@@ -68,6 +68,7 @@ export default function StaffingPage() {
   }
 
   const assignToStaff = async () => {
+    console.log('🔔 assignToStaff() running…');
     if (!forecast.length) {
       alert('Please calculate a forecast first.')
       return
