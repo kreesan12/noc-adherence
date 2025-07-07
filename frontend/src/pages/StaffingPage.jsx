@@ -12,7 +12,6 @@ import {
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
-import * as XLSX from 'xlsx'
 
 import Timeline from 'react-calendar-timeline'
 import moment from 'moment'
@@ -135,19 +134,6 @@ export default function StaffingPage() {
   }
 
   // ─── 3) export to Excel ─────────────────────────────────────────
-  const exportExcel = () => {
-    const rows = []
-    Object.entries(personSchedule).forEach(([emp, arr]) =>
-      arr.forEach(({ day, hour }) =>
-        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00` })
-      )
-    )
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
-    XLSX.writeFile(wb, 'staff-calendar.xlsx')
-  }
-
   // ─── 4) prepare Gantt data ─────────────────────────────────────
   const [groups, items] = useMemo(() => {
     const gr = Object.keys(personSchedule).map(emp => ({
@@ -422,13 +408,7 @@ export default function StaffingPage() {
               )}
             />
 
-            <Button
-              variant="outlined"
-              onClick={exportExcel}
-              sx={{ mt:2 }}
-            >
-              Export to Excel
-            </Button>
+
           </Box>
         )}
       </Box>
