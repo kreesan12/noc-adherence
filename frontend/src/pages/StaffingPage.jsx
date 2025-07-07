@@ -20,7 +20,7 @@ export default function StaffingPage() {
   const [startDate, setStartDate] = useState(dayjs())
   const [callAht, setCallAht]     = useState(300)
   const [ticketAht, setTicketAht] = useState(600)
-  const [sl, setSL]               = useState(0.75)
+  const [sl, setSL]               = useState(0.8)
   const [threshold, setThreshold] = useState(20)
   const [shrinkage, setShrinkage] = useState(0.3)
   const [weeks, setWeeks]         = useState(3)    // later make 1–5
