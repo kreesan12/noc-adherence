@@ -8,7 +8,12 @@ import {
   MenuItem,
   Select,
   InputLabel,
-  FormControl
+  FormControl,
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell
 } from '@mui/material'
 import {
   LocalizationProvider,
@@ -41,10 +46,10 @@ export default function StaffingPage() {
 
   // forecast: [{ date, staffing: [{ hour, calls, tickets, requiredAgents }] }]
   const [forecast, setForecast]     = useState([])
+
   // shifts: [{ startHour, length }]
   const [shifts, setShifts]         = useState([])
 
-  // load available roles once
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -53,7 +58,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // calculate multi-day staffing forecast
+  // multi-day forecast
   const calcForecast = async () => {
     const params = {
       role:               team,
@@ -67,18 +72,25 @@ export default function StaffingPage() {
     }
     const res = await api.post('/erlang/staff/bulk-range', params)
     setForecast(res.data)
-    setShifts([]) // clear any previous shifts
+    setShifts([])
   }
 
-  // generate shift blocks from the forecast
+  // generate shifts
   const calcSchedule = async () => {
     const allHours = forecast.flatMap(day => day.staffing)
     const res      = await api.post('/erlang/staff/schedule', {
       staffing:    allHours,
-      shiftLength: 8
+      shiftLength: 9      // now default to 9-hour shifts (incl. 1h lunch)
     })
     setShifts(res.data)
   }
+
+  // compute max for heatmap coloring
+  const maxAgents = forecast.length
+    ? Math.max(
+        ...forecast.flatMap(d => d.staffing.map(h => h.requiredAgents))
+      )
+    : 0
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -158,7 +170,44 @@ export default function StaffingPage() {
           </Button>
         </Box>
 
-        {/* multi-day charts */}
+        {/* Heatmap table */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6" gutterBottom>
+              Required Agents Heatmap
+            </Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const entry = d.staffing.find(x => x.hour === h) || { requiredAgents: 0 }
+                      const val   = entry.requiredAgents
+                      const alpha = maxAgents ? (val / maxAgents * 0.8 + 0.2) : 0.2
+                      const bg    = `rgba(33,150,243,${alpha})`
+                      return (
+                        <TableCell key={d.date} sx={{ backgroundColor: bg }}>
+                          {val}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* multi-day bar charts */}
         {forecast.map(day => (
           <Box key={day.date} sx={{ mb:4 }}>
             <Typography variant="h6">{day.date}</Typography>
@@ -175,15 +224,30 @@ export default function StaffingPage() {
           </Box>
         ))}
 
-        {/* shift blocks */}
+        {/* shift blocks table */}
         {shifts.length > 0 && (
-          <Box sx={{ mt:4 }}>
-            <Typography variant="h6">Shift Blocks</Typography>
-            {shifts.map((s, i) => (
-              <Typography key={i}>
-                Start {s.startHour}:00 for {s.length} hours
-              </Typography>
-            ))}
+          <Box sx={{ mt:4, overflowX:'auto' }}>
+            <Typography variant="h6" gutterBottom>
+              Generated Shift Blocks
+            </Typography>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Start Hour</TableCell>
+                  <TableCell>Length (hrs)</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {shifts.map((s, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{i+1}</TableCell>
+                    <TableCell>{s.startHour}:00</TableCell>
+                    <TableCell>{s.length}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </Box>
         )}
       </Box>
