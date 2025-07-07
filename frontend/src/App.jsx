@@ -32,6 +32,7 @@ function SideNav() {
     { label: 'Admin',        path: '/agents',    icon: <AdminPanelSettingsIcon /> },
     { label: 'Volume',       path: '/volume',    icon: <BarChartIcon /> },
     { label: 'Upload Roster',path: '/roster',    icon: <UploadIcon /> },
+    { label: 'Staffing'     ,path: '/staffing',  icon: <UploadIcon /> },
   ]
 
   return (
