@@ -9,4 +9,11 @@ export default defineConfig({
     })
   ],
   base: '/noc-adherence/',
+
+   build: {
+   rollupOptions: {
+     // don’t try to bundle CJS-only packages––they’ll be loaded at runtime
+     external: ['react-calendar-timeline', 'moment']
+   }
+ }
 });
