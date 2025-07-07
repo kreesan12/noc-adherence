@@ -1,4 +1,3 @@
-// frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState } from 'react'
 import {
   Box,
@@ -20,16 +19,6 @@ import {
   DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  Legend
-} from 'recharts'
 import api from '../api'
 import dayjs from 'dayjs'
 
@@ -47,9 +36,13 @@ export default function StaffingPage() {
   // forecast: [{ date, staffing: [{ hour, calls, tickets, requiredAgents }] }]
   const [forecast, setForecast]     = useState([])
 
-  // shifts: [{ startHour, length }]
+  // raw shift blocks: [{ startHour, length }]
   const [shifts, setShifts]         = useState([])
 
+  // assigned employees: [{ id, shifts:[…], totalHours }]
+  const [employees, setEmployees]   = useState([])
+
+  // load available roles
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -58,38 +51,44 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // multi-day forecast
+  // compute multi-day staffing forecast
   const calcForecast = async () => {
     const params = {
-      role:               team,
-      start:              startDate.format('YYYY-MM-DD'),
-      end:                endDate.format('YYYY-MM-DD'),
-      callAhtSeconds:     callAht,
-      ticketAhtSeconds:   ticketAht,
-      serviceLevel:       sl,
-      thresholdSeconds:   threshold,
+      role:             team,
+      start:            startDate.format('YYYY-MM-DD'),
+      end:              endDate.format('YYYY-MM-DD'),
+      callAhtSeconds:   callAht,
+      ticketAhtSeconds: ticketAht,
+      serviceLevel:     sl,
+      thresholdSeconds: threshold,
       shrinkage
     }
     const res = await api.post('/erlang/staff/bulk-range', params)
     setForecast(res.data)
     setShifts([])
+    setEmployees([])
   }
 
-  // generate shifts
+  // generate raw shift blocks
   const calcSchedule = async () => {
     const allHours = forecast.flatMap(day => day.staffing)
     const res      = await api.post('/erlang/staff/schedule', {
       staffing:    allHours,
-      shiftLength: 9      // now default to 9-hour shifts (incl. 1h lunch)
+      shiftLength: 9
     })
     setShifts(res.data)
+    setEmployees([])
   }
 
-  // compute max for heatmap coloring
+  // auto-assign blocks to staff
+  const assignToStaff = async () => {
+    const res = await api.post('/schedule/assign', { shiftBlocks: shifts })
+    setEmployees(res.data)
+  }
+
+  // for heatmap coloring
   const maxAgents = forecast.length
-    ? Math.max(
-        ...forecast.flatMap(d => d.staffing.map(h => h.requiredAgents))
-      )
+    ? Math.max(...forecast.flatMap(d => d.staffing.map(h => h.requiredAgents)))
     : 0
 
   return (
@@ -99,7 +98,7 @@ export default function StaffingPage() {
           Staffing Forecast & Scheduling
         </Typography>
 
-        {/* controls */}
+        {/* Controls */}
         <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
@@ -168,9 +167,16 @@ export default function StaffingPage() {
           >
             Generate Shifts
           </Button>
+          <Button
+            variant="contained"
+            disabled={!shifts.length}
+            onClick={assignToStaff}
+          >
+            Assign to Staff
+          </Button>
         </Box>
 
-        {/* Heatmap table */}
+        {/* Heatmap of required agents */}
         {forecast.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6" gutterBottom>
@@ -207,28 +213,11 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* multi-day bar charts */}
-        {forecast.map(day => (
-          <Box key={day.date} sx={{ mb:4 }}>
-            <Typography variant="h6">{day.date}</Typography>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={day.staffing}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="hour" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="requiredAgents" name="Agents Needed" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Box>
-        ))}
-
-        {/* shift blocks table */}
+        {/* Raw shift blocks */}
         {shifts.length > 0 && (
           <Box sx={{ mt:4, overflowX:'auto' }}>
             <Typography variant="h6" gutterBottom>
-              Generated Shift Blocks
+              Shift Blocks
             </Typography>
             <Table>
               <TableHead>
@@ -239,7 +228,7 @@ export default function StaffingPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {shifts.map((s, i) => (
+                {shifts.map((s,i) => (
                   <TableRow key={i}>
                     <TableCell>{i+1}</TableCell>
                     <TableCell>{s.startHour}:00</TableCell>
@@ -248,6 +237,40 @@ export default function StaffingPage() {
                 ))}
               </TableBody>
             </Table>
+          </Box>
+        )}
+
+        {/* Assigned employees */}
+        {employees.length > 0 && (
+          <Box sx={{ mt:4 }}>
+            <Typography variant="h6" gutterBottom>
+              Assigned Staff Schedules
+            </Typography>
+            {employees.map(emp => (
+              <Box key={emp.id} sx={{ mb:2, p:2, border:'1px solid #ccc' }}>
+                <Typography variant="subtitle1">
+                  Employee {emp.id} (Total Hours: {emp.totalHours})
+                </Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Shift #</TableCell>
+                      <TableCell>Start</TableCell>
+                      <TableCell>Length (hrs)</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {emp.shifts.map((sh, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>{idx+1}</TableCell>
+                        <TableCell>{sh.startHour}:00</TableCell>
+                        <TableCell>{sh.length}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            ))}
           </Box>
         )}
       </Box>
