@@ -1,15 +1,16 @@
 // server/routes/erlang.js
 import { Router } from 'express'
 import dayjs from 'dayjs'
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'   // ← import the plugin
 import { requiredAgents, computeDayStaffing } from '../utils/erlang.js'
 import { generateShifts } from '../utils/scheduler.js'
+
+dayjs.extend(isSameOrBefore)                              // ← activate it
 
 export default prisma => {
   const r = Router()
 
   // ─── 1) Single staffing calc ────────────────────────────────────
-  // POST /api/erlang/staff
-  // body: { callsPerHour, ahtSeconds, serviceLevel, thresholdSeconds, shrinkage }
   r.post('/staff', (req, res, next) => {
     try {
       const {
@@ -34,17 +35,7 @@ export default prisma => {
     }
   })
 
-  // ─── 2) One‐day bulk staffing ─────────────────────────────────────
-  // POST /api/erlang/staff/bulk
-  // body: {
-  //   role,
-  //   date,                // 'YYYY-MM-DD'
-  //   callAhtSeconds,
-  //   ticketAhtSeconds,
-  //   serviceLevel,
-  //   thresholdSeconds,
-  //   shrinkage
-  // }
+  // ─── 2) One-day bulk staffing ──────────────────────────────────────
   r.post('/staff/bulk', async (req, res, next) => {
     try {
       const {
@@ -101,17 +92,6 @@ export default prisma => {
   })
 
   // ─── 3) Multi-day forecast ───────────────────────────────────────
-  // POST /api/erlang/staff/bulk-range
-  // body: {
-  //   role,
-  //   start,               // 'YYYY-MM-DD'
-  //   end,                 // 'YYYY-MM-DD'
-  //   callAhtSeconds,
-  //   ticketAhtSeconds,
-  //   serviceLevel,
-  //   thresholdSeconds,
-  //   shrinkage
-  // }
   r.post('/staff/bulk-range', async (req, res, next) => {
     try {
       const {
@@ -127,6 +107,7 @@ export default prisma => {
       const days = []
       let cursor = dayjs(start)
 
+      // now isSameOrBefore works as expected
       while (cursor.isSameOrBefore(dayjs(end))) {
         const date     = cursor.format('YYYY-MM-DD')
         const staffing = await computeDayStaffing({
@@ -149,9 +130,7 @@ export default prisma => {
     }
   })
 
-  // ─── 4) Shift‐schedule generator ─────────────────────────────────
-  // POST /api/erlang/staff/schedule
-  // body: { staffing: [{ hour, requiredAgents }], shiftLength }
+  // ─── 4) Shift-schedule generator ─────────────────────────────────
   r.post('/staff/schedule', (req, res, next) => {
     try {
       const { staffing, shiftLength = 8 } = req.body
