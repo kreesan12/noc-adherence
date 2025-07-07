@@ -17,5 +17,64 @@ export default prisma => {
     }
   })
 
+  r.post('/staff/bulk', async (req, res, next) => {
+    try {
+      const {
+        role,
+        date,
+        callAhtSeconds,
+        ticketAhtSeconds,
+        serviceLevel,
+        thresholdSeconds,
+        shrinkage
+      } = req.body
+
+      // 1) figure date window
+      const start = dayjs(date).startOf('day').toDate()
+      const end   = dayjs(date).endOf('day')  .toDate()
+
+      // 2) pull all actuals for that role + day
+      const actuals = await prisma.volumeActual.findMany({
+        where: { role, date: { gte: start, lte: end } }
+      })
+
+      // 3) group into 0–23 slots
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const slice = actuals.filter(a => dayjs(a.date).hour() === h)
+        const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
+        const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
+        return { hour: h, calls, tickets }
+      })
+
+      // 4) compute required agents per hour
+      const staffing = hours.map(({ hour, calls, tickets }) => {
+        const callAgents   = requiredAgents({
+          callsPerHour: calls,
+          ahtSeconds:   callAhtSeconds,
+          targetServiceLevel:   serviceLevel,
+          serviceThresholdSeconds: thresholdSeconds,
+          shrinkage
+        })
+        const ticketAgents = requiredAgents({
+          callsPerHour: tickets,
+          ahtSeconds:   ticketAhtSeconds,
+          targetServiceLevel:   serviceLevel,
+          serviceThresholdSeconds: thresholdSeconds,
+          shrinkage
+        })
+        return {
+          hour,
+          calls,
+          tickets,
+          requiredAgents: callAgents + ticketAgents
+        }
+      })
+
+      return res.json(staffing)
+    } catch (err) {
+      next(err)
+    }
+  })
+
   return r
 }
