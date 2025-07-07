@@ -1,5 +1,6 @@
 // server/routes/schedule.js
 import { Router } from 'express'
+import dayjs from 'dayjs'                    // ← make sure dayjs is imported
 import { assignShifts } from '../utils/scheduler.js'
 
 export default prisma => {
@@ -58,7 +59,7 @@ export default prisma => {
 
   // ─── Auto-assign shifts to employees ─────────────────────────
   // POST /api/schedule/assign
-  // body: { shiftBlocks: [{ startHour, length }, …] }
+  // body: { forecast, windowDays?, shiftLength? }
   r.post('/assign', (req, res, next) => {
     try {
       const { forecast, windowDays = 5, shiftLength = 9 } = req.body
@@ -70,69 +71,8 @@ export default prisma => {
           .json({ error: 'Missing or empty `forecast` in request body' })
       }
 
-      // ② build remaining‐need map
-      const needs = {}
-      for (const day of forecast) {
-        if (!Array.isArray(day.staffing)) continue
-        for (const { hour, requiredAgents } of day.staffing) {
-          needs[`${day.date}|${hour}`] = requiredAgents
-        }
-      }
-
-      // ③ generate all candidate 5-day/shiftLength blocks
-      const dates = forecast.map(d => d.date)
-      const dateSet = new Set(dates)
-      const candidates = []
-
-      for (const startDate of dates) {
-        // only consider a block if you can fit `windowDays` into your range
-        const window = Array.from({ length: windowDays }, (_, i) =>
-          dayjs(startDate).add(i, 'day').format('YYYY-MM-DD')
-        )
-        if (!window.every(d => dateSet.has(d))) continue
-
-        for (let startHour = 0; startHour <= 24 - shiftLength; startHour++) {
-          const cover = []
-          for (const d of window) {
-            for (let h = startHour; h < startHour + shiftLength; h++) {
-              cover.push(`${d}|${h}`)
-            }
-          }
-          candidates.push({ startDate, startHour, length: shiftLength, cover })
-        }
-      }
-
-      // ④ greedy cover: pick the block with the highest single‐hour unmet need
-      const solution = []
-      while (true) {
-        let best = null
-        let bestScore = 0
-
-        for (const c of candidates) {
-          // score = max remaining need in its cover
-          const score = Math.max(0, ...c.cover.map(k => needs[k] || 0))
-          if (score > bestScore) {
-            best = c
-            bestScore = score
-          }
-        }
-
-        if (!best || bestScore === 0) break
-
-        // assign exactly `bestScore` staff to this block
-        solution.push({
-          startDate: best.startDate,
-          startHour: best.startHour,
-          length:    best.length,
-          count:     bestScore
-        })
-
-        // subtract that many from every hour it covers
-        for (const key of best.cover) {
-          needs[key] = Math.max(0, (needs[key] || 0) - bestScore)
-        }
-      }
-
+      // ② delegate to your helper
+      const solution = assignShifts(forecast, { windowDays, shiftLength })
       return res.json(solution)
     } catch (err) {
       next(err)

@@ -2,8 +2,8 @@
 import dayjs from 'dayjs'
 
 /**
- * Generate minimal shift blocks for coverage.
- * (Keept for legacy if needed.)
+ * Legacy: generate individual shift blocks to cover a 1-day array of hourly requirements.
+ * (Kept here in case you still need it for one-off/day-view charts.)
  */
 export function generateShifts(requirements, shiftLength = 9) {
   const coverage = Array(requirements.length).fill(0)
@@ -25,74 +25,83 @@ export function generateShifts(requirements, shiftLength = 9) {
 }
 
 /**
- * Assign shift blocks to employees in 5-day consecutive runs.
+ * Greedy block-cover solver over a multi-day forecast.
  *
- * @param shiftBlocks  Array of { date: 'YYYY-MM-DD', startHour, length }
- * @param options      { shiftLength, lunchBreak, maxWeeklyHours, minRestHours }
- * @returns employees  Array of {
- *   id,
- *   shifts: [ { date, startHour, length } × 5 ],
- *   totalHours
- * }
+ * @param forecast    Array of { date: 'YYYY-MM-DD', staffing: [ { hour, requiredAgents } ] }
+ * @param options     { windowDays, shiftLength }
+ * @returns solution  Array of { startDate, startHour, length, count }
  */
 export function assignShifts(
-  shiftBlocks,
-  {
-    shiftLength    = 9,    // hours per shift (incl. 1h lunch)
-    lunchBreak     = 1,
-    maxWeeklyHours = 45,   // including lunch
-    minRestHours   = 48    // between end of last and next start
-  } = {}
+  forecast,
+  { windowDays = 5, shiftLength = 9 } = {}
 ) {
-  // 1) bucket counts by date+pattern
-  const reqMap = {}
-  shiftBlocks.forEach(({ date, startHour, length }) => {
-    reqMap[date] = reqMap[date] || {}
-    const key = `${startHour}-${length}`
-    reqMap[date][key] = (reqMap[date][key] || 0) + 1
+  // 1) build a flat “needs” map: needs["YYYY-MM-DD|h"] → requiredAgents
+  const needs = {}
+  forecast.forEach(day => {
+    if (!Array.isArray(day.staffing)) return
+    day.staffing.forEach(({ hour, requiredAgents }) => {
+      needs[`${day.date}|${hour}`] = requiredAgents
+    })
   })
 
-  // sorted list of dates
-  const dates = Object.keys(reqMap).sort()
-  const employees = []
+  // 2) prepare sorted list of dates and quick lookup
+  const dates = forecast.map(d => d.date).sort()
+  const dateSet = new Set(dates)
 
-  // 2) slide 5-day window over dates
-  for (let i = 0; i + 4 < dates.length; i++) {
-    const windowDates = dates.slice(i, i + 5)
+  // 3) enumerate every candidate block of windowDays × shiftLength
+  const candidates = []
+  for (const startDate of dates) {
+    // build the date window
+    const windowDates = Array.from({ length: windowDays }, (_, i) =>
+      dayjs(startDate).add(i, 'day').format('YYYY-MM-DD')
+    )
+    // skip if window spills outside our forecast
+    if (!windowDates.every(d => dateSet.has(d))) continue
 
-    // for each shift pattern available on the first day
-    Object.keys(reqMap[windowDates[0]] || {}).forEach(pattern => {
-      const [shStr, lenStr] = pattern.split('-')
-      const startHour = +shStr
-      const length    = +lenStr
-
-      // find how many we can staff for all 5 days
-      let minCount = Infinity
-      windowDates.forEach(d => {
-        const dayReq = reqMap[d][pattern] || 0
-        minCount = Math.min(minCount, dayReq)
-      })
-
-      // assign that many employees to this pattern for the 5-day block
-      for (let n = 0; n < minCount; n++) {
-        const shifts = windowDates.map(d => ({
-          date: d,
-          startHour,
-          length
-        }))
-        employees.push({
-          id:         employees.length + 1,
-          shifts,
-          totalHours: shifts.reduce((sum, s) => sum + s.length, 0)
-        })
+    // each possible startHour
+    for (let startHour = 0; startHour <= 24 - shiftLength; startHour++) {
+      // collect all covered keys
+      const cover = []
+      for (const d of windowDates) {
+        for (let h = startHour; h < startHour + shiftLength; h++) {
+          cover.push(`${d}|${h}`)
+        }
       }
+      candidates.push({ startDate, startHour, length: shiftLength, cover })
+    }
+  }
 
-      // reduce the requirement counts
-      windowDates.forEach(d => {
-        reqMap[d][pattern] -= minCount
-      })
+  // 4) greedy selection: pick block covering the hour with highest unmet need
+  const solution = []
+  while (true) {
+    let best = null
+    let bestScore = 0
+
+    for (const c of candidates) {
+      // score = max(need) over this block’s hours
+      const score = Math.max(0, ...c.cover.map(k => needs[k] || 0))
+      if (score > bestScore) {
+        best = c
+        bestScore = score
+      }
+    }
+
+    // no more unmet need
+    if (!best || bestScore === 0) break
+
+    // assign exactly bestScore staff to that block
+    solution.push({
+      startDate: best.startDate,
+      startHour: best.startHour,
+      length:    best.length,
+      count:     bestScore
+    })
+
+    // subtract that many from every hour in the block
+    best.cover.forEach(k => {
+      needs[k] = Math.max(0, (needs[k] || 0) - bestScore)
     })
   }
 
-  return employees
+  return solution
 }
