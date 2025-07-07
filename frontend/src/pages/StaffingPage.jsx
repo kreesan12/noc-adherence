@@ -182,8 +182,14 @@ export default function StaffingPage() {
           </Button>
           <Button
             variant="contained"
-            onClick={assignToStaff}
-            disabled={!forecast.length}
+            onClick={() => {
+              console.log('🔔 Assign to Staff clicked — forecast.length=', forecast.length);
+              if (forecast.length === 0) {
+                alert('Please calculate a forecast first.');
+                return;
+              }
+              assignToStaff();
+            }}
           >
             Assign to Staff
           </Button>
