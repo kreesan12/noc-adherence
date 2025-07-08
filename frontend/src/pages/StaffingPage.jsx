@@ -63,16 +63,16 @@ export default function StaffingPage() {
     return dates
   }
 
-/* ─── buildSchedule with balanced lunches ───────────────────── */
+/* ─── buildSchedule with global-balancing lunches ───────────── */
 function buildSchedule(solution, reqMap) {
   const schedByEmp = {}
   const totalEmp   = solution.reduce((s, b) => s + b.count, 0)
   const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1)
   queue.forEach(id => (schedByEmp[id] = []))
 
-  /* running counters so we can test coverage on the fly */
-  const coverMap  = {}   // heads on shift (ex-lunch)
-  const lunchMap  = {}   // heads already at lunch for key ⇢ `${day}|${h}`
+  /* running counters of live coverage & lunches per hour */
+  const coverMap = {}   // heads on duty (ex-lunch)
+  const lunchMap = {}   // heads already at lunch
 
   const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month')
   const cycles     = Math.ceil(
@@ -94,59 +94,56 @@ function buildSchedule(solution, reqMap) {
           if (d.isAfter(horizonEnd, 'day')) return
           const day = d.format('YYYY-MM-DD')
 
-          /* ── CHOOSE LUNCH HOUR ─────────────────────────── */
-          const candidateHrs = []
+          /* ── choose lunch hour ──────────────────────────── */
+          const candidates = []
           for (let off = 2; off <= 5; off++) {
-            const h   = block.startHour + off
+            const h = block.startHour + off
             if (h >= block.startHour + SHIFT_LENGTH) break
-            const key = `${day}|${h}`
+            const k = `${day}|${h}`
 
-            const onDuty   = coverMap[key]  || 0
-            const lunches  = lunchMap[key]  || 0
-            const required = reqMap[key]    ?? 0
+            const onDuty   = coverMap[k]  || 0
+            const lunches  = lunchMap[k]  || 0
+            const required = reqMap[k]    ?? 0
 
-            // would coverage hold if this person steps out?
-            if (onDuty - lunches - 1 >= required) {
-              candidateHrs.push({
-                h,
-                currentLunches: lunches
-              })
+            const projected = onDuty - lunches - 1          // after this break
+            const surplus   = projected - required          // ≥ 0 means safe
+
+            if (surplus >= 0) {
+              candidates.push({ h, surplus, lunches })
             }
           }
 
           let breakHour
-          if (candidateHrs.length) {
-            /* pick hour with fewest lunches so far (tie → earliest) */
-            candidateHrs.sort(
-              (a, b) => a.currentLunches - b.currentLunches || a.h - b.h
+          if (candidates.length) {
+            /* minimise surplus → then lunches → then earliest */
+            candidates.sort((a, b) =>
+              a.surplus  - b.surplus  ||
+              a.lunches  - b.lunches  ||
+              a.h        - b.h
             )
-            breakHour = candidateHrs[0].h
+            breakHour = candidates[0].h
           } else {
-            // last resort – middle of shift
+            // last resort: mid-shift
             breakHour = block.startHour + Math.floor(block.length / 2)
           }
 
-          /* record shift for this employee */
-          schedByEmp[empId].push({
-            day,
-            hour: block.startHour,
-            breakHour
-          })
+          /* record for employee */
+          schedByEmp[empId].push({ day, hour: block.startHour, breakHour })
 
-          /* update running counters */
+          /* update counters */
           for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
             const k = `${day}|${h}`
             coverMap[k] = (coverMap[k] || 0) + 1
           }
-          const lunchKey = `${day}|${breakHour}`
-          lunchMap[lunchKey] = (lunchMap[lunchKey] || 0) + 1
+          const lk = `${day}|${breakHour}`
+          lunchMap[lk] = (lunchMap[lk] || 0) + 1
         })
       })
 
       offset += block.count
     })
 
-    /* rotate queue so next cycle shifts forward */
+    /* cycle-rotation so patterns roll forward next period */
     queue.unshift(queue.pop())
   }
 
