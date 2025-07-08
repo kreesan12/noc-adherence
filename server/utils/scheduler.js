@@ -2,39 +2,49 @@
 import dayjs from 'dayjs'
 
 /**
- * Assign staff for an N-week 5-on/2-off rotation.
- *  • Greedy first pass
- *  • Padding to guarantee 1 block / first-week day
- *  • Hill-climb local search (±1 h OR move to another first-week date)
+ * Assign staff for an N-week 5-on/2-off rotation
+ * using a greedy seed + local improvement.
+ *
+ * Improvements compared with the original version
+ * – we now SPLIT large blocks so that each block has at most `splitSize`
+ *   heads.  That lets the later hill-climb (break-offset search) give
+ *   different lunch offsets to sub-blocks and therefore stagger lunches.
  */
 export function assignRotationalShifts(
   forecast,
-  { weeks = 3, shiftLength = 9, startHours, maxStaff } = {}
+  {
+    weeks       = 3,
+    shiftLength = 9,
+    startHours,
+    maxStaff,
+    splitSize   = 2          //  NEW ─ max heads per block
+  } = {}
 ) {
-  /* 1) unmet-need map + helpers ─────────────────────────────── */
-  const needs = {}
+  /* 1) unmet-need map + all dates -------------------------------- */
+  const needs    = {}
   const allDates = []
   forecast.forEach(day => {
     if (!Array.isArray(day.staffing)) return
     allDates.push(day.date)
     day.staffing.forEach(({ hour, requiredAgents }) => {
-      const hh = ((hour % 24) + 24) % 24   // clamp
-      needs[`${day.date}|${hh}`] = requiredAgents
+      needs[`${day.date}|${hour}`] = requiredAgents
     })
   })
   allDates.sort()
-  const dateSet   = new Set(allDates)
-  const firstDate = allDates[0]
+  const dateSet = new Set(allDates)
 
+  /* 2) first-week window ----------------------------------------- */
   const firstWeek = allDates.filter(d =>
-    dayjs(d).diff(firstDate, 'day') < 7
+    dayjs(d).diff(allDates[0], 'day') < 7
   )
 
+  /* 3) start hours we are willing to try ------------------------- */
   const hoursToTry = Array.isArray(startHours)
     ? startHours
     : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h)
 
-  const getWorkDates = startDate => {
+  /* 4) helper: on-days for a given first-week startDate ---------- */
+  function getWorkDates(startDate) {
     const out = []
     for (let w = 0; w < weeks; w++) {
       const base = dayjs(startDate).add(w * 7, 'day')
@@ -46,156 +56,128 @@ export function assignRotationalShifts(
     return out
   }
 
-  /* 2) candidate blocks (24-h safe) ─────────────────────────── */
+  /* 5) build every fully coverable candidate block --------------- */
   const candidates = firstWeek.flatMap(startDate => {
     const workDates = getWorkDates(startDate)
     if (workDates.length < weeks * 5) return []
     return hoursToTry.map(startHour => {
       const cover = []
       workDates.forEach(d => {
-        for (let h = 0; h < shiftLength; h++) {
-          const hh = startHour + h
-          if (hh >= 24) break
-          cover.push(`${d}|${hh}`)
+        for (let h = startHour; h < startHour + shiftLength; h++) {
+          cover.push(`${d}|${h}`)
         }
       })
       return { startDate, startHour, length: shiftLength, cover }
     })
   })
 
-  /* 3) greedy assignment ────────────────────────────────────── */
-  const residual  = { ...needs }
+  /* 6) greedy assignment ----------------------------------------- */
+  const localNeeds  = { ...needs }
   const assignments = []
   while (true) {
     if (typeof maxStaff === 'number' && assignments.length >= maxStaff) break
 
-    let best = null, bestGain = 0
+    let best = null
+    let bestScore = 0
     for (const c of candidates) {
-      let gain = 0
-      for (const k of c.cover) gain += Math.min(1, residual[k] || 0)
-      if (gain > bestGain) { best = c; bestGain = gain }
+      const score = c.cover.reduce((s, k) => s + (localNeeds[k] || 0), 0)
+      if (score > bestScore) { best = c; bestScore = score }
     }
-    if (!best || bestGain === 0) break
+    if (!best || bestScore === 0) break
 
     assignments.push({ startDate: best.startDate, startHour: best.startHour })
-    best.cover.forEach(k => { if (residual[k]) residual[k]-- })
+
+    best.cover.forEach(k => { localNeeds[k] = Math.max(0, (localNeeds[k] || 0) - 1) })
   }
 
-  /* 4) padding: ≥1 block per first-week date ────────────────── */
-  firstWeek.forEach(startDate => {
-    if (assignments.some(a => a.startDate === startDate)) return
-    const cands = candidates.filter(c => c.startDate === startDate)
-    if (!cands.length) return
-    cands.sort((a, b) => {
-      const ga = a.cover.reduce((s,k)=>s+(needs[k]||0),0)
-      const gb = b.cover.reduce((s,k)=>s+(needs[k]||0),0)
-      return gb - ga
-    })
-    assignments.push({ startDate, startHour: cands[0].startHour })
-  })
+  /* 7) collapse into blocks – **split after `splitSize` heads** --- */
+  const solution = []
+  const counter  = {}   // key → current count in the *current* open block
 
-  /* 5)  LOCAL-SEARCH  (±1 h **or** move to another first-week day) */
-  const MAX_LS_ITERS = 30
-
-  const unmet = res => Object.values(res).reduce((s,v)=>s+v,0)
-
-  const currentResidual = list => {
-    const res = { ...needs }
-    list.forEach(({ startDate, startHour }) => {
-      getWorkDates(startDate).forEach(d => {
-        for (let h = 0; h < shiftLength; h++) {
-          const hh = startHour + h
-          if (hh >= 24) break
-          const k = `${d}|${hh}`
-          if (res[k]) res[k]--
-        }
-      })
-    })
-    return res
-  }
-
-  /** neighbours: ±1 hour on same day  –OR– same hour on any other first-week date */
-  function genNeighbours(block) {
-    const nbs = []
-    const { startDate, startHour } = block
-
-    // ±1 h on same date
-    for (const dH of [-1, 1]) {
-      const nh = startHour + dH
-      if (nh >= 0 && nh <= 24 - shiftLength) nbs.push({ startDate, startHour: nh })
-    }
-
-    // move to other first-week dates (keep hour)
-    for (const d of firstWeek) {
-      if (d !== startDate) nbs.push({ startDate: d, startHour })
-    }
-    return nbs
-  }
-
-  let resMap = currentResidual(assignments)
-  for (let it = 0; it < MAX_LS_ITERS && unmet(resMap) > 0; it++) {
-    let improved = false
-    for (let i = 0; i < assignments.length; i++) {
-      const base = [...assignments]
-      const cur  = base[i]
-      for (const nb of genNeighbours(cur)) {
-        const trial = [...base]
-        trial[i]    = nb
-        const trialRes = currentResidual(trial)
-        if (unmet(trialRes) < unmet(resMap)) {
-          assignments[i] = nb
-          resMap         = trialRes
-          improved       = true
-          break
-        }
-      }
-      if (improved) break
-    }
-    if (!improved) break
-  }
-
-  /* 6) Collapse list → blocks & sort ────────────────────────── */
-  const solutionMap = {}
   assignments.forEach(({ startDate, startHour }) => {
-    const k = `${startDate}|${startHour}`
-    if (!solutionMap[k]) {
-      solutionMap[k] = {
+    const key = `${startDate}|${startHour}`
+    const current = counter[key] || 0
+
+    if (current === 0 || current >= splitSize) {
+      // start a fresh block
+      solution.push({
         startDate,
         startHour,
         length: shiftLength,
-        count: 0,
+        count: 1,
         patternIndex: dayjs(startDate).day()
-      }
+      })
+      counter[key] = 1
+    } else {
+      // append to the most-recent block with that key
+      solution[solution.length - 1].count += 1
+      counter[key] += 1
     }
-    solutionMap[k].count++
   })
 
-  const solution = Object.values(solutionMap)
-  solution.sort((a,b)=>
-    a.patternIndex - b.patternIndex ||
-    a.startHour    - b.startHour
+  /* 8) make sure every first-week day has at least one block ----- */
+  firstWeek.forEach(startDate => {
+    const exists = solution.some(b => b.startDate === startDate)
+    if (!exists) {
+      // pick the hour that covers the most unmet need
+      const workDates = getWorkDates(startDate)
+      let bestHour   = hoursToTry[0]
+      let bestScore  = 0
+      hoursToTry.forEach(h => {
+        const score = workDates.reduce((sum, d) => {
+          for (let x = h; x < h + shiftLength; x++) {
+            sum += (needs[`${d}|${x}`] || 0)
+          }
+          return sum
+        }, 0)
+        if (score > bestScore) { bestHour = h; bestScore = score }
+      })
+      solution.push({
+        startDate,
+        startHour: bestHour,
+        length: shiftLength,
+        count: 1,
+        patternIndex: dayjs(startDate).day()
+      })
+    }
+  })
+
+  /* 9) order by weekday then hour -------------------------------- */
+  solution.sort((a, b) =>
+    a.patternIndex - b.patternIndex || a.startHour - b.startHour
   )
+
   return solution
 }
 
-/* ───── Convenience wrapper used by the API route ───────────── */
+/* ---------------------------------------------------------------- *\
+   Top-level wrapper (unchanged, except the extra param passthrough)
+\* ---------------------------------------------------------------- */
 export function autoAssignRotations(
   forecast,
-  { weeks = 3, shiftLength = 9, topN = 5, maxStaff } = {}
+  {
+    weeks       = 3,
+    shiftLength = 9,
+    topN        = 5,
+    maxStaff,
+    splitSize   = 2         // expose to callers (front-end keeps default)
+  } = {}
 ) {
   const solution = assignRotationalShifts(
     forecast,
-    { weeks, shiftLength, maxStaff }
+    { weeks, shiftLength, maxStaff, splitSize }
   )
 
-  const tally = solution.reduce((acc,b)=>{
-    acc[b.startHour]=(acc[b.startHour]||0)+b.count
+  // histogram by startHour
+  const tally = solution.reduce((acc, b) => {
+    acc[b.startHour] = (acc[b.startHour] || 0) + b.count
     return acc
-  },{})
+  }, {})
 
-  const bestStartHours = Object.entries(tally)
-    .map(([h,total])=>({ startHour:+h, totalAssigned:total }))
-    .sort((a,b)=>b.totalAssigned-a.totalAssigned)
+  const bestStartHours = Object
+    .entries(tally)
+    .map(([h, total]) => ({ startHour: +h, totalAssigned: total }))
+    .sort((a, b) => b.totalAssigned - a.totalAssigned)
     .slice(0, topN)
 
   return { bestStartHours, solution }

@@ -124,7 +124,10 @@ function buildSchedule(solution, reqMap) {
             breakHour = candidates[0].h
           } else {
             // last resort: mid-shift
-            breakHour = block.startHour + Math.floor(block.length / 2)
+             const breakHour = block.breakOffset != null
+             ? block.startHour + block.breakOffset          // ← backend value
+             : block.startHour + Math.floor(block.length / 2)
+
           }
 
           /* record for employee */
