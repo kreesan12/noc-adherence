@@ -13,9 +13,11 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
 
-// Gantt imports
+// Excel export
+import * as XLSX from 'xlsx'
+
+// Gantt imports (no CSS import here)
 import Timeline from 'react-calendar-timeline'
-import 'react-calendar-timeline/lib/Timeline.css'
 import moment from 'moment'
 
 export default function StaffingPage() {
@@ -35,7 +37,7 @@ export default function StaffingPage() {
   const [bestStartHours, setBestStart]  = useState([])
   const [personSchedule, setPersonSchedule] = useState({})
 
-  // ─── Load roles ─────────────────────────────────────────────────
+  // ─── Load roles ────────────────────────────────────────────────
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -44,7 +46,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── Helper: 5-on/2-off dates for N-week cycle ───────────────────
+  // ─── Helper: build 5-on/2-off dates for N-week cycle ───────────
   function getWorkDates(start, wk) {
     const dates = []
     for (let w = 0; w < wk; w++) {
@@ -103,7 +105,7 @@ export default function StaffingPage() {
     setPersonSchedule({})
   }
 
-  // ─── 2) Assign rotations & build 6-month staff schedule ────────
+  // ─── 2) Assign rotations & build 6-month schedule ─────────────
   const assignToStaff = async () => {
     if (!forecast.length) return alert('Run Forecast first')
     const res = await api.post('/erlang/staff/schedule', {
@@ -115,7 +117,7 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // flatten into per-employee list
+    // flatten solution into one array of slots
     const flat = []
     let idx = 1
     res.data.solution.forEach(b => {
@@ -126,7 +128,7 @@ export default function StaffingPage() {
     })
     flat.sort((a,b) => a.employee - b.employee)
 
-    // how many cycles fit in 6 months
+    // how many 3-week cycles to cover next 6 months
     const horizonEnd   = dayjs(startDate).add(6, 'month')
     const horizonDays  = horizonEnd.diff(dayjs(startDate), 'day') + 1
     const cycleDays    = weeks * 7
@@ -135,7 +137,7 @@ export default function StaffingPage() {
     const scheduleByEmp = {}
     flat.forEach(a => { scheduleByEmp[a.employee] = [] })
 
-    // rotate each employee forward every cycle
+    // each cycle, rotate everyone forward 1 block
     for (let c = 0; c < cyclesCount; c++) {
       flat.forEach((a,i) => {
         const block = flat[(i + c) % flat.length]
@@ -155,7 +157,21 @@ export default function StaffingPage() {
     setPersonSchedule(scheduleByEmp)
   }
 
-  // ─── 3) Prepare Gantt data ─────────────────────────────────────
+  // ─── 3) Export to Excel ─────────────────────────────────────────
+  const exportExcel = () => {
+    const rows = []
+    Object.entries(personSchedule).forEach(([emp, arr]) => {
+      arr.forEach(({ day, hour }) => {
+        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00` })
+      })
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
+    XLSX.writeFile(wb, 'staff-schedule.xlsx')
+  }
+
+  // ─── 4) Prepare Gantt groups/items ─────────────────────────────
   const [groups, items] = useMemo(() => {
     const gr = Object.keys(personSchedule).map(emp => ({
       id: Number(emp),
@@ -422,6 +438,11 @@ export default function StaffingPage() {
             <Typography variant="h6" gutterBottom>
               Staff Gantt Calendar (6-month view)
             </Typography>
+
+            <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
+              Export to Excel
+            </Button>
+
             <Timeline
               groups={groups}
               items={items}
