@@ -122,13 +122,12 @@ function buildSchedule(solution, reqMap) {
               a.h        - b.h
             )
             breakHour = candidates[0].h
-          } else {
-            // last resort: mid-shift
-             breakHour = block.breakOffset != null
-             ? block.startHour + block.breakOffset          // ← backend value
-             : block.startHour + Math.floor(block.length / 2)
-
-          }
+            } else {
+              // last resort: use backend-preferred offset or mid-shift
+              breakHour = block.breakOffset != null
+                ? block.startHour + block.breakOffset
+                : block.startHour + Math.floor(block.length / 2)
+            }
 
           /* record for employee */
           schedByEmp[empId].push({ day, hour: block.startHour, breakHour })
