@@ -111,6 +111,7 @@ export default function StaffingPage() {
     setBlocks(res.data.solution)
 
     // ─ build per-person schedule ───────────────────────────────
+    // 1) Round-robin expand the 'count' into individual slots:
     let empIdx = 1
     const assignments = []
     res.data.solution.forEach(b => {
@@ -119,12 +120,22 @@ export default function StaffingPage() {
         empIdx++
       }
     })
+
+    // 2) For each slot, repeat that block every (weeks) until 6 months from today
+    const horizonEnd = dayjs().add(6, 'month')
     const scheduleByEmp = {}
     assignments.forEach(({ employee, startDate, startHour, length }) => {
-      const dates = getWorkDates(startDate, weeks)
-      scheduleByEmp[employee] = (scheduleByEmp[employee] || []).concat(
-        dates.map(day => ({ day, hour: startHour }))
-      )
+      let cycleStart = dayjs(startDate)
+      while (cycleStart.isBefore(horizonEnd)) {
+        // collect the 5 on-days for this cycle
+        const dates = getWorkDates(cycleStart.format('YYYY-MM-DD'), weeks)
+        dates.forEach(day => {
+          scheduleByEmp[employee] = scheduleByEmp[employee] || []
+          scheduleByEmp[employee].push({ day, hour: startHour })
+        })
+        // advance to next cycle
+        cycleStart = cycleStart.add(weeks, 'week')
+      }
     })
     setPersonSchedule(scheduleByEmp)
   }
