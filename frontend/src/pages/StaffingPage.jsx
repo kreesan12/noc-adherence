@@ -61,7 +61,7 @@ export default function StaffingPage() {
     return dates
   }
 
-  // ─── Build heatmap data ───────────────────────────────────────
+  // ─── Build heatmap data from personSchedule & forecast ─────────
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
     // 1) build required-agents map
     const reqMap = {}
@@ -71,56 +71,45 @@ export default function StaffingPage() {
       })
     })
 
-    // 2) initial scheduled coverage
+    // 2) build scheduled coverage from personSchedule
     const schedMap = {}
-    blocks.forEach(b => {
-      getWorkDates(b.startDate, weeks).forEach(date => {
-        for (let h = b.startHour; h < b.startHour + b.length; h++) {
-          const key = `${date}|${h}`
-          schedMap[key] = (schedMap[key] || 0) + b.count
+    const shiftLen = 9   // your shiftLength
+    Object.values(personSchedule).forEach(arr => {
+      arr.forEach(({ day, hour, breakHour }) => {
+        for (let h = hour; h < hour + shiftLen; h++) {
+          if (h === breakHour) continue   // skip the lunch hour
+          const key = `${day}|${h}`
+          schedMap[key] = (schedMap[key] || 0) + 1
         }
       })
     })
 
-    // 3) deduct lunch breaks per block
-    const adjusted = { ...schedMap }
-    blocks.forEach(b => {
-      getWorkDates(b.startDate, weeks).forEach(date => {
-        let breakHour = null
-        for (let offset = 1; offset <= 5; offset++) {
-          const h = b.startHour + offset
-          const key = `${date}|${h}`
-          if ((adjusted[key] || 0) - b.count >= (reqMap[key] || 0)) {
-            breakHour = h
-            break
-          }
-        }
-        if (breakHour === null) {
-          breakHour = b.startHour + Math.floor(b.length / 2)
-        }
-        const bkKey = `${date}|${breakHour}`
-        adjusted[bkKey] = (adjusted[bkKey] || 0) - b.count
-      })
-    })
-
-    // 4) recompute deficit
+    // 3) deficit = scheduled minus required
     const defMap = {}
-    Object.entries(adjusted).forEach(([key, val]) => {
-      defMap[key] = val - (reqMap[key] || 0)
+    // union of all keys in reqMap and schedMap
+    const keys = new Set([
+      ...Object.keys(reqMap),
+      ...Object.keys(schedMap)
+    ])
+    keys.forEach(key => {
+      const sch = schedMap[key] || 0
+      const req = reqMap[key]   || 0
+      defMap[key] = sch - req
     })
 
-    // 5) compute max values
+    // 4) compute max values for color scaling
     const allReq = Object.values(reqMap)
-    const allSch = Object.values(adjusted)
+    const allSch = Object.values(schedMap)
     const allDef = Object.values(defMap).map(v => Math.abs(v))
+
     return {
-      scheduled: adjusted,
+      scheduled: schedMap,
       deficit:   defMap,
       maxReq:    allReq.length ? Math.max(...allReq) : 0,
       maxSch:    allSch.length ? Math.max(...allSch) : 0,
       maxDef:    allDef.length ? Math.max(...allDef) : 0,
     }
-  }, [blocks, forecast, weeks])
+  }, [personSchedule, forecast])
 
   // ─── 1) 6-month required-agent forecast ───────────────────────
   const calcForecast = async () => {
