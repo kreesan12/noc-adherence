@@ -154,7 +154,7 @@ export default function StaffingPage() {
       if (nextFirst.isAfter(horizonEnd, 'day')) break
 
       // rotate queue by 1 so everyone shifts one block forward
-      queue = queue.slice(1).concat(queue[0])
+      queue = [ queue[queue.length - 1], ...queue.slice(0, queue.length - 1) ]
       cycle++
     }
 
