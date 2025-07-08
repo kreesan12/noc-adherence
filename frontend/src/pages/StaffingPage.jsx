@@ -40,7 +40,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── helper: get 5-on × weeksCount dates from a start date ────
+  // ─── helper: get the 5‐day work block for a start date ────────
   function getWorkDates(start, weeksCount) {
     const dates = []
     for (let w = 0; w < weeksCount; w++) {
@@ -59,7 +59,7 @@ export default function StaffingPage() {
       getWorkDates(b.startDate, weeks).forEach(date => {
         for (let h = b.startHour; h < b.startHour + b.length; h++) {
           const key = `${date}|${h}`
-          sched[key] = (sched[key] || 0) + b.count
+          sched[key] = (sched[key]||0) + b.count
         }
       })
     })
@@ -68,7 +68,7 @@ export default function StaffingPage() {
     forecast.forEach(d => {
       d.staffing.forEach(({ hour, requiredAgents }) => {
         const key = `${d.date}|${hour}`
-        def[key] = (sched[key] || 0) - requiredAgents
+        def[key] = (sched[key]||0) - requiredAgents
       })
     })
 
@@ -78,7 +78,7 @@ export default function StaffingPage() {
     return { scheduled: sched, deficit: def, maxReq: rMax, maxSch: sMax, maxDef: dMax }
   }, [blocks, forecast, weeks])
 
-  // ─── 1) multi-day forecast ───────────────────────────────────
+  // ─── 1) multi-day forecast ────────────────────────────────────
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
     const end   = startDate.add(weeks, 'week').subtract(1, 'day').format('YYYY-MM-DD')
@@ -108,39 +108,48 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
+    // sort by weekday & hour so we assign in a stable order
     const blockTypes = [...res.data.solution].sort((a,b) => {
       const da = dayjs(a.startDate).day(), db = dayjs(b.startDate).day()
       if (da !== db) return da - db
       return a.startHour - b.startHour
     })
 
-    const totalEmp = blockTypes.reduce((sum,b)=>sum+b.count,0)
-    let queue      = Array.from({ length: totalEmp }, (_,i) => i+1)
-    const schedByEmp = {}
-    queue.forEach(id => schedByEmp[id] = [])
+    // total headcount
+    const totalEmp = blockTypes.reduce((sum,b)=>sum+b.count, 0)
+    const initialQueue = Array.from({length: totalEmp},(_,i)=>i+1)
 
-    // horizon & cycles
+    // init map
+    const schedByEmp = {}
+    initialQueue.forEach(id => schedByEmp[id] = [])
+
     const horizonEnd = dayjs(startDate).add(6, 'month')
-    const totalDays  = horizonEnd.diff(startDate, 'day') + 1
+    // how many  ~week‐blocks~ (of `weeks` weeks) to cover 6 months?
+    const totalDays  = horizonEnd.diff(startDate,'day') + 1
     const cycles     = Math.ceil(totalDays / (weeks * 7))
 
-    for (let cycle = 0; cycle < cycles; cycle++) {
+    for (let cycleIdx = 0; cycleIdx < cycles; cycleIdx++) {
+      // rotate the queue forward by cycleIdx
+      const rotated = initialQueue
+        .slice(cycleIdx % totalEmp)
+        .concat(initialQueue.slice(0, cycleIdx % totalEmp))
+
       let offset = 0
       blockTypes.forEach(b => {
-        const group = queue.slice(offset, offset + b.count)
+        const group = rotated.slice(offset, offset + b.count)
         group.forEach(empId => {
-          getWorkDates(b.startDate, weeks)
-            .map(dt => dayjs(dt).add(cycle * weeks * 7, 'day'))
-            .filter(d => d.isSameOrBefore(horizonEnd, 'day'))
-            .forEach(d => schedByEmp[empId].push({
-              day:  d.format('YYYY-MM-DD'),
-              hour: b.startHour
-            }))
+          getWorkDates(b.startDate, weeks).forEach(dt => {
+            const d = dayjs(dt).add(cycleIdx * weeks * 7, 'day')
+            if (d.isSameOrBefore(horizonEnd, 'day')) {
+              schedByEmp[empId].push({
+                day:  d.format('YYYY-MM-DD'),
+                hour: b.startHour
+              })
+            }
+          })
         })
         offset += b.count
       })
-      // rotate queue forward
-      queue.push(queue.shift())
     }
 
     setPersonSchedule(schedByEmp)
@@ -225,17 +234,15 @@ export default function StaffingPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Array.from({ length: 24 }, (_,h) => (
+                {Array.from({ length:24 }, (_,h)=>(
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
-                      const req   = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
+                    {forecast.map(d=>{
+                      const req = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
                       const alpha = maxReq ? req/maxReq*0.8+0.2 : 0.2
                       return (
                         <Tooltip key={d.date} title={`Req: ${req}`}>
-                          <TableCell sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}>
-                            {req}
-                          </TableCell>
+                          <TableCell sx={{ backgroundColor:`rgba(33,150,243,${alpha})` }}>{req}</TableCell>
                         </Tooltip>
                       )
                     })}
@@ -258,17 +265,15 @@ export default function StaffingPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Array.from({ length: 24 }, (_,h) => (
+                {Array.from({ length:24 }, (_,h)=>(
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
-                      const cov   = scheduled[`${d.date}|${h}`]||0
+                    {forecast.map(d=>{
+                      const cov = scheduled[`${d.date}|${h}`]||0
                       const alpha = maxSch ? cov/maxSch*0.8+0.2 : 0.2
                       return (
                         <Tooltip key={d.date} title={`Sch: ${cov}`}>
-                          <TableCell sx={{ backgroundColor: `rgba(76,175,80,${alpha})` }}>
-                            {cov}
-                          </TableCell>
+                          <TableCell sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}>{cov}</TableCell>
                         </Tooltip>
                       )
                     })}
@@ -291,13 +296,13 @@ export default function StaffingPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Array.from({ length: 24 }, (_,h) => (
+                {Array.from({ length:24 }, (_,h)=>(
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
-                      const val   = deficit[`${d.date}|${h}`]||0
+                    {forecast.map(d=>{
+                      const val = deficit[`${d.date}|${h}`]||0
                       const ratio = maxDef ? Math.abs(val)/maxDef*0.8+0.2 : 0.2
-                      const col   = val < 0
+                      const col = val < 0
                         ? `rgba(244,67,54,${ratio})`
                         : `rgba(76,175,80,${ratio})`
                       return (
@@ -328,7 +333,7 @@ export default function StaffingPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {blocks.map((b,i) => (
+                {blocks.map((b,i)=>(
                   <TableRow key={i}>
                     <TableCell>{i+1}</TableCell>
                     <TableCell>{b.startDate}</TableCell>
@@ -345,7 +350,7 @@ export default function StaffingPage() {
         )}
 
         {/* 5) 6-Month Rotating Calendar */}
-        {blocks.length > 0 && (
+        {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt:4 }}>
             <Typography variant="h6" gutterBottom>
               6-Month Staff Calendar (rotating every {weeks} weeks)
@@ -373,7 +378,7 @@ function CalendarView({ scheduleByEmp }) {
         <TableHead>
           <TableRow>
             <TableCell>Employee</TableCell>
-            {allDates.map(d => (
+            {allDates.map(d=>(
               <TableCell key={d} sx={{ minWidth:80, textAlign:'center' }}>
                 {dayjs(d).format('MM/DD')}
               </TableCell>
@@ -381,24 +386,22 @@ function CalendarView({ scheduleByEmp }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {Object.entries(scheduleByEmp).map(([emp, arr]) => {
+          {Object.entries(scheduleByEmp).map(([emp, arr])=>{
             const mapDay = {}
-            arr.forEach(({ day, hour }) => mapDay[day] = hour)
-            const color = '#' + ((emp * 1234567) % 0xffffff)
-              .toString(16).padStart(6, '0')
+            arr.forEach(({day, hour})=> { mapDay[day] = hour })
+            const color = '#'+((emp*1234567)%0xffffff).toString(16).padStart(6,'0')
             return (
               <TableRow key={emp}>
                 <TableCell>Emp {emp}</TableCell>
-                {allDates.map(d => (
+                {allDates.map(d=>(
                   <TableCell
                     key={d}
                     sx={{
-                      backgroundColor: mapDay[d] != null ? color+'33' : undefined,
-                      textAlign: 'center',
-                      fontSize: 12
+                      backgroundColor: mapDay[d]!=null ? color+'33' : undefined,
+                      textAlign:'center', fontSize:12
                     }}
                   >
-                    {mapDay[d] != null ? `${mapDay[d]}:00` : ''}
+                    {mapDay[d]!=null ? `${mapDay[d]}:00` : ''}
                   </TableCell>
                 ))}
               </TableRow>
