@@ -113,21 +113,21 @@ function buildSchedule(solution, reqMap) {
             }
           }
 
-          let breakHour;
-
+          let breakHour
           if (candidates.length) {
             /* minimise surplus → then lunches → then earliest */
             candidates.sort((a, b) =>
-              a.surplus - b.surplus ||
-              a.lunches - b.lunches ||
-              a.h       - b.h
-            );
-            breakHour = candidates[0].h;
+              a.surplus  - b.surplus  ||
+              a.lunches  - b.lunches  ||
+              a.h        - b.h
+            )
+            breakHour = candidates[0].h
           } else {
-            // last resort: mid-shift (use backend breakOffset if supplied)
-            breakHour = (b.breakOffset != null)
-              ? b.startHour + b.breakOffset   // value set by backend
-              : b.startHour + Math.floor(b.length / 2);
+            // last resort: mid-shift
+             breakHour = block.breakOffset != null
+             ? block.startHour + block.breakOffset          // ← backend value
+             : block.startHour + Math.floor(block.length / 2)
+
           }
 
           /* record for employee */
