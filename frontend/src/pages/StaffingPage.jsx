@@ -97,6 +97,7 @@ export default function StaffingPage() {
   }
 
   // ─── 2) assign & build 6-month rotating schedule ─────────────
+  // ─── 2) assign rotations ─────────────────────────────────────────
   const assignToStaff = async () => {
     if (!forecast.length) return alert('Run Forecast first')
     const res = await api.post('/erlang/staff/schedule', {
@@ -108,58 +109,63 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // --- build true rotation across *unique* shift-block types ---
-    // sort by date & hour
+    // ─── build true rotating 6-month schedule ───────────────────
+    // 1) sort block types by day-of-week then hour
     const blockTypes = [...res.data.solution].sort((a,b) => {
-      if (a.startDate !== b.startDate) {
-        return dayjs(a.startDate).isBefore(b.startDate) ? -1 : 1
-      }
+      const da = dayjs(a.startDate).day(), db = dayjs(b.startDate).day()
+      if (da !== db) return da - db
       return a.startHour - b.startHour
     })
-    // total employees = sum of counts
+
+    // 2) how many employees total?
     const totalEmp = blockTypes.reduce((sum, b) => sum + b.count, 0)
-    // start a queue [1..N]
-    let queue = Array.from({length: totalEmp}, (_,i) => i+1)
-    // prepare empty schedule
+
+    // 3) initial queue [1,2,3…]
+    let queue = Array.from({ length: totalEmp }, (_,i) => i+1)
+
+    // 4) prepare empty per-emp map
     const schedByEmp = {}
     queue.forEach(id => schedByEmp[id] = [])
 
+    // 5) horizon end = startDate + 6 months
     const horizonEnd = dayjs(startDate).add(6, 'month')
-    let cycle = 0
 
-    // keep cycling until next cycle's first date is beyond 6 months
+    // 6) cycle through until beyond horizon
+    let cycle = 0
     while (true) {
-      // assign this cycle
       let offset = 0
-      blockTypes.forEach(b => {
-        // slice the queue for this block's count
+
+      for (const b of blockTypes) {
         const group = queue.slice(offset, offset + b.count)
+        // for each emp in that group, assign all their days for this block
         group.forEach(empId => {
-          // for each of the 5×weeks dates...
-          getWorkDates(b.startDate, weeks).forEach(wd => {
-            const actual = dayjs(wd).add(cycle * weeks * 7, 'day')
-            if (actual.isAfter(horizonEnd, 'day')) return
-            schedByEmp[empId].push({
-              day: actual.format('YYYY-MM-DD'),
-              hour: b.startHour
+          getWorkDates(b.startDate, weeks)
+            .map(dt => dayjs(dt).add(cycle * weeks * 7, 'day'))
+            .filter(d => d.isSameOrBefore(horizonEnd, 'day'))
+            .forEach(d => {
+              schedByEmp[empId].push({
+                day:  d.format('YYYY-MM-DD'),
+                hour: b.startHour
+              })
             })
-          })
         })
         offset += b.count
-      })
+      }
 
-      // if next cycle's first block start is beyond 6-month horizon, stop
-      const firstPatternDay = getWorkDates(blockTypes[0].startDate, weeks)[0]
-      const nextFirst = dayjs(firstPatternDay).add((cycle+1) * weeks * 7, 'day')
+      // prepare for next cycle
+      cycle++
+      // if next cycle would start beyond horizon, stop
+      const nextFirst = dayjs(getWorkDates(blockTypes[0].startDate, weeks)[0])
+        .add(cycle * weeks * 7, 'day')
       if (nextFirst.isAfter(horizonEnd, 'day')) break
 
-      // rotate queue by 1 so everyone shifts one block forward
-      queue = [ queue[queue.length - 1], ...queue.slice(0, queue.length - 1) ]
-      cycle++
+      // rotate *forward* so each emp moves to the *next* block
+      queue.unshift(queue.pop())
     }
 
     setPersonSchedule(schedByEmp)
   }
+
 
   // ─── 3) export to Excel ───────────────────────────────────────
   const exportExcel = () => {
