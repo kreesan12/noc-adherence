@@ -63,57 +63,74 @@ export default function StaffingPage() {
     return dates
   }
 
-  /* ─── NEW buildSchedule: lunch 2–5 h after start ──────────── */
-  function buildSchedule(solution, reqMap) {
-    const schedByEmp = {}
-    const totalEmp   = solution.reduce((s,b) => s + b.count, 0)
-    const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1)
-    queue.forEach(id => (schedByEmp[id] = []))
+/* ─── NEW buildSchedule: staggered lunches (2-5 h after start) ─ */
+function buildSchedule(solution, reqMap) {
+  const schedByEmp = {}
+  const totalEmp   = solution.reduce((s,b) => s + b.count, 0)
+  const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1)
+  queue.forEach(id => (schedByEmp[id] = []))
 
-    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month')
-    const cycles     = Math.ceil(
-      (horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7)
-    )
-    const sorted = [...solution].sort(
-      (a, b) => a.patternIndex - b.patternIndex || a.startHour - b.startHour
-    )
+  // running counters while we assign
+  const coverMap = {}   // #people on duty (excluding lunches)
+  const lunchMap = {}   // #people already at lunch
 
-    for (let ci = 0; ci < cycles; ci++) {
-      let offset = 0
-      sorted.forEach(b => {
-        const group = queue.slice(offset, offset + b.count)
-        group.forEach(empId => {
-          getWorkDates(b.startDate, weeks).forEach(dtStr => {
-            const d = dayjs(dtStr).add(ci * weeks * 7, 'day')
-            if (d.isAfter(horizonEnd, 'day')) return
-            const day = d.format('YYYY-MM-DD')
+  const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month')
+  const cycles     = Math.ceil(
+    (horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7)
+  )
 
-            /* lunch anywhere 2–5 h after start (pick least demand) */
-            let bestBreak = null
-            let bestReq   = Infinity
-            for (let off = 2; off <= 5; off++) {
-              const h = b.startHour + off
-              if (h >= b.startHour + SHIFT_LENGTH) break
-              const k = `${day}|${h}`
-              const demand = reqMap[k] ?? 0
-              if (demand < bestReq) {
-                bestReq   = demand
-                bestBreak = h
-              }
+  const sorted = [...solution].sort(
+    (a, b) => a.patternIndex - b.patternIndex || a.startHour - b.startHour
+  )
+
+  for (let ci = 0; ci < cycles; ci++) {
+    let offset = 0
+    sorted.forEach(b => {
+      const group = queue.slice(offset, offset + b.count)
+      group.forEach(empId => {
+        getWorkDates(b.startDate, weeks).forEach(dtStr => {
+          const d = dayjs(dtStr).add(ci * weeks * 7, 'day')
+          if (d.isAfter(horizonEnd, 'day')) return
+          const day = d.format('YYYY-MM-DD')
+
+          /* pick the FIRST lunch hour (start+2 … +5) that
+             still satisfies coverage when one head steps out */
+          let chosen = null
+          for (let off = 2; off <= 5; off++) {
+            const h   = b.startHour + off
+            if (h >= b.startHour + SHIFT_LENGTH) break
+            const key = `${day}|${h}`
+            const onDuty   = coverMap[key]  || 0
+            const lunches  = lunchMap[key]  || 0
+            const required = reqMap[key]    ?? 0
+            if (onDuty - lunches - 1 >= required) {
+              chosen = h
+              break
             }
-            if (bestBreak === null) {
-              bestBreak = b.startHour + Math.floor(b.length / 2)
-            }
+          }
+          if (chosen === null) {
+            chosen = b.startHour + Math.floor(b.length / 2)
+          }
 
-            schedByEmp[empId].push({ day, hour: b.startHour, breakHour: bestBreak })
-          })
+          /* record the shift for this employee */
+          schedByEmp[empId].push({ day, hour: b.startHour, breakHour: chosen })
+
+          /* update running counters *inside* the loop */
+          for (let h = b.startHour; h < b.startHour + SHIFT_LENGTH; h++) {
+            const k = `${day}|${h}`
+            coverMap[k] = (coverMap[k] || 0) + 1
+          }
+          const lunchKey = `${day}|${chosen}`
+          lunchMap[lunchKey] = (lunchMap[lunchKey] || 0) + 1
         })
-        offset += b.count
       })
-      queue.unshift(queue.pop())       // rotate
-    }
-    return schedByEmp
+      offset += b.count
+    })
+    queue.unshift(queue.pop())   // rotate queue for next cycle
   }
+
+  return schedByEmp
+}
 
   /* ─── Heat-map memo (unchanged) ───────────────────────────── */
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
