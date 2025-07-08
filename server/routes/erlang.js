@@ -135,7 +135,8 @@ export default prisma => {
         staffing: forecast,
         weeks       = 3,
         shiftLength = 9,
-        topN        = 5
+        topN        = 5,
+        maxStaff
       } = req.body
 
       if (!Array.isArray(forecast) || !forecast.length) {
@@ -146,7 +147,7 @@ export default prisma => {
 
       const { bestStartHours, solution } = autoAssignRotations(
         forecast,
-        { weeks, shiftLength, topN }
+        { weeks, shiftLength, topN, maxStaff }
       )
 
       res.json({ bestStartHours, solution })

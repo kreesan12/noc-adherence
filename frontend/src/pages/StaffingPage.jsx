@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
   Box, TextField, Button, Typography,
-  MenuItem, Select, InputLabel, FormControl,
+  MenuItem, Select, InputLabel, FormControl, Switch,
   Table, TableHead, TableBody, TableRow, TableCell,
   Tooltip
 } from '@mui/material'
@@ -34,6 +34,8 @@ export default function StaffingPage() {
   const [blocks, setBlocks]             = useState([])
   const [bestStartHours, setBestStart]  = useState([])
   const [personSchedule, setPersonSchedule] = useState({})
+  const [useFixedStaff, setUseFixedStaff] = useState(false)
+  const [fixedStaff,    setFixedStaff]    = useState(0)
 
   // ─── Load roles ───────────────────────────────────────────────
   useEffect(() => {
@@ -108,7 +110,9 @@ export default function StaffingPage() {
       staffing:    forecast,
       weeks,
       shiftLength: 9,
-      topN:        5
+      topN:        5,
+      // send the staff cap if user toggled it on
+      ...(useFixedStaff ? { maxStaff: fixedStaff } : {})
     })
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
@@ -261,6 +265,27 @@ export default function StaffingPage() {
           >
             Assign to Staff
           </Button>
+          {/* ── Fixed-staff cap toggle ───────────────────────── */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={useFixedStaff}
+                onChange={e => setUseFixedStaff(e.target.checked)}
+              />
+            }
+            label="Use Fixed Staff?"
+          />
+
+          {useFixedStaff && (
+            <TextField
+              label="Staff Cap"
+              type="number"
+              value={fixedStaff}
+              onChange={e => setFixedStaff(+e.target.value)}
+              size="small"
+              sx={{ width:100 }}
+            />
+          )}
         </Box>
 
         {/* ─── 1) Required Agents Heatmap ───────────────────────── */}
@@ -409,7 +434,15 @@ export default function StaffingPage() {
             <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
               Export to Excel
             </Button>
-            <CalendarView scheduleByEmp={personSchedule} />
+            <CalendarView scheduleByEmp={personSchedule} />            
+            {/* ─── Summary of fixed-staff vs coverage ─────────────────── */}
+            <Box sx={{ mt:2, p:2, bgcolor:'#f9f9f9', borderRadius:1 }}>
+              <Typography variant="subtitle1">
+                {useFixedStaff
+                  ? `Staff cap set to ${fixedStaff}. Coverage generated across ${weeks}-week cycles.`
+                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} staff.`}
+              </Typography>
+            </Box>
           </Box>
         )}
       </Box>

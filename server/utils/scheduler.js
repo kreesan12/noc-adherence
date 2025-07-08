@@ -2,14 +2,14 @@
 import dayjs from 'dayjs'
 
 /**
- * Assign staff for a 3-week 5-on/2-off + transition rotation,
+ * Assign staff for an N-week 5-on/2-off rotation,
  * greedily by unmet-need sum, then ensure one block per first-week date.
  */
 export function assignRotationalShifts(
   forecast,
-  { weeks = 3, shiftLength = 9, startHours } = {}
+  { weeks = 3, shiftLength = 9, startHours, maxStaff } = {}
 ) {
-  // 1) unmet-needs map + allDates
+  // 1) build unmet-needs map + list of all dates
   const needs = {}
   const allDates = []
   forecast.forEach(day => {
@@ -22,13 +22,13 @@ export function assignRotationalShifts(
   allDates.sort()
   const dateSet = new Set(allDates)
 
-  // 2) firstWeek window (day 0–6)
+  // 2) first-week window (day 0–6)
   const firstWeek = allDates.filter(d => {
     const diff = dayjs(d).diff(allDates[0], 'day')
     return diff >= 0 && diff < 7
   })
 
-  // 3) possible startHours
+  // 3) start hours to try
   const hoursToTry = Array.isArray(startHours)
     ? startHours
     : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h)
@@ -46,10 +46,10 @@ export function assignRotationalShifts(
     return out
   }
 
-  // 5) build full candidates (only fully coverable ones)
+  // 5) build all fully-coverable candidates
   const candidates = firstWeek.flatMap(startDate => {
     const workDates = getWorkDates(startDate)
-    if (workDates.length < weeks * 5) return []  // skip incomplete
+    if (workDates.length < weeks * 5) return []
     return hoursToTry.map(startHour => {
       const cover = []
       workDates.forEach(d => {
@@ -61,19 +61,29 @@ export function assignRotationalShifts(
     })
   })
 
-  // 6) greedy assign one agent at a time
+  // 6) greedy assign one agent at a time (honouring maxStaff if set)
   const localNeeds = { ...needs }
   const assignments = []
   while (true) {
+    // stop if we've reached the user-specified staff cap
+    if (typeof maxStaff === 'number' && assignments.length >= maxStaff) {
+      break
+    }
+
     let best = null, bestScore = 0
     for (const c of candidates) {
       const sc = c.cover.reduce((sum, k) => sum + (localNeeds[k] || 0), 0)
       if (sc > bestScore) {
-        best = c; bestScore = sc
+        best = c
+        bestScore = sc
       }
     }
     if (!best || bestScore === 0) break
-    assignments.push({ startDate: best.startDate, startHour: best.startHour })
+
+    assignments.push({
+      startDate: best.startDate,
+      startHour: best.startHour
+    })
     best.cover.forEach(k => {
       localNeeds[k] = Math.max(0, (localNeeds[k] || 0) - 1)
     })
@@ -95,12 +105,11 @@ export function assignRotationalShifts(
     solutionMap[key].count++
   })
 
-  // 8) business-rule padding: ensure each firstWeek date appears
+  // 8) padding: ensure every first-week date has at least one block
   firstWeek.forEach(startDate => {
     const exists = Object.values(solutionMap)
       .some(b => b.startDate === startDate)
     if (!exists) {
-      // regenerate padding candidates (allow incomplete)
       const workDates = getWorkDates(startDate)
       const padCands = hoursToTry.map(startHour => {
         const cover = []
@@ -111,7 +120,6 @@ export function assignRotationalShifts(
         })
         return { startDate, startHour, length: shiftLength, cover }
       })
-      // pick one with highest original-needs sum
       let top = padCands[0]
       let topScore = top.cover.reduce((s, k) => s + (needs[k] || 0), 0)
       for (const c of padCands.slice(1)) {
@@ -147,9 +155,13 @@ export function assignRotationalShifts(
  */
 export function autoAssignRotations(
   forecast,
-  { weeks = 3, shiftLength = 9, topN = 5 } = {}
+  { weeks = 3, shiftLength = 9, topN = 5, maxStaff } = {}
 ) {
-  const solution = assignRotationalShifts(forecast, { weeks, shiftLength })
+  // hand maxStaff through to the core solver
+  const solution = assignRotationalShifts(
+    forecast,
+    { weeks, shiftLength, maxStaff }
+  )
 
   // tally counts by hour
   const tally = solution.reduce((acc, b) => {
