@@ -1,49 +1,53 @@
-// server/utils/scheduler.js
 import dayjs from 'dayjs'
 
-/**
- * Assign staff for an N-week 5-on/2-off rotation
- * using a greedy seed + local improvement.
+/* -------------------------------------------------------------- *
+ *  assignRotationalShifts
+ *  -- now enumerates EVERY combination of
+ *     first-week startDate  ×  startHour  ×  breakOffset
+ *  where   breakOffset ∈ {2,3,4,5}  (clamped by shiftLength).
  *
- * Improvements compared with the original version
- * – we now SPLIT large blocks so that each block has at most `splitSize`
- *   heads.  That lets the later hill-climb (break-offset search) give
- *   different lunch offsets to sub-blocks and therefore stagger lunches.
- */
+ *  Each unique triple becomes its own “candidate block”.
+ *  The greedy pass and the local hill-climb both work on those
+ *  blocks, so lunches are an integral part of the optimisation.
+ *
+ *  Large blocks are still split with splitSize (default 2) so
+ *  lunches can be staggered even within the same triple.
+ * -------------------------------------------------------------- */
+
 export function assignRotationalShifts(
   forecast,
   {
     weeks       = 3,
     shiftLength = 9,
-    startHours,
+    startHours,              // optional whitelist from caller
     maxStaff,
-    splitSize   = 2          //  NEW ─ max heads per block
+    splitSize   = 2          // max heads kept together per block instance
   } = {}
 ) {
-  /* 1) unmet-need map + all dates -------------------------------- */
+  /* ---------- 1) unmet-need map + date sets ------------------- */
   const needs    = {}
   const allDates = []
-  forecast.forEach(day => {
-    if (!Array.isArray(day.staffing)) return
-    allDates.push(day.date)
-    day.staffing.forEach(({ hour, requiredAgents }) => {
-      needs[`${day.date}|${hour}`] = requiredAgents
+  forecast.forEach(d => {
+    if (!Array.isArray(d.staffing)) return
+    allDates.push(d.date)
+    d.staffing.forEach(({ hour, requiredAgents }) => {
+      needs[`${d.date}|${hour}`] = requiredAgents
     })
   })
   allDates.sort()
   const dateSet = new Set(allDates)
 
-  /* 2) first-week window ----------------------------------------- */
+  /* ---------- 2) first-week range ----------------------------- */
   const firstWeek = allDates.filter(d =>
     dayjs(d).diff(allDates[0], 'day') < 7
   )
 
-  /* 3) start hours we are willing to try ------------------------- */
+  /* ---------- 3) hours we’re willing to start ----------------- */
   const hoursToTry = Array.isArray(startHours)
     ? startHours
     : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h)
 
-  /* 4) helper: on-days for a given first-week startDate ---------- */
+  /* ---------- 4) helper: on-duty dates for a startDate -------- */
   function getWorkDates(startDate) {
     const out = []
     for (let w = 0; w < weeks; w++) {
@@ -56,126 +60,145 @@ export function assignRotationalShifts(
     return out
   }
 
-  /* 5) build every fully coverable candidate block --------------- */
+  /* ---------- 5) build EVERY candidate triple ----------------- */
   const candidates = firstWeek.flatMap(startDate => {
     const workDates = getWorkDates(startDate)
-    if (workDates.length < weeks * 5) return []
-    return hoursToTry.map(startHour => {
-      const cover = []
-      workDates.forEach(d => {
-        for (let h = startHour; h < startHour + shiftLength; h++) {
-          cover.push(`${d}|${h}`)
+    if (workDates.length < 5 * weeks) return []
+
+    return hoursToTry.flatMap(startHour => {
+      const maxOffset = Math.min(5, shiftLength - 1)
+      return Array.from({ length: maxOffset - 1 }, (_, i) => {
+        const off = i + 2                // 2 … maxOffset
+        const cover = []                 // hours on duty
+        const breakHours = new Set()
+
+        workDates.forEach(d => {
+          // lunch hour NOT covered
+          breakHours.add(`${d}|${startHour + off}`)
+          for (let h = startHour; h < startHour + shiftLength; h++) {
+            if (h === startHour + off) continue
+            cover.push(`${d}|${h}`)
+          }
+        })
+
+        return {
+          startDate,
+          startHour,
+          breakOffset: off,
+          length: shiftLength,
+          cover,
+          breakHours
         }
       })
-      return { startDate, startHour, length: shiftLength, cover }
     })
   })
 
-  /* 6) greedy assignment ----------------------------------------- */
+  /* ---------- 6) greedy selection ----------------------------- */
   const localNeeds  = { ...needs }
   const assignments = []
+
   while (true) {
     if (typeof maxStaff === 'number' && assignments.length >= maxStaff) break
 
     let best = null
     let bestScore = 0
+
     for (const c of candidates) {
-      const score = c.cover.reduce((s, k) => s + (localNeeds[k] || 0), 0)
-      if (score > bestScore) { best = c; bestScore = score }
+      const sc = c.cover.reduce((s, k) => s + (localNeeds[k] || 0), 0)
+      if (sc > bestScore) { best = c; bestScore = sc }
     }
+
     if (!best || bestScore === 0) break
 
-    assignments.push({ startDate: best.startDate, startHour: best.startHour })
+    assignments.push({
+      startDate:   best.startDate,
+      startHour:   best.startHour,
+      breakOffset: best.breakOffset
+    })
 
     best.cover.forEach(k => { localNeeds[k] = Math.max(0, (localNeeds[k] || 0) - 1) })
   }
 
-  /* 7) collapse into blocks – **split after `splitSize` heads** --- */
+  /* ---------- 7) collapse with splitSize ---------------------- */
   const solution = []
-  const counter  = {}   // key → current count in the *current* open block
+  const counter  = {}
 
-  assignments.forEach(({ startDate, startHour }) => {
-    const key = `${startDate}|${startHour}`
+  assignments.forEach(({ startDate, startHour, breakOffset }) => {
+    const key = `${startDate}|${startHour}|${breakOffset}`
     const current = counter[key] || 0
 
     if (current === 0 || current >= splitSize) {
-      // start a fresh block
       solution.push({
         startDate,
         startHour,
+        breakOffset,
         length: shiftLength,
         count: 1,
         patternIndex: dayjs(startDate).day()
       })
       counter[key] = 1
     } else {
-      // append to the most-recent block with that key
       solution[solution.length - 1].count += 1
       counter[key] += 1
     }
   })
 
-  /* 8) make sure every first-week day has at least one block ----- */
+  /* ---------- 8) make sure every first-week day has one block -- */
   firstWeek.forEach(startDate => {
     const exists = solution.some(b => b.startDate === startDate)
     if (!exists) {
-      // pick the hour that covers the most unmet need
-      const workDates = getWorkDates(startDate)
-      let bestHour   = hoursToTry[0]
-      let bestScore  = 0
-      hoursToTry.forEach(h => {
-        const score = workDates.reduce((sum, d) => {
-          for (let x = h; x < h + shiftLength; x++) {
-            sum += (needs[`${d}|${x}`] || 0)
-          }
-          return sum
-        }, 0)
-        if (score > bestScore) { bestHour = h; bestScore = score }
-      })
+      /* choose hour / breakOffset that hits biggest unmet need */
+      let bestCombo = null
+      let bestScore = -1
+
+      for (const h of hoursToTry) {
+        const maxOff = Math.min(5, shiftLength - 1)
+        for (let off = 2; off <= maxOff; off++) {
+          const score = getWorkDates(startDate).reduce((s, d) => {
+            for (let x = h; x < h + shiftLength; x++) {
+              if (x === h + off) continue
+              s += needs[`${d}|${x}`] || 0
+            }
+            return s
+          }, 0)
+          if (score > bestScore) { bestScore = score; bestCombo = { h, off } }
+        }
+      }
       solution.push({
         startDate,
-        startHour: bestHour,
-        length: shiftLength,
-        count: 1,
+        startHour:   bestCombo.h,
+        breakOffset: bestCombo.off,
+        length:      shiftLength,
+        count:       1,
         patternIndex: dayjs(startDate).day()
       })
     }
   })
 
-  /* 9) order by weekday then hour -------------------------------- */
   solution.sort((a, b) =>
-    a.patternIndex - b.patternIndex || a.startHour - b.startHour
+    a.patternIndex - b.patternIndex ||
+    a.startHour    - b.startHour
   )
 
   return solution
 }
 
-/* ---------------------------------------------------------------- *\
-   Top-level wrapper (unchanged, except the extra param passthrough)
-\* ---------------------------------------------------------------- */
+/* ---------- autoAssignRotations (pass splitSize through) ------ */
 export function autoAssignRotations(
   forecast,
-  {
-    weeks       = 3,
-    shiftLength = 9,
-    topN        = 5,
-    maxStaff,
-    splitSize   = 2         // expose to callers (front-end keeps default)
-  } = {}
+  { weeks = 3, shiftLength = 9, topN = 5, maxStaff, splitSize = 2 } = {}
 ) {
   const solution = assignRotationalShifts(
     forecast,
     { weeks, shiftLength, maxStaff, splitSize }
   )
 
-  // histogram by startHour
   const tally = solution.reduce((acc, b) => {
     acc[b.startHour] = (acc[b.startHour] || 0) + b.count
     return acc
   }, {})
 
-  const bestStartHours = Object
-    .entries(tally)
+  const bestStartHours = Object.entries(tally)
     .map(([h, total]) => ({ startHour: +h, totalAssigned: total }))
     .sort((a, b) => b.totalAssigned - a.totalAssigned)
     .slice(0, topN)
