@@ -12,10 +12,7 @@ import {
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
-
-import Timeline from 'react-calendar-timeline'
 import moment from 'moment'
-import 'react-calendar-timeline/lib/Timeline.css'
 
 export default function StaffingPage() {
   // ─── state ─────────────────────────────────────────────────────
@@ -114,7 +111,7 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // ─ build per-person schedule ───────────────────────────────
+    // ─ build per-person schedule ─────────────────────────────────
     let empIdx = 1
     const assignments = []
     res.data.solution.forEach(b => {
@@ -125,8 +122,8 @@ export default function StaffingPage() {
     })
     const scheduleByEmp = {}
     assignments.forEach(({ employee, startDate, startHour, length }) => {
+      scheduleByEmp[employee] = scheduleByEmp[employee] || []
       getWorkDates(startDate, weeks).forEach(date => {
-        scheduleByEmp[employee] = scheduleByEmp[employee] || []
         scheduleByEmp[employee].push({ day: date, hour: startHour })
       })
     })
@@ -134,6 +131,21 @@ export default function StaffingPage() {
   }
 
   // ─── 3) export to Excel ─────────────────────────────────────────
+  const exportExcel = async () => {
+    const { default: XLSX } = await import('xlsx')
+    // flatten to rows
+    const rows = []
+    Object.entries(personSchedule).forEach(([emp, arr]) => {
+      arr.forEach(({ day, hour }) => {
+        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00` })
+      })
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
+    XLSX.writeFile(wb, 'staff-calendar.xlsx')
+  }
+
   // ─── 4) prepare Gantt data ─────────────────────────────────────
   const [groups, items] = useMemo(() => {
     const gr = Object.keys(personSchedule).map(emp => ({
@@ -151,10 +163,8 @@ export default function StaffingPage() {
           group: Number(emp),
           title: `${hour}:00`,
           start_time: start,
-          end_time: end,
-          itemProps: {
-            'data-tooltip': `${day} @ ${hour}:00`
-          }
+          end_time:   end,
+          itemProps: { 'data-tooltip': `${day} @ ${hour}:00` }
         })
       })
     })
@@ -187,45 +197,35 @@ export default function StaffingPage() {
           <FormControl sx={{ minWidth:120 }}>
             <InputLabel>Rotation (weeks)</InputLabel>
             <Select value={weeks} label="Rotation" onChange={e=>setWeeks(+e.target.value)}>
-              {[1,2,3,4,5].map(w=>
+              {[1,2,3,4,5].map(w =>
                 <MenuItem key={w} value={w}>{w}</MenuItem>
               )}
             </Select>
           </FormControl>
 
           <TextField
-            label="Call AHT (sec)"
-            type="number"
-            value={callAht}
-            onChange={e=>setCallAht(+e.target.value)}
+            label="Call AHT (sec)" type="number"
+            value={callAht} onChange={e=>setCallAht(+e.target.value)}
             size="small"
           />
           <TextField
-            label="Ticket AHT (sec)"
-            type="number"
-            value={ticketAht}
-            onChange={e=>setTicketAht(+e.target.value)}
+            label="Ticket AHT (sec)" type="number"
+            value={ticketAht} onChange={e=>setTicketAht(+e.target.value)}
             size="small"
           />
           <TextField
-            label="Service Level %"
-            type="number"
-            value={sl*100}
-            onChange={e=>setSL(+e.target.value/100)}
+            label="Service Level %" type="number"
+            value={sl*100} onChange={e=>setSL(+e.target.value/100)}
             size="small"
           />
           <TextField
-            label="Threshold (sec)"
-            type="number"
-            value={threshold}
-            onChange={e=>setThreshold(+e.target.value)}
+            label="Threshold (sec)" type="number"
+            value={threshold} onChange={e=>setThreshold(+e.target.value)}
             size="small"
           />
           <TextField
-            label="Shrinkage %"
-            type="number"
-            value={shrinkage*100}
-            onChange={e=>setShrinkage(+e.target.value/100)}
+            label="Shrinkage %" type="number"
+            value={shrinkage*100} onChange={e=>setShrinkage(+e.target.value/100)}
             size="small"
           />
 
@@ -336,8 +336,9 @@ export default function StaffingPage() {
                     {forecast.map(d => {
                       const val = deficit[`${d.date}|${h}`]||0
                       const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8+0.2 : 0.2
-                      const col  = val < 0 ? `rgba(244,67,54,${ratio})`  // red
-                                     : `rgba(76,175,80,${ratio})`       // green
+                      const col  = val < 0
+                        ? `rgba(244,67,54,${ratio})`
+                        : `rgba(76,175,80,${ratio})`
                       return (
                         <Tooltip key={d.date} title={`Deficit: ${val}`}>
                           <TableCell sx={{ backgroundColor: col }}>
@@ -390,28 +391,64 @@ export default function StaffingPage() {
             <Typography variant="h6" gutterBottom>
               Staff Gantt Calendar (hover for details)
             </Typography>
-            <Timeline
+            <CalendarView
               groups={groups}
               items={items}
-              defaultTimeStart={moment(startDate.format('YYYY-MM-DD'))}
-              defaultTimeEnd={moment(startDate.add(weeks, 'week').format('YYYY-MM-DD'))}
-              canMove={false}
-              canResize={false}
-              itemTouchSendsClick={true}
-              itemRenderer={({ item, style }) => (
-                <div
-                  style={{ ...style, background: '#1976d2', borderRadius: 4, padding: '2px 4px' }}
-                  title={item.itemProps['data-tooltip']}
-                >
-                  {item.title}
-                </div>
-              )}
+              defaultTimeStart={moment(startDate).toDate()}
+              defaultTimeEnd={moment(startDate).add(weeks, 'week').toDate()}
             />
-
-
+            <Button variant="outlined" onClick={exportExcel} sx={{ mt:2 }}>
+              Export to Excel
+            </Button>
           </Box>
         )}
       </Box>
     </LocalizationProvider>
+  )
+}
+
+/**
+ * CalendarView
+ * — lazily loads react-calendar-timeline + its CSS
+ */
+function CalendarView({ groups, items, defaultTimeStart, defaultTimeEnd }) {
+  const [Timeline, setTimeline] = useState(null)
+
+  useEffect(() => {
+    (async () => {
+      const mod = await import('react-calendar-timeline')
+      // load the CSS at runtime, too
+      await import('react-calendar-timeline/lib/Timeline.css')
+      setTimeline(() => mod.default)
+    })()
+  }, [])
+
+  if (!Timeline) return <Typography>Loading calendar…</Typography>
+
+  return (
+    <Timeline
+      groups={groups}
+      items={items}
+      defaultTimeStart={defaultTimeStart}
+      defaultTimeEnd={defaultTimeEnd}
+      canMove={false}
+      canResize={false}
+      itemTouchSendsClick={true}
+      itemRenderer={({ item, style }) => (
+        <div
+          style={{
+            ...style,
+            background: '#1976d2',
+            borderRadius: 4,
+            padding: '2px 4px',
+            color: 'white',
+            fontSize: 12
+          }}
+          title={item.itemProps['data-tooltip']}
+        >
+          {item.title}
+        </div>
+      )}
+    />
   )
 }
