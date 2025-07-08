@@ -19,12 +19,12 @@ import api from '../api'
 import * as XLSX from 'xlsx'
 
 export default function StaffingPage() {
-  // ─── Constants ───────────────────────────────────────────────
-  const HORIZON_MONTHS = 6    // forecast window
-  const SHIFT_LENGTH   = 9    // hours per shift
-  const MAX_ITERS      = 50   // max number of refine iterations
+  /* ─── Constants ───────────────────────────────────────────── */
+  const HORIZON_MONTHS = 6
+  const SHIFT_LENGTH   = 9
+  const MAX_ITERS      = 50   // for the binary-search loop
 
-  // ─── State ───────────────────────────────────────────────────
+  /* ─── State (unchanged) ───────────────────────────────────── */
   const [roles, setRoles]               = useState([])
   const [team, setTeam]                 = useState('')
   const [startDate, setStartDate]       = useState(dayjs())
@@ -42,7 +42,7 @@ export default function StaffingPage() {
   const [useFixedStaff, setUseFixedStaff]   = useState(false)
   const [fixedStaff,    setFixedStaff]      = useState(0)
 
-  // ─── Load roles on mount ──────────────────────────────────────
+  /* ─── Load roles once ─────────────────────────────────────── */
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -51,7 +51,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── Helper: generate N-week × 5-day date lists ──────────────
+  /* ─── Helper: generate N-week × 5-day date list ───────────── */
   function getWorkDates(start, weeksCount) {
     const dates = []
     for (let w = 0; w < weeksCount; w++) {
@@ -63,33 +63,85 @@ export default function StaffingPage() {
     return dates
   }
 
-  // ─── Build heatmap data from forecast + personSchedule ────────
+  /* ─── NEW buildSchedule: lunch 2–5 h after start ──────────── */
+  function buildSchedule(solution, reqMap) {
+    const schedByEmp = {}
+    const totalEmp   = solution.reduce((s,b) => s + b.count, 0)
+    const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1)
+    queue.forEach(id => (schedByEmp[id] = []))
+
+    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month')
+    const cycles     = Math.ceil(
+      (horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7)
+    )
+    const sorted = [...solution].sort(
+      (a, b) => a.patternIndex - b.patternIndex || a.startHour - b.startHour
+    )
+
+    for (let ci = 0; ci < cycles; ci++) {
+      let offset = 0
+      sorted.forEach(b => {
+        const group = queue.slice(offset, offset + b.count)
+        group.forEach(empId => {
+          getWorkDates(b.startDate, weeks).forEach(dtStr => {
+            const d = dayjs(dtStr).add(ci * weeks * 7, 'day')
+            if (d.isAfter(horizonEnd, 'day')) return
+            const day = d.format('YYYY-MM-DD')
+
+            /* pick lunch anywhere 2–5 h after start (stay within shift) */
+            let bestBreak = null
+            let bestReq   = Infinity
+            for (let offsetHr = 2; offsetHr <= 5; offsetHr++) {
+              const h = b.startHour + offsetHr
+              if (h >= b.startHour + SHIFT_LENGTH) break
+              const k = `${day}|${h}`
+              const demand = reqMap[k] ?? 0
+              if (demand < bestReq) {
+                bestReq   = demand
+                bestBreak = h
+              }
+            }
+            if (bestBreak === null) {
+              bestBreak = b.startHour + Math.floor(b.length / 2)
+            }
+
+            schedByEmp[empId].push({
+              day,
+              hour: b.startHour,
+              breakHour: bestBreak
+            })
+          })
+        })
+        offset += b.count
+      })
+      /* rotate queue forward */
+      queue.unshift(queue.pop())
+    }
+    return schedByEmp
+  }
+
+  /* ─── Heat-map memo (unchanged) ───────────────────────────── */
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
-    // required-agents map
     const reqMap = {}
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) =>
-        reqMap[`${d.date}|${hour}`] = requiredAgents
+        (reqMap[`${d.date}|${hour}`] = requiredAgents)
       )
     )
-    // scheduled coverage map
     const schedMap = {}
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
         for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
           if (h === breakHour) continue
-          const key = `${day}|${h}`
-          schedMap[key] = (schedMap[key] || 0) + 1
+          const k = `${day}|${h}`
+          schedMap[k] = (schedMap[k] || 0) + 1
         }
       })
     )
-    // deficit map = scheduled – required
     const defMap = {}
-    new Set([...Object.keys(reqMap), ...Object.keys(schedMap)])
-      .forEach(k => {
-        defMap[k] = (schedMap[k] || 0) - (reqMap[k] || 0)
-      })
-    // compute maxes for color scaling
+    new Set([...Object.keys(reqMap), ...Object.keys(schedMap)]).forEach(k => {
+      defMap[k] = (schedMap[k] || 0) - (reqMap[k] || 0)
+    })
     const allReq = Object.values(reqMap)
     const allSch = Object.values(schedMap)
     const allDef = Object.values(defMap).map(v => Math.abs(v))
@@ -98,30 +150,21 @@ export default function StaffingPage() {
       deficit:   defMap,
       maxReq:    allReq.length ? Math.max(...allReq) : 0,
       maxSch:    allSch.length ? Math.max(...allSch) : 0,
-      maxDef:    allDef.length ? Math.max(...allDef) : 0,
+      maxDef:    allDef.length ? Math.max(...allDef) : 0
     }
   }, [personSchedule, forecast])
 
-  // ─── Helpers to measure & score deficits ─────────────────────
-  function measureDeficit(defMap) {
-    const vals = Object.values(defMap)
-    const worstShort = Math.max(0, ...vals.filter(v => v < 0).map(v => -v))
-    const worstOver  = Math.max(0, ...vals.filter(v => v > 0))
-    return { worstShort, worstOver }
-  }
-  function score(defMap) {
-    return Object.values(defMap)
-      .reduce((sum, v) => sum + Math.abs(v), 0)
-  }
+  /* ─── deficit helpers (unchanged) ─────────────────────────── */
+  const hasShort = def => Object.values(def).some(v => v < 0)
 
-  // ─── 1) 6-month required-agents forecast ─────────────────────
+  /* ─── 1) 6-month forecast (unchanged) ─────────────────────── */
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
     const end   = startDate
       .add(HORIZON_MONTHS, 'month')
       .subtract(1, 'day')
       .format('YYYY-MM-DD')
-    const res = await api.post('/erlang/staff/bulk-range', {
+    const { data } = await api.post('/erlang/staff/bulk-range', {
       role: team, start, end,
       callAhtSeconds: callAht,
       ticketAhtSeconds: ticketAht,
@@ -129,144 +172,98 @@ export default function StaffingPage() {
       thresholdSeconds: threshold,
       shrinkage
     })
-    setForecast(res.data)
+    setForecast(data)
     setBlocks([])
     setBestStart([])
     setPersonSchedule({})
   }
 
-  // ─── 2) Assign + auto-refine (full 50 iters, break only on perfect) ───
+  /* ─── 2) Assign staff with downward search ────────────────── */
   const assignToStaff = async () => {
-    if (!forecast.length) {
-      alert('Run Forecast first')
-      return
-    }
-
+    if (!forecast.length) { alert('Run Forecast first'); return }
     setUseFixedStaff(true)
-    let cap = fixedStaff || 0
-    setFixedStaff(cap)
 
-    let bestScore    = Infinity
-    let bestBlocks   = []
-    let bestStarts   = []
-    let bestSchedule = {}
+    /* build reqMap once for lunch selection */
+    const reqMap = {}
+    forecast.forEach(d =>
+      d.staffing.forEach(({ hour, requiredAgents }) =>
+        (reqMap[`${d.date}|${hour}`] = requiredAgents)
+      )
+    )
 
-    for (let iter = 0; iter < MAX_ITERS; iter++) {
-      // a) call solver
-      const { data } = await api.post('/erlang/staff/schedule', {
-        staffing:    forecast,
+    /* helper: call solver + build schedule + deficit */
+    const solve = async cap => {
+      const body = {
+        staffing: forecast,
         weeks,
         shiftLength: SHIFT_LENGTH,
-        topN:        5,
-        maxStaff:    cap
-      })
-      const solution        = data.solution
-      const candidateStarts = data.bestStartHours
-      setBlocks(solution)
-      setBestStart(candidateStarts)
-
-      // b) rebuild reqMap
-      const reqMap = {}
-      forecast.forEach(d =>
-        d.staffing.forEach(({ hour, requiredAgents }) =>
-          (reqMap[`${d.date}|${hour}`] = requiredAgents)
-        )
-      )
-
-      // c) build schedule by employee
-      const schedByEmp = {}
-      const totalEmp   = solution.reduce((sum,b) => sum + b.count, 0)
-      const queue      = Array.from({ length: totalEmp }, (_,i)=>i+1)
-      queue.forEach(id => schedByEmp[id] = [])
-
-      const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS,'month')
-      const cycles     = Math.ceil((horizonEnd.diff(startDate,'day')+1)/(weeks*7))
-      const blockTypes = solution.sort((a,b)=>
-        a.patternIndex - b.patternIndex || a.startHour - b.startHour
-      )
-
-      for (let ci = 0; ci < cycles; ci++) {
-        let offset = 0
-        blockTypes.forEach(b => {
-          const group = queue.slice(offset, offset + b.count)
-          group.forEach(empId => {
-            getWorkDates(b.startDate, weeks).forEach(dtStr => {
-              const d = dayjs(dtStr).add(ci*weeks*7,'day')
-              if (!d.isAfter(horizonEnd,'day')) {
-                const day = d.format('YYYY-MM-DD')
-                const breakHour = b.startHour + Math.floor(b.length/2)
-                schedByEmp[empId].push({ day, hour: b.startHour, breakHour })
-              }
-            })
-          })
-          offset += b.count
-        })
-        queue.unshift(queue.pop())
+        topN: 5
       }
+      if (cap > 0) body.maxStaff = cap
+      const { data } = await api.post('/erlang/staff/schedule', body)
+      const sched  = buildSchedule(data.solution, reqMap)
 
-      // d) compute deficits & score
-      const schedMap = {}
-      Object.values(schedByEmp).forEach(arr =>
+      /* deficit for this schedule */
+      const cov = {}
+      Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
             if (h === breakHour) continue
-            const key = `${day}|${h}`
-            schedMap[key] = (schedMap[key]||0) + 1
+            const k = `${day}|${h}`
+            cov[k] = (cov[k] || 0) + 1
           }
         })
       )
-      const defMap = {}
-      new Set([...Object.keys(reqMap), ...Object.keys(schedMap)])
-        .forEach(k => defMap[k] = (schedMap[k]||0) - (reqMap[k]||0))
-
-      const { worstShort, worstOver } = measureDeficit(defMap)
-      const thisScore = score(defMap)
-
-      // e) track best
-      if (thisScore < bestScore) {
-        bestScore    = thisScore
-        bestBlocks   = solution
-        bestStarts   = candidateStarts
-        bestSchedule = schedByEmp
+      const def = {}
+      Object.keys(reqMap).forEach(k => {
+        def[k] = (cov[k] || 0) - reqMap[k]
+      })
+      return {
+        solution:  data.solution,
+        bestStart: data.bestStartHours,
+        schedule:  sched,
+        deficit:   def,
+        headCnt:   data.solution.reduce((s,b)=>s+b.count,0)
       }
-
-      // f) break only if perfect match
-      if (worstShort === 0 && worstOver === 0) {
-        break
-      }
-
-      // g) adjust cap
-      cap = Math.max(0, cap + worstShort - worstOver)
-      setFixedStaff(cap)
     }
 
-    // h) commit best
-    setBlocks(bestBlocks)
-    setBestStart(bestStarts)
-    setPersonSchedule(bestSchedule)
+    /* 2-A  Exponential upper bound */
+    let lo = 0, hi = 1, upper = await solve(hi)
+    while (hasShort(upper.deficit)) {
+      hi *= 2
+      if (hi > 10000) break
+      upper = await solve(hi)
+    }
+
+    /* 2-B  Binary search down (MAX_ITERS) */
+    let best = upper
+    for (let i = 0; i < MAX_ITERS && hi - lo > 1; i++) {
+      const mid = Math.floor((lo + hi) / 2)
+      const plan = await solve(mid)
+      if (hasShort(plan.deficit)) {
+        lo = mid
+      } else {
+        hi   = mid
+        best = plan
+      }
+    }
+
+    /* commit best */
+    setFixedStaff(best.headCnt)
+    setBlocks(best.solution)
+    setBestStart(best.bestStart)
+    setPersonSchedule(best.schedule)
   }
 
-  // ─── 3) Export to Excel ───────────────────────────────────────
+  /* ─── 3) Export to Excel (unchanged) ─────────────────────── */
   const exportExcel = () => {
     const rows = []
-    Object.entries(personSchedule).forEach(([emp, arr]) => {
+    Object.entries(personSchedule).forEach(([emp, arr]) =>
       arr.forEach(({ day, hour, breakHour }) => {
-        rows.push({
-          Employee:  emp,
-          Date:      day,
-          StartHour: `${hour}:00`,
-          Type:      'Shift'
-        })
-        if (breakHour != null) {
-          rows.push({
-            Employee:  emp,
-            Date:      day,
-            StartHour: `${breakHour}:00`,
-            Type:      'Lunch Break'
-          })
-        }
+        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00`, Type: 'Shift' })
+        rows.push({ Employee: emp, Date: day, StartHour: `${breakHour}:00`, Type: 'Lunch' })
       })
-    })
+    )
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
