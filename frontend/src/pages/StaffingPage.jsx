@@ -113,7 +113,7 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // Sort by patternIndex then startHour
+    // Sort by patternIndex then startHour for stable ordering
     const blockTypes = [...res.data.solution].sort((a,b) => {
       if (a.patternIndex !== b.patternIndex) {
         return a.patternIndex - b.patternIndex
@@ -123,23 +123,19 @@ export default function StaffingPage() {
 
     // Total "slots" = total employees
     const totalEmp = blockTypes.reduce((sum,b)=>sum+b.count,0)
-    const initialQueue = Array.from({length:totalEmp}, (_,i)=>i+1)
+    const queue = Array.from({length:totalEmp}, (_,i)=>i+1)
     const schedByEmp = {}
-    initialQueue.forEach(id=>schedByEmp[id]=[])
+    queue.forEach(id=>schedByEmp[id]=[])
 
     const horizonEnd = dayjs(startDate).add(6,'month')
     const totalDays  = horizonEnd.diff(startDate,'day') + 1
     const cycles     = Math.ceil(totalDays / (weeks * 7))
 
     for (let cycleIdx = 0; cycleIdx < cycles; cycleIdx++) {
-      // rotate forward by cycleIdx
-      const rotated = initialQueue
-        .slice(cycleIdx % totalEmp)
-        .concat(initialQueue.slice(0, cycleIdx % totalEmp))
-
       let offset = 0
       blockTypes.forEach(b => {
-        const group = rotated.slice(offset, offset + b.count)
+        // assign this block’s `count` employees from the front of `queue`
+        const group = queue.slice(offset, offset + b.count)
         group.forEach(empId => {
           getWorkDates(b.startDate, weeks).forEach(dt => {
             const d = dayjs(dt).add(cycleIdx * weeks * 7, 'day')
@@ -153,9 +149,12 @@ export default function StaffingPage() {
         })
         offset += b.count
       })
+
+      // **rotate FORWARD**: last employee moves into first block
+      queue.unshift(queue.pop())
     }
 
-    console.log('🔄 schedByEmp:', schedByEmp)
+    console.debug('🔄 schedByEmp:', schedByEmp)
     setPersonSchedule(schedByEmp)
   }
 
@@ -264,7 +263,7 @@ export default function StaffingPage() {
           </Button>
         </Box>
 
-        {/* ─── 1) Required Agents Heatmap ────────────────────────── */}
+        {/* ─── 1) Required Agents Heatmap ───────────────────────── */}
         {forecast.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6">Required Agents Heatmap</Typography>
@@ -352,9 +351,9 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const val = deficit[`${d.date}|${h}`]||0
+                      const val   = deficit[`${d.date}|${h}`]||0
                       const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8+0.2 : 0.2
-                      const col = val < 0
+                      const col   = val < 0
                         ? `rgba(244,67,54,${ratio})`
                         : `rgba(76,175,80,${ratio})`
                       return (
@@ -410,7 +409,7 @@ export default function StaffingPage() {
             <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
               Export to Excel
             </Button>
-            <CalendarView scheduleByEmp={personSchedule}/>
+            <CalendarView scheduleByEmp={personSchedule} />
           </Box>
         )}
       </Box>
@@ -421,7 +420,7 @@ export default function StaffingPage() {
 /** CalendarView: day-by-day grid with start-hour text */
 function CalendarView({ scheduleByEmp }) {
   const allDates = Array.from(
-    new Set(Object.values(scheduleByEmp).flatMap(arr => arr.map(e=>e.day)))
+    new Set(Object.values(scheduleByEmp).flatMap(arr => arr.map(e => e.day)))
   ).sort()
 
   return (
@@ -430,7 +429,7 @@ function CalendarView({ scheduleByEmp }) {
         <TableHead>
           <TableRow>
             <TableCell>Employee</TableCell>
-            {allDates.map(d=>(
+            {allDates.map(d => (
               <TableCell key={d} sx={{ minWidth:80, textAlign:'center' }}>
                 {dayjs(d).format('MM/DD')}
               </TableCell>
@@ -438,20 +437,21 @@ function CalendarView({ scheduleByEmp }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {Object.entries(scheduleByEmp).map(([emp, arr])=>{
+          {Object.entries(scheduleByEmp).map(([emp, arr]) => {
             const mapDay = {}
-            arr.forEach(({day,hour}) => { mapDay[day] = hour })
-            const color = '#' + ((emp*1234567)%0xffffff).toString(16).padStart(6,'0')
+            arr.forEach(({day, hour}) => { mapDay[day] = hour })
+            const color = '#' + ((emp * 1234567) % 0xffffff)
+              .toString(16).padStart(6,'0')
             return (
               <TableRow key={emp}>
                 <TableCell>Emp {emp}</TableCell>
-                {allDates.map(d=>(
+                {allDates.map(d => (
                   <TableCell
                     key={d}
                     sx={{
                       backgroundColor: mapDay[d]!=null ? color+'33' : undefined,
-                      textAlign:'center',
-                      fontSize:12
+                      textAlign: 'center',
+                      fontSize: 12
                     }}
                   >
                     {mapDay[d]!=null ? `${mapDay[d]}:00` : ''}
