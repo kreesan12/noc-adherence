@@ -21,8 +21,8 @@ import * as XLSX from 'xlsx'
 export default function StaffingPage() {
   // ─── Constants ───────────────────────────────────────────────
   const HORIZON_MONTHS = 6    // forecast window
-  const SHIFT_LENGTH   = 9    // hours/shift
-  const MAX_ITERS      = 50   // max refine iterations
+  const SHIFT_LENGTH   = 9    // hours per shift
+  const MAX_ITERS      = 50   // max number of refine iterations
 
   // ─── State ───────────────────────────────────────────────────
   const [roles, setRoles]               = useState([])
@@ -42,7 +42,7 @@ export default function StaffingPage() {
   const [useFixedStaff, setUseFixedStaff]   = useState(false)
   const [fixedStaff,    setFixedStaff]      = useState(0)
 
-  // ─── Load roles ───────────────────────────────────────────────
+  // ─── Load roles on mount ──────────────────────────────────────
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -51,7 +51,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── Helper: N-week × 5-day blocks ────────────────────────────
+  // ─── Helper: generate N-week × 5-day date lists ──────────────
   function getWorkDates(start, weeksCount) {
     const dates = []
     for (let w = 0; w < weeksCount; w++) {
@@ -63,15 +63,16 @@ export default function StaffingPage() {
     return dates
   }
 
-  // ─── Build heatmaps from schedule & forecast ─────────────────
+  // ─── Build heatmap data from forecast + personSchedule ────────
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
+    // required-agents map
     const reqMap = {}
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) =>
         reqMap[`${d.date}|${hour}`] = requiredAgents
       )
     )
-
+    // scheduled coverage map
     const schedMap = {}
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
@@ -82,17 +83,16 @@ export default function StaffingPage() {
         }
       })
     )
-
+    // deficit map = scheduled – required
     const defMap = {}
     new Set([...Object.keys(reqMap), ...Object.keys(schedMap)])
       .forEach(k => {
         defMap[k] = (schedMap[k] || 0) - (reqMap[k] || 0)
       })
-
+    // compute maxes for color scaling
     const allReq = Object.values(reqMap)
     const allSch = Object.values(schedMap)
     const allDef = Object.values(defMap).map(v => Math.abs(v))
-
     return {
       scheduled: schedMap,
       deficit:   defMap,
@@ -102,27 +102,25 @@ export default function StaffingPage() {
     }
   }, [personSchedule, forecast])
 
-  // ─── Measure under/over ─────────────────────────────────────
+  // ─── Helpers to measure & score deficits ─────────────────────
   function measureDeficit(defMap) {
     const vals = Object.values(defMap)
     const worstShort = Math.max(0, ...vals.filter(v => v < 0).map(v => -v))
     const worstOver  = Math.max(0, ...vals.filter(v => v > 0))
     return { worstShort, worstOver }
   }
-  // ─── Score = total absolute deficit ──────────────────────────
   function score(defMap) {
     return Object.values(defMap)
       .reduce((sum, v) => sum + Math.abs(v), 0)
   }
 
-  // ─── 1) 6-month forecast ──────────────────────────────────────
+  // ─── 1) 6-month required-agents forecast ─────────────────────
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
     const end   = startDate
       .add(HORIZON_MONTHS, 'month')
       .subtract(1, 'day')
       .format('YYYY-MM-DD')
-
     const res = await api.post('/erlang/staff/bulk-range', {
       role: team, start, end,
       callAhtSeconds: callAht,
@@ -131,18 +129,19 @@ export default function StaffingPage() {
       thresholdSeconds: threshold,
       shrinkage
     })
-
     setForecast(res.data)
     setBlocks([])
     setBestStart([])
     setPersonSchedule({})
   }
 
-  // ─── 2) Assign + auto-refine (up to 50 iterations) ──────────
+  // ─── 2) Assign + auto-refine (full 50 iters, break only on perfect) ───
   const assignToStaff = async () => {
-    if (!forecast.length) return alert('Run Forecast first')
+    if (!forecast.length) {
+      alert('Run Forecast first')
+      return
+    }
 
-    // ensure fixed-staff toggle on
     setUseFixedStaff(true)
     let cap = fixedStaff || 0
     setFixedStaff(cap)
@@ -153,7 +152,7 @@ export default function StaffingPage() {
     let bestSchedule = {}
 
     for (let iter = 0; iter < MAX_ITERS; iter++) {
-      // 2a) call solver
+      // a) call solver
       const { data } = await api.post('/erlang/staff/schedule', {
         staffing:    forecast,
         weeks,
@@ -161,25 +160,24 @@ export default function StaffingPage() {
         topN:        5,
         maxStaff:    cap
       })
-
       const solution        = data.solution
       const candidateStarts = data.bestStartHours
       setBlocks(solution)
       setBestStart(candidateStarts)
 
-      // 2b) build reqMap
+      // b) rebuild reqMap
       const reqMap = {}
       forecast.forEach(d =>
         d.staffing.forEach(({ hour, requiredAgents }) =>
-          reqMap[`${d.date}|${hour}`] = requiredAgents
+          (reqMap[`${d.date}|${hour}`] = requiredAgents)
         )
       )
 
-      // 2c) build schedule by employee
+      // c) build schedule by employee
       const schedByEmp = {}
       const totalEmp   = solution.reduce((sum,b) => sum + b.count, 0)
       const queue      = Array.from({ length: totalEmp }, (_,i)=>i+1)
-      queue.forEach(id=>schedByEmp[id]=[])
+      queue.forEach(id => schedByEmp[id] = [])
 
       const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS,'month')
       const cycles     = Math.ceil((horizonEnd.diff(startDate,'day')+1)/(weeks*7))
@@ -193,7 +191,7 @@ export default function StaffingPage() {
           const group = queue.slice(offset, offset + b.count)
           group.forEach(empId => {
             getWorkDates(b.startDate, weeks).forEach(dtStr => {
-              const d = dayjs(dtStr).add(ci*weeks*7, 'day')
+              const d = dayjs(dtStr).add(ci*weeks*7,'day')
               if (!d.isAfter(horizonEnd,'day')) {
                 const day = d.format('YYYY-MM-DD')
                 const breakHour = b.startHour + Math.floor(b.length/2)
@@ -206,7 +204,7 @@ export default function StaffingPage() {
         queue.unshift(queue.pop())
       }
 
-      // 2d) compute deficits & score
+      // d) compute deficits & score
       const schedMap = {}
       Object.values(schedByEmp).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
@@ -217,7 +215,6 @@ export default function StaffingPage() {
           }
         })
       )
-
       const defMap = {}
       new Set([...Object.keys(reqMap), ...Object.keys(schedMap)])
         .forEach(k => defMap[k] = (schedMap[k]||0) - (reqMap[k]||0))
@@ -225,7 +222,7 @@ export default function StaffingPage() {
       const { worstShort, worstOver } = measureDeficit(defMap)
       const thisScore = score(defMap)
 
-      // 2e) record if improved
+      // e) track best
       if (thisScore < bestScore) {
         bestScore    = thisScore
         bestBlocks   = solution
@@ -233,17 +230,17 @@ export default function StaffingPage() {
         bestSchedule = schedByEmp
       }
 
-      // 2f) if perfect zero-under/zero-over, stop early
+      // f) break only if perfect match
       if (worstShort === 0 && worstOver === 0) {
         break
       }
 
-      // 2g) adjust cap
+      // g) adjust cap
       cap = Math.max(0, cap + worstShort - worstOver)
       setFixedStaff(cap)
     }
 
-    // 2h) commit best found
+    // h) commit best
     setBlocks(bestBlocks)
     setBestStart(bestStarts)
     setPersonSchedule(bestSchedule)
@@ -361,7 +358,7 @@ export default function StaffingPage() {
             variant="contained"
             onClick={assignToStaff}
             disabled={!forecast.length}
-            sx={{ ml: 2 }}
+            sx={{ ml:2 }}
           >
             Assign to Staff
           </Button>
@@ -405,8 +402,8 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const req = d.staffing.find(s => s.hour===h)?.requiredAgents || 0
-                      const alpha = maxReq ? (req/maxReq)*0.8 + 0.2 : 0.2
+                      const req = d.staffing.find(s => s.hour===h)?.requiredAgents||0
+                      const alpha = maxReq ? (req/maxReq)*0.8+0.2 : 0.2
                       return (
                         <Tooltip key={d.date} title={`Req: ${req}`}>
                           <TableCell sx={{ backgroundColor:`rgba(33,150,243,${alpha})` }}>
@@ -440,8 +437,8 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const cov = scheduled[`${d.date}|${h}`] || 0
-                      const alpha = maxSch ? (cov/maxSch)*0.8 + 0.2 : 0.2
+                      const cov = scheduled[`${d.date}|${h}`]||0
+                      const alpha = maxSch ? (cov/maxSch)*0.8+0.2 : 0.2
                       return (
                         <Tooltip key={d.date} title={`Cov: ${cov}`}>
                           <TableCell sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}>
@@ -475,8 +472,8 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const val = deficit[`${d.date}|${h}`] || 0
-                      const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8 + 0.2 : 0.2
+                      const val = deficit[`${d.date}|${h}`]||0
+                      const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8+0.2 : 0.2
                       const col = val < 0
                         ? `rgba(244,67,54,${ratio})`
                         : `rgba(76,175,80,${ratio})`
@@ -550,7 +547,7 @@ export default function StaffingPage() {
   )
 }
 
-// CalendarView unchanged
+// CalendarView (unchanged)
 function CalendarView({ scheduleByEmp }) {
   const allDates = Array.from(
     new Set(Object.values(scheduleByEmp).flatMap(arr => arr.map(e => e.day)))
