@@ -1,7 +1,5 @@
 // frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState, useMemo } from 'react'
-import moment from 'moment'
-import Timeline from 'react-calendar-timeline'
 import {
   Box, TextField, Button, Typography,
   MenuItem, Select, InputLabel, FormControl,
@@ -9,16 +7,19 @@ import {
   Tooltip
 } from '@mui/material'
 import {
-  LocalizationProvider,
-  DatePicker
+  LocalizationProvider, DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
 
+// Gantt imports
+import Timeline from 'react-calendar-timeline'
+import 'react-calendar-timeline/lib/Timeline.css'
+import moment from 'moment'
 
 export default function StaffingPage() {
-  // ─── state ─────────────────────────────────────────────────────
+  // ─── State ────────────────────────────────────────────────────
   const [roles, setRoles]         = useState([])
   const [team, setTeam]           = useState('')
   const [startDate, setStartDate] = useState(dayjs())
@@ -29,12 +30,12 @@ export default function StaffingPage() {
   const [shrinkage, setShrinkage] = useState(0.3)
   const [weeks, setWeeks]         = useState(3)
 
-  const [forecast, setForecast]           = useState([])
-  const [blocks, setBlocks]               = useState([])
-  const [bestStartHours, setBestStart]    = useState([])
+  const [forecast, setForecast]         = useState([])
+  const [blocks, setBlocks]             = useState([])
+  const [bestStartHours, setBestStart]  = useState([])
   const [personSchedule, setPersonSchedule] = useState({})
 
-  // ─── load roles ─────────────────────────────────────────────────
+  // ─── Load roles ─────────────────────────────────────────────────
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -43,10 +44,10 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── helper to expand 5-day workweek for N weeks ────────────────
-  function getWorkDates(start, weeksCount) {
+  // ─── Helper: 5-on/2-off dates for N-week cycle ───────────────────
+  function getWorkDates(start, wk) {
     const dates = []
-    for (let w = 0; w < weeksCount; w++) {
+    for (let w = 0; w < wk; w++) {
       const base = dayjs(start).add(w * 7, 'day')
       for (let d = 0; d < 5; d++) {
         dates.push(base.add(d, 'day').format('YYYY-MM-DD'))
@@ -55,7 +56,7 @@ export default function StaffingPage() {
     return dates
   }
 
-  // ─── build maps for all three heatmaps ─────────────────────────
+  // ─── Build heatmap data ────────────────────────────────────────
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
     const sched = {}
     blocks.forEach(b => {
@@ -80,11 +81,10 @@ export default function StaffingPage() {
     )
     const sMax = Math.max(0, ...Object.values(sched))
     const dMax = Math.max(0, ...Object.values(def).map(v => Math.abs(v)))
-
     return { scheduled: sched, deficit: def, maxReq: rMax, maxSch: sMax, maxDef: dMax }
   }, [blocks, forecast, weeks])
 
-  // ─── 1) calculate forecast ──────────────────────────────────────
+  // ─── 1) Calculate forecast ─────────────────────────────────────
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
     const end   = startDate.add(weeks, 'week').subtract(1, 'day').format('YYYY-MM-DD')
@@ -103,11 +103,9 @@ export default function StaffingPage() {
     setPersonSchedule({})
   }
 
-  // ─── 2) assign rotations ─────────────────────────────────────────
+  // ─── 2) Assign rotations & build 6-month staff schedule ────────
   const assignToStaff = async () => {
-    if (!forecast.length) {
-      return alert('Run Forecast first')
-    }
+    if (!forecast.length) return alert('Run Forecast first')
     const res = await api.post('/erlang/staff/schedule', {
       staffing:    forecast,
       weeks,
@@ -117,28 +115,47 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // round-robin assign each “slot” to employee IDs 1…N
-    let empIdx = 1
-    const assignments = []
+    // flatten into per-employee list
+    const flat = []
+    let idx = 1
     res.data.solution.forEach(b => {
       for (let i = 0; i < b.count; i++) {
-        assignments.push({ employee: empIdx, ...b })
-        empIdx++
+        flat.push({ employee: idx, ...b })
+        idx++
       }
     })
+    flat.sort((a,b) => a.employee - b.employee)
 
-    // build per-employee day/hour list
+    // how many cycles fit in 6 months
+    const horizonEnd   = dayjs(startDate).add(6, 'month')
+    const horizonDays  = horizonEnd.diff(dayjs(startDate), 'day') + 1
+    const cycleDays    = weeks * 7
+    const cyclesCount  = Math.ceil(horizonDays / cycleDays)
+
     const scheduleByEmp = {}
-    assignments.forEach(({ employee, startDate, startHour, length }) => {
-      getWorkDates(startDate, weeks).forEach(day => {
-        if (!scheduleByEmp[employee]) scheduleByEmp[employee] = []
-        scheduleByEmp[employee].push({ day, hour: startHour })
+    flat.forEach(a => { scheduleByEmp[a.employee] = [] })
+
+    // rotate each employee forward every cycle
+    for (let c = 0; c < cyclesCount; c++) {
+      flat.forEach((a,i) => {
+        const block = flat[(i + c) % flat.length]
+        const cycleStart = dayjs(block.startDate)
+          .add(c * cycleDays, 'day')
+          .format('YYYY-MM-DD')
+        getWorkDates(cycleStart, weeks)
+          .forEach(date => {
+            scheduleByEmp[a.employee].push({
+              day: date,
+              hour: block.startHour
+            })
+          })
       })
-    })
+    }
+
     setPersonSchedule(scheduleByEmp)
   }
 
-  // ─── 3) prepare Gantt data for Timeline ─────────────────────────
+  // ─── 3) Prepare Gantt data ─────────────────────────────────────
   const [groups, items] = useMemo(() => {
     const gr = Object.keys(personSchedule).map(emp => ({
       id: Number(emp),
@@ -156,7 +173,9 @@ export default function StaffingPage() {
           title:      `${hour}:00`,
           start_time: start,
           end_time:   end,
-          itemProps:  { 'data-tooltip': `${day} @ ${hour}:00` }
+          itemProps: {
+            'data-tooltip': `${day} @ ${hour}:00`
+          }
         })
       })
     })
@@ -170,9 +189,8 @@ export default function StaffingPage() {
           Staffing Forecast & Scheduling
         </Typography>
 
-        {/* Controls */}
+        {/* ─── Controls ───────────────────────────────────────── */}
         <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
-          {/* Team */}
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
             <Select
@@ -180,13 +198,12 @@ export default function StaffingPage() {
               label="Team"
               onChange={e => setTeam(e.target.value)}
             >
-              {roles.map(r =>
+              {roles.map(r => (
                 <MenuItem key={r} value={r}>{r}</MenuItem>
-              )}
+              ))}
             </Select>
           </FormControl>
 
-          {/* Forecast start date */}
           <DatePicker
             label="Forecast Start"
             value={startDate}
@@ -194,7 +211,6 @@ export default function StaffingPage() {
             renderInput={p => <TextField {...p} size="small" />}
           />
 
-          {/* Rotation length */}
           <FormControl sx={{ minWidth:120 }}>
             <InputLabel>Rotation (weeks)</InputLabel>
             <Select
@@ -208,7 +224,6 @@ export default function StaffingPage() {
             </Select>
           </FormControl>
 
-          {/* AHTs, SL, threshold, shrinkage */}
           <TextField
             label="Call AHT (sec)"
             type="number"
@@ -258,7 +273,7 @@ export default function StaffingPage() {
           </Button>
         </Box>
 
-        {/* 1) Required Agents Heatmap */}
+        {/* ─── 1) Required Agents Heatmap ───────────────────────────── */}
         {forecast.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6">Required Agents Heatmap</Typography>
@@ -276,12 +291,12 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const req   = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
-                      const alpha = maxReq ? (req/maxReq)*0.8 + 0.2 : 0.2
+                      const req = d.staffing.find(s => s.hour===h)?.requiredAgents||0
+                      const alpha = maxReq ? (req/maxReq)*0.8+0.2 : 0.2
                       return (
                         <Tooltip key={d.date} title={`Req: ${req}`}>
                           <TableCell sx={{
-                            backgroundColor: `rgba(33,150,243,${alpha})`
+                            backgroundColor:`rgba(33,150,243,${alpha})`
                           }}>
                             {req}
                           </TableCell>
@@ -295,7 +310,7 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* 2) Scheduled Coverage Heatmap */}
+        {/* ─── 2) Scheduled Coverage Heatmap ────────────────────────── */}
         {blocks.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
@@ -313,12 +328,12 @@ export default function StaffingPage() {
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
-                      const cov   = scheduled[`${d.date}|${h}`]||0
-                      const alpha = maxSch ? (cov/maxSch)*0.8 + 0.2 : 0.2
+                      const cov = scheduled[`${d.date}|${h}`]||0
+                      const alpha = maxSch ? (cov/maxSch)*0.8+0.2 : 0.2
                       return (
                         <Tooltip key={d.date} title={`Sch: ${cov}`}>
                           <TableCell sx={{
-                            backgroundColor: `rgba(76,175,80,${alpha})`
+                            backgroundColor:`rgba(76,175,80,${alpha})`
                           }}>
                             {cov}
                           </TableCell>
@@ -332,7 +347,7 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* 3) Deficit Heatmap */}
+        {/* ─── 3) Under-/Over-Staffing Heatmap ──────────────────────── */}
         {blocks.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
@@ -351,7 +366,7 @@ export default function StaffingPage() {
                     <TableCell>{h}:00</TableCell>
                     {forecast.map(d => {
                       const val   = deficit[`${d.date}|${h}`]||0
-                      const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8 + 0.2 : 0.2
+                      const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8+0.2 : 0.2
                       const col   = val < 0
                         ? `rgba(244,67,54,${ratio})`
                         : `rgba(76,175,80,${ratio})`
@@ -370,7 +385,7 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* 4) Assigned Shift-Block Types */}
+        {/* ─── 4) Assigned Shift-Block Types ────────────────────────── */}
         {blocks.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
             <Typography variant="h6">Assigned Shift-Block Types</Typography>
@@ -401,11 +416,11 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* 5) Gantt-style Staff Calendar (6-month window) */}
+        {/* ─── 5) Staff Gantt Calendar (6-month view) ──────────────── */}
         {groups.length > 0 && (
           <Box sx={{ mt:4 }}>
             <Typography variant="h6" gutterBottom>
-              Staff Gantt Calendar (hover for details)
+              Staff Gantt Calendar (6-month view)
             </Typography>
             <Timeline
               groups={groups}
@@ -419,9 +434,9 @@ export default function StaffingPage() {
                 <div
                   style={{
                     ...style,
-                    background:   '#1976d2',
+                    background: '#1976d2',
                     borderRadius: 4,
-                    padding:      '2px 4px'
+                    padding: '2px 4px'
                   }}
                   title={item.itemProps['data-tooltip']}
                 >
