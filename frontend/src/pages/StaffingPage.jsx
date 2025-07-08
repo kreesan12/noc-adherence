@@ -40,7 +40,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── helper: work dates for a single rotation ─────────────────
+  // ─── helper: get the 5-on days × weeks from a start date ───────
   function getWorkDates(start, weeksCount) {
     const dates = []
     for (let w = 0; w < weeksCount; w++) {
@@ -72,9 +72,9 @@ export default function StaffingPage() {
       })
     })
 
-    const rMax = Math.max(0, ...forecast.flatMap(d => d.staffing.map(s=>s.requiredAgents)))
+    const rMax = Math.max(0, ...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents)))
     const sMax = Math.max(0, ...Object.values(sched))
-    const dMax = Math.max(0, ...Object.values(def).map(v=>Math.abs(v)))
+    const dMax = Math.max(0, ...Object.values(def).map(v => Math.abs(v)))
     return { scheduled: sched, deficit: def, maxReq: rMax, maxSch: sMax, maxDef: dMax }
   }, [blocks, forecast, weeks])
 
@@ -96,7 +96,7 @@ export default function StaffingPage() {
     setPersonSchedule({})
   }
 
-  // ─── 2) assign & build 6-month rotating schedule ───────────────
+  // ─── 2) assign & build 6-month rotating schedule ─────────────
   const assignToStaff = async () => {
     if (!forecast.length) return alert('Run Forecast first')
     const res = await api.post('/erlang/staff/schedule', {
@@ -108,43 +108,54 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // 2a) flatten solution into individual slots
-    const slots = []
-    res.data.solution.forEach(b => {
-      for (let i = 0; i < b.count; i++) {
-        slots.push({ startDate: b.startDate, startHour: b.startHour })
+    // --- build true rotation across *unique* shift-block types ---
+    // sort by date & hour
+    const blockTypes = [...res.data.solution].sort((a,b) => {
+      if (a.startDate !== b.startDate) {
+        return dayjs(a.startDate).isBefore(b.startDate) ? -1 : 1
       }
+      return a.startHour - b.startHour
     })
-    const totalSlots = slots.length
-
-    // 2b) for each employee (1..totalSlots), rotate through slots
-    const horizonEnd = dayjs(startDate).add(6, 'month')
+    // total employees = sum of counts
+    const totalEmp = blockTypes.reduce((sum, b) => sum + b.count, 0)
+    // start a queue [1..N]
+    let queue = Array.from({length: totalEmp}, (_,i) => i+1)
+    // prepare empty schedule
     const schedByEmp = {}
+    queue.forEach(id => schedByEmp[id] = [])
 
-    for (let emp = 1; emp <= totalSlots; emp++) {
-      schedByEmp[emp] = []
-      let cycle = 0
+    const horizonEnd = dayjs(startDate).add(6, 'month')
+    let cycle = 0
 
-      while (true) {
-        const slotIdx = (emp - 1 + cycle) % totalSlots
-        const slot = slots[slotIdx]
-        // pattern for one rotation
-        const pattern = getWorkDates(slot.startDate, weeks)
-        let anyThisCycle = false
-
-        pattern.forEach(day => {
-          const dd = dayjs(day).add(cycle * weeks * 7, 'day')
-          if (dd.isAfter(horizonEnd, 'day')) return
-          anyThisCycle = true
-          schedByEmp[emp].push({
-            day: dd.format('YYYY-MM-DD'),
-            hour: slot.startHour
+    // keep cycling until next cycle's first date is beyond 6 months
+    while (true) {
+      // assign this cycle
+      let offset = 0
+      blockTypes.forEach(b => {
+        // slice the queue for this block's count
+        const group = queue.slice(offset, offset + b.count)
+        group.forEach(empId => {
+          // for each of the 5×weeks dates...
+          getWorkDates(b.startDate, weeks).forEach(wd => {
+            const actual = dayjs(wd).add(cycle * weeks * 7, 'day')
+            if (actual.isAfter(horizonEnd, 'day')) return
+            schedByEmp[empId].push({
+              day: actual.format('YYYY-MM-DD'),
+              hour: b.startHour
+            })
           })
         })
+        offset += b.count
+      })
 
-        if (!anyThisCycle) break
-        cycle++
-      }
+      // if next cycle's first block start is beyond 6-month horizon, stop
+      const firstPatternDay = getWorkDates(blockTypes[0].startDate, weeks)[0]
+      const nextFirst = dayjs(firstPatternDay).add((cycle+1) * weeks * 7, 'day')
+      if (nextFirst.isAfter(horizonEnd, 'day')) break
+
+      // rotate queue by 1 so everyone shifts one block forward
+      queue = queue.slice(1).concat(queue[0])
+      cycle++
     }
 
     setPersonSchedule(schedByEmp)
@@ -173,35 +184,39 @@ export default function StaffingPage() {
 
         {/* Controls */}
         <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
-          {/* Team */}
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e=>setTeam(e.target.value)}>
               {roles.map(r=> <MenuItem key={r} value={r}>{r}</MenuItem>)}
             </Select>
           </FormControl>
-          {/* Start Date */}
           <DatePicker
             label="Forecast Start"
             value={startDate}
             onChange={d=>d&&setStartDate(d)}
-            renderInput={p=><TextField {...p} size="small"/>}
+            renderInput={p=> <TextField {...p} size="small"/>}
           />
-          {/* Rotation Weeks */}
           <FormControl sx={{ minWidth:120 }}>
             <InputLabel>Rotation (weeks)</InputLabel>
             <Select value={weeks} label="Rotation" onChange={e=>setWeeks(+e.target.value)}>
               {[1,2,3,4,5].map(w=> <MenuItem key={w} value={w}>{w}</MenuItem>)}
             </Select>
           </FormControl>
-          {/* AHT / SL / Threshold / Shrinkage */}
-          <TextField label="Call AHT (sec)"    type="number" value={callAht}   onChange={e=>setCallAht(+e.target.value)}   size="small"/>
-          <TextField label="Ticket AHT (sec)"  type="number" value={ticketAht} onChange={e=>setTicketAht(+e.target.value)} size="small"/>
-          <TextField label="Service Level %"    type="number" value={sl*100}    onChange={e=>setSL(+e.target.value/100)}  size="small"/>
-          <TextField label="Threshold (sec)"   type="number" value={threshold} onChange={e=>setThreshold(+e.target.value)} size="small"/>
-          <TextField label="Shrinkage %"        type="number" value={shrinkage*100} onChange={e=>setShrinkage(+e.target.value/100)} size="small"/>
-          <Button variant="contained" onClick={calcForecast}>Calculate Forecast</Button>
-          <Button variant="contained" onClick={assignToStaff} disabled={!forecast.length} sx={{ ml:2 }}>
+          <TextField label="Call AHT (sec)"   type="number" value={callAht}   onChange={e=>setCallAht(+e.target.value)}   size="small"/>
+          <TextField label="Ticket AHT (sec)" type="number" value={ticketAht} onChange={e=>setTicketAht(+e.target.value)} size="small"/>
+          <TextField label="Service Level %"   type="number" value={sl*100}    onChange={e=>setSL(+e.target.value/100)}    size="small"/>
+          <TextField label="Threshold (sec)"  type="number" value={threshold} onChange={e=>setThreshold(+e.target.value)} size="small"/>
+          <TextField label="Shrinkage %"       type="number" value={shrinkage*100} onChange={e=>setShrinkage(+e.target.value/100)} size="small"/>
+
+          <Button variant="contained" onClick={calcForecast}>
+            Calculate Forecast
+          </Button>
+          <Button
+            variant="contained"
+            onClick={assignToStaff}
+            disabled={!forecast.length}
+            sx={{ ml:2 }}
+          >
             Assign to Staff
           </Button>
         </Box>
@@ -214,14 +229,14 @@ export default function StaffingPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Hour</TableCell>
-                  {forecast.map(d => <TableCell key={d.date}>{d.date}</TableCell>)}
+                  {forecast.map(d=> <TableCell key={d.date}>{d.date}</TableCell>)}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {Array.from({ length:24 }, (_,h)=>(
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
+                    {forecast.map(d=>{
                       const req   = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
                       const alpha = maxReq ? (req/maxReq)*0.8+0.2 : 0.2
                       return (
@@ -254,7 +269,7 @@ export default function StaffingPage() {
                 {Array.from({ length:24 }, (_,h)=>(
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
+                    {forecast.map(d=>{
                       const cov   = scheduled[`${d.date}|${h}`]||0
                       const alpha = maxSch ? (cov/maxSch)*0.8+0.2 : 0.2
                       return (
@@ -287,7 +302,7 @@ export default function StaffingPage() {
                 {Array.from({ length:24 }, (_,h)=>(
                   <TableRow key={h}>
                     <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
+                    {forecast.map(d=>{
                       const val   = deficit[`${d.date}|${h}`]||0
                       const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8+0.2 : 0.2
                       const col   = val<0
@@ -295,9 +310,7 @@ export default function StaffingPage() {
                         : `rgba(76,175,80,${ratio})`
                       return (
                         <Tooltip key={d.date} title={`Deficit: ${val}`}>
-                          <TableCell sx={{ backgroundColor: col }}>
-                            {val}
-                          </TableCell>
+                          <TableCell sx={{ backgroundColor: col }}>{val}</TableCell>
                         </Tooltip>
                       )
                     })}
@@ -339,7 +352,7 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* 5) 6-Month rotating calendar */}
+        {/* 5) 6-Month Rotating Calendar */}
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt:4 }}>
             <Typography variant="h6" gutterBottom>
@@ -356,7 +369,7 @@ export default function StaffingPage() {
   )
 }
 
-/** CalendarView: scrollable grid, shows start-time text in each cell */
+/** CalendarView: scrollable grid with time labels */
 function CalendarView({ scheduleByEmp }) {
   const allDates = Array.from(new Set(
     Object.values(scheduleByEmp).flatMap(arr => arr.map(e=>e.day))
@@ -376,30 +389,25 @@ function CalendarView({ scheduleByEmp }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {Object.entries(scheduleByEmp).map(([emp, arr])=> {
-            // map date → hour for display
+          {Object.entries(scheduleByEmp).map(([emp, arr]) => {
             const mapDay = {}
-            arr.forEach(({ day, hour }) => mapDay[day] = hour)
+            arr.forEach(({day, hour}) => mapDay[day] = hour)
             const color = '#' + ((emp * 1234567) % 0xffffff).toString(16).padStart(6,'0')
-
             return (
               <TableRow key={emp}>
                 <TableCell>Emp {emp}</TableCell>
-                {allDates.map(d=> {
-                  const hr = mapDay[d]
-                  return (
-                    <TableCell
-                      key={d}
-                      sx={{
-                        backgroundColor: hr != null ? color + '33' : undefined,
-                        textAlign: 'center',
-                        fontSize: 12
-                      }}
-                    >
-                      {hr != null ? `${hr}:00` : ''}
-                    </TableCell>
-                  )
-                })}
+                {allDates.map(d=>(
+                  <TableCell
+                    key={d}
+                    sx={{
+                      backgroundColor: mapDay[d]!=null ? color+'33' : undefined,
+                      textAlign: 'center',
+                      fontSize: 12
+                    }}
+                  >
+                    {mapDay[d]!=null ? `${mapDay[d]}:00` : ''}
+                  </TableCell>
+                ))}
               </TableRow>
             )
           })}
