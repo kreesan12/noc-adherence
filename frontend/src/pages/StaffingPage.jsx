@@ -152,6 +152,7 @@ export default function StaffingPage() {
       })
     }
 
+    console.log('🔄 schedByEmp:', schedByEmp)
     setPersonSchedule(schedByEmp)
   }
 
@@ -358,6 +359,21 @@ export default function StaffingPage() {
             <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
               Export to Excel
             </Button>
+
+                <pre
+      style={{
+        whiteSpace: 'pre-wrap',
+        fontSize: 12,
+        maxHeight: 200,
+        overflow: 'auto',
+        background: '#f7f7f7',
+        padding: '8px',
+        border: '1px solid #ddd',
+        marginBottom: '16px'
+      }}
+    >
+      {JSON.stringify(personSchedule, null, 2)}
+    </pre>
             <CalendarView scheduleByEmp={personSchedule}/>
           </Box>
         )}
