@@ -12,7 +12,6 @@ import {
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
-import moment from 'moment'
 
 export default function StaffingPage() {
   // ─── state ─────────────────────────────────────────────────────
@@ -26,9 +25,9 @@ export default function StaffingPage() {
   const [shrinkage, setShrinkage] = useState(0.3)
   const [weeks, setWeeks]         = useState(3)
 
-  const [forecast, setForecast]         = useState([])
-  const [blocks, setBlocks]             = useState([])
-  const [bestStartHours, setBestStart]  = useState([])
+  const [forecast, setForecast]           = useState([])
+  const [blocks, setBlocks]               = useState([])
+  const [bestStartHours, setBestStart]    = useState([])
   const [personSchedule, setPersonSchedule] = useState({})
 
   // ─── load roles ─────────────────────────────────────────────────
@@ -111,7 +110,7 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // ─ build per-person schedule ─────────────────────────────────
+    // ─ build per-person schedule ───────────────────────────────
     let empIdx = 1
     const assignments = []
     res.data.solution.forEach(b => {
@@ -122,54 +121,13 @@ export default function StaffingPage() {
     })
     const scheduleByEmp = {}
     assignments.forEach(({ employee, startDate, startHour, length }) => {
-      scheduleByEmp[employee] = scheduleByEmp[employee] || []
-      getWorkDates(startDate, weeks).forEach(date => {
-        scheduleByEmp[employee].push({ day: date, hour: startHour })
-      })
+      const dates = getWorkDates(startDate, weeks)
+      scheduleByEmp[employee] = (scheduleByEmp[employee] || []).concat(
+        dates.map(day => ({ day, hour: startHour }))
+      )
     })
     setPersonSchedule(scheduleByEmp)
   }
-
-  // ─── 3) export to Excel ─────────────────────────────────────────
-  const exportExcel = async () => {
-    const { default: XLSX } = await import('xlsx')
-    // flatten to rows
-    const rows = []
-    Object.entries(personSchedule).forEach(([emp, arr]) => {
-      arr.forEach(({ day, hour }) => {
-        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00` })
-      })
-    })
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
-    XLSX.writeFile(wb, 'staff-calendar.xlsx')
-  }
-
-  // ─── 4) prepare Gantt data ─────────────────────────────────────
-  const [groups, items] = useMemo(() => {
-    const gr = Object.keys(personSchedule).map(emp => ({
-      id: Number(emp),
-      title: `Emp ${emp}`
-    }))
-    const it = []
-    let itemId = 1
-    Object.entries(personSchedule).forEach(([emp, arr]) => {
-      arr.forEach(({ day, hour }) => {
-        const start = moment(`${day} ${hour}`, 'YYYY-MM-DD H')
-        const end   = start.clone().add(9, 'hour')
-        it.push({
-          id: itemId++,
-          group: Number(emp),
-          title: `${hour}:00`,
-          start_time: start,
-          end_time:   end,
-          itemProps: { 'data-tooltip': `${day} @ ${hour}:00` }
-        })
-      })
-    })
-    return [gr, it]
-  }, [personSchedule])
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -197,44 +155,54 @@ export default function StaffingPage() {
           <FormControl sx={{ minWidth:120 }}>
             <InputLabel>Rotation (weeks)</InputLabel>
             <Select value={weeks} label="Rotation" onChange={e=>setWeeks(+e.target.value)}>
-              {[1,2,3,4,5].map(w =>
+              {[1,2,3,4,5].map(w=>
                 <MenuItem key={w} value={w}>{w}</MenuItem>
               )}
             </Select>
           </FormControl>
 
           <TextField
-            label="Call AHT (sec)" type="number"
-            value={callAht} onChange={e=>setCallAht(+e.target.value)}
+            label="Call AHT (sec)"
+            type="number"
+            value={callAht}
+            onChange={e=>setCallAht(+e.target.value)}
             size="small"
           />
           <TextField
-            label="Ticket AHT (sec)" type="number"
-            value={ticketAht} onChange={e=>setTicketAht(+e.target.value)}
+            label="Ticket AHT (sec)"
+            type="number"
+            value={ticketAht}
+            onChange={e=>setTicketAht(+e.target.value)}
             size="small"
           />
           <TextField
-            label="Service Level %" type="number"
-            value={sl*100} onChange={e=>setSL(+e.target.value/100)}
+            label="Service Level %"
+            type="number"
+            value={sl*100}
+            onChange={e=>setSL(+e.target.value/100)}
             size="small"
           />
           <TextField
-            label="Threshold (sec)" type="number"
-            value={threshold} onChange={e=>setThreshold(+e.target.value)}
+            label="Threshold (sec)"
+            type="number"
+            value={threshold}
+            onChange={e=>setThreshold(+e.target.value)}
             size="small"
           />
           <TextField
-            label="Shrinkage %" type="number"
-            value={shrinkage*100} onChange={e=>setShrinkage(+e.target.value/100)}
+            label="Shrinkage %"
+            type="number"
+            value={shrinkage*100}
+            onChange={e=>setShrinkage(+e.target.value/100)}
             size="small"
           />
 
           <Button variant="contained" onClick={calcForecast}>
             Calculate Forecast
           </Button>
-          <Button
-            variant="contained"
-            onClick={assignToStaff}
+          <Button 
+            variant="contained" 
+            onClick={assignToStaff} 
             disabled={!forecast.length}
             sx={{ ml:2 }}
           >
@@ -319,7 +287,7 @@ export default function StaffingPage() {
         {/* ─── 3) Deficit Heatmap ────────────────────────────────────── */}
         {blocks.length > 0 && (
           <Box sx={{ mb:4, overflowX:'auto' }}>
-            <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
+            <Typography variant="h6">Under/Over-Staffing Heatmap</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -385,21 +353,13 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* ─── 5) Per-employee Gantt-style calendar ────────────────── */}
-        {groups.length > 0 && (
-          <Box sx={{ mt:4 }}>
+        {/* ─── 5) Per-employee calendar grid ─────────────────────────── */}
+        {Object.keys(personSchedule).length > 0 && (
+          <Box sx={{ mt:4, overflowX:'auto' }}>
             <Typography variant="h6" gutterBottom>
-              Staff Gantt Calendar (hover for details)
+              Staff Calendar
             </Typography>
-            <CalendarView
-              groups={groups}
-              items={items}
-              defaultTimeStart={moment(startDate).toDate()}
-              defaultTimeEnd={moment(startDate).add(weeks, 'week').toDate()}
-            />
-            <Button variant="outlined" onClick={exportExcel} sx={{ mt:2 }}>
-              Export to Excel
-            </Button>
+            <CalendarView scheduleByEmp={personSchedule} />
           </Box>
         )}
       </Box>
@@ -409,46 +369,52 @@ export default function StaffingPage() {
 
 /**
  * CalendarView
- * — lazily loads react-calendar-timeline + its CSS
+ * — renders a day-by-day horizontal scrollable grid.
+ * Props:
+ *   scheduleByEmp: { [empId]: [ { day: 'YYYY-MM-DD', hour } ] }
  */
-function CalendarView({ groups, items, defaultTimeStart, defaultTimeEnd }) {
-  const [Timeline, setTimeline] = useState(null)
-
-  useEffect(() => {
-    (async () => {
-      const mod = await import('react-calendar-timeline')
-      // load the CSS at runtime, too
-      await import('react-calendar-timeline/lib/Timeline.css')
-      setTimeline(() => mod.default)
-    })()
-  }, [])
-
-  if (!Timeline) return <Typography>Loading calendar…</Typography>
+function CalendarView({ scheduleByEmp }) {
+  // collect all dates across all employees
+  const allDates = Array.from(new Set(
+    Object.values(scheduleByEmp)
+      .flatMap(arr => arr.map(e=>e.day))
+  )).sort()
 
   return (
-    <Timeline
-      groups={groups}
-      items={items}
-      defaultTimeStart={defaultTimeStart}
-      defaultTimeEnd={defaultTimeEnd}
-      canMove={false}
-      canResize={false}
-      itemTouchSendsClick={true}
-      itemRenderer={({ item, style }) => (
-        <div
-          style={{
-            ...style,
-            background: '#1976d2',
-            borderRadius: 4,
-            padding: '2px 4px',
-            color: 'white',
-            fontSize: 12
-          }}
-          title={item.itemProps['data-tooltip']}
-        >
-          {item.title}
-        </div>
-      )}
-    />
+    <Table size="small" sx={{ border: '1px solid #ddd' }}>
+      <TableHead>
+        <TableRow>
+          <TableCell>Employee</TableCell>
+          {allDates.map(d=>(
+            <TableCell key={d} sx={{ minWidth: 80, textAlign:'center' }}>
+              {dayjs(d).format('MM/DD')}
+            </TableCell>
+          ))}
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {Object.entries(scheduleByEmp).map(([emp, arr])=> {
+          const set = new Set(arr.map(e=>e.day))
+          const color = '#' + ((emp * 1234567) % 0xffffff)
+            .toString(16).padStart(6,'0') + '33'
+          return (
+            <TableRow key={emp}>
+              <TableCell>Emp {emp}</TableCell>
+              {allDates.map(d=>(
+                <TableCell
+                  key={d}
+                  sx={{
+                    backgroundColor: set.has(d) ? color : undefined,
+                    textAlign: 'center'
+                  }}
+                >
+                  {set.has(d) ? '●' : ''}
+                </TableCell>
+              ))}
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
   )
 }
