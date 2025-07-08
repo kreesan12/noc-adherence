@@ -22,7 +22,7 @@ export default function StaffingPage() {
   /* ─── Constants ───────────────────────────────────────────── */
   const HORIZON_MONTHS = 6
   const SHIFT_LENGTH   = 9
-  const MAX_ITERS      = 50   // for the binary-search loop
+  const MAX_ITERS      = 50            // binary-search iterations
 
   /* ─── State (unchanged) ───────────────────────────────────── */
   const [roles, setRoles]               = useState([])
@@ -88,11 +88,11 @@ export default function StaffingPage() {
             if (d.isAfter(horizonEnd, 'day')) return
             const day = d.format('YYYY-MM-DD')
 
-            /* pick lunch anywhere 2–5 h after start (stay within shift) */
+            /* lunch anywhere 2–5 h after start (pick least demand) */
             let bestBreak = null
             let bestReq   = Infinity
-            for (let offsetHr = 2; offsetHr <= 5; offsetHr++) {
-              const h = b.startHour + offsetHr
+            for (let off = 2; off <= 5; off++) {
+              const h = b.startHour + off
               if (h >= b.startHour + SHIFT_LENGTH) break
               const k = `${day}|${h}`
               const demand = reqMap[k] ?? 0
@@ -105,17 +105,12 @@ export default function StaffingPage() {
               bestBreak = b.startHour + Math.floor(b.length / 2)
             }
 
-            schedByEmp[empId].push({
-              day,
-              hour: b.startHour,
-              breakHour: bestBreak
-            })
+            schedByEmp[empId].push({ day, hour: b.startHour, breakHour: bestBreak })
           })
         })
         offset += b.count
       })
-      /* rotate queue forward */
-      queue.unshift(queue.pop())
+      queue.unshift(queue.pop())       // rotate
     }
     return schedByEmp
   }
@@ -154,36 +149,33 @@ export default function StaffingPage() {
     }
   }, [personSchedule, forecast])
 
-  /* ─── deficit helpers (unchanged) ─────────────────────────── */
+  /* ─── deficit helper ──────────────────────────────────────── */
   const hasShort = def => Object.values(def).some(v => v < 0)
 
   /* ─── 1) 6-month forecast (unchanged) ─────────────────────── */
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
-    const end   = startDate
-      .add(HORIZON_MONTHS, 'month')
-      .subtract(1, 'day')
-      .format('YYYY-MM-DD')
-    const { data } = await api.post('/erlang/staff/bulk-range', {
-      role: team, start, end,
-      callAhtSeconds: callAht,
-      ticketAhtSeconds: ticketAht,
-      serviceLevel: sl,
-      thresholdSeconds: threshold,
+    const end   = startDate.add(HORIZON_MONTHS,'month')
+                           .subtract(1,'day')
+                           .format('YYYY-MM-DD')
+    const { data } = await api.post('/erlang/staff/bulk-range',{
+      role:team,start,end,
+      callAhtSeconds:callAht,
+      ticketAhtSeconds:ticketAht,
+      serviceLevel:sl,
+      thresholdSeconds:threshold,
       shrinkage
     })
     setForecast(data)
-    setBlocks([])
-    setBestStart([])
-    setPersonSchedule({})
+    setBlocks([]); setBestStart([]); setPersonSchedule({})
   }
 
-  /* ─── 2) Assign staff with downward search ────────────────── */
+  /* ─── 2) Assign staff with downward search + console logs ── */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return }
     setUseFixedStaff(true)
 
-    /* build reqMap once for lunch selection */
+    /* reqMap (for lunch choice) */
     const reqMap = {}
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) =>
@@ -191,20 +183,13 @@ export default function StaffingPage() {
       )
     )
 
-    /* helper: call solver + build schedule + deficit */
+    /* helper: solver → plan */
     const solve = async cap => {
-      const body = {
-        staffing: forecast,
-        weeks,
-        shiftLength: SHIFT_LENGTH,
-        topN: 5
-      }
+      const body = { staffing:forecast, weeks, shiftLength:SHIFT_LENGTH, topN:5 }
       if (cap > 0) body.maxStaff = cap
       const { data } = await api.post('/erlang/staff/schedule', body)
-      const sched  = buildSchedule(data.solution, reqMap)
-
-      /* deficit for this schedule */
-      const cov = {}
+      const sched = buildSchedule(data.solution, reqMap)
+      const cov   = {}
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
@@ -215,9 +200,7 @@ export default function StaffingPage() {
         })
       )
       const def = {}
-      Object.keys(reqMap).forEach(k => {
-        def[k] = (cov[k] || 0) - reqMap[k]
-      })
+      Object.keys(reqMap).forEach(k => { def[k] = (cov[k]||0) - reqMap[k] })
       return {
         solution:  data.solution,
         bestStart: data.bestStartHours,
@@ -227,26 +210,43 @@ export default function StaffingPage() {
       }
     }
 
-    /* 2-A  Exponential upper bound */
-    let lo = 0, hi = 1, upper = await solve(hi)
-    while (hasShort(upper.deficit)) {
+    /* 2-A  exponential upper bound */
+    let lo = 0, hi = 1, plan = await solve(hi)
+    while (hasShort(plan.deficit)) {
+      console.log(`[exp] cap=${hi}  short≥0? ${!hasShort(plan.deficit)}`)
       hi *= 2
       if (hi > 10000) break
-      upper = await solve(hi)
+      plan = await solve(hi)
     }
 
-    /* 2-B  Binary search down (MAX_ITERS) */
-    let best = upper
+    /* 2-B  binary search down ─ with progress logs */
+    let best = plan
     for (let i = 0; i < MAX_ITERS && hi - lo > 1; i++) {
-      const mid = Math.floor((lo + hi) / 2)
+      const mid  = Math.floor((lo + hi) / 2)
       const plan = await solve(mid)
+
+      /* worst under/over for logging */
+      const vals       = Object.values(plan.deficit)
+      const worstShort = Math.max(0, ...vals.filter(v => v < 0).map(v => -v))
+      const worstOver  = Math.max(0, ...vals.filter(v => v > 0))
+
+      console.log(
+        `[iter ${i}] cap=${mid}  used=${plan.headCnt}  ` +
+        `under=${worstShort}  over=${worstOver}`
+      )
+
       if (hasShort(plan.deficit)) {
-        lo = mid
+        lo = mid           // too low
       } else {
-        hi   = mid
+        hi   = mid         // feasible
         best = plan
       }
     }
+
+    console.log(
+      '%c✔ BEST PLAN  heads=' + best.headCnt,
+      'color:limegreen;font-weight:bold'
+    )
 
     /* commit best */
     setFixedStaff(best.headCnt)
@@ -260,8 +260,8 @@ export default function StaffingPage() {
     const rows = []
     Object.entries(personSchedule).forEach(([emp, arr]) =>
       arr.forEach(({ day, hour, breakHour }) => {
-        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00`, Type: 'Shift' })
-        rows.push({ Employee: emp, Date: day, StartHour: `${breakHour}:00`, Type: 'Lunch' })
+        rows.push({ Employee:emp, Date:day, StartHour:`${hour}:00`, Type:'Shift' })
+        rows.push({ Employee:emp, Date:day, StartHour:`${breakHour}:00`, Type:'Lunch' })
       })
     )
     const ws = XLSX.utils.json_to_sheet(rows)
