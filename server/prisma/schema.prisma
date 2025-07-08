@@ -37,12 +37,16 @@ model Supervisor {
 }
 
 model Shift {
-  id        Int      @id @default(autoincrement())
-  agentId   Int?
-  agent     Agent?   @relation(fields: [agentId], references: [id])
-  shiftDate DateTime @db.Date
-  startAt   DateTime
-  endAt     DateTime
+  id         Int       @id @default(autoincrement())
+  agentId    Int?
+  agent      Agent?    @relation(fields: [agentId], references: [id])
+  shiftDate  DateTime  @db.Date
+  startAt    DateTime
+  endAt      DateTime
+
+  // new: one‐hour lunch break window
+  breakStart DateTime? 
+  breakEnd   DateTime?
 
   attendance AttendanceLog?
 }

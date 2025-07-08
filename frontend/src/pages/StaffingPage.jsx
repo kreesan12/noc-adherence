@@ -30,9 +30,9 @@ export default function StaffingPage() {
   const [shrinkage, setShrinkage]       = useState(0.3)
   const [weeks, setWeeks]               = useState(3)
 
-  const [forecast, setForecast]         = useState([])
-  const [blocks, setBlocks]             = useState([])
-  const [bestStartHours, setBestStart]  = useState([])
+  const [forecast, setForecast]           = useState([])
+  const [blocks, setBlocks]               = useState([])
+  const [bestStartHours, setBestStart]    = useState([])
   const [personSchedule, setPersonSchedule] = useState({})
   const [useFixedStaff, setUseFixedStaff] = useState(false)
   const [fixedStaff,    setFixedStaff]    = useState(0)
@@ -60,28 +60,65 @@ export default function StaffingPage() {
 
   // ─── Build heatmap data ───────────────────────────────────────
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
-    const sched = {}
+    // 1) build required-agents map
+    const reqMap = {}
+    forecast.forEach(d => {
+      d.staffing.forEach(({ hour, requiredAgents }) => {
+        reqMap[`${d.date}|${hour}`] = requiredAgents
+      })
+    })
+
+    // 2) initial scheduled coverage
+    const schedMap = {}
     blocks.forEach(b => {
       getWorkDates(b.startDate, weeks).forEach(date => {
         for (let h = b.startHour; h < b.startHour + b.length; h++) {
           const key = `${date}|${h}`
-          sched[key] = (sched[key]||0) + b.count
+          schedMap[key] = (schedMap[key] || 0) + b.count
         }
       })
     })
 
-    const def = {}
-    forecast.forEach(d => {
-      d.staffing.forEach(({ hour, requiredAgents }) => {
-        const key = `${d.date}|${hour}`
-        def[key] = (sched[key]||0) - requiredAgents
+    // 3) deduct lunch breaks per block
+    const adjusted = { ...schedMap }
+    blocks.forEach(b => {
+      getWorkDates(b.startDate, weeks).forEach(date => {
+        // find a safe break hour within first 5 hours
+        let breakHour = null
+        for (let offset = 1; offset <= 5; offset++) {
+          const h = b.startHour + offset
+          const key = `${date}|${h}`
+          if ((adjusted[key] || 0) - b.count >= (reqMap[key] || 0)) {
+            breakHour = h
+            break
+          }
+        }
+        // fallback to mid-shift if none found
+        if (breakHour === null) {
+          breakHour = b.startHour + Math.floor(b.length / 2)
+        }
+        const bkKey = `${date}|${breakHour}`
+        adjusted[bkKey] = (adjusted[bkKey] || 0) - b.count
       })
     })
 
-    const rMax = Math.max(0, ...forecast.flatMap(d => d.staffing.map(s => s.requiredAgents)))
-    const sMax = Math.max(0, ...Object.values(sched))
-    const dMax = Math.max(0, ...Object.values(def).map(v => Math.abs(v)))
-    return { scheduled: sched, deficit: def, maxReq: rMax, maxSch: sMax, maxDef: dMax }
+    // 4) recompute deficit
+    const defMap = {}
+    Object.entries(adjusted).forEach(([key, val]) => {
+      defMap[key] = val - (reqMap[key] || 0)
+    })
+
+    // 5) compute max values
+    const allReq = Object.values(reqMap)
+    const allSch = Object.values(adjusted)
+    const allDef = Object.values(defMap).map(v => Math.abs(v))
+    return {
+      scheduled: adjusted,
+      deficit:   defMap,
+      maxReq:    allReq.length ? Math.max(...allReq) : 0,
+      maxSch:    allSch.length ? Math.max(...allSch) : 0,
+      maxDef:    allDef.length ? Math.max(...allDef) : 0,
+    }
   }, [blocks, forecast, weeks])
 
   // ─── 1) Multi-day forecast ────────────────────────────────────
@@ -111,54 +148,79 @@ export default function StaffingPage() {
       weeks,
       shiftLength: 9,
       topN:        5,
-      // send the staff cap if user toggled it on
       ...(useFixedStaff ? { maxStaff: fixedStaff } : {})
     })
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // Sort by patternIndex then startHour for stable ordering
-    const blockTypes = [...res.data.solution].sort((a,b) => {
-      if (a.patternIndex !== b.patternIndex) {
-        return a.patternIndex - b.patternIndex
-      }
-      return a.startHour - b.startHour
+    // build reqMap & schedMap for break logic
+    const reqMap = {}
+    forecast.forEach(d => {
+      d.staffing.forEach(({ hour, requiredAgents }) => {
+        reqMap[`${d.date}|${hour}`] = requiredAgents
+      })
+    })
+    const schedMap = {}
+    res.data.solution.forEach(b => {
+      getWorkDates(b.startDate, weeks).forEach(date => {
+        for (let h = b.startHour; h < b.startHour + b.length; h++) {
+          const key = `${date}|${h}`
+          schedMap[key] = (schedMap[key] || 0) + b.count
+        }
+      })
     })
 
-    // Total "slots" = total employees
-    const totalEmp = blockTypes.reduce((sum,b)=>sum+b.count,0)
-    const queue = Array.from({length:totalEmp}, (_,i)=>i+1)
+    // Sort & queue
+    const blockTypes = [...res.data.solution].sort((a, b) =>
+      a.patternIndex - b.patternIndex || a.startHour - b.startHour
+    )
+    const totalEmp = blockTypes.reduce((sum, b) => sum + b.count, 0)
+    const queue = Array.from({ length: totalEmp }, (_, i) => i + 1)
     const schedByEmp = {}
-    queue.forEach(id=>schedByEmp[id]=[])
+    queue.forEach(id => schedByEmp[id] = [])
 
-    const horizonEnd = dayjs(startDate).add(6,'month')
-    const totalDays  = horizonEnd.diff(startDate,'day') + 1
-    const cycles     = Math.ceil(totalDays / (weeks * 7))
+    const horizonEnd = dayjs(startDate).add(6, 'month')
+    const cycles = Math.ceil(
+      horizonEnd.diff(startDate, 'day') + 1
+      / (weeks * 7)
+    )
 
     for (let cycleIdx = 0; cycleIdx < cycles; cycleIdx++) {
       let offset = 0
       blockTypes.forEach(b => {
-        // assign this block’s `count` employees from the front of `queue`
         const group = queue.slice(offset, offset + b.count)
         group.forEach(empId => {
-          getWorkDates(b.startDate, weeks).forEach(dt => {
-            const d = dayjs(dt).add(cycleIdx * weeks * 7, 'day')
+          getWorkDates(b.startDate, weeks).forEach(dtStr => {
+            const d = dayjs(dtStr).add(cycleIdx * weeks * 7, 'day')
             if (d.isSameOrBefore(horizonEnd, 'day')) {
+              // compute breakHour per shift instance
+              const date = d.format('YYYY-MM-DD')
+              let breakHour = null
+              for (let off = 1; off <= 5; off++) {
+                const h = b.startHour + off
+                const key = `${date}|${h}`
+                if ((schedMap[key] || 0) - 1 >= (reqMap[key] || 0)) {
+                  breakHour = h
+                  break
+                }
+              }
+              if (breakHour === null) {
+                breakHour = b.startHour + Math.floor(b.length / 2)
+              }
+
               schedByEmp[empId].push({
-                day:  d.format('YYYY-MM-DD'),
-                hour: b.startHour
+                day:        date,
+                hour:       b.startHour,
+                breakHour,            // <-- include break hour
               })
             }
           })
         })
         offset += b.count
       })
-
-      // **rotate FORWARD**: last employee moves into first block
       queue.unshift(queue.pop())
     }
 
-    console.debug('🔄 schedByEmp:', schedByEmp)
     setPersonSchedule(schedByEmp)
   }
 
@@ -166,8 +228,21 @@ export default function StaffingPage() {
   const exportExcel = () => {
     const rows = []
     Object.entries(personSchedule).forEach(([emp, arr]) => {
-      arr.forEach(({ day, hour }) => {
-        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00` })
+      arr.forEach(({ day, hour, breakHour }) => {
+        rows.push({
+          Employee:  emp,
+          Date:      day,
+          StartHour: `${hour}:00`,
+          Type:      'Shift',
+        })
+        if (breakHour != null) {
+          rows.push({
+            Employee:  emp,
+            Date:      day,
+            StartHour: `${breakHour}:00`,
+            Type:      'Lunch Break',
+          })
+        }
       })
     })
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -265,7 +340,7 @@ export default function StaffingPage() {
           >
             Assign to Staff
           </Button>
-          {/* ── Fixed-staff cap toggle ───────────────────────── */}
+
           <FormControlLabel
             control={
               <Switch
@@ -434,8 +509,7 @@ export default function StaffingPage() {
             <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
               Export to Excel
             </Button>
-            <CalendarView scheduleByEmp={personSchedule} />            
-            {/* ─── Summary of fixed-staff vs coverage ─────────────────── */}
+            <CalendarView scheduleByEmp={personSchedule} />
             <Box sx={{ mt:2, p:2, bgcolor:'#f9f9f9', borderRadius:1 }}>
               <Typography variant="subtitle1">
                 {useFixedStaff
@@ -453,7 +527,8 @@ export default function StaffingPage() {
 /** CalendarView: day-by-day grid with start-hour text */
 function CalendarView({ scheduleByEmp }) {
   const allDates = Array.from(
-    new Set(Object.values(scheduleByEmp).flatMap(arr => arr.map(e => e.day)))
+    new Set(Object.values(scheduleByEmp)
+      .flatMap(arr => arr.map(e => e.day)))
   ).sort()
 
   return (
@@ -463,7 +538,10 @@ function CalendarView({ scheduleByEmp }) {
           <TableRow>
             <TableCell>Employee</TableCell>
             {allDates.map(d => (
-              <TableCell key={d} sx={{ minWidth:80, textAlign:'center' }}>
+              <TableCell
+                key={d}
+                sx={{ minWidth:80, textAlign:'center' }}
+              >
                 {dayjs(d).format('MM/DD')}
               </TableCell>
             ))}
@@ -472,7 +550,7 @@ function CalendarView({ scheduleByEmp }) {
         <TableBody>
           {Object.entries(scheduleByEmp).map(([emp, arr]) => {
             const mapDay = {}
-            arr.forEach(({day, hour}) => { mapDay[day] = hour })
+            arr.forEach(({ day, hour }) => { mapDay[day] = hour })
             const color = '#' + ((emp * 1234567) % 0xffffff)
               .toString(16).padStart(6,'0')
             return (
@@ -482,7 +560,9 @@ function CalendarView({ scheduleByEmp }) {
                   <TableCell
                     key={d}
                     sx={{
-                      backgroundColor: mapDay[d]!=null ? color+'33' : undefined,
+                      backgroundColor: mapDay[d]!=null
+                        ? color+'33'
+                        : undefined,
                       textAlign: 'center',
                       fontSize: 12
                     }}
