@@ -52,7 +52,7 @@ export default function StaffingPage() {
     return dates
   }
 
-  // ─── build heatmap lookup tables ────────────────────────────────
+  // ─── build heatmap lookups ──────────────────────────────────────
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
     const sched = {}
     blocks.forEach(b => {
@@ -82,7 +82,7 @@ export default function StaffingPage() {
     return { scheduled: sched, deficit: def, maxReq: rMax, maxSch: sMax, maxDef: dMax }
   }, [blocks, forecast, weeks])
 
-  // ─── 1) get multi-day forecast ─────────────────────────────────
+  // ─── 1) multi-day forecast ──────────────────────────────────────
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
     const end   = startDate.add(weeks, 'week').subtract(1, 'day').format('YYYY-MM-DD')
@@ -100,7 +100,7 @@ export default function StaffingPage() {
     setPersonSchedule({})
   }
 
-  // ─── 2) assign rotations & build 6-month personSchedule ────────
+  // ─── 2) assign & build 6-month schedule ─────────────────────────
   const assignToStaff = async () => {
     if (!forecast.length) return alert('Run Forecast first')
     const res = await api.post('/erlang/staff/schedule', {
@@ -122,7 +122,7 @@ export default function StaffingPage() {
       }
     })
 
-    // extend each employee’s pattern out 6 months
+    // extend out 6 months
     const horizonEnd = dayjs(startDate).add(6, 'month')
     const schedByEmp = {}
     assignments.forEach(({ employee, startDate: sD, startHour }) => {
@@ -149,7 +149,7 @@ export default function StaffingPage() {
     setPersonSchedule(schedByEmp)
   }
 
-  // ─── 3) Excel export ─────────────────────────────────────────────
+  // ─── 3) export to Excel ─────────────────────────────────────────
   const exportExcel = () => {
     const rows = []
     Object.entries(personSchedule).forEach(([emp, arr]) => {
@@ -162,17 +162,6 @@ export default function StaffingPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
     XLSX.writeFile(wb, 'staff-calendar.xlsx')
   }
-
-  // ─── 4) manual Gantt setup ──────────────────────────────────────
-  const manualGantt = useMemo(() => {
-    const start = startDate.clone().startOf('day')
-    const end   = startDate.clone().add(6, 'month').endOf('day')
-    const allDates = []
-    for (let d = start.clone(); d.isSameOrBefore(end); d = d.add(1, 'day')) {
-      allDates.push(d.format('YYYY-MM-DD'))
-    }
-    return { allDates }
-  }, [startDate])
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -347,99 +336,74 @@ export default function StaffingPage() {
           </Box>
         )}
 
-        {/* 5) Manual Gantt-style 6-month calendar */}
+        {/* 5) per-employee CSS calendar */}
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt:4 }}>
             <Typography variant="h6" gutterBottom>
-              6-Month Staff Calendar (hover for day & time)
+              6-Month Staff Calendar
             </Typography>
-
-            <Button
-              variant="outlined"
-              onClick={exportExcel}
-              sx={{ mb:2 }}
-            >
+            <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
               Export to Excel
             </Button>
-
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns:
-                  `120px repeat(${manualGantt.allDates.length}, 1fr)`,
-                border: '1px solid #ddd',
-                overflowX: 'auto'
-              }}
-            >
-              {/* header corner */}
-              <Box sx={{ background: '#f44336', color:'#fff', p:1 }} />
-
-              {/* date headers */}
-              {manualGantt.allDates.map(d=>(
-                <Box
-                  key={d}
-                  sx={{
-                    borderLeft:'1px solid #ddd',
-                    p:1,
-                    textAlign:'center',
-                    minWidth:60,
-                    background: dayjs(d).day() % 6===0 ? '#ffe0b2' : undefined
-                  }}
-                >
-                  {dayjs(d).format('MM/DD')}
-                </Box>
-              ))}
-
-              {/* one row per employee */}
-              {Object.entries(personSchedule).map(([emp, arr])=>{
-                const days = new Set(arr.map(x=>x.day))
-                return (
-                  <Box
-                    key={emp}
-                    sx={{
-                      display:'contents',
-                      borderTop:'1px solid #ddd'
-                    }}
-                  >
-                    {/* emp label */}
-                    <Box
-                      sx={{
-                        borderRight:'1px solid #ddd',
-                        p:1,
-                        background:'#eee'
-                      }}
-                    >
-                      Emp {emp}
-                    </Box>
-
-                    {/* one cell/day */}
-                    {manualGantt.allDates.map(d=>(
-                      <Tooltip
-                        key={d}
-                        title={
-                          days.has(d)
-                            ? `${d} @ ${arr.find(x=>x.day===d).hour}:00`
-                            : ''
-                        }
-                      >
-                        <Box
-                          sx={{
-                            borderLeft:'1px solid #eee',
-                            background: days.has(d)
-                              ? '#1976d2'
-                              : 'transparent',
-                            height:24
-                          }}
-                        />
-                      </Tooltip>
-                    ))}
-                  </Box>
-                )
-              })}
-            </Box>
+            <CalendarView scheduleByEmp={personSchedule}/>
           </Box>
         )}
       </Box>
     </LocalizationProvider>
+  )
+}
+
+/**
+ * CalendarView
+ * — scrollable day-by-day grid, one row per emp.
+ */
+function CalendarView({ scheduleByEmp }) {
+  // collect all dates
+  const allDates = Array.from(new Set(
+    Object.values(scheduleByEmp)
+      .flatMap(arr => arr.map(e=>e.day))
+  )).sort()
+
+  return (
+    <Box sx={{ overflowX:'auto', border:'1px solid #ddd' }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Employee</TableCell>
+            {allDates.map(d=>(
+              <TableCell key={d} sx={{ minWidth:80, textAlign:'center' }}>
+                {dayjs(d).format('MM/DD')}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {Object.entries(scheduleByEmp).map(([emp, arr])=> {
+            const set = new Set(arr.map(e=>e.day))
+            const color = '#' +
+              ((emp * 1234567) % 0xffffff)
+                .toString(16)
+                .padStart(6,'0')
+            return (
+              <TableRow key={emp}>
+                <TableCell>Emp {emp}</TableCell>
+                {allDates.map(d=>(
+                  <TableCell
+                    key={d}
+                    sx={{
+                      backgroundColor: set.has(d)
+                        ? color + '33'
+                        : undefined
+                    }}
+                  >
+                    {set.has(d)? '●' : ''}
+                  </TableCell>
+                ))}
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </Box>
   )
 }
