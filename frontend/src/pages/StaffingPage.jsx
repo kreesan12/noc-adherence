@@ -1,5 +1,7 @@
 // frontend/src/pages/StaffingPage.jsx
 import { useEffect, useState, useMemo } from 'react'
+import moment from 'moment'
+import Timeline from 'react-calendar-timeline'
 import {
   Box, TextField, Button, Typography,
   MenuItem, Select, InputLabel, FormControl,
@@ -13,10 +15,6 @@ import {
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
-import moment from 'moment'
-import Timeline from 'react-calendar-timeline' // no CSS import here!
-// at the top of StaffingPage.jsx
-import 'react-calendar-timeline/lib/Timeline.css'
 
 
 export default function StaffingPage() {

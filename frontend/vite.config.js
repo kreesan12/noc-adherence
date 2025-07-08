@@ -5,9 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [
     react({
-      include: [/\.jsx?$/, /\.tsx?$/],
+      include: [/\.jsx?$/, /\.tsx?$/]
     })
   ],
   base: '/noc-adherence/'
-  // no `external` or `optimizeDeps.exclude` needed
 })
