@@ -10,16 +10,16 @@ import {
   LocalizationProvider, DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import api from '../api'
-import * as XLSX from 'xlsx'
 
 import dayjs from 'dayjs'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
-// **MUST** extend *before* any dayjs().isSameOrBefore() calls!
 dayjs.extend(isSameOrBefore)
 
+import api from '../api'
+import * as XLSX from 'xlsx'
+
 export default function StaffingPage() {
-  // ─── state ───────────────────────────────────────────────────
+  // ─── State ───────────────────────────────────────────────────
   const [roles, setRoles]               = useState([])
   const [team, setTeam]                 = useState('')
   const [startDate, setStartDate]       = useState(dayjs())
@@ -35,7 +35,7 @@ export default function StaffingPage() {
   const [bestStartHours, setBestStart]  = useState([])
   const [personSchedule, setPersonSchedule] = useState({})
 
-  // ─── load roles ───────────────────────────────────────────────
+  // ─── Load roles ───────────────────────────────────────────────
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -44,7 +44,7 @@ export default function StaffingPage() {
     })
   }, [])
 
-  // ─── helper: 5-day × N-week block dates ────────────────────────
+  // ─── Helper: N-week × 5-day blocks ────────────────────────────
   function getWorkDates(start, weeksCount) {
     const dates = []
     for (let w = 0; w < weeksCount; w++) {
@@ -56,7 +56,7 @@ export default function StaffingPage() {
     return dates
   }
 
-  // ─── heatmap lookups ─────────────────────────────────────────
+  // ─── Build heatmap data ───────────────────────────────────────
   const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
     const sched = {}
     blocks.forEach(b => {
@@ -82,12 +82,13 @@ export default function StaffingPage() {
     return { scheduled: sched, deficit: def, maxReq: rMax, maxSch: sMax, maxDef: dMax }
   }, [blocks, forecast, weeks])
 
-  // ─── 1) forecast ──────────────────────────────────────────────
+  // ─── 1) Multi-day forecast ────────────────────────────────────
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD')
     const end   = startDate.add(weeks, 'week').subtract(1, 'day').format('YYYY-MM-DD')
     const res = await api.post('/erlang/staff/bulk-range', {
-      role: team, start, end,
+      role: team,
+      start, end,
       callAhtSeconds:   callAht,
       ticketAhtSeconds: ticketAht,
       serviceLevel:     sl,
@@ -100,7 +101,7 @@ export default function StaffingPage() {
     setPersonSchedule({})
   }
 
-  // ─── 2) assign + build 6-month rotating schedule ─────────────
+  // ─── 2) Assign + build 6-month rotating schedule ─────────────
   const assignToStaff = async () => {
     if (!forecast.length) return alert('Run Forecast first')
     const res = await api.post('/erlang/staff/schedule', {
@@ -112,16 +113,17 @@ export default function StaffingPage() {
     setBestStart(res.data.bestStartHours)
     setBlocks(res.data.solution)
 
-    // sort block-types by weekday then hour
+    // Sort by patternIndex then startHour
     const blockTypes = [...res.data.solution].sort((a,b) => {
-      const da = dayjs(a.startDate).day(), db = dayjs(b.startDate).day()
-      if (da !== db) return da - db
+      if (a.patternIndex !== b.patternIndex) {
+        return a.patternIndex - b.patternIndex
+      }
       return a.startHour - b.startHour
     })
 
-    // total staff slots
+    // Total "slots" = total employees
     const totalEmp = blockTypes.reduce((sum,b)=>sum+b.count,0)
-    const initialQueue = Array.from({ length: totalEmp }, (_,i)=>i+1)
+    const initialQueue = Array.from({length:totalEmp}, (_,i)=>i+1)
     const schedByEmp = {}
     initialQueue.forEach(id=>schedByEmp[id]=[])
 
@@ -157,7 +159,7 @@ export default function StaffingPage() {
     setPersonSchedule(schedByEmp)
   }
 
-  // ─── 3) export to Excel ───────────────────────────────────────
+  // ─── 3) Export to Excel ───────────────────────────────────────
   const exportExcel = () => {
     const rows = []
     Object.entries(personSchedule).forEach(([emp, arr]) => {
@@ -178,10 +180,77 @@ export default function StaffingPage() {
           Staffing Forecast & Scheduling
         </Typography>
 
-        {/* Controls */}
+        {/* ─── Controls ───────────────────────────────────────────── */}
         <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
-          {/* team, start date, rotation weeks, AHT, etc. */}
-          {/* … your controls as before … */}
+          <FormControl sx={{ minWidth:140 }}>
+            <InputLabel>Team</InputLabel>
+            <Select
+              value={team}
+              label="Team"
+              onChange={e => setTeam(e.target.value)}
+            >
+              {roles.map(r => (
+                <MenuItem key={r} value={r}>{r}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <DatePicker
+            label="Forecast Start"
+            value={startDate}
+            onChange={d => d && setStartDate(d)}
+            renderInput={p => <TextField {...p} size="small" />}
+          />
+
+          <FormControl sx={{ minWidth:120 }}>
+            <InputLabel>Rotation (weeks)</InputLabel>
+            <Select
+              value={weeks}
+              label="Rotation"
+              onChange={e => setWeeks(+e.target.value)}
+            >
+              {[1,2,3,4,5].map(w => (
+                <MenuItem key={w} value={w}>{w}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <TextField
+            label="Call AHT (sec)"
+            type="number"
+            value={callAht}
+            onChange={e => setCallAht(+e.target.value)}
+            size="small"
+          />
+          <TextField
+            label="Ticket AHT (sec)"
+            type="number"
+            value={ticketAht}
+            onChange={e => setTicketAht(+e.target.value)}
+            size="small"
+          />
+          <TextField
+            label="Service Level %"
+            type="number"
+            value={sl*100}
+            onChange={e => setSL(+e.target.value/100)}
+            size="small"
+          />
+          <TextField
+            label="Threshold (sec)"
+            type="number"
+            value={threshold}
+            onChange={e => setThreshold(+e.target.value)}
+            size="small"
+          />
+          <TextField
+            label="Shrinkage %"
+            type="number"
+            value={shrinkage*100}
+            onChange={e => setShrinkage(+e.target.value/100)}
+            size="small"
+          />
+
           <Button variant="contained" onClick={calcForecast}>
             Calculate Forecast
           </Button>
@@ -195,19 +264,144 @@ export default function StaffingPage() {
           </Button>
         </Box>
 
-        {/* 1) Required Agents Heatmap */}
-        {/* … */}
+        {/* ─── 1) Required Agents Heatmap ────────────────────────── */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Required Agents Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({length:24},(_,h)=>(
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const req = d.staffing.find(s=>s.hour===h)?.requiredAgents||0
+                      const alpha = maxReq ? (req/maxReq)*0.8+0.2 : 0.2
+                      return (
+                        <Tooltip key={d.date} title={`Req: ${req}`}>
+                          <TableCell sx={{ backgroundColor:`rgba(33,150,243,${alpha})` }}>
+                            {req}
+                          </TableCell>
+                        </Tooltip>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
 
-        {/* 2) Scheduled Coverage Heatmap */}
-        {/* … */}
+        {/* ─── 2) Scheduled Coverage Heatmap ──────────────────────── */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({length:24},(_,h)=>(
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const cov = scheduled[`${d.date}|${h}`]||0
+                      const alpha = maxSch ? (cov/maxSch)*0.8+0.2 : 0.2
+                      return (
+                        <Tooltip key={d.date} title={`Sch: ${cov}`}>
+                          <TableCell sx={{ backgroundColor:`rgba(76,175,80,${alpha})` }}>
+                            {cov}
+                          </TableCell>
+                        </Tooltip>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
 
-        {/* 3) Under-/Over-Staffing Heatmap */}
-        {/* … */}
+        {/* ─── 3) Under-/Over-Staffing Heatmap ────────────────────── */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({length:24},(_,h)=>(
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const val = deficit[`${d.date}|${h}`]||0
+                      const ratio = maxDef ? (Math.abs(val)/maxDef)*0.8+0.2 : 0.2
+                      const col = val < 0
+                        ? `rgba(244,67,54,${ratio})`
+                        : `rgba(76,175,80,${ratio})`
+                      return (
+                        <Tooltip key={d.date} title={`Deficit: ${val}`}>
+                          <TableCell sx={{ backgroundColor: col }}>{val}</TableCell>
+                        </Tooltip>
+                      )
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
 
-        {/* 4) Assigned Shift-Block Types */}
-        {/* … */}
+        {/* ─── 4) Assigned Shift-Block Types ──────────────────────── */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb:4, overflowX:'auto' }}>
+            <Typography variant="h6">Assigned Shift-Block Types</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Start Date</TableCell>
+                  <TableCell>Start Hour</TableCell>
+                  <TableCell>Length (h)</TableCell>
+                  <TableCell>Count</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {blocks.map((b,i)=>(
+                  <TableRow key={i}>
+                    <TableCell>{i+1}</TableCell>
+                    <TableCell>{b.startDate}</TableCell>
+                    <Tooltip title={`Starts at ${b.startHour}:00`}>
+                      <TableCell>{b.startHour}:00</TableCell>
+                    </Tooltip>
+                    <TableCell>{b.length}</TableCell>
+                    <TableCell>{b.count}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
 
-        {/* 5) 6-Month Rotating Calendar */}
+        {/* ─── 5) 6-Month Rotating Calendar ───────────────────────── */}
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt:4 }}>
             <Typography variant="h6" gutterBottom>
@@ -216,23 +410,6 @@ export default function StaffingPage() {
             <Button variant="outlined" onClick={exportExcel} sx={{ mb:2 }}>
               Export to Excel
             </Button>
-
-            {/* DEBUG DUMP */}
-            <pre
-              style={{
-                whiteSpace: 'pre-wrap',
-                fontSize: 12,
-                maxHeight: 200,
-                overflow: 'auto',
-                background: '#f7f7f7',
-                padding: 8,
-                border: '1px solid #ddd',
-                marginBottom: 16
-              }}
-            >
-              {JSON.stringify(personSchedule, null, 2)}
-            </pre>
-
             <CalendarView scheduleByEmp={personSchedule}/>
           </Box>
         )}
@@ -263,9 +440,8 @@ function CalendarView({ scheduleByEmp }) {
         <TableBody>
           {Object.entries(scheduleByEmp).map(([emp, arr])=>{
             const mapDay = {}
-            arr.forEach(({day, hour}) => { mapDay[day] = hour })
-            const color = '#' + ((emp*1234567) % 0xffffff)
-              .toString(16).padStart(6,'0')
+            arr.forEach(({day,hour}) => { mapDay[day] = hour })
+            const color = '#' + ((emp*1234567)%0xffffff).toString(16).padStart(6,'0')
             return (
               <TableRow key={emp}>
                 <TableCell>Emp {emp}</TableCell>
@@ -274,7 +450,8 @@ function CalendarView({ scheduleByEmp }) {
                     key={d}
                     sx={{
                       backgroundColor: mapDay[d]!=null ? color+'33' : undefined,
-                      textAlign:'center', fontSize:12
+                      textAlign:'center',
+                      fontSize:12
                     }}
                   >
                     {mapDay[d]!=null ? `${mapDay[d]}:00` : ''}
