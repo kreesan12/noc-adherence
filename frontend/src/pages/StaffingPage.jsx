@@ -10,9 +10,12 @@ import {
   LocalizationProvider, DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import dayjs from 'dayjs'
 import api from '../api'
 import * as XLSX from 'xlsx'
+import dayjs from 'dayjs'
+import isSameOrBefore from 'dayjs/plugin/isSameOrBefore'
+
+dayjs.extend(isSameOrBefore)
 
 export default function StaffingPage() {
   // ─── state ───────────────────────────────────────────────────
