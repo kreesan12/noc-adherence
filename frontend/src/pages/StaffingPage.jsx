@@ -63,16 +63,16 @@ export default function StaffingPage() {
     return dates
   }
 
-/* ─── NEW buildSchedule: staggered lunches (2-5 h after start) ─ */
+/* ─── buildSchedule with balanced lunches ───────────────────── */
 function buildSchedule(solution, reqMap) {
   const schedByEmp = {}
-  const totalEmp   = solution.reduce((s,b) => s + b.count, 0)
+  const totalEmp   = solution.reduce((s, b) => s + b.count, 0)
   const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1)
   queue.forEach(id => (schedByEmp[id] = []))
 
-  // running counters while we assign
-  const coverMap = {}   // #people on duty (excluding lunches)
-  const lunchMap = {}   // #people already at lunch
+  /* running counters so we can test coverage on the fly */
+  const coverMap  = {}   // heads on shift (ex-lunch)
+  const lunchMap  = {}   // heads already at lunch for key ⇢ `${day}|${h}`
 
   const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month')
   const cycles     = Math.ceil(
@@ -85,48 +85,69 @@ function buildSchedule(solution, reqMap) {
 
   for (let ci = 0; ci < cycles; ci++) {
     let offset = 0
-    sorted.forEach(b => {
-      const group = queue.slice(offset, offset + b.count)
+    sorted.forEach(block => {
+      const group = queue.slice(offset, offset + block.count)
+
       group.forEach(empId => {
-        getWorkDates(b.startDate, weeks).forEach(dtStr => {
+        getWorkDates(block.startDate, weeks).forEach(dtStr => {
           const d = dayjs(dtStr).add(ci * weeks * 7, 'day')
           if (d.isAfter(horizonEnd, 'day')) return
           const day = d.format('YYYY-MM-DD')
 
-          /* pick the FIRST lunch hour (start+2 … +5) that
-             still satisfies coverage when one head steps out */
-          let chosen = null
+          /* ── CHOOSE LUNCH HOUR ─────────────────────────── */
+          const candidateHrs = []
           for (let off = 2; off <= 5; off++) {
-            const h   = b.startHour + off
-            if (h >= b.startHour + SHIFT_LENGTH) break
+            const h   = block.startHour + off
+            if (h >= block.startHour + SHIFT_LENGTH) break
             const key = `${day}|${h}`
+
             const onDuty   = coverMap[key]  || 0
             const lunches  = lunchMap[key]  || 0
             const required = reqMap[key]    ?? 0
+
+            // would coverage hold if this person steps out?
             if (onDuty - lunches - 1 >= required) {
-              chosen = h
-              break
+              candidateHrs.push({
+                h,
+                currentLunches: lunches
+              })
             }
           }
-          if (chosen === null) {
-            chosen = b.startHour + Math.floor(b.length / 2)
+
+          let breakHour
+          if (candidateHrs.length) {
+            /* pick hour with fewest lunches so far (tie → earliest) */
+            candidateHrs.sort(
+              (a, b) => a.currentLunches - b.currentLunches || a.h - b.h
+            )
+            breakHour = candidateHrs[0].h
+          } else {
+            // last resort – middle of shift
+            breakHour = block.startHour + Math.floor(block.length / 2)
           }
 
-          /* record the shift for this employee */
-          schedByEmp[empId].push({ day, hour: b.startHour, breakHour: chosen })
+          /* record shift for this employee */
+          schedByEmp[empId].push({
+            day,
+            hour: block.startHour,
+            breakHour
+          })
 
-          /* update running counters *inside* the loop */
-          for (let h = b.startHour; h < b.startHour + SHIFT_LENGTH; h++) {
+          /* update running counters */
+          for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
             const k = `${day}|${h}`
             coverMap[k] = (coverMap[k] || 0) + 1
           }
-          const lunchKey = `${day}|${chosen}`
+          const lunchKey = `${day}|${breakHour}`
           lunchMap[lunchKey] = (lunchMap[lunchKey] || 0) + 1
         })
       })
-      offset += b.count
+
+      offset += block.count
     })
-    queue.unshift(queue.pop())   // rotate queue for next cycle
+
+    /* rotate queue so next cycle shifts forward */
+    queue.unshift(queue.pop())
   }
 
   return schedByEmp
