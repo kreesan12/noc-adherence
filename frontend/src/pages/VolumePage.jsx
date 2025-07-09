@@ -1,37 +1,49 @@
 // frontend/src/pages/VolumePage.jsx
 import { useEffect, useState } from 'react'
-import Papa                     from 'papaparse'
+import Papa from 'papaparse'
 import {
-  Box, Button, MenuItem, Select, InputLabel, FormControl, Typography,
-  TextField, FormControlLabel, Switch
+  Box, Button, MenuItem, Select, InputLabel, FormControl,
+  Typography, TextField, FormControlLabel, Switch
 } from '@mui/material'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Legend
 } from 'recharts'
 import {
-  LocalizationProvider,
-  DatePicker
+  LocalizationProvider, DatePicker
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import dayjs            from 'dayjs'
-import api              from '../api'
+import api   from '../api'
+import dayjs from 'dayjs'
 
+/* ────────────────────────────────────────────────────────── */
 export default function VolumePage() {
-  /* ─── State ──────────────────────────────────────────────── */
-  const [roles,        setRoles]        = useState([])
-  const [team,         setTeam]         = useState('')
-  const [startDate,    setStartDate]    = useState(dayjs().subtract(6, 'month'))
-  const [endDate,      setEndDate]      = useState(dayjs())
-  const [lookBack,     setLookBack]     = useState(6)   // months of history
-  const [horizon,      setHorizon]      = useState(6)   // months to project
-  const [overwrite,    setOverwrite]    = useState(false)
+  /* ─── state ─────────────────────────────────────────────── */
+  const [roles,           setRoles]           = useState([])
+  const [team,            setTeam]            = useState('')
 
-  const [dailyData,    setDailyData]    = useState([])
-  const [hourlyData,   setHourlyData]   = useState([])
-  const [selectedDate, setSelectedDate] = useState(null)
+  /* range for ACTUAL chart (defaults: last 6 days) */
+  const [startDate,       setStartDate]       = useState(dayjs().subtract(6, 'day'))
+  const [endDate,         setEndDate]         = useState(dayjs())
 
-  /* ─── 1) load roles once ─────────────────────────────────── */
+  /* range for FORECAST chart (defaults: today → +6 mo) */
+  const [fcStart,         setFcStart]         = useState(dayjs())
+  const [fcEnd,           setFcEnd]           = useState(dayjs().add(6, 'month').subtract(1, 'day'))
+
+  /* look-back / horizon selectors for Build Forecast */
+  const monthChoices = [1,2,3,4,5,6,12,18,24,36]
+  const [lookBack,   setLookBack]   = useState(6)
+  const [horizon,    setHorizon]    = useState(6)
+  const [overwrite,  setOverwrite]  = useState(false)
+
+  /* chart data */
+  const [dailyData,      setDailyData]     = useState([])
+  const [hourlyData,     setHourlyData]    = useState([])
+  const [selectedDate,   setSelectedDate]  = useState(null)
+
+  const [fcDailyData,    setFcDailyData]   = useState([])   // forecast
+
+  /* ─── 1) load role list once ─────────────────────────────── */
   useEffect(() => {
     api.get('/agents').then(res => {
       const uniq = [...new Set(res.data.map(a => a.role))]
@@ -40,15 +52,16 @@ export default function VolumePage() {
     })
   }, [])
 
-  /* ─── 2) load daily volume whenever filters change ───────── */
+  /* ─── 2) fetch ACTUAL daily whenever team / range change ─── */
   useEffect(() => {
     if (!team) return
-    fetchDaily()
+    fetchDailyActual()
       .then(setDailyData)
       .catch(console.error)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team, startDate, endDate])
 
-  async function fetchDaily() {
+  async function fetchDailyActual() {
     const { data } = await api.get('/reports/volume', {
       params: {
         role:  team,
@@ -56,7 +69,7 @@ export default function VolumePage() {
         end:   endDate  .format('YYYY-MM-DD')
       }
     })
-    // reset the hourly chart
+    /* reset hourly placeholder */
     setSelectedDate(null)
     setHourlyData(Array.from({ length: 24 }, (_, h) => ({
       hour: h,
@@ -68,21 +81,42 @@ export default function VolumePage() {
     return data
   }
 
-  /* ─── 3) drill-down on daily bar click ───────────────────── */
+  /* ─── 3) fetch FORECAST daily whenever fc range changes ──── */
+  useEffect(() => {
+    if (!team) return
+    fetchDailyForecast()
+      .then(setFcDailyData)
+      .catch(console.error)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team, fcStart, fcEnd])
+
+  async function fetchDailyForecast() {
+    const { data } = await api.get('/reports/volume/forecast', {
+      params: {
+        role:  team,
+        start: fcStart.format('YYYY-MM-DD'),
+        end:   fcEnd  .format('YYYY-MM-DD')
+      }
+    })
+    return data
+  }
+
+  /* ─── 4) drill-down hourly on bar click (actuals) ────────── */
   function onBarClick({ activePayload }) {
     if (!activePayload?.length) return
     const { date } = activePayload[0].payload
     setSelectedDate(date)
+
     api.get('/reports/volume/hourly', { params: { role: team, date } })
       .then(res => {
         const filled = Array.from({ length: 24 }, (_, h) => {
-          const entry = res.data.find(e => e.hour === h) || {}
+          const e = res.data.find(r => r.hour === h) || {}
           return {
             hour:            h,
-            forecastCalls:   entry.forecastCalls   || 0,
-            actualCalls:     entry.actualCalls     || 0,
-            forecastTickets: entry.forecastTickets || 0,
-            actualTickets:   entry.actualTickets   || 0
+            forecastCalls:   e.forecastCalls   || 0,
+            actualCalls:     e.actualCalls     || 0,
+            forecastTickets: e.forecastTickets || 0,
+            actualTickets:   e.actualTickets   || 0
           }
         })
         setHourlyData(filled)
@@ -90,26 +124,29 @@ export default function VolumePage() {
       .catch(console.error)
   }
 
-  /* ─── 4) CSV upload helper ───────────────────────────────── */
+  /* ─── 5) CSV upload (forecast | actual) ──────────────────── */
   const handleUpload = (file, endpoint) => {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       complete: async ({ data }) => {
-        const payload = data.map(r => ({
-          date:    r.date,
-          hour:    Number(r.hour),
-          calls:   Number(r.calls),
-          tickets: Number(r.tickets)
+        const payload = data.map(row => ({
+          date:    row.date,
+          hour:    Number(row.hour),
+          calls:   Number(row.calls),
+          tickets: Number(row.tickets)
         }))
         await api.post(`/volume/${endpoint}`, { role: team, data: payload })
-        fetchDaily().then(setDailyData)
+        /* refresh actual view */
+        fetchDailyActual().then(setDailyData)
+        /* refresh forecast view if we just uploaded forecast CSV */
+        if (endpoint === 'forecast') fetchDailyForecast().then(setFcDailyData)
       }
     })
   }
 
-  /* ─── 5) build forecast (server-side) ────────────────────── */
-  const buildForecast = async () => {
+  /* ─── 6) Build Forecast (backend) ─────────────────────────── */
+  async function buildForecast() {
     try {
       await api.post('/volume/build-forecast', {
         role:           team,
@@ -117,23 +154,26 @@ export default function VolumePage() {
         horizonMonths:  horizon,
         overwrite
       })
-      // refresh graph to show the new forecast rows
-      fetchDaily().then(setDailyData)
+      /* refresh forecast date-range to new horizon & reload */
+      const newStart = dayjs().startOf('day')
+      const newEnd   = dayjs().add(horizon, 'month').subtract(1, 'day')
+      setFcStart(newStart)
+      setFcEnd(newEnd)
+      fetchDailyForecast().then(setFcDailyData)
     } catch (err) {
-      console.error('Build forecast failed', err)
+      console.error(err)
       alert('Failed to build forecast – see console for details.')
     }
   }
 
-  /* ─── UI ──────────────────────────────────────────────────── */
+  /* ─── render ─────────────────────────────────────────────── */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ p:3 }}>
         <Typography variant="h4" gutterBottom>Volume Dashboard</Typography>
 
-        {/* ▲ Controls */}
-        <Box sx={{ display:'flex', flexWrap:'wrap', gap:2, mb:4 }}>
-          {/* Team selector */}
+        {/* ── controls row ─────────────────────────────────── */}
+        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4, flexWrap:'wrap' }}>
           <FormControl sx={{ minWidth:140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
@@ -141,104 +181,122 @@ export default function VolumePage() {
             </Select>
           </FormControl>
 
-          {/* Date range pickers */}
+          {/* ACTUAL range */}
           <DatePicker
-            label="Start Date"
+            label="Actual - from"
             value={startDate}
             onChange={d => d && setStartDate(d)}
             renderInput={p => <TextField {...p} size="small" />}
           />
           <DatePicker
-            label="End Date"
+            label="Actual - to"
             value={endDate}
             onChange={d => d && setEndDate(d)}
             renderInput={p => <TextField {...p} size="small" />}
           />
 
-          {/* Look-back & horizon selectors */}
-          <FormControl sx={{ minWidth:120 }}>
+          {/* LOOK-BACK / HORIZON selections */}
+          <FormControl sx={{ minWidth:110 }}>
             <InputLabel>Look-back (mo)</InputLabel>
             <Select
               value={lookBack}
               label="Look-back (mo)"
               onChange={e => setLookBack(+e.target.value)}
             >
-              {[1,2,3,4,5,6,12,18,24,36].map(m => (
-                <MenuItem key={m} value={m}>{m}</MenuItem>
-              ))}
+              {monthChoices.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
             </Select>
           </FormControl>
-          <FormControl sx={{ minWidth:120 }}>
+          <FormControl sx={{ minWidth:110 }}>
             <InputLabel>Horizon (mo)</InputLabel>
             <Select
               value={horizon}
               label="Horizon (mo)"
               onChange={e => setHorizon(+e.target.value)}
             >
-              {[6,12,18,24].map(m => (
-                <MenuItem key={m} value={m}>{m}</MenuItem>
-              ))}
+              {monthChoices.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
             </Select>
           </FormControl>
-
-          {/* Overwrite toggle */}
           <FormControlLabel
-            control={
-              <Switch checked={overwrite} onChange={e => setOverwrite(e.target.checked)} />
-            }
-            label="Overwrite existing?"
+            control={<Switch checked={overwrite} onChange={e => setOverwrite(e.target.checked)} />}
+            label="Overwrite?"
           />
 
-          {/* Buttons */}
-          <Button variant="contained" onClick={buildForecast}>
-            Build Forecast
-          </Button>
+          <Button variant="contained" onClick={buildForecast}>Build Forecast</Button>
+
+          {/* CSV upload buttons */}
           <Button variant="outlined" component="label">
             Upload Forecast CSV
-            <input type="file" hidden accept=".csv"
+            <input hidden type="file" accept=".csv"
               onChange={e => handleUpload(e.target.files[0], 'forecast')} />
           </Button>
           <Button variant="outlined" component="label">
             Upload Actual CSV
-            <input type="file" hidden accept=".csv"
+            <input hidden type="file" accept=".csv"
               onChange={e => handleUpload(e.target.files[0], 'actual')} />
           </Button>
         </Box>
 
-        {/* ▼ Daily chart */}
-        <Typography variant="h6" gutterBottom>Daily Volume</Typography>
+        {/* ── DAILY ACTUAL chart ───────────────────────────── */}
+        <Typography variant="h6" gutterBottom>Daily Actual Volume</Typography>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={dailyData} margin={{ top:20, right:30, left:20, bottom:5 }}>
+          <BarChart data={dailyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis />
             <Tooltip />
             <Legend />
-            <Bar dataKey="forecastCalls"   name="Forecast Calls"   fill="#8884d8" onClick={onBarClick}/>
-            <Bar dataKey="actualCalls"     name="Actual Calls"     fill="#82ca9d" onClick={onBarClick}/>
-            <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ffc658" onClick={onBarClick}/>
-            <Bar dataKey="actualTickets"   name="Actual Tickets"   fill="#ff8042" onClick={onBarClick}/>
+            <Bar dataKey="actualCalls"     name="Calls"   fill="#82ca9d" onClick={onBarClick}/>
+            <Bar dataKey="actualTickets"   name="Tickets" fill="#ff8042" onClick={onBarClick}/>
           </BarChart>
         </ResponsiveContainer>
 
-        {/* ▼ Hourly drill-down */}
+        {/* ── HOURLY drill-down (actual) ───────────────────── */}
         {selectedDate && (
           <>
             <Typography variant="h6" sx={{ mt:4 }}>
-              Hourly Detail – {dayjs(selectedDate).format('YYYY-MM-DD')}
+              Hourly Actual for {dayjs(selectedDate).format('YYYY-MM-DD')}
             </Typography>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={hourlyData} margin={{ top:20, right:30, left:20, bottom:5 }}>
+              <BarChart data={hourlyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="hour" type="number" domain={[0,23]}
-                       tickFormatter={h => `${h}:00`} />
+                <XAxis dataKey="hour" type="number" domain={[0,23]} tickFormatter={h => `${h}:00`} />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="forecastCalls"   name="Forecast Calls"   fill="#8884d8" />
-                <Bar dataKey="actualCalls"     name="Actual Calls"     fill="#82ca9d" />
-                <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ffc658" />
-                <Bar dataKey="actualTickets"   name="Actual Tickets"   fill="#ff8042" />
+                <Bar dataKey="actualCalls"   name="Calls"   fill="#82ca9d" />
+                <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" />
+              </BarChart>
+            </ResponsiveContainer>
+          </>
+        )}
+
+        {/* ── DAILY FORECAST chart ─────────────────────────── */}
+        {fcDailyData.length > 0 && (
+          <>
+            <Box sx={{ mt:6, display:'flex', gap:2, flexWrap:'wrap', alignItems:'center' }}>
+              <Typography variant="h6" sx={{ mr:2 }}>Daily Forecast Volume</Typography>
+              <DatePicker
+                label="Forecast - from"
+                value={fcStart}
+                onChange={d => d && setFcStart(d)}
+                renderInput={p => <TextField {...p} size="small" />}
+              />
+              <DatePicker
+                label="Forecast - to"
+                value={fcEnd}
+                onChange={d => d && setFcEnd(d)}
+                renderInput={p => <TextField {...p} size="small" />}
+              />
+            </Box>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={fcDailyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="forecastCalls"   name="Calls"   fill="#8884d8" />
+                <Bar dataKey="forecastTickets" name="Tickets" fill="#ffc658" />
               </BarChart>
             </ResponsiveContainer>
           </>
