@@ -66,52 +66,70 @@ export function requiredAgents({
  * @param shrinkage
  * @returns [{ hour, calls, tickets, requiredAgents }]
  */
-export async function computeDayStaffing({
-  prisma,
-  role,
-  date,
-  callAhtSeconds,
-  ticketAhtSeconds,
-  serviceLevel,
-  thresholdSeconds,
-  shrinkage
-}) {
-  const start = dayjs(date).startOf('day').toDate()
-  const end   = dayjs(date).endOf('day')  .toDate()
+/**
+  * Build 24-hour staffing array for one date.
+  * Uses ACTUAL rows when any exist for that date/role,
+  * otherwise uses FORECAST rows.
+  */
+ export async function computeDayStaffing({
+   prisma,
+   role,
+   date,
+   callAhtSeconds,
+   ticketAhtSeconds,
+   serviceLevel,
+   thresholdSeconds,
+   shrinkage
+ }) {
+   const start = dayjs(date).startOf('day').toDate()
+   const end   = dayjs(date).endOf('day')  .toDate()
 
-  // fetch all actuals for that role + day
-  const actuals = await prisma.volumeActual.findMany({
-    where: { role, date: { gte: start, lte: end } }
-  })
+   /* 1️⃣  pull actual; if empty, pull forecast                       */
+   const actualRows = await prisma.volumeActual.findMany({
+     where: { role, date: { gte: start, lte: end } }
+   })
 
-  // bucket into 24 hours and compute required agents
-  const hours = Array.from({ length: 24 }, (_, h) => {
-    const slice   = actuals.filter(a => a.hour === h)
-    const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
-    const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
+   const rows = actualRows.length
+     ? actualRows                        // use entire actual day
+     : await prisma.volumeForecast.findMany({
+         where: { role, date: { gte: start, lte: end } }
+       })
 
-    const callAgents   = requiredAgents({
-      callsPerHour:          calls,
-      ahtSeconds:            callAhtSeconds,
-      targetServiceLevel:    serviceLevel,
-      serviceThresholdSeconds: thresholdSeconds,
-      shrinkage
-    })
-    const ticketAgents = requiredAgents({
-      callsPerHour:          tickets,
-      ahtSeconds:            ticketAhtSeconds,
-      targetServiceLevel:    serviceLevel,
-      serviceThresholdSeconds: thresholdSeconds,
-      shrinkage
-    })
+   /* 2️⃣  put rows into a map keyed by hour for quick access          */
+   const byHour = {}
+   rows.forEach(r => {
+     const h = r.hour
+     byHour[h] = {
+       calls:   r.calls   ?? r.expectedCalls   ?? 0,
+       tickets: r.tickets ?? r.expectedTickets ?? 0
+     }
+   })
 
-    return {
-      hour:           h,
-      calls,
-      tickets,
-      requiredAgents: callAgents + ticketAgents
-    }
-  })
+   /* 3️⃣  24-hour staffing calculation                                */
+   return Array.from({ length: 24 }, (_, h) => {
+     const { calls = 0, tickets = 0 } = byHour[h] || {}
 
-  return hours
-}
+     const callAgents = requiredAgents({
+       callsPerHour:            calls,
+       ahtSeconds:              callAhtSeconds,
+       targetServiceLevel:      serviceLevel,
+       serviceThresholdSeconds: thresholdSeconds,
+       shrinkage
+     })
+
+     const ticketAgents = requiredAgents({
+       callsPerHour:            tickets,
+       ahtSeconds:              ticketAhtSeconds,
+       targetServiceLevel:      serviceLevel,
+       serviceThresholdSeconds: thresholdSeconds,
+       shrinkage
+     })
+
+     return {
+       hour:           h,
+       calls,
+       tickets,
+       requiredAgents: callAgents + ticketAgents
+     }
+   })
+  }
