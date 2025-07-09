@@ -1,153 +1,63 @@
 // server/routes/volume.js
 import { Router } from 'express'
-import dayjs       from 'dayjs'
+import dayjs      from 'dayjs'
 
 export default prisma => {
   const r = Router()
 
-  /* ──────────────────────────────────────────────────────────────
-   *  🔎  Helpers
-   * ──────────────────────────────────────────────────────────── */
-
-  // pull the last N months of actual rows for a role
-  async function loadActualSlice (role, monthsBack) {
-    const from = dayjs()
-      .subtract(monthsBack, 'month')
-      .startOf('day')
-      .toDate()
-
-    return prisma.volumeActual.findMany({
-      where: { role, date: { gte: from } }
-    })
-  }
-
-  // very‐simple seasonal-naïve forecast: average by (weekday,hour)
-  // feel free to replace with a more sophisticated model later
-  function buildForecastRows (actualRows, horizonMonths, role) {
-    /** aggregate by weekday|hour */
-    const buckets = {} // { "2|14": { cSum, tSum, n } }
-    actualRows.forEach(r => {
-      const wd  = dayjs(r.date).day()       // 0-6
-      const key = `${wd}|${r.hour}`         // e.g. "2|14"
-      if (!buckets[key]) buckets[key] = { cSum: 0, tSum: 0, n: 0 }
-      buckets[key].cSum += r.calls
-      buckets[key].tSum += r.tickets
-      buckets[key].n    += 1
-    })
-
-    /** average per bucket */
-    const avgByKey = Object.fromEntries(
-      Object.entries(buckets).map(([k, { cSum, tSum, n }]) => [
-        k,
-        { calls: Math.round(cSum / n), tickets: Math.round(tSum / n) }
-      ])
-    )
-
-    /** explode into hourly rows for the horizon */
-    const rows = []
-    const horizonEnd = dayjs()
-      .add(horizonMonths, 'month')
-      .endOf('month')
-
-    let cursor = dayjs().startOf('day')
-    while (cursor.isSameOrBefore(horizonEnd, 'day')) {
-      const wd = cursor.day()
-      for (let h = 0; h < 24; h++) {
-        const base = avgByKey[`${wd}|${h}`] || { calls: 0, tickets: 0 }
-        rows.push({
-          role,
-          date:           cursor.toDate(),
-          hour:           h,
-          expectedCalls:   base.calls,
-          expectedTickets: base.tickets
-        })
-      }
-      cursor = cursor.add(1, 'day')
-    }
-    return rows
-  }
-
-  /* ──────────────────────────────────────────────────────────────
-   *  📥  Upload forecast CSV rows
-   *      body: { role, data:[{date,hour,calls,tickets}] }
-   * ──────────────────────────────────────────────────────────── */
+  /* ----------------------------------------------------------- *
+   * 1)  Upload forecast CSV
+   * ----------------------------------------------------------- */
   r.post('/forecast', async (req, res) => {
     try {
       const { role, data } = req.body
-      if (!Array.isArray(data)) {
-        return res
-          .status(400)
-          .json({ ok: false, error: 'Invalid payload: data must be an array' })
-      }
+      if (!Array.isArray(data))
+        return res.status(400).json({ ok:false, error:'data must be an array' })
 
-      const payload = data.map(d => ({
+      const rows = data.map(d => ({
         role,
-        date: new Date(d.date),
-        hour: d.hour,
+        date:            new Date(d.date),
+        hour:            d.hour,
         expectedCalls:   d.calls,
         expectedTickets: d.tickets
       }))
-
-      await prisma.volumeForecast.createMany({ data: payload })
-      return res.json({ ok: true })
+      await prisma.volumeForecast.createMany({ data: rows })
+      return res.json({ ok:true })
     } catch (err) {
-      console.error('Error in POST /volume/forecast:', err)
-      return res
-        .status(500)
-        .json({
-          ok: false,
-          error: 'Failed to save forecast data',
-          details: err.message
-        })
+      console.error('Error POST /forecast:', err)
+      return res.status(500).json({ ok:false, error:err.message })
     }
   })
 
-  /* ──────────────────────────────────────────────────────────────
-   *  📥  Upload actual CSV rows
-   *      body: { role, data:[{date,hour,calls,tickets}] }
-   * ──────────────────────────────────────────────────────────── */
+  /* ----------------------------------------------------------- *
+   * 2)  Upload actual CSV
+   * ----------------------------------------------------------- */
   r.post('/actual', async (req, res) => {
     try {
       const { role, data } = req.body
-      if (!Array.isArray(data)) {
-        return res
-          .status(400)
-          .json({ ok: false, error: 'Invalid payload: data must be an array' })
-      }
+      if (!Array.isArray(data))
+        return res.status(400).json({ ok:false, error:'data must be an array' })
 
-      const payload = data.map(d => ({
+      const rows = data.map(d => ({
         role,
-        date: new Date(d.date),
-        hour: d.hour,
+        date:    new Date(d.date),
+        hour:    d.hour,
         calls:   d.calls,
         tickets: d.tickets
       }))
-
-      await prisma.volumeActual.createMany({ data: payload })
-      return res.json({ ok: true })
+      await prisma.volumeActual.createMany({ data: rows })
+      return res.json({ ok:true })
     } catch (err) {
-      console.error('Error in POST /volume/actual:', err)
-      return res
-        .status(500)
-        .json({
-          ok: false,
-          error: 'Failed to save actual data',
-          details: err.message
-        })
+      console.error('Error POST /actual:', err)
+      return res.status(500).json({ ok:false, error:err.message })
     }
   })
 
-  /* ──────────────────────────────────────────────────────────────
-   *  🔮  Auto-generate forecast
-   *      POST /api/volume/forecast/generate
-   *      body: {
-   *        role,
-   *        lookBackMonths: 6,
-   *        horizonMonths:  6,
-   *        overwrite:      false
-   *      }
-   * ──────────────────────────────────────────────────────────── */
-  r.post('/forecast/generate', async (req, res, next) => {
+  /* ----------------------------------------------------------- *
+   * 3)  Build forecast from historical actuals
+   *     body: { role, lookBackMonths, horizonMonths, overwrite }
+   * ----------------------------------------------------------- */
+  r.post('/build-forecast', async (req, res) => {
     try {
       const {
         role,
@@ -157,60 +67,105 @@ export default prisma => {
       } = req.body
 
       if (!role) {
-        return res.status(400).json({ error: '`role` is required' })
+        return res.status(400).json({ ok:false, error:'Missing role' })
       }
 
-      const actualRows = await loadActualSlice(role, lookBackMonths)
-      if (!actualRows.length) {
-        return res
-          .status(400)
-          .json({ error: 'Not enough actual data for the requested look-back window' })
+      /* 3-A) fetch history */
+      const histStart = dayjs().subtract(lookBackMonths, 'month').startOf('day').toDate()
+      const histEnd   = dayjs().subtract(1, 'day').endOf('day')              .toDate()
+
+      const history = await prisma.volumeActual.findMany({
+        where: {
+          role,
+          date: { gte: histStart, lte: histEnd }
+        }
+      })
+
+      if (!history.length) {
+        return res.status(400).json({ ok:false, error:'No historical data found' })
       }
 
-      const rows = buildForecastRows(actualRows, horizonMonths, role)
+      /* 3-B) build avg by (dow, hour) */
+      const bucket = {}  // key = `${dow}|${hour}`
+      history.forEach(r => {
+        const dow  = dayjs(r.date).day()    // 0-6
+        const key  = `${dow}|${r.hour}`
+        const obj  = bucket[key] || { calls:0, tickets:0, n:0 }
+        obj.calls   += r.calls
+        obj.tickets += r.tickets
+        obj.n       += 1
+        bucket[key]  = obj
+      })
 
+      /* convert to averages */
+      Object.values(bucket).forEach(b => {
+        b.calls   = Math.round(b.calls   / b.n)
+        b.tickets = Math.round(b.tickets / b.n)
+      })
+
+      /* 3-C) generate future rows */
+      const startF = dayjs().startOf('day')         // today
+      const endF   = dayjs().add(horizonMonths,'month').endOf('day')
+
+      const payload = []
+      let cursor = startF
+      while (cursor.isSameOrBefore(endF, 'day')) {
+        const dow = cursor.day()
+        for (let h = 0; h < 24; h++) {
+          const b = bucket[`${dow}|${h}`]
+          if (b) {
+            payload.push({
+              role,
+              date:            cursor.toDate(),
+              hour:            h,
+              expectedCalls:   b.calls,
+              expectedTickets: b.tickets
+            })
+          }
+        }
+        cursor = cursor.add(1, 'day')
+      }
+
+      /* 3-D) optional overwrite */
       if (overwrite) {
-        // wipe any future forecast rows for this role from today onwards
         await prisma.volumeForecast.deleteMany({
           where: {
             role,
-            date: { gte: dayjs().startOf('day').toDate() }
+            date: {
+              gte: startF.toDate(),
+              lte: endF.toDate()
+            }
           }
         })
       }
 
-      await prisma.volumeForecast.createMany({ data: rows })
-      res.json({ ok: true, inserted: rows.length })
+      /* 3-E) bulk-insert (skip duplicates when not overwriting) */
+      if (payload.length) {
+        await prisma.volumeForecast.createMany({
+          data: payload,
+          skipDuplicates: true
+        })
+      }
+
+      return res.json({ ok:true, inserted: payload.length })
     } catch (err) {
-      next(err)
+      console.error('Error POST /build-forecast:', err)
+      return res.status(500).json({ ok:false, error:err.message })
     }
   })
 
-  /* ──────────────────────────────────────────────────────────────
-   *  🚑  Router-level error handler
-   * ──────────────────────────────────────────────────────────── */
-  r.use((err, _req, res, _next) => {
+  /* ----------------------------------------------------------- *
+   * 4) router-level error handler
+   * ----------------------------------------------------------- */
+  r.use((err, _req, res, next) => {
     console.error('Volume router error:', err)
-
-    // large payloads (multer / body-parser)
     if (err.type === 'entity.too.large') {
-      return res.status(413).json({
-        ok: false,
-        error: 'Payload too large – please split the file or compress it'
-      })
+      return res.status(413).json({ ok:false, error:'Payload too large' })
     }
-
-    // bad JSON
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Invalid JSON',
-        details: err.message
-      })
+      return res.status(400).json({ ok:false, error:'Invalid JSON' })
     }
-
-    // fallback
-    res.status(500).json({ ok: false, error: err.message })
+    next(err)
   })
 
   return r
