@@ -207,12 +207,11 @@ function buildSchedule(solution, reqMap) {
     setBlocks([]); setBestStart([]); setPersonSchedule({})
   }
 
-  /* ─── 2) Assign staff with downward search + console logs ── */
+  /* ─── 2) Assign staff (respect user-set fixed cap) ─────────── */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return }
-    setUseFixedStaff(true)
 
-    /* reqMap (for lunch choice) */
+    /* Build reqMap once – needed for lunch placement */
     const reqMap = {}
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) =>
@@ -222,11 +221,15 @@ function buildSchedule(solution, reqMap) {
 
     /* helper: solver → plan */
     const solve = async cap => {
-      const body = { staffing:forecast, weeks, shiftLength:SHIFT_LENGTH, topN:5 }
+      const body = { staffing: forecast, weeks, shiftLength: SHIFT_LENGTH, topN: 5 }
       if (cap > 0) body.maxStaff = cap
       const { data } = await api.post('/erlang/staff/schedule', body)
+
+      /* … build schedule exactly as before … */
       const sched = buildSchedule(data.solution, reqMap)
-      const cov   = {}
+
+      /* coverage / deficit maps */
+      const cov = {}
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
@@ -237,18 +240,35 @@ function buildSchedule(solution, reqMap) {
         })
       )
       const def = {}
-      Object.keys(reqMap).forEach(k => { def[k] = (cov[k]||0) - reqMap[k] })
+      Object.keys(reqMap).forEach(k => { def[k] = (cov[k] || 0) - reqMap[k] })
+
       return {
         solution:  data.solution,
         bestStart: data.bestStartHours,
         schedule:  sched,
         deficit:   def,
-        headCnt:   data.solution.reduce((s,b)=>s+b.count,0)
+        headCnt:   data.solution.reduce((s, b) => s + b.count, 0)
       }
     }
 
-    /* 2-A  exponential upper bound */
+    /* ---------- fixed-cap path --------------------------------- */
+    if (useFixedStaff && fixedStaff > 0) {
+      const plan = await solve(fixedStaff)
+
+      /* —— commit —— */
+      setBlocks(plan.solution)
+      setBestStart(plan.bestStart)
+      setPersonSchedule(plan.schedule)
+      // DO NOT overwrite fixedStaff – leave user’s value intact
+      return
+    }
+
+    /* ---------- adaptive search path (switch OFF) -------------- */
+
     let lo = 0, hi = 1, plan = await solve(hi)
+    const hasShort = def => Object.values(def).some(v => v < 0)
+
+    /*  A) exponential upper bound */
     while (hasShort(plan.deficit)) {
       console.log(`[exp] cap=${hi}  short≥0? ${!hasShort(plan.deficit)}`)
       hi *= 2
@@ -256,41 +276,38 @@ function buildSchedule(solution, reqMap) {
       plan = await solve(hi)
     }
 
-    /* 2-B  binary search down ─ with progress logs */
+    /*  B) binary search downwards */
     let best = plan
     for (let i = 0; i < MAX_ITERS && hi - lo > 1; i++) {
       const mid  = Math.floor((lo + hi) / 2)
-      const plan = await solve(mid)
+      const cur  = await solve(mid)
 
-      /* worst under/over for logging */
-      const vals       = Object.values(plan.deficit)
+      const vals       = Object.values(cur.deficit)
       const worstShort = Math.max(0, ...vals.filter(v => v < 0).map(v => -v))
       const worstOver  = Math.max(0, ...vals.filter(v => v > 0))
-
       console.log(
-        `[iter ${i}] cap=${mid}  used=${plan.headCnt}  ` +
+        `[iter ${i}] cap=${mid}  used=${cur.headCnt}  ` +
         `under=${worstShort}  over=${worstOver}`
       )
 
-      if (hasShort(plan.deficit)) {
-        lo = mid           // too low
+      if (hasShort(cur.deficit)) {
+        lo = mid
       } else {
-        hi   = mid         // feasible
-        best = plan
+        hi   = mid
+        best = cur
       }
     }
 
-    console.log(
-      '%c✔ BEST PLAN  heads=' + best.headCnt,
-      'color:limegreen;font-weight:bold'
-    )
+    console.log('%c✔ BEST PLAN  heads=' + best.headCnt,
+                'color:limegreen;font-weight:bold')
 
-    /* commit best */
-    setFixedStaff(best.headCnt)
+    /* —— commit adaptive result —— */
     setBlocks(best.solution)
     setBestStart(best.bestStart)
     setPersonSchedule(best.schedule)
+    setFixedStaff(best.headCnt)          // OK to update; switch is OFF
   }
+
 
   /* ─── 3) Export to Excel (unchanged) ─────────────────────── */
   const exportExcel = () => {
