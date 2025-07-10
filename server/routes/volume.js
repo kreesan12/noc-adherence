@@ -85,10 +85,10 @@ export default prisma => {
         return res.status(400).json({ ok:false, error:'No historical data found' })
       }
 
-      /* 3-B) build avg by (dow, hour) */
-      const bucket = {}  // key = `${dow}|${hour}`
+      /* 3-B) averages by (dow,hour) */
+      const bucket = {}                       // key = `${dow}|${hour}`
       history.forEach(r => {
-        const dow  = dayjs(r.date).day()    // 0-6
+        const dow  = dayjs(r.date).day()      // 0-6
         const key  = `${dow}|${r.hour}`
         const obj  = bucket[key] || { calls:0, tickets:0, n:0 }
         obj.calls   += r.calls
@@ -96,18 +96,16 @@ export default prisma => {
         obj.n       += 1
         bucket[key]  = obj
       })
-
-      /* convert to averages */
       Object.values(bucket).forEach(b => {
         b.calls   = Math.round(b.calls   / b.n)
         b.tickets = Math.round(b.tickets / b.n)
       })
 
       /* 3-C) generate future rows */
-      const startF = dayjs().startOf('day')         // today
-      const endF   = dayjs().add(horizonMonths,'month').endOf('day')
-
+      const startF  = dayjs().startOf('day')                // today
+      const endF    = dayjs().add(horizonMonths,'month').endOf('day')
       const payload = []
+
       let cursor = startF
       while (cursor.isSameOrBefore(endF, 'day')) {
         const dow = cursor.day()
@@ -131,15 +129,12 @@ export default prisma => {
         await prisma.volumeForecast.deleteMany({
           where: {
             role,
-            date: {
-              gte: startF.toDate(),
-              lte: endF.toDate()
-            }
+            date: { gte: startF.toDate(), lte: endF.toDate() }
           }
         })
       }
 
-      /* 3-E) bulk-insert (skip duplicates when not overwriting) */
+      /* 3-E) insert */
       if (payload.length) {
         await prisma.volumeForecast.createMany({
           data: payload,
@@ -155,7 +150,7 @@ export default prisma => {
   })
 
   /* ----------------------------------------------------------- *
-   * 4) router-level error handler
+   * 4)  Router-level error handler
    * ----------------------------------------------------------- */
   r.use((err, _req, res, next) => {
     console.error('Volume router error:', err)
