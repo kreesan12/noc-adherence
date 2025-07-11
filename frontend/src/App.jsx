@@ -9,6 +9,7 @@ import CalendarTodayIcon      from '@mui/icons-material/CalendarToday'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import BarChartIcon           from '@mui/icons-material/BarChart'
 import UploadIcon             from '@mui/icons-material/Upload'
+import WorkHistoryIcon        from '@mui/icons-material/WorkHistory'
 
 import AdherencePage  from './pages/AdherencePage'
 import SchedulePage   from './pages/SchedulePage'
