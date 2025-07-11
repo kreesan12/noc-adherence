@@ -10,53 +10,47 @@ import {
   LocalizationProvider, DatePicker
 } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+
 import dayjs from 'dayjs';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 dayjs.extend(isSameOrBefore);
 
-import * as XLSX from 'xlsx';
 import api from '../api';
+import * as XLSX from 'xlsx';
 
-/* components that already live in /src/components ---------- */
-import RequiredHeatmap  from '../components/RequiredHeatmap';
-import CoverageGrid      from '../components/CoverageGrid';
-import ShiftBlockTable   from '../components/ShiftBlockTable';   // ← if you had one
-/* --------------------------------------------------------- */
+/* ──────────────────────────────────────────────────────────── */
+/*  1.  CONSTANTS */
+const HORIZON_MONTHS = 6;        // forecast window
+const SHIFT_LENGTH   = 9;        // hours per shift
+const MAX_ITERS      = 50;       // binary-search depth
 
+/* ──────────────────────────────────────────────────────────── */
 export default function StaffingPage() {
-  /* ──────────────────────────────────────────────────────────
-     1.  Constants
-  ────────────────────────────────────────────────────────── */
-  const HORIZON_MONTHS = 6;
-  const SHIFT_LENGTH   = 9;
-  const MAX_ITERS      = 50;          // binary-search iterations
+  /* 2. STATE ------------------------------------------------- */
+  const [roles,  setRoles]  = useState([]);
+  const [team,   setTeam]   = useState('');
+  const [agents, setAgents] = useState([]);           // full agent list
 
-  /* ──────────────────────────────────────────────────────────
-     2.  React state
-  ────────────────────────────────────────────────────────── */
-  const [roles, setRoles]               = useState([]);
-  const [team,  setTeam]                = useState('');
-  const [startDate, setStartDate]       = useState(dayjs());
-  const [callAht, setCallAht]           = useState(300);
-  const [ticketAht, setTicketAht]       = useState(240);
-  const [sl,   setSL]                   = useState(0.8);
-  const [threshold, setThreshold]       = useState(20);
-  const [shrinkage, setShrinkage]       = useState(0.3);
-  const [weeks, setWeeks]               = useState(3);
+  const [startDate,  setStartDate]  = useState(dayjs());
+  const [callAht,    setCallAht]    = useState(300);
+  const [ticketAht,  setTicketAht]  = useState(240);
+  const [sl,         setSL]         = useState(0.8);
+  const [threshold,  setThreshold]  = useState(20);
+  const [shrinkage,  setShrinkage]  = useState(0.3);
+  const [weeks,      setWeeks]      = useState(3);
 
-  const [forecast, setForecast]             = useState([]);
-  const [blocks, setBlocks]                 = useState([]);
-  const [bestStartHours, setBestStart]      = useState([]);
-  const [personSchedule, setPersonSchedule] = useState({});
-  const [useFixedStaff, setUseFixedStaff]   = useState(false);
-  const [fixedStaff, setFixedStaff]         = useState(0);
+  const [forecast,        setForecast]        = useState([]);
+  const [blocks,          setBlocks]          = useState([]);
+  const [bestStartHours,  setBestStart]       = useState([]);
+  const [personSchedule,  setPersonSchedule]  = useState({}); // keyed by #1, #2…
+  const [useFixedStaff,   setUseFixedStaff]   = useState(false);
+  const [fixedStaff,      setFixedStaff]      = useState(0);
 
-  /* ──────────────────────────────────────────────────────────
-     3.  Load unique team (role) list once
-  ────────────────────────────────────────────────────────── */
+  /* 3. LOAD AGENTS & ROLES (once) ---------------------------- */
   useEffect(() => {
     api.get('/agents')
       .then(res => {
+        setAgents(res.data);
         const uniq = [...new Set(res.data.map(a => a.role))];
         setRoles(uniq);
         if (uniq.length) setTeam(uniq[0]);
@@ -64,43 +58,43 @@ export default function StaffingPage() {
       .catch(console.error);
   }, []);
 
-  /* ──────────────────────────────────────────────────────────
-     4.  Helpers
-  ────────────────────────────────────────────────────────── */
-  /** return an array of YYYY-MM-DD strings for N weeks × Mon-Fri */
-  function getWorkDates(start, wCount) {
-    const out = [];
-    for (let w = 0; w < wCount; w++) {
+  /* 4. HELPERS ---------------------------------------------- */
+  /** N-week × 5-day list of YYYY-MM-DD strings */
+  function getWorkDates(start, weeksCount) {
+    const dates = [];
+    for (let w = 0; w < weeksCount; w++) {
       const base = dayjs(start).add(w * 7, 'day');
       for (let d = 0; d < 5; d++) {
-        out.push(base.add(d, 'day').format('YYYY-MM-DD'));
+        dates.push(base.add(d, 'day').format('YYYY-MM-DD'));
       }
     }
-    return out;
+    return dates;
   }
 
-  /** deterministic round-robin allocation of shift blocks */
-  function buildSchedule(blocks, reqMap) {
+  /** buildSchedule with global-balancing lunch placement */
+  function buildSchedule(solution, reqMap) {
     const schedByEmp = {};
-    const totalEmp   = blocks.reduce((s, b) => s + b.count, 0);
+    const totalEmp   = solution.reduce((s, b) => s + b.count, 0);
     const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1);
     queue.forEach(id => (schedByEmp[id] = []));
 
-    const coverMap = {};   // heads working (excluding lunch)
-    const lunchMap = {};   // heads currently at lunch
+    /* running coverage counters */
+    const coverMap = {};  // on duty excl. lunch
+    const lunchMap = {};  // already at lunch
 
     const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
     const cycles     = Math.ceil(
       (horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7)
     );
 
-    const sorted = [...blocks].sort(
+    const sorted = [...solution].sort(
       (a, b) => a.patternIndex - b.patternIndex || a.startHour - b.startHour
     );
 
     for (let ci = 0; ci < cycles; ci++) {
       let offset = 0;
       sorted.forEach(block => {
+        /* employees assigned to this block-instance */
         const group = queue.slice(offset, offset + block.count);
 
         group.forEach(empId => {
@@ -109,17 +103,19 @@ export default function StaffingPage() {
             if (d.isAfter(horizonEnd, 'day')) return;
             const day = d.format('YYYY-MM-DD');
 
-            /* — choose a lunch hour inside the shift — */
+            /* ── choose lunch hour inside the shift ── */
             const candidates = [];
             for (let off = 2; off <= 5; off++) {
-              const h          = block.startHour + off;
+              const h = block.startHour + off;
               if (h >= block.startHour + SHIFT_LENGTH) break;
+
               const k          = `${day}|${h}`;
-              const onDuty     = coverMap[k]  ?? 0;
-              const lunches    = lunchMap[k]  ?? 0;
-              const required   = reqMap[k]    ?? 0;
+              const onDuty     = coverMap[k] ?? 0;
+              const lunches    = lunchMap[k] ?? 0;
+              const required   = reqMap[k]   ?? 0;
               const projected  = onDuty - lunches - 1;
               const surplus    = projected - required;
+
               if (surplus >= 0) {
                 candidates.push({ h, surplus, lunches });
               }
@@ -129,7 +125,7 @@ export default function StaffingPage() {
               ? candidates.sort((a, b) =>
                   a.surplus - b.surplus ||
                   a.lunches - b.lunches ||
-                  a.h - b.h
+                  a.h       - b.h
                 )[0].h
               : (
                   block.breakOffset != null
@@ -137,10 +133,10 @@ export default function StaffingPage() {
                     : block.startHour + Math.floor(block.length / 2)
                 );
 
-            /* — record shift for employee — */
+            /* record shift for employee */
             schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
 
-            /* — update coverage counters — */
+            /* update counters */
             for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
               const k = `${day}|${h}`;
               coverMap[k] = (coverMap[k] ?? 0) + 1;
@@ -153,68 +149,67 @@ export default function StaffingPage() {
         offset += block.count;
       });
 
-      /* rotate queue for fair distribution */
+      /* rotate for next cycle */
       queue.unshift(queue.pop());
     }
 
     return schedByEmp;
   }
 
-  /* ──────────────────────────────────────────────────────────
-     5.  Derived data (req/scheduled/deficit maps, maxima)
-  ────────────────────────────────────────────────────────── */
+  /** map numeric “employee #” to display name (real or dummy) */
+  const nameFor = (empNum) => {
+    const teamAgents = agents.filter(a => a.role === team);
+    const idx        = empNum - 1;
+    if (idx < teamAgents.length) {
+      const a = teamAgents[idx];
+      return a.name ?? a.fullName ?? a.email ?? `Agent ${a.id}`;
+    }
+    return `TBD ${idx - teamAgents.length + 1}`;
+  };
+
+  /* 5. DERIVED HEAT-MAP DATA -------------------------------- */
   const {
-    reqMap,             // full required-headcount map YYYY-MM-DD|H → #
-    scheduled,          // actual heads scheduled (excl. lunch)
-    deficit,            // scheduled − required   (negative = understaff)
-    maxReq, maxSch, maxDef
+    scheduled, deficit, maxReq, maxSch, maxDef
   } = useMemo(() => {
-    /* required map ----------------------------------------- */
-    const req = {};
+    const reqMap = {};
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) => {
-        req[`${d.date}|${hour}`] = requiredAgents;
+        reqMap[`${d.date}|${hour}`] = requiredAgents;
       })
     );
 
-    /* scheduled map ---------------------------------------- */
-    const sch = {};
+    const schedMap = {};
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
         for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-          if (h === breakHour) continue;           // skip lunch
+          if (h === breakHour) continue;
           const k = `${day}|${h}`;
-          sch[k]  = (sch[k] ?? 0) + 1;
+          schedMap[k] = (schedMap[k] ?? 0) + 1;
         }
       })
     );
 
-    /* deficit map ------------------------------------------ */
-    const def = {};
-    new Set([...Object.keys(req), ...Object.keys(sch)]).forEach(k => {
-      def[k] = (sch[k] ?? 0) - (req[k] ?? 0);
+    const defMap = {};
+    new Set([...Object.keys(reqMap), ...Object.keys(schedMap)]).forEach(k => {
+      defMap[k] = (schedMap[k] ?? 0) - (reqMap[k] ?? 0);
     });
 
-    const allReq = Object.values(req);
-    const allSch = Object.values(sch);
-    const allDef = Object.values(def).map(v => Math.abs(v));
+    const allReq = Object.values(reqMap);
+    const allSch = Object.values(schedMap);
+    const allDef = Object.values(defMap).map(v => Math.abs(v));
 
     return {
-      reqMap    : req,
-      scheduled : sch,
-      deficit   : def,
+      scheduled : schedMap,
+      deficit   : defMap,
       maxReq    : allReq.length ? Math.max(...allReq) : 0,
       maxSch    : allSch.length ? Math.max(...allSch) : 0,
       maxDef    : allDef.length ? Math.max(...allDef) : 0
     };
   }, [personSchedule, forecast]);
 
-  const anyShort = def => Object.values(def).some(v => v < 0);
+  const hasShortfall = def => Object.values(def).some(v => v < 0);
 
-  /* ──────────────────────────────────────────────────────────
-     6.  API actions
-  ────────────────────────────────────────────────────────── */
-  /* (a) build 6-month FORECAST ------------------------------ */
+  /* 6-A. BUILD 6-MONTH FORECAST ----------------------------- */
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD');
     const end   = startDate.add(HORIZON_MONTHS, 'month')
@@ -222,7 +217,7 @@ export default function StaffingPage() {
                            .format('YYYY-MM-DD');
 
     const { data } = await api.post('/erlang/staff/bulk-range', {
-      role: team,
+      role             : team,
       start, end,
       callAhtSeconds   : callAht,
       ticketAhtSeconds : ticketAht,
@@ -237,23 +232,20 @@ export default function StaffingPage() {
     setPersonSchedule({});
   };
 
-  /* (b) assign shift blocks & build concrete schedule ------- */
+  /* 6-B. ASSIGN SHIFTS -------------------------------------- */
   const assignToStaff = async () => {
-    if (!forecast.length) {
-      alert('Run Forecast first');
-      return;
-    }
+    if (!forecast.length) { alert('Run Forecast first'); return; }
 
-    /* build quick lookup map for constraints */
-    const req = {};
+    /* build req-map for lunch choices */
+    const reqMap = {};
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) => {
-        req[`${d.date}|${hour}`] = requiredAgents;
+        reqMap[`${d.date}|${hour}`] = requiredAgents;
       })
     );
 
-    /* internal solver helper */
-    const solve = async cap => {
+    /* helper: call backend solver → full schedule plan */
+    const solve = async (cap) => {
       const body = {
         staffing    : forecast,
         weeks,
@@ -263,21 +255,21 @@ export default function StaffingPage() {
       if (cap > 0) body.maxStaff = cap;
 
       const { data } = await api.post('/erlang/staff/schedule', body);
-      const sched   = buildSchedule(data.solution, req);
+      const sched   = buildSchedule(data.solution, reqMap);
 
-      /* derive deficit for this solution */
+      /* coverage / deficit maps */
       const cov = {};
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
             if (h === breakHour) continue;
-            const k  = `${day}|${h}`;
-            cov[k]   = (cov[k] ?? 0) + 1;
+            const k = `${day}|${h}`;
+            cov[k]  = (cov[k] ?? 0) + 1;
           }
         })
       );
       const def = {};
-      Object.keys(req).forEach(k => { def[k] = (cov[k] ?? 0) - req[k]; });
+      Object.keys(reqMap).forEach(k => { def[k] = (cov[k] ?? 0) - reqMap[k]; });
 
       return {
         solution  : data.solution,
@@ -288,43 +280,43 @@ export default function StaffingPage() {
       };
     };
 
-    /* — fixed-cap branch ----------------------------------- */
+    /* ---- FIXED-CAP PATH ----------------------------------- */
     if (useFixedStaff && fixedStaff > 0) {
       const plan = await solve(fixedStaff);
       setBlocks(plan.solution);
       setBestStart(plan.bestStart);
-      setPersonSchedule(plan.schedule);
+      setPersonSchedule(plan.schedule);   // numeric keys
       return;
     }
 
-    /* — adaptive binary search for minimal head-count ------- */
+    /* ---- ADAPTIVE SEARCH ---------------------------------- */
     let lo = 0, hi = 1, plan = await solve(hi);
-    while (anyShort(plan.deficit)) {
+    while (hasShortfall(plan.deficit)) {
       hi *= 2;
-      if (hi > 10000) break;      // sanity guard
+      if (hi > 10000) break;              // guard
       plan = await solve(hi);
     }
     let best = plan;
     for (let i = 0; i < MAX_ITERS && hi - lo > 1; i++) {
       const mid = Math.floor((lo + hi) / 2);
       const cur = await solve(mid);
-      if (anyShort(cur.deficit)) lo = mid;
+      if (hasShortfall(cur.deficit)) lo = mid;
       else { hi = mid; best = cur; }
     }
 
     setBlocks(best.solution);
     setBestStart(best.bestStart);
     setPersonSchedule(best.schedule);
-    setFixedStaff(best.headCnt);   // ready for “fixed” toggle next time
+    setFixedStaff(best.headCnt);          // handy if user flips switch
   };
 
-  /* (c) export employee schedule to Excel ------------------- */
+  /* 6-C. EXPORT SCHEDULE TO EXCEL --------------------------- */
   const exportExcel = () => {
     const rows = [];
     Object.entries(personSchedule).forEach(([emp, arr]) =>
       arr.forEach(({ day, hour, breakHour }) => {
-        rows.push({ Employee: emp, Date: day, StartHour: `${hour}:00`,  Type: 'Shift'  });
-        rows.push({ Employee: emp, Date: day, StartHour: `${breakHour}:00`, Type: 'Lunch' });
+        rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${hour}:00`,      Type: 'Shift'  });
+        rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${breakHour}:00`, Type: 'Lunch' });
       })
     );
 
@@ -334,14 +326,18 @@ export default function StaffingPage() {
     XLSX.writeFile(wb, 'staff-calendar.xlsx');
   };
 
-  /* (d) write shifts back to live agents -------------------- */
+  /* 6-D. PUSH SHIFTS TO BACKEND ----------------------------- */
   const buildAllocationPayload = () => {
+    /* only as many employees as we have live agents ― skip the “TBD” rows */
+    const teamAgents = agents.filter(a => a.role === team);
     const rows = [];
-    Object.values(personSchedule).forEach(arr =>
-      arr.forEach(r => rows.push({
-        day: r.day, hour: r.hour, breakHour: r.breakHour
-      }))
-    );
+
+    Object.entries(personSchedule).forEach(([emp, arr]) => {
+      const idx = +emp - 1;
+      if (idx >= teamAgents.length) return;     // ignore dummies
+      arr.forEach(r => rows.push({ day: r.day, hour: r.hour, breakHour: r.breakHour }));
+    });
+
     return rows;
   };
 
@@ -366,9 +362,7 @@ export default function StaffingPage() {
     }
   };
 
-  /* ──────────────────────────────────────────────────────────
-     7.  Render
-  ────────────────────────────────────────────────────────── */
+  /* 7. RENDER ------------------------------------------------ */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ p: 3 }}>
@@ -376,9 +370,9 @@ export default function StaffingPage() {
           Staffing Forecast &amp; Scheduling
         </Typography>
 
-        {/* ──────── toolbar ──────── */}
+        {/* ───── toolbar ───── */}
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 4 }}>
-          {/* team picker */}
+          {/* Team picker */}
           <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team"
@@ -389,7 +383,7 @@ export default function StaffingPage() {
             </Select>
           </FormControl>
 
-          {/* forecast start date */}
+          {/* Forecast start */}
           <DatePicker
             label="Forecast Start"
             value={startDate}
@@ -397,18 +391,18 @@ export default function StaffingPage() {
             renderInput={p => <TextField {...p} size="small" />}
           />
 
-          {/* rotation length */}
+          {/* Rotation (weeks) */}
           <FormControl sx={{ minWidth: 120 }}>
             <InputLabel>Rotation (weeks)</InputLabel>
             <Select value={weeks} label="Rotation"
                     onChange={e => setWeeks(+e.target.value)}>
-              {[1, 2, 3, 4, 5].map(w => (
+              {[1,2,3,4,5].map(w => (
                 <MenuItem key={w} value={w}>{w}</MenuItem>
               ))}
             </Select>
           </FormControl>
 
-          {/* numeric parameters */}
+          {/* Numeric params */}
           <TextField label="Call AHT (sec)"   type="number" size="small"
                      value={callAht}   onChange={e => setCallAht(+e.target.value)} />
           <TextField label="Ticket AHT (sec)" type="number" size="small"
@@ -421,22 +415,22 @@ export default function StaffingPage() {
                      value={shrinkage * 100}
                      onChange={e => setShrinkage(+e.target.value / 100)} />
 
-          {/* main actions */}
+          {/* Actions */}
           <Button variant="contained" onClick={calcForecast}>
-            Calculate Forecast
+            Calculate 6-Month Forecast
           </Button>
-          <Button variant="contained" sx={{ ml: 1 }}
+          <Button variant="contained" sx={{ ml: 2 }}
                   disabled={!forecast.length}
                   onClick={assignToStaff}>
             Assign to Staff
           </Button>
-          <Button variant="contained" color="secondary" sx={{ ml: 1 }}
+          <Button variant="contained" color="secondary" sx={{ ml: 2 }}
                   disabled={!Object.keys(personSchedule).length}
                   onClick={allocateToAgents}>
             Allocate to Agents
           </Button>
 
-          {/* fixed-cap switch */}
+          {/* Fixed-staff toggle */}
           <FormControlLabel sx={{ ml: 1 }}
             control={
               <Switch checked={useFixedStaff}
@@ -451,67 +445,181 @@ export default function StaffingPage() {
                        onChange={e => setFixedStaff(+e.target.value)} />
           )}
         </Box>
-        {/* ───────── end toolbar ───────── */}
+        {/* ─── end toolbar ─── */}
 
-        {/* ───────── visualisations ───────── */}
+        {/* 1) REQUIRED AGENTS HEATMAP */}
         {forecast.length > 0 && (
-          <>
-            <Typography variant="h6" gutterBottom>
-              Required Agents (per hour)
-            </Typography>
-            <RequiredHeatmap
-              data={forecast}
-              valueKey="requiredAgents"   // new API field name
-            />
-          </>
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Required Agents Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const req    = d.staffing.find(s => s.hour === h)?.requiredAgents || 0;
+                      const alpha  = maxReq ? (req / maxReq) * 0.8 + 0.2 : 0.2;
+                      return (
+                        <Tooltip key={d.date} title={`Req: ${req}`}>
+                          <TableCell
+                            sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}>
+                            {req}
+                          </TableCell>
+                        </Tooltip>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
         )}
 
+        {/* 2) SCHEDULED COVERAGE HEATMAP */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const cov    = scheduled[`${d.date}|${h}`] || 0;
+                      const alpha  = maxSch ? (cov / maxSch) * 0.8 + 0.2 : 0.2;
+                      return (
+                        <Tooltip key={d.date} title={`Cov: ${cov}`}>
+                          <TableCell
+                            sx={{ backgroundColor: `rgba(76,175,80,${alpha})` }}>
+                            {cov}
+                          </TableCell>
+                        </Tooltip>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* 3) UNDER / OVER STAFFING HEATMAP */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const val   = deficit[`${d.date}|${h}`] || 0;
+                      const ratio = maxDef ? (Math.abs(val) / maxDef) * 0.8 + 0.2 : 0.2;
+                      const col   = val < 0
+                        ? `rgba(244,67,54,${ratio})`
+                        : `rgba(76,175,80,${ratio})`;
+                      return (
+                        <Tooltip key={d.date} title={`Deficit: ${val}`}>
+                          <TableCell sx={{ backgroundColor: col }}>
+                            {val}
+                          </TableCell>
+                        </Tooltip>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* 4) SHIFT BLOCK TABLE */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Assigned Shift-Block Types</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Start Date</TableCell>
+                  <TableCell>Start Hour</TableCell>
+                  <TableCell>Length (h)</TableCell>
+                  <TableCell>Count</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {blocks.map((b, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{i + 1}</TableCell>
+                    <TableCell>{b.startDate}</TableCell>
+                    <Tooltip title={`Starts at ${b.startHour}:00`}>
+                      <TableCell>{b.startHour}:00</TableCell>
+                    </Tooltip>
+                    <TableCell>{b.length}</TableCell>
+                    <TableCell>{b.count}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* 5) 6-MONTH ROTATING CALENDAR */}
         {Object.keys(personSchedule).length > 0 && (
-          <>
-            <Typography variant="h6" sx={{ mt: 4 }} gutterBottom>
-              Coverage vs Requirement
+          <Box sx={{ mt: 4 }}>
+            <Typography variant="h6" gutterBottom>
+              6-Month Staff Calendar (rotating every {weeks} weeks)
             </Typography>
-            <CoverageGrid
-              reqMap={reqMap}
-              scheduled={scheduled}
-              deficit={deficit}
-              maxReq={maxReq}
-              maxSch={maxSch}
-              maxDef={maxDef}
+            <Button variant="outlined" onClick={exportExcel} sx={{ mb: 2 }}>
+              Export to Excel
+            </Button>
+            <CalendarView
+              scheduleByEmp={personSchedule}
+              nameFor={nameFor}
             />
-
-            <Typography variant="h6" sx={{ mt: 4 }} gutterBottom>
-              Shift Blocks (solution)
-            </Typography>
-            <ShiftBlockTable
-              blocks={blocks}
-              bestStartHours={bestStartHours}
-            />
-
-            <Box sx={{ mt: 2 }}>
-              <Button variant="outlined" onClick={exportExcel}>
-                Export Schedule to Excel
-              </Button>
+            <Box sx={{ mt: 2, p: 2, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+              <Typography variant="subtitle1">
+                {useFixedStaff
+                  ? `Staff cap set to ${fixedStaff}.`
+                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} agents.`}
+              </Typography>
             </Box>
-
-            <Typography variant="h6" sx={{ mt: 4 }} gutterBottom>
-              Per-Person Calendar View
-            </Typography>
-            <CalendarView scheduleByEmp={personSchedule} />
-          </>
+          </Box>
         )}
-        {/* ───────── end visualisations ───────── */}
       </Box>
     </LocalizationProvider>
   );
 }
 
-/* ────────────────────────────────────────────────────────────
-   8.  ✦   CalendarView (inline component)
-─────────────────────────────────────────────────────────── */
-function CalendarView({ scheduleByEmp }) {
+/* ──────────────────────────────────────────────────────────── */
+/*  CalendarView (inline) */
+function CalendarView({ scheduleByEmp, nameFor }) {
   const allDates = [...new Set(
-    Object.values(scheduleByEmp).flatMap(a => a.map(e => e.day))
+    Object.values(scheduleByEmp).flatMap(arr => arr.map(e => e.day))
   )].sort();
 
   return (
@@ -532,12 +640,12 @@ function CalendarView({ scheduleByEmp }) {
           {Object.entries(scheduleByEmp).map(([emp, arr]) => {
             const mapDay = {};
             arr.forEach(({ day, hour }) => { mapDay[day] = hour; });
-            const color = '#' + ((emp * 1234567) % 0xffffff)
+            const color = '#' + ((+emp * 1234567) % 0xffffff)
               .toString(16).padStart(6, '0');
 
             return (
               <TableRow key={emp}>
-                <TableCell>Emp&nbsp;{emp}</TableCell>
+                <TableCell>{nameFor(+emp)}</TableCell>
                 {allDates.map(d => (
                   <TableCell key={d} sx={{
                     backgroundColor: mapDay[d] != null ? `${color}33` : undefined,
