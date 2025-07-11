@@ -40,16 +40,21 @@ model Shift {
   id         Int       @id @default(autoincrement())
   agentId    Int?
   agent      Agent?    @relation(fields: [agentId], references: [id])
+
   shiftDate  DateTime  @db.Date
   startAt    DateTime
   endAt      DateTime
 
-  // new: one‐hour lunch break window
-  breakStart DateTime? 
+  // one-hour lunch break window
+  breakStart DateTime?
   breakEnd   DateTime?
+
+  /// ←-- new column required by Feature 1 & 2
+  generatedBy String?  @default("solver")     // 'solver' | 'manual'
 
   attendance AttendanceLog?
 }
+
 
 model Duty {
   id   Int    @id @default(autoincrement())
