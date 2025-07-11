@@ -18,6 +18,7 @@ import RosterUpload   from './components/RosterUpload'
 import LoginPage      from './pages/LoginPage'
 import AgentsPage     from './pages/AgentsPage'
 import StaffingPage   from './pages/StaffingPage'
+import ShiftManager   from './pages/ShiftManager.jsx'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -29,11 +30,12 @@ function SideNav() {
 
   const items = [
     { label: 'Adherence Tracking',    path: '/',          icon: <DashboardIcon /> },
-    { label: 'Weekly Schedule',     path: '/schedule',  icon: <CalendarTodayIcon /> },
-    { label: 'Admin',        path: '/agents',    icon: <AdminPanelSettingsIcon /> },
-    { label: 'Forecasting',       path: '/volume',    icon: <BarChartIcon /> },
-    { label: 'Staffing & Scheduling'     ,path: '/staffing',  icon: <WorkHistoryIcon /> },
-    { label: 'Upload Roster',path: '/roster',    icon: <UploadIcon /> },
+    { label: 'Weekly Schedule',       path: '/schedule',  icon: <CalendarTodayIcon /> },
+    { label: 'Admin',                 path: '/agents',    icon: <AdminPanelSettingsIcon /> },
+    { label: 'Forecasting',           path: '/volume',    icon: <BarChartIcon /> },
+    { label: 'Staffing & Scheduling', path: '/staffing',  icon: <WorkHistoryIcon /> },
+    { label: 'Upload Roster',         path: '/roster',    icon: <UploadIcon /> },
+    { label: 'Shift Manager',         path: '/shifts',    icon: <UploadIcon /> },
   ]
 
   return (
@@ -77,6 +79,7 @@ export default function App() {
                 <Route path="/roster"    element={<RosterUpload/>}/>
                 <Route path="/agents"    element={<AgentsPage/>}/>
                 <Route path="/staffing"  element={<StaffingPage />} />
+                <Route path="/shifts"    element={<ShiftManager />} />
               </Route>
 
               {/* Catch-all → if you hit any other path, send to "/" (which will itself redirect to /login if unauth'd) */}
