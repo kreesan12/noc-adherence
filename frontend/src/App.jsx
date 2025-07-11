@@ -27,12 +27,12 @@ function SideNav() {
   if (!user || pathname === '/login') return null
 
   const items = [
-    { label: 'Adherence',    path: '/',          icon: <DashboardIcon /> },
-    { label: 'Schedule',     path: '/schedule',  icon: <CalendarTodayIcon /> },
+    { label: 'Adherence Tracking',    path: '/',          icon: <DashboardIcon /> },
+    { label: 'Weekly Schedule',     path: '/schedule',  icon: <CalendarTodayIcon /> },
     { label: 'Admin',        path: '/agents',    icon: <AdminPanelSettingsIcon /> },
-    { label: 'Volume',       path: '/volume',    icon: <BarChartIcon /> },
+    { label: 'Forecasting',       path: '/volume',    icon: <BarChartIcon /> },
+    { label: 'Staffing & Scheduling'     ,path: '/staffing',  icon: <WorkHistoryIcon /> },
     { label: 'Upload Roster',path: '/roster',    icon: <UploadIcon /> },
-    { label: 'Staffing'     ,path: '/staffing',  icon: <UploadIcon /> },
   ]
 
   return (
