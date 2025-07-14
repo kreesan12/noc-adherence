@@ -15,7 +15,7 @@ model Agent {
   email       String? @unique
   hash        String?
   phone       String?
-  role        String? // NOC-I, NOC-II …
+  role        String?
   standbyFlag Boolean @default(false)
 
   shifts       Shift[]
