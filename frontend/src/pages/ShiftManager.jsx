@@ -47,22 +47,20 @@ export default function ShiftManager() {
         }
       });
 
-      /* ensure the shape expected by DataGrid */
-      const mapped = data.map(s => ({
-        id        : s.id,
-        agentName : s.agent?.name || '—',
-        team      : s.agent?.role || '',
-        startAt   : s.startAt,
-        endAt     : s.endAt
-      }));
-      setRows(mapped);
+      /* backend already sends flat keys { agentName, team, … } */
+      setRows(data);
     })();
   }, [filters]);
 
   /* ── 3) grid columns (memoised) ─────────────────────────── */
   const columns = useMemo(() => [
     { field: 'id',        headerName: 'ID',     width: 70 },
-    { field: 'agentName', headerName: 'Agent',  width: 160 },
+    {
+      field: 'agentName',
+      headerName: 'Agent',
+      width: 180,
+      valueGetter: p => p.row.agentName || '—'
+    },
     { field: 'team',      headerName: 'Team',   width: 120 },
     {
       field      : 'startAt',
