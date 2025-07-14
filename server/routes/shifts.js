@@ -47,81 +47,86 @@ export default prisma => {
       res.json(rows);
     });
 
-  /* ──────────────────────────────────────────────────────────
-   * 1)  AUTO-ALLOCATE SHIFTS  (Feature 1, unchanged)
-   * ────────────────────────────────────────────────────────── */
-  /**
-   * POST /api/shifts/allocate
-   * body: {
-   *   role: 'NOC-I',
-   *   schedule:[{ day:'2025-10-01', hour:0, breakHour:4, index:1 }, …],
-   *   clearExisting:true
-   * }
-   */
-  r.post('/allocate', async (req, res) => {
-    try {
-      const { role, schedule, clearExisting = true } = req.body;
-      if (!role || !Array.isArray(schedule) || !schedule.length) {
-        return res.status(400).json({ ok:false, error:'Invalid payload' });
-      }
-
-      /* 1) agents of that role */
-      const agents = await prisma.agent.findMany({
-        where:{ role, standbyFlag:false }
-      });
-      if (!agents.length) {
-        return res.status(400).json({ ok:false, error:'No agents found for role' });
-      }
-
-      /* 2) optionally wipe */
-      const minDay = dayjs(schedule[0].day).startOf('day').toDate();
-      const maxDay = dayjs(schedule[schedule.length - 1].day).endOf('day').toDate();
-      if (clearExisting) {
-        await prisma.shift.deleteMany({
-          where:{
-            shiftDate:{ gte:minDay, lte:maxDay },
-            agent:{ role }
-          }
-        });
-      }
-
-      /* 3) round-robin assign */
-      const shuffled = agents.sort(() => Math.random() - 0.5);
-      const shifts   = [];
-
-      schedule.forEach((s,i) => {
-        const agent   = shuffled[i % shuffled.length];
-        const startAt = dayjs(`${s.day} ${s.hour}:00`).toDate();
-        const endAt   = dayjs(startAt).add(9,'hour').toDate();
-        const breakStart = dayjs(`${s.day} ${s.breakHour}:00`).toDate();
-        const breakEnd   = dayjs(breakStart).add(1,'hour').toDate();
-
-        shifts.push({
-          agentId: agent.id,
-          shiftDate: dayjs(s.day).startOf('day').toDate(),
-          startAt,
-          endAt,
-          breakStart,
-          breakEnd,
-          generatedBy: 'solver'                // <───────── NEW
-        });
+    /* ──────────────────────────────────────────────────────────
+    * 1)  AUTO-ALLOCATE SHIFTS  (reworked)
+    * ────────────────────────────────────────────────────────── */
+    /**
+     * POST /api/shifts/allocate
+     * body: {
+     *   role: 'NOC-I',
+     *   clearExisting: true,
+     *   schedule: [
+     *     {
+     *       agentId:    64,
+     *       startAt:    '2025-08-03T06:00:00.000Z',
+     *       endAt:      '2025-08-03T15:00:00.000Z',
+     *       breakStart: '2025-08-03T08:00:00.000Z',   // optional
+     *       breakEnd:   '2025-08-03T09:00:00.000Z'    // optional
+     *     }, …
+     *   ]
+     * }
+     */
+    r.post('/allocate', async (req, res) => {
+      /* 0) basic validation – use zod so the caller gets a 400 early */
+      const schema = z.object({
+        role: z.string().min(1),
+        clearExisting: z.boolean().optional().default(true),
+        schedule: z
+          .array(
+            z.object({
+              agentId: z.number().int(),
+              startAt: z.string().datetime(),
+              endAt: z.string().datetime(),
+              breakStart: z.string().datetime().optional(),
+              breakEnd: z.string().datetime().optional()
+            })
+          )
+          .min(1)
       });
 
-      /* 4) bulk insert */
-      const batch = 500;
-      for (let i=0;i<shifts.length;i+=batch) {
-        await prisma.shift.createMany({
-          data: shifts.slice(i,i+batch),
-          skipDuplicates:true
-        });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ ok: false, error: parsed.error });
       }
 
-      return res.json({ ok:true, inserted:shifts.length });
-    } catch (err) {
-      console.error('POST /shifts/allocate:', err);
-      return res.status(500).json({ ok:false, error:err.message });
-    }
-  });
+      const { role, clearExisting, schedule } = parsed.data;
+
+      try {
+        /* 1) optional wipe of existing rows that overlap the range */
+        if (clearExisting) {
+          const minStart = dayjs(schedule[0].startAt).startOf('day').toDate();
+          const maxEnd = dayjs(schedule[schedule.length - 1].endAt)
+            .endOf('day')
+            .toDate();
+
+          await prisma.shift.deleteMany({
+            where: {
+              startAt: { gte: minStart, lte: maxEnd },
+              agent: { role } // same team/role you’re inserting for
+            }
+          });
+        }
+
+        /* 2) normalise payload → DB rows */
+        const rows = schedule.map(s => ({
+          agentId: s.agentId,
+          shiftDate: dayjs.utc(s.startAt).startOf('day').toDate(), // keep existing filters working
+          startAt: new Date(s.startAt),
+          endAt: new Date(s.endAt),
+          breakStart: s.breakStart ? new Date(s.breakStart) : null,
+          breakEnd: s.breakEnd ? new Date(s.breakEnd) : null,
+          generatedBy: 'solver'
+        }));
+
+        /* 3) bulk insert (skipDuplicates in case caller retries) */
+        await prisma.shift.createMany({ data: rows, skipDuplicates: true });
+
+        return res.json({ ok: true, inserted: rows.length });
+      } catch (err) {
+        console.error('POST /shifts/allocate:', err);
+        return res.status(500).json({ ok: false, error: 'Allocation failed' });
+      }
+    });
 
   /* ──────────────────────────────────────────────────────────
    * 2)  MANUAL EDIT  (Feature 2)
