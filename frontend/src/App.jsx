@@ -114,7 +114,7 @@ function SideNav() {
               mt: 1,
             }}
           >
-            NOC&nbsp;Dashboard
+            
           </ListSubheader>
         }
       >
@@ -129,8 +129,8 @@ function SideNav() {
               <ListItemText
                 primary={section.title}
                 primaryTypographyProps={{
-                  fontSize: 18,
-                  fontWeight: 700,
+                  fontSize: 15,
+                  fontWeight: 600,
                   letterSpacing: 0.5,
                   color: '#fff',
                 }}
