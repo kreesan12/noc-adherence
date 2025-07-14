@@ -31,7 +31,7 @@ export default function StaffingPage() {
   const [team,   setTeam]   = useState('');
   const [agents, setAgents] = useState([]);           // full agent list
 
-  const [startDate,  setStartDate]  = useState(dayjs());
+  const [startDate,  setStartDate]  = useState(dayjs().startOf('day'));
   const [callAht,    setCallAht]    = useState(300);
   const [ticketAht,  setTicketAht]  = useState(240);
   const [sl,         setSL]         = useState(0.8);
@@ -327,19 +327,34 @@ export default function StaffingPage() {
   };
 
   /* 6-D. PUSH SHIFTS TO BACKEND ----------------------------- */
-  const buildAllocationPayload = () => {
-    /* only as many employees as we have live agents ― skip the “TBD” rows */
-    const teamAgents = agents.filter(a => a.role === team);
-    const rows = [];
+    const buildAllocationPayload = () => {
+      const liveAgents = agents.filter(a => a.role === team);   // ignore “TBD”
+      const rows = [];
 
-    Object.entries(personSchedule).forEach(([emp, arr]) => {
-      const idx = +emp - 1;
-      if (idx >= teamAgents.length) return;     // ignore dummies
-      arr.forEach(r => rows.push({ day: r.day, hour: r.hour, breakHour: r.breakHour }));
-    });
+      Object.entries(personSchedule).forEach(([empNum, shifts]) => {
+        const idx = +empNum - 1;                // 1-based → 0-based
+        if (idx >= liveAgents.length) return;   // skip dummy slots
 
-    return rows;
-  };
+        const agentId = liveAgents[idx].id;
+
+        shifts.forEach(({ day, hour, breakHour }) => {
+          const startAt      = dayjs.utc(`${day}T${hour.toString().padStart(2, '0')}:00:00`);
+          const endAt        = startAt.add(SHIFT_LENGTH, 'hour');
+          const breakStart   = dayjs.utc(`${day}T${breakHour.toString().padStart(2, '0')}:00:00`);
+          const breakEnd     = breakStart.add(1, 'hour');
+
+          rows.push({
+            agentId,
+            startAt:    startAt.toISOString(),
+            endAt:      endAt.toISOString(),
+            breakStart: breakStart.toISOString(),
+            breakEnd:   breakEnd.toISOString()
+          });
+        });
+      });
+
+      return rows;
+    };
 
   const allocateToAgents = async () => {
     if (!Object.keys(personSchedule).length) return;
@@ -387,8 +402,8 @@ export default function StaffingPage() {
           <DatePicker
             label="Forecast Start"
             value={startDate}
-            onChange={d => d && setStartDate(d)}
-            renderInput={p => <TextField {...p} size="small" />}
+            onChange={d => d && setStartDate(d.startOf('day'))}
+            slotProps={{ textField: { size: 'small' } }}
           />
 
           {/* Rotation (weeks) */}
@@ -419,19 +434,9 @@ export default function StaffingPage() {
           <Button variant="contained" onClick={calcForecast}>
             Calculate 6-Month Forecast
           </Button>
-          <Button variant="contained" sx={{ ml: 2 }}
-                  disabled={!forecast.length}
-                  onClick={assignToStaff}>
-            Assign to Staff
-          </Button>
-          <Button variant="contained" color="secondary" sx={{ ml: 2 }}
-                  disabled={!Object.keys(personSchedule).length}
-                  onClick={allocateToAgents}>
-            Allocate to Agents
-          </Button>
 
           {/* Fixed-staff toggle */}
-          <FormControlLabel sx={{ ml: 1 }}
+          <FormControlLabel sx={{ ml: 2 }}
             control={
               <Switch checked={useFixedStaff}
                       onChange={e => setUseFixedStaff(e.target.checked)} />
@@ -444,6 +449,17 @@ export default function StaffingPage() {
                        value={fixedStaff}
                        onChange={e => setFixedStaff(+e.target.value)} />
           )}
+
+          <Button variant="contained" sx={{ ml: 2 }}
+                  disabled={!forecast.length}
+                  onClick={assignToStaff}>
+            Draft schedule & assign agents
+          </Button>
+          <Button variant="contained" color="secondary" sx={{ ml: 2 }}
+                  disabled={!Object.keys(personSchedule).length}
+                  onClick={allocateToAgents}>
+            Allocate to Agents
+          </Button>
         </Box>
         {/* ─── end toolbar ─── */}
 
