@@ -6,9 +6,11 @@ import {
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import dayjs from 'dayjs';
+import utc   from 'dayjs/plugin/utc';   // ⇦ NEW – so we can keep the ISO dates in UTC
+dayjs.extend(utc);
 
-import api from '../api';                  // default axios wrapper
-import { updateShift, swapShifts } from '../api/shifts';   // <– unchanged
+import api from '../api';                       // axios wrapper
+import { updateShift, swapShifts } from '../api/shifts';   // unchanged
 
 export default function ShiftManager() {
   /* ── state ──────────────────────────────────────────────── */
@@ -40,45 +42,36 @@ export default function ShiftManager() {
       const { team, agent, from, to } = filters;
       const { data } = await api.get('/shifts', {
         params: {
-          role     : team    || undefined,         // backend expects `role`
+          role     : team    || undefined,            // backend expects `role`
           agentId  : agent   || undefined,
           startDate: from.format('YYYY-MM-DD'),
           endDate  : to.format('YYYY-MM-DD')
         }
       });
 
-      /* backend already sends flat keys { agentName, team, … } */
+      // backend already returns flat keys { id, agentName, team, startAt, endAt }
       setRows(data);
     })();
   }, [filters]);
 
   /* ── 3) grid columns (memoised) ─────────────────────────── */
   const columns = useMemo(() => [
-    { field: 'id',        headerName: 'ID',     width: 70 },
+    { field: 'id',         headerName: 'ID',    width: 70 },
+    { field: 'agentName',  headerName: 'Agent', width: 180 },
+    { field: 'team',       headerName: 'Team',  width: 140 },
     {
-      field: 'agentName',
-      headerName: 'Agent',
+      field: 'startAt',
+      headerName: 'Start',
       width: 180,
-      // guard against an undefined row while the grid is re-rendering
-      valueGetter: p => p.row?.agentName ?? '—',
+      valueFormatter: params =>
+        params.value ? dayjs.utc(params.value).format('YYYY-MM-DD HH:mm') : '—'
     },
     {
-      field: 'team',
-      headerName: 'Team',
-      width: 140,
-      valueGetter: p => p.row?.team ?? '—',
-    },
-    {
-      field      : 'startAt',
-      headerName : 'Start',
-      width      : 180,
-      valueGetter: p => dayjs(p.value).format('YYYY-MM-DD HH:mm')
-    },
-    {
-      field      : 'endAt',
-      headerName : 'End',
-      width      : 180,
-      valueGetter: p => dayjs(p.value).format('YYYY-MM-DD HH:mm')
+      field: 'endAt',
+      headerName: 'End',
+      width: 180,
+      valueFormatter: params =>
+        params.value ? dayjs.utc(params.value).format('YYYY-MM-DD HH:mm') : '—'
     },
     {
       field     : 'actions',
@@ -100,7 +93,6 @@ export default function ShiftManager() {
         </>
       )
     }
-  // include swapSource in deps so the ↔︎ button colour updates
   ], [swapSource]);
 
   /* ── 4) helpers — edit / swap / snack ───────────────────── */
@@ -109,7 +101,7 @@ export default function ShiftManager() {
       await updateShift(editItem.id, changes);
       setSnack('Shift updated');
       setEditItem(null);
-      setFilters({ ...filters });          // re-trigger fetch
+      setFilters({ ...filters });   // re-trigger fetch
     } catch {
       setSnack('Error updating shift');
     }
@@ -207,10 +199,10 @@ export default function ShiftManager() {
 /* ── small inline dialog component ───────────────────────── */
 function EditShiftDialog({ shift, onCancel, onSave }) {
   const [start, setStart] = useState(
-    dayjs(shift.startAt).format('YYYY-MM-DDTHH:mm')
+    dayjs.utc(shift.startAt).format('YYYY-MM-DDTHH:mm')
   );
   const [end,   setEnd]   = useState(
-    dayjs(shift.endAt).format('YYYY-MM-DDTHH:mm')
+    dayjs.utc(shift.endAt).format('YYYY-MM-DDTHH:mm')
   );
 
   return (
