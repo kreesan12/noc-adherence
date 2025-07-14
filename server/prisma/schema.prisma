@@ -21,7 +21,7 @@ model Agent {
   standbyFlag Boolean @default(false)
 
   shifts        Shift[]
-  leaves        Leave[]                         // ← NEW
+  leave         Leave[]                         // ← NEW
   auditEntries  AuditLog[] @relation("AgentAuditEntries")
  
   // back relation for your new Engagement model
