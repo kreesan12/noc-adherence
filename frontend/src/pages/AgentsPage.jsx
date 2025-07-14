@@ -1,9 +1,6 @@
 // frontend/src/pages/AgentsPage.jsx
 import { useEffect, useState } from 'react'
-import {
-  DataGrid,
-  GridToolbar,
-} from '@mui/x-data-grid'
+import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import {
   Box,
   Typography,
@@ -19,51 +16,53 @@ import {
 } from '@mui/material'
 import api from '../api'
 
+/* ─── shared roles list ────────────────────────────────────── */
+const ROLES = ['NOC Tier 1', 'NOC Tier 2', 'NOC Tier 3']
+
 export default function AgentsPage() {
-  // agents state & dialog
-  const [agents, setAgents]     = useState([])
+  /* ─── state ──────────────────────────────────────────────── */
+  // agents
+  const [agents, setAgents]       = useState([])
   const [openAgent, setOpenAgent] = useState(false)
   const [agentForm, setAgentForm] = useState({
-    fullName:'', email:'', role:'NOC-I', standby:false
+    fullName: '', email: '', role: ROLES[0], standby: false
   })
 
-  // supervisors state & dialog
+  // supervisors
   const [supers, setSupers]     = useState([])
   const [openSup, setOpenSup]   = useState(false)
   const [supForm, setSupForm]   = useState({
-    fullName:'', email:'', password:''
+    fullName: '', email: '', password: ''
   })
 
-  // Fetch both lists on mount
+  /* ─── load data on mount ─────────────────────────────────── */
   useEffect(() => {
     api.get('/agents').then(r => setAgents(r.data))
     api.get('/supervisors').then(r => setSupers(r.data))
   }, [])
 
-  // Agent grid columns
+  /* ─── grid definitions ───────────────────────────────────── */
   const agentCols = [
-    { field:'id',       headerName:'ID',      width:70 },
-    { field:'fullName', headerName:'Name',    flex:1  },
-    { field:'email',    headerName:'Email',   flex:1  },
-    { field:'role',     headerName:'Role',    width:110 },
+    { field: 'id',       headerName: 'ID',     width: 70 },
+    { field: 'fullName', headerName: 'Name',   flex: 1  },
+    { field: 'email',    headerName: 'Email',  flex: 1  },
+    { field: 'role',     headerName: 'Role',   width: 130 },
     {
       field: 'standbyFlag',
       headerName: 'Stand-by',
       width: 110,
-      // just look at the cell value, no row dereferencing
       renderCell: params => (params.value ? '✅' : '—')
-    },
+    }
   ]
 
-  // Supervisor grid columns
   const supCols = [
-    { field:'id',       headerName:'ID',    width:70 },
-    { field:'fullName', headerName:'Name',  flex:1  },
-    { field:'email',    headerName:'Email', flex:1  },
-    { field:'role',     headerName:'Role',  width:130 }
+    { field: 'id',       headerName: 'ID',    width: 70 },
+    { field: 'fullName', headerName: 'Name',  flex: 1  },
+    { field: 'email',    headerName: 'Email', flex: 1  },
+    { field: 'role',     headerName: 'Role',  width: 130 }
   ]
 
-  // Save new agent
+  /* ─── handlers ───────────────────────────────────────────── */
   async function handleAgentSave() {
     await api.post('/agents', {
       fullName: agentForm.fullName,
@@ -74,9 +73,9 @@ export default function AgentsPage() {
     const { data } = await api.get('/agents')
     setAgents(data)
     setOpenAgent(false)
+    setAgentForm({ fullName:'', email:'', role:ROLES[0], standby:false })
   }
 
-  // Save new supervisor
   async function handleSupSave() {
     await api.post('/supervisors', {
       fullName: supForm.fullName,
@@ -86,17 +85,20 @@ export default function AgentsPage() {
     const { data } = await api.get('/supervisors')
     setSupers(data)
     setOpenSup(false)
+    setSupForm({ fullName:'', email:'', password:'' })
   }
 
+  /* ─── render ─────────────────────────────────────────────── */
   return (
     <Box>
+      {/* ── Agents ──────────────────────────────────────────── */}
       <Typography variant="h6" gutterBottom>
         Agents
       </Typography>
       <Button
         variant="contained"
-        sx={{ mb:2 }}
-        onClick={()=>setOpenAgent(true)}
+        sx={{ mb: 2 }}
+        onClick={() => setOpenAgent(true)}
       >
         + Add agent
       </Button>
@@ -105,29 +107,46 @@ export default function AgentsPage() {
         columns={agentCols}
         autoHeight
         disableRowSelectionOnClick
-        slots={{ toolbar:GridToolbar }}
+        slots={{ toolbar: GridToolbar }}
       />
 
-      <Dialog open={openAgent} onClose={()=>setOpenAgent(false)}>
+      {/* Add-agent dialog */}
+      <Dialog open={openAgent} onClose={() => setOpenAgent(false)}>
         <DialogTitle>New agent</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt:1, width:320 }}>
-            <TextField  label="Full name" value={agentForm.fullName} required
-              onChange={e=>setAgentForm({ ...agentForm, fullName:e.target.value })}/>
-            <TextField  label="Email" type="email" value={agentForm.email} required
-              onChange={e=>setAgentForm({ ...agentForm, email:e.target.value })}/>
-            <TextField  label="Role" select value={agentForm.role}
-              onChange={e=>setAgentForm({ ...agentForm, role:e.target.value })}>
-              {['NOC-I','NOC-II','NOC-III'].map(r=>
+          <Stack spacing={2} sx={{ mt: 1, width: 320 }}>
+            <TextField
+              label="Full name"
+              value={agentForm.fullName}
+              onChange={e => setAgentForm({ ...agentForm, fullName: e.target.value })}
+              required
+            />
+            <TextField
+              label="Email"
+              type="email"
+              value={agentForm.email}
+              onChange={e => setAgentForm({ ...agentForm, email: e.target.value })}
+              required
+            />
+            <TextField
+              label="Role"
+              select
+              value={agentForm.role}
+              onChange={e => setAgentForm({ ...agentForm, role: e.target.value })}
+            >
+              {ROLES.map(r => (
                 <MenuItem key={r} value={r}>{r}</MenuItem>
-              )}
+              ))}
             </TextField>
-            <FormControlLabel control={
-              <Checkbox
-                checked={agentForm.standby}
-                onChange={e=>setAgentForm({ ...agentForm, standby:e.target.checked })}
-              />
-            } label="Stand-by rota"/>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={agentForm.standby}
+                  onChange={e => setAgentForm({ ...agentForm, standby: e.target.checked })}
+                />
+              }
+              label="Stand-by rota"
+            />
             <Button variant="contained" onClick={handleAgentSave}>
               Save
             </Button>
@@ -135,15 +154,14 @@ export default function AgentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ─────────────────────────────────────────────────────────────── */}
-
-      <Typography variant="h6" gutterBottom sx={{ mt:4 }}>
+      {/* ── Supervisors ─────────────────────────────────────── */}
+      <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
         Supervisors
       </Typography>
       <Button
         variant="contained"
-        sx={{ mb:2 }}
-        onClick={()=>setOpenSup(true)}
+        sx={{ mb: 2 }}
+        onClick={() => setOpenSup(true)}
       >
         + Add supervisor
       </Button>
@@ -152,19 +170,34 @@ export default function AgentsPage() {
         columns={supCols}
         autoHeight
         disableRowSelectionOnClick
-        slots={{ toolbar:GridToolbar }}
+        slots={{ toolbar: GridToolbar }}
       />
 
-      <Dialog open={openSup} onClose={()=>setOpenSup(false)}>
+      {/* Add-supervisor dialog */}
+      <Dialog open={openSup} onClose={() => setOpenSup(false)}>
         <DialogTitle>New supervisor</DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt:1, width:320 }}>
-            <TextField  label="Full name" value={supForm.fullName} required
-              onChange={e=>setSupForm({ ...supForm, fullName:e.target.value })}/>
-            <TextField  label="Email" type="email" value={supForm.email} required
-              onChange={e=>setSupForm({ ...supForm, email:e.target.value })}/>
-            <TextField  label="Password" type="password" value={supForm.password} required
-              onChange={e=>setSupForm({ ...supForm, password:e.target.value })}/>
+          <Stack spacing={2} sx={{ mt: 1, width: 320 }}>
+            <TextField
+              label="Full name"
+              value={supForm.fullName}
+              onChange={e => setSupForm({ ...supForm, fullName: e.target.value })}
+              required
+            />
+            <TextField
+              label="Email"
+              type="email"
+              value={supForm.email}
+              onChange={e => setSupForm({ ...supForm, email: e.target.value })}
+              required
+            />
+            <TextField
+              label="Password"
+              type="password"
+              value={supForm.password}
+              onChange={e => setSupForm({ ...supForm, password: e.target.value })}
+              required
+            />
             <Button variant="contained" onClick={handleSupSave}>
               Save
             </Button>
