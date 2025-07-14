@@ -1,5 +1,7 @@
 // frontend/src/App.js
+import React, { useState } from 'react'
 import { CssBaseline, ThemeProvider } from '@mui/material'
+import { styled } from '@mui/material/styles'   // ← FIX
 import theme from './theme'
 
 import {
@@ -11,7 +13,6 @@ import {
   ListItemText,
   ListSubheader,
   Collapse,
-  styled,
 } from '@mui/material'
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 
@@ -39,10 +40,7 @@ import ShiftManager   from './pages/ShiftManager'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute            from './components/ProtectedRoute'
 
-/* ──────────────────────────────────────────────────────────
-   Stylish drawer: dark sidebar with subtle shadow & glass-morph
-   (feel similar to Linear, Figma or Vercel dashboards)
-   ────────────────────────────────────────────────────────── */
+/* ─── Drawer styling ────────────────────────────────────── */
 const DRAWER_WIDTH = 230
 
 const StyledDrawer = styled(Drawer)(({ theme }) => ({
@@ -61,42 +59,39 @@ function isActive(pathname, itemPath) {
   return pathname.startsWith(itemPath)
 }
 
-/* ───────────────────────── SideNav ─────────────────────── */
+/* ──────────────── SideNav ──────────────────────────────── */
 function SideNav() {
-  const { user }    = useAuth()
-  const location    = useLocation()
-
-  // hide sidebar on the login page or if not logged-in
+  const { user } = useAuth()
+  const location = useLocation()
   if (!user || location.pathname === '/login') return null
 
   const sections = [
     {
-      title : 'DAILY OPERATIONS',
-      items : [
+      title: 'DAILY OPERATIONS',
+      items: [
         { label:'Adherence Tracking', path:'/',          icon:<DashboardIcon/> },
         { label:'Weekly Schedule',    path:'/schedule',  icon:<CalendarTodayIcon/> },
       ],
     },
     {
-      title : 'STAFFING  &  SCHEDULING',
-      items : [
-        { label:'Forecasting',           path:'/volume',    icon:<BarChartIcon/> },
-        { label:'Staffing & Scheduling', path:'/staffing',  icon:<WorkHistoryIcon/> },
-        { label:'Shift Manager',         path:'/shifts',    icon:<UploadIcon/> },
+      title: 'STAFFING  &  SCHEDULING',
+      items: [
+        { label:'Forecasting',           path:'/volume',   icon:<BarChartIcon/> },
+        { label:'Staffing & Scheduling', path:'/staffing', icon:<WorkHistoryIcon/> },
+        { label:'Shift Manager',         path:'/shifts',   icon:<UploadIcon/> },
       ],
     },
     {
-      title : 'SETTINGS',
-      items : [
-        { label:'Admin',          path:'/agents',  icon:<AdminPanelSettingsIcon/> },
-        { label:'Upload Roster',  path:'/roster',  icon:<UploadIcon/> },
+      title: 'SETTINGS',
+      items: [
+        { label:'Admin',         path:'/agents', icon:<AdminPanelSettingsIcon/> },
+        { label:'Upload Roster', path:'/roster', icon:<UploadIcon/> },
       ],
     },
   ]
 
-  /* keep collapse state per section */
-  const [openState, setOpenState] = React.useState(
-    () => Object.fromEntries(sections.map(s => [s.title, false]))
+  const [openState, setOpenState] = useState(
+    Object.fromEntries(sections.map(s => [s.title, false]))
   )
 
   return (
@@ -114,13 +109,12 @@ function SideNav() {
               mt: 1,
             }}
           >
-            NOC Dashboard
+            NOC&nbsp;Dashboard
           </ListSubheader>
         }
       >
         {sections.map(section => (
           <Box key={section.title}>
-            {/* section header */}
             <ListItemButton
               onClick={() =>
                 setOpenState(o => ({ ...o, [section.title]: !o[section.title] }))
@@ -139,7 +133,6 @@ function SideNav() {
               {openState[section.title] ? <ExpandLess/> : <ExpandMore/>}
             </ListItemButton>
 
-            {/* nested items */}
             <Collapse in={openState[section.title]} timeout="auto" unmountOnExit>
               <List component="div" disablePadding>
                 {section.items.map(item => (
@@ -154,9 +147,7 @@ function SideNav() {
                       bgcolor: isActive(location.pathname, item.path)
                         ? 'rgba(255,255,255,0.15)'
                         : 'transparent',
-                      '&:hover': {
-                        bgcolor: 'rgba(255,255,255,0.08)',
-                      },
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
                     }}
                   >
                     <ListItemIcon sx={{ color:'#fff', minWidth:32 }}>
@@ -174,7 +165,7 @@ function SideNav() {
   )
 }
 
-/* ─────────────────────────  App  ───────────────────────── */
+/* ──────────────────────── App ──────────────────────────── */
 export default function App() {
   return (
     <AuthProvider>
@@ -182,8 +173,7 @@ export default function App() {
         <CssBaseline/>
         <BrowserRouter basename="/noc-adherence">
           <SideNav/>
-          {/* push main content right by drawer width */}
-          <Box sx={{ ml: `${DRAWER_WIDTH}px`, p: 3 }}>
+          <Box sx={{ ml:`${DRAWER_WIDTH}px`, p:3 }}>
             <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage/>}/>
@@ -199,7 +189,7 @@ export default function App() {
                 <Route path="/shifts"   element={<ShiftManager/>}/>
               </Route>
 
-              {/* Catch-all */}
+              {/* Fallback */}
               <Route path="*" element={<Navigate to="/" replace/>}/>
             </Routes>
           </Box>
