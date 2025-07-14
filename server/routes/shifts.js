@@ -6,6 +6,47 @@ import { z }      from 'zod';          // already in deps from prev step
 export default prisma => {
   const r = Router();
 
+
+  /* ──────────────────────────────────────────────────────────
+   * LIST /api/shifts?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+   *                    [&team=NOC-I] [&agentId=12]
+   * ────────────────────────────────────────────────────────── */
+    r.get('/', async (req, res) => {
+      // ⬇︎  removed the “as { … }”
+      const { startDate, endDate, team, agentId } = req.query;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'startDate & endDate required' });
+      }
+
+      const where = {
+        shiftDate: {
+          gte: dayjs(startDate).startOf('day').toDate(),
+          lte: dayjs(endDate).endOf('day').toDate()
+        }
+      };
+      if (agentId) where.agentId = Number(agentId);
+      if (team)    where.agent   = { is: { role: team } };
+
+      const shifts = await prisma.shift.findMany({
+        where,
+        include: {
+          agent: { select: { id: true, fullName: true, role: true } }
+        },
+        orderBy: [{ shiftDate: 'asc' }, { startAt: 'asc' }]
+      });
+
+      const rows = shifts.map(s => ({
+        id:        s.id,
+        agentName: s.agent?.fullName ?? '—',
+        team:      s.agent?.role     ?? '—',
+        startAt:   s.startAt,
+        endAt:     s.endAt
+      }));
+
+      res.json(rows);
+    });
+
   /* ──────────────────────────────────────────────────────────
    * 1)  AUTO-ALLOCATE SHIFTS  (Feature 1, unchanged)
    * ────────────────────────────────────────────────────────── */

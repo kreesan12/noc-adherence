@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client'
 
 import authRole                            from './middleware/auth.js'
 import audit                               from './middleware/audit.js'
-import authRoutesFactory, { verifyToken } from './routes/auth.js'
+import authRoutesFactory, { verifyToken }  from './routes/auth.js'
 
 import rosterRoutes     from './routes/roster.js'
 import scheduleRoutes   from './routes/schedule.js'
@@ -18,7 +18,7 @@ import agentsRoutes     from './routes/agents.js'
 import attendanceRoutes from './routes/attendance.js'
 import supervisorRoutes from './routes/supervisors.js'
 import erlangRoutes     from './routes/erlang.js'
-import shiftRoutes    from './routes/shifts.js'
+import shiftRoutes      from './routes/shifts.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -92,7 +92,11 @@ app.use(
 
 app.use('/api/erlang', verifyToken, authRole('supervisor'), erlangRoutes(prisma))
 
-app.use('/api/shifts',  shiftRoutes(prisma))
+app.use(
+  '/api/shifts',
+  verifyToken, authRole('supervisor'),
+  shiftRoutes(prisma)
+);
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
