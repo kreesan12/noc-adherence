@@ -35,6 +35,7 @@ export default function SchedulePage () {
   /* ─── state ──────────────────────────────── */
   const [events, setEvents] = useState([])
   const [weekStart, setWeekStart] = useState(dayjs().startOf('week'))
+  const [team,      setTeam]      = useState('')        // NEW
   const [hourlyTotals, setHourlyTotals] = useState(
     Array(7).fill(null).map(() => Array(24).fill(0))
   )
@@ -50,8 +51,12 @@ export default function SchedulePage () {
 
   /* ─── 1) fetch shifts for the current week ── */
   useEffect(() => {
-    api.get('/schedule', { params: { week: weekStart.format('YYYY-MM-DD') } })
-      .then(({ data: shifts }) => {
+    api.get('/schedule', {
+        params: {
+        week : weekStart.format('YYYY-MM-DD'),
+       role : team || undefined                 // NEW
+    }})
+    .then(({ data: shifts }) => {
         /* group identical start/end combos */
         const groups = {}
         shifts.forEach(s => {
@@ -124,6 +129,15 @@ export default function SchedulePage () {
               onChange={d => d && setWeekStart(dayjs(d).startOf('week'))}
               slotProps={{ textField: { size: 'small', sx: { mx: 1 } } }}
             />
+              {/* ── NEW: team selector ───────────────────────────── */}
+              <FormControl size="small" sx={{ minWidth: 150, mx: 1 }}>
+                <InputLabel>Team</InputLabel>
+                <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
+                  <MenuItem value=''>All</MenuItem>
+                  {roles.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+                </Select>
+              </FormControl>
+              {/* ─────────────────────────────────────────────────── */}
 
             <Button onClick={nextWeek} variant='outlined' sx={{ ml: 1 }}>Next</Button>
           </Box>
