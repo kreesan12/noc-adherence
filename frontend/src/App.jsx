@@ -128,7 +128,7 @@ function SideNav() {
                   fontSize: 13,
                   fontWeight: 600,
                   letterSpacing: 0.5,
-                  color: 'grey.300',
+                  color: '#fff',
                 }}
               />
               {openState[section.title] ? <ExpandLess/> : <ExpandMore/>}
