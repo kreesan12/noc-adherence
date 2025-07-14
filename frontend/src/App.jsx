@@ -48,7 +48,7 @@ const StyledDrawer = styled(Drawer)(({ theme }) => ({
   '& .MuiDrawer-paper': {
     width: DRAWER_WIDTH,
     backdropFilter: 'blur(6px)',
-    background: 'rgba(33, 43, 54, 0.72)',
+    background: 'rgb(0, 184, 75)',
     color: '#fff',
     borderRight: 'none',
   },
