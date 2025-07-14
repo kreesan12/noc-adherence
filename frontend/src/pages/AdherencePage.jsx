@@ -69,30 +69,32 @@ export default function AdherencePage () {
   }, [])
 
   /* load schedule whenever date OR team changes */
-    useEffect(() => {
-      api.get('/shifts', {
-        params: {
-          role      : team || undefined,
-          startDate : date.format('YYYY-MM-DD'),
-          endDate   : date.format('YYYY-MM-DD')
-        }
-      })
-      .then(res => {
-        setRows(res.data.map(s => ({
-          id:    s.id,
-          agent: s.agent.fullName,
-          phone: s.agent.phone,
-          status:     s.attendance?.status       ?? 'pending',
-          duty:       s.attendance?.duty?.name   ?? '',
-          lunchStart: s.attendance?.lunchStart
-                      ? dayjs(s.attendance.lunchStart).format('HH:mm') : '',
-          lunchEnd:   s.attendance?.lunchEnd
-                      ? dayjs(s.attendance.lunchEnd).format('HH:mm')   : '',
-          start: dayjs(s.startAt).format('HH:mm'),
-          end:   dayjs(s.endAt).format('HH:mm')
-        })))
-      })
-    }, [date, team])
+  useEffect(() => {
+    api.get('/shifts', {
+      params: {
+        role      : team || undefined,
+        startDate : date.format('YYYY-MM-DD'),
+        endDate   : date.format('YYYY-MM-DD')
+      }
+    })
+    .then(res => {
+      /* 🔹 robust mapping — works whether the backend returns
+         { agentName } or a full { agent:{ fullName, phone } } object */
+      setRows(res.data.map(s => ({
+        id:        s.id,
+        agentName: s.agent?.fullName ?? s.agentName ?? '—',
+        phone:     s.agent?.phone    ?? s.phone      ?? '',
+        status:     s.attendance?.status       ?? 'pending',
+        duty:       s.attendance?.duty?.name   ?? '',
+        lunchStart: s.attendance?.lunchStart
+                    ? dayjs(s.attendance.lunchStart).format('HH:mm') : '',
+        lunchEnd:   s.attendance?.lunchEnd
+                    ? dayjs(s.attendance.lunchEnd).format('HH:mm')   : '',
+        start: dayjs(s.startAt).format('HH:mm'),
+        end:   dayjs(s.endAt).format('HH:mm')
+      })))
+    })
+  }, [date, team])
 
   /* inline-save handler (unchanged) */
   const processRowUpdate = async newRow => {
@@ -114,8 +116,8 @@ export default function AdherencePage () {
 
   /* grid columns (unchanged except minor formatting) */
   const columns = [
-    { field: 'agent', headerName: 'Agent', flex: 1 },
-    { field: 'phone', headerName: 'Phone', width: 120 },
+    { field: 'agentName', headerName: 'Agent', flex: 1 },   // 🔹 field renamed
+    { field: 'phone',     headerName: 'Phone', width: 120 },
     /* status */
     {
       field: 'status',

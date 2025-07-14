@@ -70,8 +70,6 @@ export default function SchedulePage () {
       }
     })
     .then(({ data: shifts }) => {
-      /* group identical start/end combos so FullCalendar
-         shows one bar with a numeric badge */
       const groups = {}
       shifts.forEach(s => {
         const key = `${s.startAt}|${s.endAt}`
@@ -87,16 +85,15 @@ export default function SchedulePage () {
         }
         groups[key].count++
         const displayName =
-          s.agent?.fullName ??
-          s.agentName       ??
-          `Emp #${s.agentId ?? '?'}`       // fallback
+          s.agent?.fullName ?? s.agentName ?? `Emp #${s.agentId ?? '?'}`
         groups[key].names.push(displayName)
       })
 
+      /* 🔹 convert ISO strings → Date objects here */
       setEvents(Object.values(groups).map(g => ({
         title          : String(g.count),
-        start          : g.start,
-        end            : g.end,
+        start          : new Date(g.start),
+        end            : new Date(g.end),
         backgroundColor: g.color,
         borderColor    : g.color.replace(/0\.5\)$/, '0.8)'),
         extendedProps  : { names: g.names }
