@@ -52,9 +52,22 @@ model Shift {
   /// ←-- new column required by Feature 1 & 2
   generatedBy String?  @default("solver")     // 'solver' | 'manual'
 
+  leaveId     Int?      // ← NEW (null unless this shift got auto-flagged as leave)
+  leave       Leave?    @relation(fields:[leaveId], references:[id])
+
   attendance AttendanceLog?
 }
 
+model Leave {
+  id          Int       @id @default(autoincrement())
+  agentId     Int
+  agent       Agent     @relation(fields:[agentId], references:[id])
+  reason      String
+  startsAt    DateTime
+  endsAt      DateTime
+  createdAt   DateTime  @default(now())
+  createdBy   String
+}
 
 model Duty {
   id   Int    @id @default(autoincrement())
@@ -102,18 +115,11 @@ model VolumeActual {
 }
 
 model AuditLog {
-  id      Int    @id @default(autoincrement())
-  actorId Int?
-  actor   Agent? @relation("AgentAuditEntries", fields: [actorId], references: [id])
-
-  supervisorId Int?
-  supervisor   Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
-
-  action   String
-  table    String
-  recordId Int
-  delta    Json
-  ts       DateTime @default(now())
+  id          Int       @id @default(autoincrement())
+  action      String    // e.g. SWAP_RANGE, REASSIGN_RANGE
+  actor       String    // whoever is logged-in
+  payload     Json
+  createdAt   DateTime  @default(now())
 }
 
 enum Status {

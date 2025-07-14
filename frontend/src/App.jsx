@@ -27,6 +27,7 @@ import WorkHistoryIcon        from '@mui/icons-material/WorkHistory'
 import ExpandLess             from '@mui/icons-material/ExpandLess'
 import ExpandMore             from '@mui/icons-material/ExpandMore'
 import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
+import EventBusyIcon          from '@mui/icons-material/EventBusy';
 
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
@@ -37,6 +38,7 @@ import LoginPage      from './pages/LoginPage'
 import AgentsPage     from './pages/AgentsPage'
 import StaffingPage   from './pages/StaffingPage'
 import ShiftManager   from './pages/ShiftManager'
+import LeavePlannerPage    from './pages/LeavePlannerPage'   // ← NEW
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -81,6 +83,7 @@ function SideNav() {
         { label:'Forecasting',           path:'/volume',   icon:<BarChartIcon/> },
         { label:'Staffing & Scheduling', path:'/staffing', icon:<WorkHistoryIcon/> },
         { label:'Shift Manager',         path:'/shifts',   icon:<ManageAccountsIcon/> },
+        { label:'Leave Planner',         path:'/leave-planner',   icon:<EventBusyIcon/> },
       ],
     },
     {
@@ -126,8 +129,8 @@ function SideNav() {
               <ListItemText
                 primary={section.title}
                 primaryTypographyProps={{
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: 18,
+                  fontWeight: 700,
                   letterSpacing: 0.5,
                   color: '#fff',
                 }}
@@ -189,6 +192,7 @@ export default function App() {
                 <Route path="/agents"   element={<AgentsPage/>}/>
                 <Route path="/staffing" element={<StaffingPage/>}/>
                 <Route path="/shifts"   element={<ShiftManager/>}/>
+                <Route path='/leave-planner'   element={<LeavePlannerPage />} />
               </Route>
 
               {/* Fallback */}

@@ -20,6 +20,7 @@ import attendanceRoutes from './routes/attendance.js'
 import supervisorRoutes from './routes/supervisors.js'
 import erlangRoutes     from './routes/erlang.js'
 import shiftRoutes      from './routes/shifts.js'
+import leaveRoutes      from './routes/leave.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -92,6 +93,8 @@ app.use(
 )
 
 app.use('/api/erlang', verifyToken, authRole('supervisor'), erlangRoutes(prisma))
+
+app.use('/api/leave', leaveRoutes(prisma))
 
 app.use(
   '/api/shifts',

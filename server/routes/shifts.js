@@ -211,5 +211,97 @@ export default prisma => {
     }
   });
 
+    /* ───────────────────────────────────────────────
+  * SWAP RANGE – swap all shifts between A & B
+  *  POST /api/shifts/swap-range
+  *  body: { agentIdA, agentIdB, from:'YYYY-MM-DD', to:'YYYY-MM-DD' }
+  * ─────────────────────────────────────────────── */
+  r.post('/swap-range', async (req,res)=>{
+    const { agentIdA, agentIdB, from, to } = req.body
+    if(!agentIdA||!agentIdB||!from||!to) return res.status(400).json({error:'bad payload'})
+
+    const range = {
+      gte: dayjs(from).startOf('day').toDate(),
+      lte: dayjs(to)  .endOf('day').toDate()
+    }
+
+    const [aShifts,bShifts] = await prisma.$transaction([
+      prisma.shift.findMany({ where:{ agentId:agentIdA, shiftDate:range } }),
+      prisma.shift.findMany({ where:{ agentId:agentIdB, shiftDate:range } })
+    ])
+
+    // map by shiftDate so we can swap 1-for-1
+    const updates = []
+    aShifts.forEach(a=>{
+      const b = bShifts.find(x=>x.shiftDate.getTime()===a.shiftDate.getTime())
+      if(b){
+        updates.push(
+          prisma.shift.update({ where:{id:a.id}, data:{ agentId:agentIdB, generatedBy:'swap-range'} }),
+          prisma.shift.update({ where:{id:b.id}, data:{ agentId:agentIdA, generatedBy:'swap-range'} })
+        )
+      }
+    })
+
+    await prisma.$transaction(updates)
+
+    await prisma.auditLog.create({
+      data:{
+        action:'SWAP_RANGE',
+        actor:req.user?.email??'unknown',
+        payload:req.body
+      }
+    })
+    res.json({ok:true, swappedPairs:updates.length/2})
+  })
+
+  /* ───────────────────────────────────────────────
+  * REASSIGN RANGE – move all shifts from A → B
+  *  POST /api/shifts/reassign-range
+  *  body: { fromAgentId, toAgentId, from:'YYYY-MM-DD', to:'YYYY-MM-DD', markLeave:true }
+  * ─────────────────────────────────────────────── */
+  r.post('/reassign-range', async (req,res)=>{
+    const { fromAgentId, toAgentId, from:fromDay, to:toDay, markLeave } = req.body
+    if(!fromAgentId||!toAgentId||!fromDay||!toDay) return res.status(400).json({error:'bad payload'})
+
+    const shifts = await prisma.shift.findMany({
+      where:{
+        agentId:fromAgentId,
+        shiftDate:{
+          gte: dayjs(fromDay).startOf('day').toDate(),
+          lte: dayjs(toDay)  .endOf('day').toDate()
+        }
+      }
+    })
+
+    const actions=[]
+    for(const s of shifts){
+      actions.push(
+        prisma.shift.update({ where:{id:s.id}, data:{ agentId:toAgentId, generatedBy:'reassign-range'} })
+      )
+      if(markLeave){
+        actions.push(
+          prisma.leave.create({
+            data:{
+              agentId:fromAgentId,
+              reason :'Annual leave (auto)',
+              startsAt:s.startAt,
+              endsAt  :s.endAt,
+              createdBy:req.user?.email??'system'
+            }
+          })
+        )
+      }
+    }
+    await prisma.$transaction(actions)
+
+    await prisma.auditLog.create({
+      action :'REASSIGN_RANGE',
+      actor  :req.user?.email??'unknown',
+      payload:req.body
+    })
+
+    res.json({ok:true, movedShifts:shifts.length})
+  })
+
   return r;
 };
