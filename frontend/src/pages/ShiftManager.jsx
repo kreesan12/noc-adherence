@@ -58,8 +58,7 @@ export default function ShiftManager() {
     {
       field: 'agentName',
       headerName: 'Agent',
-      width: 180,
-      valueGetter: p => p.row.agentName || '—'
+      width: 180
     },
     { field: 'team',      headerName: 'Team',   width: 120 },
     {
