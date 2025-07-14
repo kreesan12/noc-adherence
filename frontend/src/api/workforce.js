@@ -1,4 +1,4 @@
-import api from './base'       // same axios instance used elsewhere
+import api from './index'       // same axios instance used elsewhere
 
 export const listTeams             = () => api.get('/teams')
 export const createTeam            = (name) => api.post('/teams', { name })
