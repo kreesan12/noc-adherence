@@ -1,11 +1,9 @@
 // frontend/src/App.js
-import React, { useState } from 'react'
-import { useEffect } from 'react'
-import { CssBaseline, ThemeProvider } from '@mui/material'
-import { styled } from '@mui/material/styles'   // ← FIX
+import React, { useState, useEffect } from 'react'
+import { CssBaseline, ThemeProvider, styled, Badge } from '@mui/material'
 import theme from './theme'
 import './lib/dayjs.js'            // registers plugins once
-import { listVacancies } from '/api/workforce'   // ← make sure the path is correct
+import { listVacancies } from './api/workforce'   // ← make sure the path is correct
 
 import {
   Box,
