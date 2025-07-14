@@ -8,7 +8,6 @@ import {
   Button,
   Paper,
   Table,
-  FormControl,
   InputLabel,  
   Select,      
   MenuItem,       
@@ -134,13 +133,19 @@ export default function SchedulePage () {
               slotProps={{ textField: { size: 'small', sx: { mx: 1 } } }}
             />
               {/* ── NEW: team selector ───────────────────────────── */}
-              <FormControl size="small" sx={{ minWidth: 150, mx: 1 }}>
-                <InputLabel>Team</InputLabel>
-                <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
-                  <MenuItem value=''>All</MenuItem>
-                  {roles.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
-                </Select>
-              </FormControl>
+<TextField
+  select
+  label="Team"
+  size="small"
+  value={team}
+  onChange={e => setTeam(e.target.value)}
+  sx={{ minWidth: 150, ml: 2 }}
+>
+  <MenuItem value="">All</MenuItem>
+  {roles.map(r => (
+    <MenuItem key={r} value={r}>{r}</MenuItem>
+  ))}
+</TextField>
               {/* ─────────────────────────────────────────────────── */}
 
             <Button onClick={nextWeek} variant='outlined' sx={{ ml: 1 }}>Next</Button>
