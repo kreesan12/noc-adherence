@@ -31,8 +31,6 @@ import {
   ResponsiveContainer
 } from 'recharts'
 import api from '../api'
-import '@fullcalendar/core/index.css'
-import '@fullcalendar/timegrid/index.css'
 
 
 export default function SchedulePage () {
@@ -181,7 +179,7 @@ export default function SchedulePage () {
         {/* FullCalendar week view */}
         <Paper variant='outlined' sx={{ mb: 4, p: 0 }}>
           <FullCalendar
-            key={weekStart.toISOString() + events.length}   // ← forces repaint
+            key={weekStart.toISOString() + events.length}   /* forces repaint */
             plugins={[timeGridPlugin]}
             initialView='timeGridWeek'
             initialDate={weekStart.toDate()}
