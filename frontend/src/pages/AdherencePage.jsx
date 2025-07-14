@@ -69,30 +69,30 @@ export default function AdherencePage () {
   }, [])
 
   /* load schedule whenever date OR team changes */
-  useEffect(() => {
-    api.get('/schedule', {
-      params: {
-        date: date.format('YYYY-MM-DD'),
-        role: team || undefined            // backend treats missing param as “all”
-      }
-    }).then(res => {
-      setRows(res.data.map(s => ({
-        id:         s.id,
-        agent:      s.agent.fullName,
-        phone:      s.agent.phone,
-        status:     s.attendance?.status ?? 'pending',
-        duty:       s.attendance?.duty?.name ?? '',
-        lunchStart: s.attendance?.lunchStart
-                     ? dayjs(s.attendance.lunchStart).format('HH:mm')
-                     : '',
-        lunchEnd:   s.attendance?.lunchEnd
-                     ? dayjs(s.attendance.lunchEnd).format('HH:mm')
-                     : '',
-        start:      dayjs(s.startAt).format('HH:mm'),
-        end:        dayjs(s.endAt).format('HH:mm')
-      })))
-    })
-  }, [date, team])
+    useEffect(() => {
+      api.get('/shifts', {
+        params: {
+          role      : team || undefined,
+          startDate : date.format('YYYY-MM-DD'),
+          endDate   : date.format('YYYY-MM-DD')
+        }
+      })
+      .then(res => {
+        setRows(res.data.map(s => ({
+          id:    s.id,
+          agent: s.agent.fullName,
+          phone: s.agent.phone,
+          status:     s.attendance?.status       ?? 'pending',
+          duty:       s.attendance?.duty?.name   ?? '',
+          lunchStart: s.attendance?.lunchStart
+                      ? dayjs(s.attendance.lunchStart).format('HH:mm') : '',
+          lunchEnd:   s.attendance?.lunchEnd
+                      ? dayjs(s.attendance.lunchEnd).format('HH:mm')   : '',
+          start: dayjs(s.startAt).format('HH:mm'),
+          end:   dayjs(s.endAt).format('HH:mm')
+        })))
+      })
+    }, [date, team])
 
   /* inline-save handler (unchanged) */
   const processRowUpdate = async newRow => {
