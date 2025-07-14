@@ -24,7 +24,10 @@ export default prisma=>{
       ...(agentId && {agentId:Number(agentId)}),
       ...(from&&to && { startsAt:{ gte:dayjs(from).toDate() }, endsAt:{ lte:dayjs(to).toDate() } })
     }
-    const data = await prisma.leave.findMany({ where })
+    const data = await prisma.leave.findMany({
+    where,
+    include: { agent: true }
+    })
     res.json(data)
   })
 

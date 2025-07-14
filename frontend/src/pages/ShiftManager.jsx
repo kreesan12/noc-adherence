@@ -215,7 +215,7 @@ export default function ShiftManager () {
           onChange={e => setFilters(p => ({ ...p, agent: e.target.value }))}
           sx={{ minWidth: 160 }} disabled={agentOptions.length === 0}>
           <MenuItem value=''>All</MenuItem>
-          {agentOptions.map(a => <MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+          {agentOptions.map(a => <MenuItem key={a.id} value={a.id}>{a.fullName}</MenuItem>)}
         </TextField>
 
         {/* date range */}
