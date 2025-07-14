@@ -8,7 +8,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } fro
 import {
   listTeams, listEngagements, createEngagement,
   terminateEngagement, headcountReport
-} from './api/workforce.js'
+} from "../api/workforce"
 import dayjs from 'dayjs'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
