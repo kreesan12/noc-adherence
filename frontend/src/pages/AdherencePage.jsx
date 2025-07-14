@@ -120,8 +120,8 @@ export default function AdherencePage () {
 
   /* grid columns (unchanged except minor formatting) */
   const columns = [
-    { field: 'agentName', headerName: 'Agent', flex: 1 },   // 🔹 field renamed
-    { field: 'phone',     headerName: 'Phone', width: 120 },
+    { field: 'agentName', headerName: 'Agent', width: 160, flex: 0 },   // 🔹 field renamed
+    { field: 'phone',     headerName: 'Phone', width: 110 },
     /* status */
     {
       field: 'status',
@@ -224,8 +224,8 @@ export default function AdherencePage () {
         />
       )
     },
-    { field: 'start', headerName: 'Start', width: 70 },
-    { field: 'end',   headerName: 'End',   width: 70 },
+    { field: 'start', headerName: 'Start', width: 80 },
+    { field: 'end',   headerName: 'End',   width: 80 },
     /* actions menu */
     {
       field: 'actions',
