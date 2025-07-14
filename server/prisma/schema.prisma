@@ -7,10 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/* ──────────────────────────────────────────────────────────
-   MODELS
-   ─ all changes are marked  ← NEW / ← CHANGED
-────────────────────────────────────────────────────────── */
+// ──────────────────────────────────────────────────────────
+//  MODELS  (NEW / CHANGED lines are marked)  
+// ──────────────────────────────────────────────────────────
 
 model Agent {
   id          Int     @id @default(autoincrement())
@@ -22,7 +21,7 @@ model Agent {
   standbyFlag Boolean @default(false)
 
   shifts        Shift[]
-  leaves        Leave[]                        // ← NEW  (back-ref Leave.agent)
+  leaves        Leave[]                         // ← NEW
   auditEntries  AuditLog[] @relation("AgentAuditEntries")
 }
 
@@ -33,7 +32,7 @@ model Supervisor {
   hash     String
   role     String @default("supervisor")
 
-  auditLogs       AuditLog[]     @relation("SupervisorAuditEntries")
+  auditLogs       AuditLog[]      @relation("SupervisorAuditEntries")
   attendanceLogs  AttendanceLog[] @relation("SupervisorAttendance")
 }
 
@@ -51,8 +50,8 @@ model Shift {
 
   generatedBy String?  @default("solver")
 
-  /* leave auto-flag (Feature 3) */
-  leaveId   Int?
+  // leave auto-flag (Feature 3)
+  leaveId   Int?                                       // ← NEW
   leave     Leave?     @relation(fields: [leaveId], references: [id])
 
   attendance AttendanceLog?
@@ -69,7 +68,7 @@ model Leave {
   createdAt   DateTime @default(now())
   createdBy   String
 
-  shifts      Shift[]                    // ← NEW  (back-ref Shift.leave)
+  shifts      Shift[]                               // ← NEW
 }
 
 model Duty {
@@ -91,8 +90,8 @@ model AttendanceLog {
   overtimeStart DateTime?
   overtimeEnd   DateTime?
 
-  dutyId      Int?
-  duty        Duty?       @relation(fields: [dutyId], references: [id])
+  dutyId       Int?
+  duty         Duty?       @relation(fields: [dutyId], references: [id])
 
   supervisorId Int?
   supervisor   Supervisor? @relation("SupervisorAttendance", fields: [supervisorId], references: [id])
@@ -123,12 +122,12 @@ model AuditLog {
   payload     Json
   createdAt   DateTime @default(now())
 
-  /* bidirectional links – optional */
-  agentId       Int?                                      // ← NEW
-  agent         Agent?      @relation("AgentAuditEntries",       fields: [agentId],       references: [id])
+  // bidirectional links – optional
+  agentId      Int?                                           // ← NEW
+  agent        Agent?      @relation("AgentAuditEntries",       fields: [agentId],      references: [id])
 
-  supervisorId  Int?                                      // ← NEW
-  supervisor    Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId],  references: [id])
+  supervisorId Int?                                           // ← NEW
+  supervisor   Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
 }
 
 enum Status {
