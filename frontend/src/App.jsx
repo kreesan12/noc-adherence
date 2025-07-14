@@ -78,7 +78,7 @@ function SideNav() {
       ],
     },
     {
-      title: 'STAFFING  &  SCHEDULING',
+      title: 'STAFFING/SCHEDULING',
       items: [
         { label:'Forecasting',           path:'/volume',   icon:<BarChartIcon/> },
         { label:'Staffing & Scheduling', path:'/staffing', icon:<WorkHistoryIcon/> },
@@ -96,7 +96,7 @@ function SideNav() {
   ]
 
   const [openState, setOpenState] = useState(
-    Object.fromEntries(sections.map(s => [s.title, false]))
+    Object.fromEntries(sections.map(s => [s.title, true]))
   )
 
   return (
