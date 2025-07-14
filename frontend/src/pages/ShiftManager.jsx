@@ -68,14 +68,14 @@ export default function ShiftManager() {
       field: 'startAt',
       headerName: 'Start',
       width: 180,
-      valueFormatter: p =>
-        p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
+      renderCell: p =>
+       p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
     },
     {
       field: 'endAt',
       headerName: 'End',
       width: 180,
-      valueFormatter: p =>
+      renderCell: p =>
         p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
     },
     {
