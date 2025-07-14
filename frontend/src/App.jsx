@@ -41,6 +41,7 @@ import AgentsPage     from './pages/AgentsPage'
 import StaffingPage   from './pages/StaffingPage'
 import ShiftManager   from './pages/ShiftManager'
 import LeavePlannerPage    from './pages/LeavePlannerPage'   // ← NEW
+import WorkforcePage  from './pages/WorkforcePage'         // ← add this
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
