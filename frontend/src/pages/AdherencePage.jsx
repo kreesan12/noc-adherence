@@ -16,11 +16,13 @@ import {
   LocalizationProvider
 } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import EditIcon from '@mui/icons-material/Edit'
-import SaveIcon from '@mui/icons-material/Save'
+import EditIcon   from '@mui/icons-material/Edit'
+import SaveIcon   from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Close'
 import dayjs from 'dayjs'
-import api from '../api'
+import api   from '../api'
+
+/* ────────────────────────────────────────────────────────── */
 
 const statusOptions = [
   { value: 'pending',         label: 'Pending' },
@@ -32,51 +34,68 @@ const statusOptions = [
 ]
 
 const dutyOptions = [
-  { value: '',                  label: '' },
-  { value: 'Tickets/Calls',     label: 'Tickets/Calls' },
-  { value: 'Tickets',           label: 'Tickets' },
-  { value: 'Calls',             label: 'Calls' },
-  { value: 'WhatsApp/Tickets',  label: 'WhatsApp/Tickets' },
-  { value: 'WhatsApp only',     label: 'WhatsApp only' },
-  { value: 'Changes',           label: 'Changes' },
-  { value: 'Adhoc',             label: 'Adhoc' },
+  { value: '',                 label: '' },
+  { value: 'Tickets/Calls',    label: 'Tickets/Calls' },
+  { value: 'Tickets',          label: 'Tickets' },
+  { value: 'Calls',            label: 'Calls' },
+  { value: 'WhatsApp/Tickets', label: 'WhatsApp/Tickets' },
+  { value: 'WhatsApp only',    label: 'WhatsApp only' },
+  { value: 'Changes',          label: 'Changes' },
+  { value: 'Adhoc',            label: 'Adhoc' }
 ]
 
 const colorMap = {
   present: { background: '#00e676', color: '#000' },
   late:    { background: '#ff1744', color: '#fff' },
-  pending: { background: '#2979ff', color: '#fff' },
+  pending: { background: '#2979ff', color: '#fff' }
 }
 
-export default function AdherencePage() {
-  const [rows, setRows]           = useState([])
-  const [date, setDate]           = useState(dayjs())
+/* ────────────────────────────────────────────────────────── */
+
+export default function AdherencePage () {
+  /* state */
+  const [rows,  setRows]  = useState([])
+  const [date,  setDate]  = useState(dayjs())
+  const [team,  setTeam]  = useState('')          // ← new
+  const [teams, setTeams] = useState([])          // ← new
   const [rowModesModel, setRowModesModel] = useState({})
 
-  // Load whenever date changes
+  /* load team list once (from /agents) */
   useEffect(() => {
-    api.get(`/schedule?date=${date.format('YYYY-MM-DD')}`)
-      .then(res => {
-        setRows(res.data.map(s => ({
-          id:         s.id,
-          agent:      s.agent.fullName,
-          phone:      s.agent.phone,
-          status:     s.attendance?.status ?? 'pending',
-          duty:       s.attendance?.duty?.name ?? '',
-          lunchStart: s.attendance?.lunchStart
-                       ? dayjs(s.attendance.lunchStart).format('HH:mm')
-                       : '',
-          lunchEnd:   s.attendance?.lunchEnd
-                       ? dayjs(s.attendance.lunchEnd).format('HH:mm')
-                       : '',
-          start:      dayjs(s.startAt).format('HH:mm'),
-          end:        dayjs(s.endAt).format('HH:mm'),
-        })))
-      })
-  }, [date])
+    api.get('/agents')
+       .then(res => {
+         setTeams([...new Set(res.data.map(a => a.role))].sort())
+       })
+  }, [])
 
+  /* load schedule whenever date OR team changes */
+  useEffect(() => {
+    api.get('/schedule', {
+      params: {
+        date: date.format('YYYY-MM-DD'),
+        role: team || undefined            // backend treats missing param as “all”
+      }
+    }).then(res => {
+      setRows(res.data.map(s => ({
+        id:         s.id,
+        agent:      s.agent.fullName,
+        phone:      s.agent.phone,
+        status:     s.attendance?.status ?? 'pending',
+        duty:       s.attendance?.duty?.name ?? '',
+        lunchStart: s.attendance?.lunchStart
+                     ? dayjs(s.attendance.lunchStart).format('HH:mm')
+                     : '',
+        lunchEnd:   s.attendance?.lunchEnd
+                     ? dayjs(s.attendance.lunchEnd).format('HH:mm')
+                     : '',
+        start:      dayjs(s.startAt).format('HH:mm'),
+        end:        dayjs(s.endAt).format('HH:mm')
+      })))
+    })
+  }, [date, team])
+
+  /* inline-save handler (unchanged) */
   const processRowUpdate = async newRow => {
-    // build full ISO strings for lunchStart / lunchEnd
     const ls = newRow.lunchStart
       ? dayjs(`${date.format('YYYY-MM-DD')}T${newRow.lunchStart}`).toISOString()
       : null
@@ -88,14 +107,16 @@ export default function AdherencePage() {
       status:     newRow.status,
       dutyName:   newRow.duty,
       lunchStart: ls,
-      lunchEnd:   le,
+      lunchEnd:   le
     })
     return newRow
   }
 
+  /* grid columns (unchanged except minor formatting) */
   const columns = [
-    { field: 'agent',      headerName: 'Agent', flex: 1 },
-    { field: 'phone',      headerName: 'Phone', width: 120 },
+    { field: 'agent', headerName: 'Agent', flex: 1 },
+    { field: 'phone', headerName: 'Phone', width: 120 },
+    /* status */
     {
       field: 'status',
       headerName: 'Status',
@@ -103,15 +124,25 @@ export default function AdherencePage() {
       editable: true,
       renderCell: params => {
         const opt = statusOptions.find(o => o.value === params.value)
-        return <Chip label={opt?.label || ''} sx={colorMap[params.value]}/>
+        return (
+          <Chip
+            label={opt?.label || ''}
+            sx={colorMap[params.value] ?? {}}
+            size="small"
+          />
+        )
       },
       renderEditCell: params => (
         <TextField
           select
           value={params.value}
-          onChange={e =>
-            params.api.setEditCellValue({ id: params.id, field: 'status', value: e.target.value })
-          }
+          onChange={e => {
+            params.api.setEditCellValue({
+              id: params.id,
+              field: 'status',
+              value: e.target.value
+            })
+          }}
           fullWidth
         >
           {statusOptions.map(o => (
@@ -120,22 +151,24 @@ export default function AdherencePage() {
         </TextField>
       )
     },
+    /* duty */
     {
       field: 'duty',
       headerName: 'Duty',
       width: 180,
       editable: true,
-      renderCell: params => {
-        const opt = dutyOptions.find(o => o.value === params.value)
-        return opt?.label || ''
-      },
+      renderCell: p => dutyOptions.find(o => o.value === p.value)?.label || '',
       renderEditCell: params => (
         <TextField
           select
           value={params.value}
-          onChange={e =>
-            params.api.setEditCellValue({ id: params.id, field: 'duty', value: e.target.value })
-          }
+          onChange={e => {
+            params.api.setEditCellValue({
+              id: params.id,
+              field: 'duty',
+              value: e.target.value
+            })
+          }}
           fullWidth
         >
           {dutyOptions.map(o => (
@@ -144,6 +177,7 @@ export default function AdherencePage() {
         </TextField>
       )
     },
+    /* lunch */
     {
       field: 'lunchStart',
       headerName: 'Lunch Start',
@@ -153,9 +187,13 @@ export default function AdherencePage() {
         <TextField
           type="time"
           value={params.value}
-          onChange={e =>
-            params.api.setEditCellValue({ id: params.id, field: 'lunchStart', value: e.target.value })
-          }
+          onChange={e => {
+            params.api.setEditCellValue({
+              id: params.id,
+              field: 'lunchStart',
+              value: e.target.value
+            })
+          }}
           fullWidth
         />
       )
@@ -169,15 +207,20 @@ export default function AdherencePage() {
         <TextField
           type="time"
           value={params.value}
-          onChange={e =>
-            params.api.setEditCellValue({ id: params.id, field: 'lunchEnd', value: e.target.value })
-          }
+          onChange={e => {
+            params.api.setEditCellValue({
+              id: params.id,
+              field: 'lunchEnd',
+              value: e.target.value
+            })
+          }}
           fullWidth
         />
       )
     },
     { field: 'start', headerName: 'Start', width: 70 },
     { field: 'end',   headerName: 'End',   width: 70 },
+    /* actions menu */
     {
       field: 'actions',
       type: 'actions',
@@ -185,45 +228,74 @@ export default function AdherencePage() {
       width: 100,
       getActions: ({ id }) => {
         const isEditing = rowModesModel[id]?.mode === 'edit'
-        if (isEditing) {
-          return [
-            <GridActionsCellItem
-              icon={<SaveIcon />}
-              label="Save"
-              onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'view' } })}
-              color="primary"
-            />,
-            <GridActionsCellItem
-              icon={<CancelIcon />}
-              label="Cancel"
-              onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'view', ignoreModifications: true } })}
-              color="inherit"
-            />
-          ]
-        }
-        return [
-          <GridActionsCellItem
-            icon={<EditIcon />}
-            label="Edit"
-            onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'edit' } })}
-            showInMenu
-          />
-        ]
+        return isEditing
+          ? [
+              <GridActionsCellItem
+                key="save"
+                icon={<SaveIcon />}
+                label="Save"
+                onClick={() =>
+                  setRowModesModel({ ...rowModesModel, [id]: { mode: 'view' } })
+                }
+                color="primary"
+              />,
+              <GridActionsCellItem
+                key="cancel"
+                icon={<CancelIcon />}
+                label="Cancel"
+                onClick={() =>
+                  setRowModesModel({
+                    ...rowModesModel,
+                    [id]: { mode: 'view', ignoreModifications: true }
+                  })
+                }
+                color="inherit"
+              />
+            ]
+          : [
+              <GridActionsCellItem
+                key="edit"
+                icon={<EditIcon />}
+                label="Edit"
+                onClick={() =>
+                  setRowModesModel({ ...rowModesModel, [id]: { mode: 'edit' } })
+                }
+                showInMenu
+              />
+            ]
       }
     }
   ]
 
+  /* ── render ──────────────────────────────────────────── */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p:2, display:'flex', alignItems:'center', gap:2 }}>
+      {/* header controls */}
+      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
         <DatePicker
           label="Select date"
           value={date}
-          onChange={newDate => setDate(newDate)}
-          renderInput={props => <TextField {...props}/>}
+          onChange={setDate}
+          renderInput={props => <TextField {...props} size="small" />}
         />
+
+        {/* Team selector */}
+        <TextField
+          select
+          label="Team"
+          size="small"
+          value={team}
+          onChange={e => setTeam(e.target.value)}
+          sx={{ minWidth: 180 }}
+        >
+          <MenuItem value="">All</MenuItem>
+          {teams.map(t => (
+            <MenuItem key={t} value={t}>{t}</MenuItem>
+          ))}
+        </TextField>
       </Box>
 
+      {/* data grid */}
       <Box sx={{ height: 600 }}>
         <DataGrid
           rows={rows}
@@ -236,8 +308,8 @@ export default function AdherencePage() {
           experimentalFeatures={{ newEditingApi: true }}
           slots={{ toolbar: GridToolbar }}
           initialState={{
-          sorting: {sortModel: [{ field: 'start', sort: 'asc' }]}
-        }}
+            sorting: { sortModel: [{ field: 'start', sort: 'asc' }] }
+          }}
         />
       </Box>
     </LocalizationProvider>
