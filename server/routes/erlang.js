@@ -1,6 +1,6 @@
 // server/routes/erlang.js
 import { Router } from 'express'
-import dayjs from 'dayjs'
+import dayjs      from '../utils/dayjs.js'
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'
 import { requiredAgents, computeDayStaffing } from '../utils/erlang.js'
 import { autoAssignRotations } from '../utils/scheduler.js'

@@ -1,5 +1,5 @@
 // server/utils/erlang.js
-import dayjs from 'dayjs'
+import dayjs      from '../utils/dayjs.js'
 
 /**
  * Erlang C formula

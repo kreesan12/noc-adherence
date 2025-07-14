@@ -1,6 +1,6 @@
 // server/routes/schedule.js
 import { Router } from 'express'
-import dayjs from 'dayjs'                    // ← make sure dayjs is imported
+import dayjs      from '../utils/dayjs.js'
 import { autoAssignRotations } from '../utils/scheduler.js'
 
 export default prisma => {

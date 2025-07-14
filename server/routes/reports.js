@@ -1,6 +1,6 @@
 // server/routes/reports.js
 import { Router } from 'express'
-import dayjs from 'dayjs'
+import dayjs      from '../utils/dayjs.js'
 
 export default prisma => {
   const r = Router()

@@ -1,6 +1,6 @@
 // server/routes/shifts.js
 import { Router } from 'express';
-import dayjs      from 'dayjs';
+import dayjs      from '../utils/dayjs.js'
 import { z }      from 'zod';          // already in deps from prev step
 
 export default prisma => {
