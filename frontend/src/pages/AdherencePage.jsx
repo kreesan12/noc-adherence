@@ -120,13 +120,13 @@ export default function AdherencePage () {
 
   /* grid columns (unchanged except minor formatting) */
   const columns = [
-    { field: 'agentName', headerName: 'Agent', width: 160, flex: 0 },   // 🔹 field renamed
-    { field: 'phone',     headerName: 'Phone', width: 110 },
+    { field: 'agentName', headerName: 'Agent', width: 260, flex: 0 },   // 🔹 field renamed
+    { field: 'phone',     headerName: 'Phone', width: 130 },
     /* status */
     {
       field: 'status',
       headerName: 'Status',
-      width: 150,
+      width: 200,
       editable: true,
       renderCell: params => {
         const opt = statusOptions.find(o => o.value === params.value)
@@ -161,7 +161,7 @@ export default function AdherencePage () {
     {
       field: 'duty',
       headerName: 'Duty',
-      width: 180,
+      width: 200,
       editable: true,
       renderCell: p => dutyOptions.find(o => o.value === p.value)?.label || '',
       renderEditCell: params => (
@@ -187,7 +187,7 @@ export default function AdherencePage () {
     {
       field: 'lunchStart',
       headerName: 'Lunch Start',
-      width: 120,
+      width: 150,
       editable: true,
       renderEditCell: params => (
         <TextField
@@ -207,7 +207,7 @@ export default function AdherencePage () {
     {
       field: 'lunchEnd',
       headerName: 'Lunch End',
-      width: 120,
+      width: 150,
       editable: true,
       renderEditCell: params => (
         <TextField
@@ -224,14 +224,14 @@ export default function AdherencePage () {
         />
       )
     },
-    { field: 'start', headerName: 'Start', width: 80 },
-    { field: 'end',   headerName: 'End',   width: 80 },
+    { field: 'start', headerName: 'Start', width: 150 },
+    { field: 'end',   headerName: 'End',   width: 150 },
     /* actions menu */
     {
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 100,
+      width: 150,
       getActions: ({ id }) => {
         const isEditing = rowModesModel[id]?.mode === 'edit'
         return isEditing
