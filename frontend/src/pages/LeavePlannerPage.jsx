@@ -18,7 +18,7 @@ export default function LeavePlannerPage () {
     ;(async () => {
       const [{ data: a },{ data: l }] = await Promise.all([
         api.get('/agents'),
-        api.get('/leave')
+        api.get('/leaves')
       ])
       setAgents(a); setRows(l)
     })()
@@ -26,14 +26,14 @@ export default function LeavePlannerPage () {
 
   async function handleSave () {
     try {
-      await api.post('/leave', {
+      await api.post('/leaves', {
         ...form,
         startsAt : form.from.format(),
         endsAt   : form.to.format()
       })
       setSnack('Leave captured')
       setOpen(false)
-      const { data } = await api.get('/leave')
+      const { data } = await api.get('/leaves')
       setRows(data)
     } catch { setSnack('Save failed') }
   }

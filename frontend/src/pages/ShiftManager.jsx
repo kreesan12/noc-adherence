@@ -243,8 +243,8 @@ export default function ShiftManager () {
 
       {/* dialogs */}
       {editItem && <EditShiftDialog shift={editItem} onCancel={() => setEditItem(null)} onSave={handleEditSave} />}
-      {swapDlgOpen && <SwapRangeDialog agents={agents} onCancel={()=>setSwapDlgOpen(false)} onConfirm={submitSwapRange} />}
-      {reassignDlgOpen && <ReassignRangeDialog agents={agents} onCancel={()=>setReassignDlgOpen(false)} onConfirm={submitReassign} />}
+      {swapDlgOpen  && <SwapRangeDialog    agents={agents} teams={teams}     onCancel={()=>setSwapDlgOpen(false)}     onConfirm={submitSwapRange}   />}
+      {reassignDlgOpen && <ReassignRangeDialog agents={agents} teams={teams} onCancel={()=>setReassignDlgOpen(false)} onConfirm={submitReassign}    />}
 
       {/* snack */}
       <Snackbar open={!!snack} autoHideDuration={4000} message={snack} onClose={()=>setSnack('')} />
@@ -272,13 +272,19 @@ function EditShiftDialog ({ shift, onCancel, onSave }) {
 }
 
 /* ───────── dialog – swap shifts across range ───────────── */
-function SwapRangeDialog ({ agents, onCancel, onConfirm }) {
+function SwapRangeDialog ({ agents, teams, onCancel, onConfirm }) {
   const [agentIdA, setA] = useState('')
   const [agentIdB, setB] = useState('')
+  const [team,        setTeam] = useState('')
   const [from, setFrom]  = useState(dayjs().startOf('week'))
   const [to,   setTo]    = useState(dayjs().endOf('week'))
 
-  const disabled = !agentIdA || !agentIdB || agentIdA === agentIdB || from.isAfter(to)
+  // only show agents on the chosen team
+  const filteredAgents = team
+    ? agents.filter(a => a.role === team)
+    : []
+
+  const disabled = !team || !agentIdA || !agentIdB || agentIdA === agentIdB || from.isAfter(to)
 
   const submit = () => onConfirm({ agentIdA:Number(agentIdA), agentIdB:Number(agentIdB), from:from.format('YYYY-MM-DD'), to:to.format('YYYY-MM-DD') })
 
@@ -286,12 +292,49 @@ function SwapRangeDialog ({ agents, onCancel, onConfirm }) {
     <Dialog open onClose={onCancel} fullWidth maxWidth='sm'>
       <DialogTitle>Swap shifts between two agents</DialogTitle>
       <DialogContent sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
-        <TextField select label='Agent A' value={agentIdA} onChange={e=>setA(e.target.value)}>
-          {agents.map(a=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+        {/* 1) Team picker */}
+        <TextField
+          select fullWidth label='Team'
+          value={team}
+          onChange={e => {
+            setTeam(e.target.value)
+            setA('')      // reset agent selections
+            setB('')
+          }}
+          margin='normal'
+        >
+          <MenuItem value=''>Select team</MenuItem>
+          {teams.map(t => (
+            <MenuItem key={t} value={t}>{t}</MenuItem>
+          ))}
         </TextField>
-        <TextField select label='Agent B' value={agentIdB} onChange={e=>setB(e.target.value)}>
-          {agents.map(a=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
-        </TextField>
+        {/* 2) Agent A picker */}
+        <TextField
+          select label='Agent A'
+          value={agentIdA}
+          onChange={e=>setA(e.target.value)}
+          disabled={!team}
+        >
+          {filteredAgents.map(a => (
+            <MenuItem key={a.id} value={a.id}>
+              {a.fullName}
+            </MenuItem>
+          ))}
+         </TextField>
+                 {/* 3) Agent B picker */}
+        <TextField
+          select label='Agent B'
+          value={agentIdB}
+          onChange={e=>setB(e.target.value)}
+          disabled={!team}
+        >
+          {filteredAgents.map(a => (
+            <MenuItem key={a.id} value={a.id}>
+              {a.fullName}
+            </MenuItem>
+          ))}
+         </TextField>
+
         <TextField type='date' label='From' InputLabelProps={{ shrink:true }} value={from.format('YYYY-MM-DD')} onChange={e=>setFrom(dayjs(e.target.value))} />
         <TextField type='date' label='To'   InputLabelProps={{ shrink:true }} value={to.format('YYYY-MM-DD')}   onChange={e=>setTo(dayjs(e.target.value))} />
       </DialogContent>
@@ -304,14 +347,19 @@ function SwapRangeDialog ({ agents, onCancel, onConfirm }) {
 }
 
 /* ───────── dialog – reassign range ─────────────────────── */
-function ReassignRangeDialog ({ agents, onCancel, onConfirm }) {
+function ReassignRangeDialog ({ agents, teams, onCancel, onConfirm }) {
   const [fromAgentId, setFromAgent] = useState('')
   const [toAgentId,   setToAgent]   = useState('')
+  const [team,         setTeam]     = useState('')
   const [from,        setFrom]      = useState(dayjs().startOf('week'))
   const [to,          setTo]        = useState(dayjs().endOf('week'))
   const [markLeave,   setMarkLeave] = useState(true)
 
-  const disabled = !fromAgentId || !toAgentId || fromAgentId === toAgentId || from.isAfter(to)
+  const filteredAgents = team
+  ? agents.filter(a => a.role === team)
+  : []
+
+  const disabled = !team || !fromAgentId || !toAgentId || fromAgentId === toAgentId || from.isAfter(to)
 
   const submit = () => onConfirm({
     fromAgentId:Number(fromAgentId),
@@ -325,12 +373,50 @@ function ReassignRangeDialog ({ agents, onCancel, onConfirm }) {
     <Dialog open onClose={onCancel} fullWidth maxWidth='sm'>
       <DialogTitle>Re‑assign shifts from one agent to another</DialogTitle>
       <DialogContent sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
-        <TextField select label='From (agent on leave)' value={fromAgentId} onChange={e=>setFromAgent(e.target.value)}>
-          {agents.map(a=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
+        {/* 1) Team picker */}
+        <TextField
+          select fullWidth label='Team'
+          value={team}
+          onChange={e => {
+            setTeam(e.target.value)
+            setFromAgent('')
+            setToAgent('')
+          }}
+          margin='normal'
+        >
+          <MenuItem value=''>Select team</MenuItem>
+          {teams.map(t => (
+            <MenuItem key={t} value={t}>{t}</MenuItem>
+          ))}
         </TextField>
-        <TextField select label='To (covering agent)' value={toAgentId} onChange={e=>setToAgent(e.target.value)}>
-          {agents.map(a=><MenuItem key={a.id} value={a.id}>{a.name}</MenuItem>)}
-        </TextField>
+
+        {/* 2) From agent */}
+        <TextField
+          select label='From (agent on leave)'
+          value={fromAgentId}
+          onChange={e=>setFromAgent(e.target.value)}
+          disabled={!team}
+        >
+          {filteredAgents.map(a => (
+            <MenuItem key={a.id} value={a.id}>
+              {a.fullName}
+            </MenuItem>
+          ))}
+         </TextField>
+
+        {/* 3) To agent */}
+        <TextField
+          select label='To (covering agent)'
+          value={toAgentId}
+          onChange={e=>setToAgent(e.target.value)}
+          disabled={!team}
+        >
+          {filteredAgents.map(a => (
+            <MenuItem key={a.id} value={a.id}>
+              {a.fullName}
+            </MenuItem>
+          ))}
+         </TextField>
         <TextField type='date' label='From' InputLabelProps={{ shrink:true }} value={from.format('YYYY-MM-DD')} onChange={e=>setFrom(dayjs(e.target.value))} />
         <TextField type='date' label='To' InputLabelProps={{ shrink:true }} value={to.format('YYYY-MM-DD')} onChange={e=>setTo(dayjs(e.target.value))} />
         <FormControlLabel control={<Checkbox checked={markLeave} onChange={e=>setMarkLeave(e.target.checked)} />} label='Mark original agent as on leave' />
