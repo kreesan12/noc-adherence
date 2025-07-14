@@ -86,10 +86,14 @@ export default function AdherencePage () {
         phone:     s.agent?.phone    ?? s.phone      ?? '',
         status:     s.attendance?.status       ?? 'pending',
         duty:       s.attendance?.duty?.name   ?? '',
-        lunchStart: s.attendance?.lunchStart
-                    ? dayjs(s.attendance.lunchStart).format('HH:mm') : '',
-        lunchEnd:   s.attendance?.lunchEnd
-                    ? dayjs(s.attendance.lunchEnd).format('HH:mm')   : '',
+        lunchStart: (s.attendance?.lunchStart ?? s.breakStart)
+                    ? dayjs(s.attendance?.lunchStart ?? s.breakStart)
+                        .format('HH:mm')
+                    : '',
+        lunchEnd:   (s.attendance?.lunchEnd   ?? s.breakEnd)
+                    ? dayjs(s.attendance?.lunchEnd   ?? s.breakEnd)
+                        .format('HH:mm')
+                    : '',
         start: dayjs(s.startAt).format('HH:mm'),
         end:   dayjs(s.endAt).format('HH:mm')
       })))

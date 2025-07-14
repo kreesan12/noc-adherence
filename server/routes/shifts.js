@@ -31,7 +31,17 @@ export default prisma => {
       const shifts = await prisma.shift.findMany({
         where,
         include: {
-          agent: { select: { id: true, fullName: true, role: true } }
+          agent: {
+            select: { id: true, fullName: true, phone: true, role: true }
+          },
+          attendance: {
+            select: {
+              status: true,
+              lunchStart: true,
+              lunchEnd: true,
+              duty: { select: { name: true } }
+            }
+          }
         },
         orderBy: [{ shiftDate: 'asc' }, { startAt: 'asc' }]
       });
@@ -41,7 +51,10 @@ export default prisma => {
         agentName: s.agent?.fullName ?? '—',
         team:      s.agent?.role     ?? '—',
         startAt:   s.startAt,
-        endAt:     s.endAt
+        endAt:     s.endAt,
+        breakStart: s.breakStart,        // 🔹 new
+        breakEnd:   s.breakEnd,          // 🔹 new
+        attendance: s.attendance         // 🔹 passes through
       }));
 
       res.json(rows);
