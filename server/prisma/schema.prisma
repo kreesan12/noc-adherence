@@ -130,6 +130,46 @@ model AuditLog {
   supervisor   Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
 }
 
+model Team {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  engagements Engagement[]
+  vacancies   Vacancy[]
+}
+
+model Engagement {
+  id        Int      @id @default(autoincrement())
+  agentId   Int
+  agent     Agent    @relation(fields:[agentId], references:[id])
+
+  teamId    Int
+  team      Team     @relation(fields:[teamId], references:[id])
+
+  startDate DateTime           @db.Date        // first day on team
+  endDate   DateTime?          @db.Date        // null means still active
+  note      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([teamId, startDate, endDate])
+}
+
+model Vacancy {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  team      Team     @relation(fields:[teamId], references:[id])
+
+  openFrom  DateTime           @db.Date
+  closedAt  DateTime?          @db.Date        // set once the seat is filled
+  reason    String?            // exit, expansion, temp leave, etc.
+
+  createdAt DateTime @default(now())
+
+  @@index([teamId, openFrom, closedAt])
+}
+
 enum Status {
   pending
   present

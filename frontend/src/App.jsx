@@ -1,9 +1,11 @@
 // frontend/src/App.js
 import React, { useState } from 'react'
+import { useEffect } from 'react'
 import { CssBaseline, ThemeProvider } from '@mui/material'
 import { styled } from '@mui/material/styles'   // ← FIX
 import theme from './theme'
 import './lib/dayjs.js'            // registers plugins once
+import { listVacancies } from 'src/api/workforce'   // ← make sure the path is correct
 
 import {
   Box,
@@ -28,6 +30,8 @@ import ExpandLess             from '@mui/icons-material/ExpandLess'
 import ExpandMore             from '@mui/icons-material/ExpandMore'
 import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
 import EventBusyIcon          from '@mui/icons-material/EventBusy';
+import PeopleIcon          from '@mui/icons-material/People';
+
 
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
@@ -45,7 +49,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute            from './components/ProtectedRoute'
 
 /* ─── Drawer styling ────────────────────────────────────── */
-const DRAWER_WIDTH = 230
+const DRAWER_WIDTH = 250
 
 const StyledDrawer = styled(Drawer)(({ theme }) => ({
   '& .MuiDrawer-paper': {
@@ -69,6 +73,14 @@ function SideNav() {
   const location = useLocation()
   if (!user || location.pathname === '/login') return null
 
+  // --- vacancy badge state + loader ---
+  const [vacancyCount, setVacancyCount] = useState(0)
+  useEffect(() => {
+    listVacancies(true).then(res => {
+      setVacancyCount(res.data.length)
+    })
+  }, [])
+
   const sections = [
     {
       title: 'DAILY OPERATIONS',
@@ -89,6 +101,14 @@ function SideNav() {
     {
       title: 'SETTINGS',
       items: [
+        {label: 'Workforce',
+         path:  '/workforce',
+         icon: (
+            <Badge badgeContent={vacancyCount} color="secondary">
+              <PeopleIcon/>
+            </Badge>
+              )
+        },
         { label:'Admin',         path:'/agents', icon:<AdminPanelSettingsIcon/> },
         { label:'Upload Roster', path:'/roster', icon:<UploadIcon/> },
       ],
@@ -193,6 +213,7 @@ export default function App() {
                 <Route path="/staffing" element={<StaffingPage/>}/>
                 <Route path="/shifts"   element={<ShiftManager/>}/>
                 <Route path='/leave-planner'   element={<LeavePlannerPage />} />
+                <Route path="/workforce" element={<WorkforcePage />} />
               </Route>
 
               {/* Fallback */}
