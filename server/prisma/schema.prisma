@@ -7,7 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---------- TABLES ----------
+/* ──────────────────────────────────────────────────────────
+   MODELS
+   ─ all changes are marked  ← NEW / ← CHANGED
+────────────────────────────────────────────────────────── */
 
 model Agent {
   id          Int     @id @default(autoincrement())
@@ -18,8 +21,9 @@ model Agent {
   role        String?
   standbyFlag Boolean @default(false)
 
-  shifts       Shift[]
-  auditEntries AuditLog[] @relation("AgentAuditEntries")
+  shifts        Shift[]
+  leaves        Leave[]                        // ← NEW  (back-ref Leave.agent)
+  auditEntries  AuditLog[] @relation("AgentAuditEntries")
 }
 
 model Supervisor {
@@ -29,11 +33,8 @@ model Supervisor {
   hash     String
   role     String @default("supervisor")
 
-  // all audit‐logs this supervisor has created
-  auditLogs AuditLog[] @relation("SupervisorAuditEntries")
-
-  // all attendance updates this supervisor performed
-  attendanceLogs AttendanceLog[] @relation("SupervisorAttendance")
+  auditLogs       AuditLog[]     @relation("SupervisorAuditEntries")
+  attendanceLogs  AttendanceLog[] @relation("SupervisorAttendance")
 }
 
 model Shift {
@@ -45,28 +46,30 @@ model Shift {
   startAt    DateTime
   endAt      DateTime
 
-  // one-hour lunch break window
   breakStart DateTime?
   breakEnd   DateTime?
 
-  /// ←-- new column required by Feature 1 & 2
-  generatedBy String?  @default("solver")     // 'solver' | 'manual'
+  generatedBy String?  @default("solver")
 
-  leaveId     Int?      // ← NEW (null unless this shift got auto-flagged as leave)
-  leave       Leave?    @relation(fields:[leaveId], references:[id])
+  /* leave auto-flag (Feature 3) */
+  leaveId   Int?
+  leave     Leave?     @relation(fields: [leaveId], references: [id])
 
   attendance AttendanceLog?
 }
 
 model Leave {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   agentId     Int
-  agent       Agent     @relation(fields:[agentId], references:[id])
+  agent       Agent    @relation(fields: [agentId], references: [id])
+
   reason      String
   startsAt    DateTime
   endsAt      DateTime
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
   createdBy   String
+
+  shifts      Shift[]                    // ← NEW  (back-ref Shift.leave)
 }
 
 model Duty {
@@ -88,38 +91,44 @@ model AttendanceLog {
   overtimeStart DateTime?
   overtimeEnd   DateTime?
 
-  dutyId Int?
-  duty   Duty? @relation(fields: [dutyId], references: [id])
+  dutyId      Int?
+  duty        Duty?       @relation(fields: [dutyId], references: [id])
 
-  // who last updated this attendance?
   supervisorId Int?
   supervisor   Supervisor? @relation("SupervisorAttendance", fields: [supervisorId], references: [id])
 }
 
 model VolumeForecast {
-  id              Int @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   role            String
   date            DateTime @db.Date
-  hour            Int // 0–23
+  hour            Int
   expectedCalls   Int
   expectedTickets Int
 }
 
 model VolumeActual {
-  id        Int      @id @default(autoincrement())
-  role      String
-  date      DateTime @db.Date
-  hour      Int
-  calls     Int
-  tickets   Int
+  id      Int      @id @default(autoincrement())
+  role    String
+  date    DateTime @db.Date
+  hour    Int
+  calls   Int
+  tickets Int
 }
 
 model AuditLog {
-  id          Int       @id @default(autoincrement())
-  action      String    // e.g. SWAP_RANGE, REASSIGN_RANGE
-  actor       String    // whoever is logged-in
+  id          Int      @id @default(autoincrement())
+  action      String
+  actor       String
   payload     Json
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
+
+  /* bidirectional links – optional */
+  agentId       Int?                                      // ← NEW
+  agent         Agent?      @relation("AgentAuditEntries",       fields: [agentId],       references: [id])
+
+  supervisorId  Int?                                      // ← NEW
+  supervisor    Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId],  references: [id])
 }
 
 enum Status {
