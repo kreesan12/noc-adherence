@@ -2,11 +2,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   Box, Button, TextField, MenuItem, Typography, Snackbar,
-  Dialog, DialogTitle, DialogContent, DialogActions
+  Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import dayjs from 'dayjs';
-import utc   from 'dayjs/plugin/utc';   // ⇦ NEW – so we can keep the ISO dates in UTC
+import utc   from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 import api from '../api';                       // axios wrapper
@@ -23,6 +23,7 @@ export default function ShiftManager() {
     from : dayjs(),
     to   : dayjs().add(7, 'day')
   });
+  const [loading,     setLoading]     = useState(false);
   const [editItem,    setEditItem]    = useState(null);
   const [swapSource,  setSwapSource]  = useState(null);
   const [snack,       setSnack]       = useState('');
@@ -36,42 +37,46 @@ export default function ShiftManager() {
     })();
   }, []);
 
-  /* ── 2) load shift rows whenever filters change ─────────── */
-  useEffect(() => {
-    (async () => {
+  /* ── 2) fetch shifts on demand ──────────────────────────── */
+  async function loadShifts() {
+    try {
+      setLoading(true);
       const { team, agent, from, to } = filters;
       const { data } = await api.get('/shifts', {
         params: {
-          role     : team    || undefined,            // backend expects `role`
+          role     : team    || undefined,
           agentId  : agent   || undefined,
           startDate: from.format('YYYY-MM-DD'),
           endDate  : to.format('YYYY-MM-DD')
         }
       });
-
-      // backend already returns flat keys { id, agentName, team, startAt, endAt }
       setRows(data);
-    })();
-  }, [filters]);
+    } catch (err) {
+      console.error('Load shifts:', err);
+      setSnack('Failed to fetch shifts');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   /* ── 3) grid columns (memoised) ─────────────────────────── */
   const columns = useMemo(() => [
-    { field: 'id',         headerName: 'ID',    width: 70 },
-    { field: 'agentName',  headerName: 'Agent', width: 180 },
-    { field: 'team',       headerName: 'Team',  width: 140 },
+    { field: 'id',        headerName: 'ID',    width: 70 },
+    { field: 'agentName', headerName: 'Agent', width: 180 },
+    { field: 'team',      headerName: 'Team',  width: 140 },
     {
       field: 'startAt',
       headerName: 'Start',
       width: 180,
-      valueFormatter: params =>
-        params.value ? dayjs.utc(params.value).format('YYYY-MM-DD HH:mm') : '—'
+      valueFormatter: p =>
+        p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
     },
     {
       field: 'endAt',
       headerName: 'End',
       width: 180,
-      valueFormatter: params =>
-        params.value ? dayjs.utc(params.value).format('YYYY-MM-DD HH:mm') : '—'
+      valueFormatter: p =>
+        p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
     },
     {
       field     : 'actions',
@@ -101,7 +106,7 @@ export default function ShiftManager() {
       await updateShift(editItem.id, changes);
       setSnack('Shift updated');
       setEditItem(null);
-      setFilters({ ...filters });   // re-trigger fetch
+      await loadShifts();          // refresh table
     } catch {
       setSnack('Error updating shift');
     }
@@ -112,7 +117,7 @@ export default function ShiftManager() {
       await swapShifts(swapSource.id, targetRow.id);
       setSnack('Shift swap complete');
       setSwapSource(null);
-      setFilters({ ...filters });
+      await loadShifts();
     } catch {
       setSnack('Swap failed');
     }
@@ -124,7 +129,7 @@ export default function ShiftManager() {
       <Typography variant="h5" gutterBottom>Shift manager</Typography>
 
       {/* ── Filters ───────────────────────────────────────── */}
-      <Box display="flex" gap={2} mb={2} flexWrap="wrap">
+      <Box display="flex" gap={2} mb={2} flexWrap="wrap" alignItems="flex-end">
         {/* team filter */}
         <TextField
           select
@@ -170,6 +175,16 @@ export default function ShiftManager() {
           value={filters.to.format('YYYY-MM-DD')}
           onChange={e => setFilters({ ...filters, to: dayjs(e.target.value) })}
         />
+
+        {/* load button */}
+        <Button
+          variant="contained"
+          onClick={loadShifts}
+          disabled={loading}
+          sx={{ height: 40 }}
+        >
+          {loading ? <CircularProgress size={22} /> : 'Load shifts'}
+        </Button>
       </Box>
 
       {/* ── Table ─────────────────────────────────────────── */}
@@ -196,7 +211,7 @@ export default function ShiftManager() {
   );
 }
 
-/* ── small inline dialog component ───────────────────────── */
+/* ── dialog component ───────────────────────────────────── */
 function EditShiftDialog({ shift, onCancel, onSave }) {
   const [start, setStart] = useState(
     dayjs.utc(shift.startAt).format('YYYY-MM-DDTHH:mm')
