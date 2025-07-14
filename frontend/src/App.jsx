@@ -25,6 +25,7 @@ import UploadIcon             from '@mui/icons-material/Upload'
 import WorkHistoryIcon        from '@mui/icons-material/WorkHistory'
 import ExpandLess             from '@mui/icons-material/ExpandLess'
 import ExpandMore             from '@mui/icons-material/ExpandMore'
+import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
 
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
@@ -78,7 +79,7 @@ function SideNav() {
       items: [
         { label:'Forecasting',           path:'/volume',   icon:<BarChartIcon/> },
         { label:'Staffing & Scheduling', path:'/staffing', icon:<WorkHistoryIcon/> },
-        { label:'Shift Manager',         path:'/shifts',   icon:<UploadIcon/> },
+        { label:'Shift Manager',         path:'/shifts',   icon:<ManageAccountsIcon/> },
       ],
     },
     {
