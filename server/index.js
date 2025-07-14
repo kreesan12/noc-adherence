@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client'
 import authRole                            from './middleware/auth.js'
 import audit                               from './middleware/audit.js'
 import authRoutesFactory, { verifyToken }  from './routes/auth.js'
+import './utils/dayjs.js'          // registers plugins for the process
 
 import rosterRoutes     from './routes/roster.js'
 import scheduleRoutes   from './routes/schedule.js'

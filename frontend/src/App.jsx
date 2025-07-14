@@ -3,6 +3,7 @@ import React, { useState } from 'react'
 import { CssBaseline, ThemeProvider } from '@mui/material'
 import { styled } from '@mui/material/styles'   // ← FIX
 import theme from './theme'
+import './lib/dayjs.js'            // registers plugins once
 
 import {
   Box,

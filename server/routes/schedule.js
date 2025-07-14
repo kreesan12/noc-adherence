@@ -3,7 +3,6 @@ import { Router } from 'express'
 import dayjs from 'dayjs'                    // ← make sure dayjs is imported
 import { autoAssignRotations } from '../utils/scheduler.js'
 
-
 export default prisma => {
   const r = Router()
 
