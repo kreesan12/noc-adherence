@@ -58,9 +58,16 @@ export default function ShiftManager() {
     {
       field: 'agentName',
       headerName: 'Agent',
-      width: 180
+      width: 180,
+      // guard against an undefined row while the grid is re-rendering
+      valueGetter: p => p.row?.agentName ?? '—',
     },
-    { field: 'team',      headerName: 'Team',   width: 120 },
+    {
+      field: 'team',
+      headerName: 'Team',
+      width: 140,
+      valueGetter: p => p.row?.team ?? '—',
+    },
     {
       field      : 'startAt',
       headerName : 'Start',
