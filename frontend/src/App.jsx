@@ -1,16 +1,31 @@
 // frontend/src/App.js
-import { ThemeProvider } from '@mui/material/styles'
-import theme            from './theme'
-import {CssBaseline, Drawer, List, ListItem, ListItemIcon, ListItemText} from '@mui/material'
+import { CssBaseline, ThemeProvider } from '@mui/material'
+import theme from './theme'
+
+import {
+  Box,
+  Drawer,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  ListSubheader,
+  Collapse,
+  styled,
+} from '@mui/material'
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 
+/* ── icons ─────────────────────────────────────────────── */
 import DashboardIcon          from '@mui/icons-material/Dashboard'
 import CalendarTodayIcon      from '@mui/icons-material/CalendarToday'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import BarChartIcon           from '@mui/icons-material/BarChart'
 import UploadIcon             from '@mui/icons-material/Upload'
 import WorkHistoryIcon        from '@mui/icons-material/WorkHistory'
+import ExpandLess             from '@mui/icons-material/ExpandLess'
+import ExpandMore             from '@mui/icons-material/ExpandMore'
 
+/* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
 import SchedulePage   from './pages/SchedulePage'
 import VolumePage     from './pages/VolumePage'
@@ -18,47 +33,148 @@ import RosterUpload   from './components/RosterUpload'
 import LoginPage      from './pages/LoginPage'
 import AgentsPage     from './pages/AgentsPage'
 import StaffingPage   from './pages/StaffingPage'
-import ShiftManager   from './pages/ShiftManager.jsx'
+import ShiftManager   from './pages/ShiftManager'
 
+/* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
-import ProtectedRoute from './components/ProtectedRoute'
+import ProtectedRoute            from './components/ProtectedRoute'
 
+/* ──────────────────────────────────────────────────────────
+   Stylish drawer: dark sidebar with subtle shadow & glass-morph
+   (feel similar to Linear, Figma or Vercel dashboards)
+   ────────────────────────────────────────────────────────── */
+const DRAWER_WIDTH = 230
+
+const StyledDrawer = styled(Drawer)(({ theme }) => ({
+  '& .MuiDrawer-paper': {
+    width: DRAWER_WIDTH,
+    backdropFilter: 'blur(6px)',
+    background: 'rgba(33, 43, 54, 0.72)',
+    color: '#fff',
+    borderRight: 'none',
+  },
+}))
+
+/* helper to highlight the current route */
+function isActive(pathname, itemPath) {
+  if (itemPath === '/') return pathname === '/'
+  return pathname.startsWith(itemPath)
+}
+
+/* ───────────────────────── SideNav ─────────────────────── */
 function SideNav() {
-  const { user } = useAuth()
-  const { pathname } = useLocation()
-  if (!user || pathname === '/login') return null
+  const { user }    = useAuth()
+  const location    = useLocation()
 
-  const items = [
-    { label: 'Adherence Tracking',    path: '/',          icon: <DashboardIcon /> },
-    { label: 'Weekly Schedule',       path: '/schedule',  icon: <CalendarTodayIcon /> },
-    { label: 'Admin',                 path: '/agents',    icon: <AdminPanelSettingsIcon /> },
-    { label: 'Forecasting',           path: '/volume',    icon: <BarChartIcon /> },
-    { label: 'Staffing & Scheduling', path: '/staffing',  icon: <WorkHistoryIcon /> },
-    { label: 'Upload Roster',         path: '/roster',    icon: <UploadIcon /> },
-    { label: 'Shift Manager',         path: '/shifts',    icon: <UploadIcon /> },
+  // hide sidebar on the login page or if not logged-in
+  if (!user || location.pathname === '/login') return null
+
+  const sections = [
+    {
+      title : 'DAILY OPERATIONS',
+      items : [
+        { label:'Adherence Tracking', path:'/',          icon:<DashboardIcon/> },
+        { label:'Weekly Schedule',    path:'/schedule',  icon:<CalendarTodayIcon/> },
+      ],
+    },
+    {
+      title : 'STAFFING  &  SCHEDULING',
+      items : [
+        { label:'Forecasting',           path:'/volume',    icon:<BarChartIcon/> },
+        { label:'Staffing & Scheduling', path:'/staffing',  icon:<WorkHistoryIcon/> },
+        { label:'Shift Manager',         path:'/shifts',    icon:<UploadIcon/> },
+      ],
+    },
+    {
+      title : 'SETTINGS',
+      items : [
+        { label:'Admin',          path:'/agents',  icon:<AdminPanelSettingsIcon/> },
+        { label:'Upload Roster',  path:'/roster',  icon:<UploadIcon/> },
+      ],
+    },
   ]
 
+  /* keep collapse state per section */
+  const [openState, setOpenState] = React.useState(
+    () => Object.fromEntries(sections.map(s => [s.title, false]))
+  )
+
   return (
-    <Drawer variant="permanent" sx={{ width:200, '& .MuiDrawer-paper':{ width:200 } }}>
-      <List>
-        {items.map(item => (
-          <ListItem
-            button
-            key={item.label}
-            component={Link}
-            to={item.path}
+    <StyledDrawer variant="permanent">
+      <List
+        subheader={
+          <ListSubheader
+            disableSticky
+            sx={{
+              lineHeight: 1.2,
+              fontSize: 18,
+              fontWeight: 700,
+              color: '#fff',
+              bgcolor: 'transparent',
+              mt: 1,
+            }}
           >
-            <ListItemIcon>
-              {item.icon}
-            </ListItemIcon>
-            <ListItemText primary={item.label} />
-          </ListItem>
+            NOC Dashboard
+          </ListSubheader>
+        }
+      >
+        {sections.map(section => (
+          <Box key={section.title}>
+            {/* section header */}
+            <ListItemButton
+              onClick={() =>
+                setOpenState(o => ({ ...o, [section.title]: !o[section.title] }))
+              }
+              sx={{ px: 2, py: 1 }}
+            >
+              <ListItemText
+                primary={section.title}
+                primaryTypographyProps={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  color: 'grey.300',
+                }}
+              />
+              {openState[section.title] ? <ExpandLess/> : <ExpandMore/>}
+            </ListItemButton>
+
+            {/* nested items */}
+            <Collapse in={openState[section.title]} timeout="auto" unmountOnExit>
+              <List component="div" disablePadding>
+                {section.items.map(item => (
+                  <ListItemButton
+                    key={item.label}
+                    component={Link}
+                    to={item.path}
+                    sx={{
+                      pl: 4,
+                      mb: 0.5,
+                      borderRadius: 1,
+                      bgcolor: isActive(location.pathname, item.path)
+                        ? 'rgba(255,255,255,0.15)'
+                        : 'transparent',
+                      '&:hover': {
+                        bgcolor: 'rgba(255,255,255,0.08)',
+                      },
+                    }}
+                  >
+                    <ListItemIcon sx={{ color:'#fff', minWidth:32 }}>
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText primary={item.label}/>
+                  </ListItemButton>
+                ))}
+              </List>
+            </Collapse>
+          </Box>
         ))}
       </List>
-    </Drawer>
+    </StyledDrawer>
   )
 }
 
+/* ─────────────────────────  App  ───────────────────────── */
 export default function App() {
   return (
     <AuthProvider>
@@ -66,26 +182,27 @@ export default function App() {
         <CssBaseline/>
         <BrowserRouter basename="/noc-adherence">
           <SideNav/>
-          <main style={{ marginLeft:200, padding:24 }}>
+          {/* push main content right by drawer width */}
+          <Box sx={{ ml: `${DRAWER_WIDTH}px`, p: 3 }}>
             <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage/>}/>
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>
-                <Route path="/"          element={<AdherencePage/>}/>
-                <Route path="/schedule"  element={<SchedulePage/>}/>
-                <Route path="/volume"    element={<VolumePage/>}/>
-                <Route path="/roster"    element={<RosterUpload/>}/>
-                <Route path="/agents"    element={<AgentsPage/>}/>
-                <Route path="/staffing"  element={<StaffingPage />} />
-                <Route path="/shifts"    element={<ShiftManager />} />
+                <Route path="/"         element={<AdherencePage/>}/>
+                <Route path="/schedule" element={<SchedulePage/>}/>
+                <Route path="/volume"   element={<VolumePage/>}/>
+                <Route path="/roster"   element={<RosterUpload/>}/>
+                <Route path="/agents"   element={<AgentsPage/>}/>
+                <Route path="/staffing" element={<StaffingPage/>}/>
+                <Route path="/shifts"   element={<ShiftManager/>}/>
               </Route>
 
-              {/* Catch-all → if you hit any other path, send to "/" (which will itself redirect to /login if unauth'd) */}
+              {/* Catch-all */}
               <Route path="*" element={<Navigate to="/" replace/>}/>
             </Routes>
-          </main>
+          </Box>
         </BrowserRouter>
       </ThemeProvider>
     </AuthProvider>
