@@ -176,15 +176,16 @@ export default function SchedulePage () {
         </Box>
 
         {/* FullCalendar week view */}
-        <Paper variant='outlined' sx={{ mb: 4 }}>
+        <Paper variant='outlined' sx={{ mb: 4, p: 0 }}>
           <FullCalendar
             plugins={[timeGridPlugin]}
             initialView='timeGridWeek'
-            timeZone='Africa/Johannesburg'
+            timeZone='local'                       /* ← simplest & safe */
+            initialDate={weekStart.toDate()}       /* ensure correct week */
             headerToolbar={false}
             datesSet={({ start }) => setWeekStart(dayjs(start))}
             events={events}
-            height='auto'
+            height={650}                           /* fixes zero-height issue */
             eventDidMount={info =>
               info.el.setAttribute(
                 'title',
