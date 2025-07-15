@@ -5,7 +5,9 @@ import dayjs from 'dayjs'
 
 const r = Router()
 
-// ─── Helper: close any vacancy overlapping a new engagement ───
+// ─── Helper ─────────────────────────────────────────────────────────
+// Close any vacancy whose openFrom ≤ startDate and whose closedAt is
+// null or ≥ startDate.
 async function closeVacancy(teamId, startDate) {
   await prisma.vacancy.updateMany({
     where: {
@@ -20,7 +22,7 @@ async function closeVacancy(teamId, startDate) {
   })
 }
 
-// ─── Teams ────────────────────────────────────────────────
+// ─── Teams ─────────────────────────────────────────────────────────
 r.get('/teams', async (_, res) => {
   const teams = await prisma.team.findMany({ orderBy: { name: 'asc' } })
   res.json(teams)
@@ -31,7 +33,7 @@ r.post('/teams', async (req, res) => {
   res.status(201).json(team)
 })
 
-// ─── Engagements ─────────────────────────────────────────
+// ─── Engagements ───────────────────────────────────────────────────
 r.get('/engagements', async (req, res) => {
   const { teamId, activeOn } = req.query
   const filter = {}
@@ -50,9 +52,9 @@ r.get('/engagements', async (req, res) => {
   }
 
   const rows = await prisma.engagement.findMany({
-    where: filter,
-    include: { agent: true, team: true },
-    orderBy: [{ startDate: 'desc' }]
+    where:  filter,
+    include:{ agent:true, team:true },
+    orderBy:[{ startDate:'desc' }]
   })
 
   res.json(rows)
@@ -63,10 +65,10 @@ r.post('/engagements', async (req, res) => {
   const start = new Date(startDate)
 
   const row = await prisma.engagement.create({
-    data: { agentId, teamId, startDate: start, note }
+    data:{ agentId, teamId, startDate:start, note }
   })
 
-  // close any overlapping vacancy now filled
+  // fill any matching vacancy
   await closeVacancy(teamId, start)
 
   res.status(201).json(row)
@@ -78,38 +80,38 @@ r.patch('/engagements/:id/terminate', async (req, res) => {
   const end = new Date(endDate)
 
   const engagement = await prisma.engagement.update({
-    where: { id },
-    data: { endDate: end, note }
+    where:{ id },
+    data:{ endDate:end, note }
   })
 
-  // open a new vacancy the day after they leave
+  // open vacancy the day after
   await prisma.vacancy.create({
-    data: {
+    data:{
       teamId:   engagement.teamId,
-      openFrom: dayjs(end).add(1, 'day').toDate(),
+      openFrom: dayjs(end).add(1,'day').toDate(),
       reason:   note ?? 'exit'
     }
   })
 
-  res.json({ ok: true })
+  res.json({ ok:true })
 })
 
-// ─── Vacancies ───────────────────────────────────────────
+// ─── Vacancies ────────────────────────────────────────────────────
 r.get('/vacancies', async (req, res) => {
   const open = req.query.open === 'true'
   const rows = await prisma.vacancy.findMany({
-    where: open ? { closedAt: null } : {},
-    include: { team: true },
-    orderBy: [{ openFrom: 'asc' }]
+    where:   open ? { closedAt:null } : {},
+    include: { team:true },
+    orderBy: [{ openFrom:'asc' }]
   })
   res.json(rows)
 })
 
-// ─── Headcount report ───────────────────────────────────
+// ─── Headcount report ────────────────────────────────────────────
 r.get('/reports/headcount', async (req, res) => {
   const { from, to } = req.query
 
-  // run raw SQL to generate monthly headcount + vacancies
+  // your raw SQL with generate_series
   const rawRows = await prisma.$queryRaw`
     WITH months AS (
       SELECT generate_series(${from}::date, ${to}::date, interval '1 month') mon
@@ -119,8 +121,7 @@ r.get('/reports/headcount', async (req, res) => {
       to_char(m.mon, 'YYYY-MM') AS month,
       COUNT(e.id) AS headcount,
       COUNT(v.id) FILTER (
-        WHERE v."closedAt" IS NULL
-           OR v."closedAt" >= m.mon
+        WHERE v."closedAt" IS NULL OR v."closedAt" >= m.mon
       ) AS vacancies
     FROM months m
     CROSS JOIN "Team" t
@@ -135,7 +136,7 @@ r.get('/reports/headcount', async (req, res) => {
     ORDER BY t.name, month
   `
 
-  // convert BIGINTs → Numbers for JSON
+  // BigInt → Number so JSON.stringify works
   const rows = rawRows.map(r => ({
     name:      r.name,
     month:     r.month,
