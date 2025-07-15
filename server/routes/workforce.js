@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 
 const r = Router()
 
-// helper: close any open vacancies that overlap a new engagement
+// ─── Helper: close any vacancy overlapping a new engagement ───
 async function closeVacancy(teamId, startDate) {
   await prisma.vacancy.updateMany({
     where: {
@@ -20,7 +20,7 @@ async function closeVacancy(teamId, startDate) {
   })
 }
 
-/* ─── teams ───────────────────────────── */
+// ─── Teams ────────────────────────────────────────────────
 r.get('/teams', async (_, res) => {
   const teams = await prisma.team.findMany({ orderBy: { name: 'asc' } })
   res.json(teams)
@@ -31,7 +31,7 @@ r.post('/teams', async (req, res) => {
   res.status(201).json(team)
 })
 
-/* ─── engagements ─────────────────────── */
+// ─── Engagements ─────────────────────────────────────────
 r.get('/engagements', async (req, res) => {
   const { teamId, activeOn } = req.query
   const filter = {}
@@ -66,7 +66,7 @@ r.post('/engagements', async (req, res) => {
     data: { agentId, teamId, startDate: start, note }
   })
 
-  // close any overlapping vacancy
+  // close any overlapping vacancy now filled
   await closeVacancy(teamId, start)
 
   res.status(201).json(row)
@@ -94,7 +94,7 @@ r.patch('/engagements/:id/terminate', async (req, res) => {
   res.json({ ok: true })
 })
 
-/* ─── vacancies ───────────────────────── */
+// ─── Vacancies ───────────────────────────────────────────
 r.get('/vacancies', async (req, res) => {
   const open = req.query.open === 'true'
   const rows = await prisma.vacancy.findMany({
@@ -105,23 +105,23 @@ r.get('/vacancies', async (req, res) => {
   res.json(rows)
 })
 
-/* ─── headcount report ────────────────── */
+// ─── Headcount report ───────────────────────────────────
 r.get('/reports/headcount', async (req, res) => {
   const { from, to } = req.query
 
-  // run raw SQL to get monthly headcount & vacancies
+  // run raw SQL to generate monthly headcount + vacancies
   const rawRows = await prisma.$queryRaw`
     WITH months AS (
       SELECT generate_series(${from}::date, ${to}::date, interval '1 month') mon
     )
     SELECT
       t.name,
-      to_char(m.mon, 'YYYY-MM')       AS month,
-      COUNT(e.id)                     AS headcount,
+      to_char(m.mon, 'YYYY-MM') AS month,
+      COUNT(e.id) AS headcount,
       COUNT(v.id) FILTER (
         WHERE v."closedAt" IS NULL
            OR v."closedAt" >= m.mon
-      )                               AS vacancies
+      ) AS vacancies
     FROM months m
     CROSS JOIN "Team" t
     LEFT JOIN "Engagement" e
@@ -135,7 +135,7 @@ r.get('/reports/headcount', async (req, res) => {
     ORDER BY t.name, month
   `
 
-  // convert BigInt fields to numbers for JSON serialization
+  // convert BIGINTs → Numbers for JSON
   const rows = rawRows.map(r => ({
     name:      r.name,
     month:     r.month,
