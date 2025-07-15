@@ -1,10 +1,11 @@
+// backend/routes/workforce.js
 import { Router } from 'express'
-import prisma from '../lib/prisma.js'      // your Prisma client
+import prisma from '../lib/prisma.js'
 import dayjs from 'dayjs'
 
 const r = Router()
 
-// helper: closes any matching open vacancy when a new engagement fills it
+// helper: close any open vacancies that overlap a new engagement
 async function closeVacancy(teamId, startDate) {
   await prisma.vacancy.updateMany({
     where: {
@@ -108,18 +109,19 @@ r.get('/vacancies', async (req, res) => {
 r.get('/reports/headcount', async (req, res) => {
   const { from, to } = req.query
 
-  // run the same raw SQL you had
+  // run raw SQL to get monthly headcount & vacancies
   const rawRows = await prisma.$queryRaw`
     WITH months AS (
       SELECT generate_series(${from}::date, ${to}::date, interval '1 month') mon
     )
     SELECT
       t.name,
-      to_char(m.mon, 'YYYY-MM') AS month,
-      COUNT(e.id) AS headcount,
+      to_char(m.mon, 'YYYY-MM')       AS month,
+      COUNT(e.id)                     AS headcount,
       COUNT(v.id) FILTER (
-        WHERE v."closedAt" IS NULL OR v."closedAt" >= m.mon
-      ) AS vacancies
+        WHERE v."closedAt" IS NULL
+           OR v."closedAt" >= m.mon
+      )                               AS vacancies
     FROM months m
     CROSS JOIN "Team" t
     LEFT JOIN "Engagement" e
@@ -133,7 +135,7 @@ r.get('/reports/headcount', async (req, res) => {
     ORDER BY t.name, month
   `
 
-  // convert BigInt → Number
+  // convert BigInt fields to numbers for JSON serialization
   const rows = rawRows.map(r => ({
     name:      r.name,
     month:     r.month,
