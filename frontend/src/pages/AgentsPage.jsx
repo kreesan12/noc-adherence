@@ -15,6 +15,7 @@ import {
   MenuItem
 } from '@mui/material'
 import api from '../api'
+import { listTeams, createTeam } from '../api/workforce'  // ← teams API
 
 /* ─── shared roles list ────────────────────────────────────── */
 const ROLES = ['NOC Tier 1', 'NOC Tier 2', 'NOC Tier 3']
@@ -35,10 +36,16 @@ export default function AgentsPage() {
     fullName: '', email: '', password: ''
   })
 
+  // teams
+  const [teams, setTeams]       = useState([])
+  const [openTeam, setOpenTeam] = useState(false)
+  const [teamName, setTeamName] = useState('')
+
   /* ─── load data on mount ─────────────────────────────────── */
   useEffect(() => {
     api.get('/agents').then(r => setAgents(r.data))
     api.get('/supervisors').then(r => setSupers(r.data))
+    listTeams().then(r => setTeams(r.data))
   }, [])
 
   /* ─── grid definitions ───────────────────────────────────── */
@@ -60,6 +67,11 @@ export default function AgentsPage() {
     { field: 'fullName', headerName: 'Name',  flex: 1  },
     { field: 'email',    headerName: 'Email', flex: 1  },
     { field: 'role',     headerName: 'Role',  width: 130 }
+  ]
+
+  const teamCols = [
+    { field: 'id',   headerName: 'ID',       width: 70 },
+    { field: 'name', headerName: 'Team Name', flex: 1 }
   ]
 
   /* ─── handlers ───────────────────────────────────────────── */
@@ -88,9 +100,18 @@ export default function AgentsPage() {
     setSupForm({ fullName:'', email:'', password:'' })
   }
 
+  async function handleTeamSave() {
+    if (!teamName.trim()) return
+    await createTeam(teamName.trim())
+    const { data } = await listTeams()
+    setTeams(data)
+    setOpenTeam(false)
+    setTeamName('')
+  }
+
   /* ─── render ─────────────────────────────────────────────── */
   return (
-    <Box>
+    <Box p={2}>
       {/* ── Agents ──────────────────────────────────────────── */}
       <Typography variant="h6" gutterBottom>
         Agents
@@ -202,6 +223,47 @@ export default function AgentsPage() {
               Save
             </Button>
           </Stack>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Teams ─────────────────────────────────────────────── */}
+      <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
+        Teams
+      </Typography>
+      <Button
+        variant="contained"
+        sx={{ mb: 2 }}
+        onClick={() => setOpenTeam(true)}
+      >
+        + Add team
+      </Button>
+      <DataGrid
+        rows={teams}
+        columns={teamCols}
+        autoHeight
+        disableRowSelectionOnClick
+      />
+
+      {/* Add-team dialog */}
+      <Dialog open={openTeam} onClose={() => setOpenTeam(false)}>
+        <DialogTitle>New team</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1, width: 320 }}>
+            <TextField
+              label="Team name"
+              fullWidth
+              value={teamName}
+              onChange={e => setTeamName(e.target.value)}
+              required
+            />
+            <Button
+              variant="contained"
+              onClick={handleTeamSave}
+              sx={{ mt: 2 }}
+            >
+              Save
+            </Button>
+          </Box>
         </DialogContent>
       </Dialog>
     </Box>
