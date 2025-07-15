@@ -1,3 +1,4 @@
+// frontend/src/pages/WorkforcePage.jsx
 import React, { useState, useEffect } from 'react'
 import {
   Box,
@@ -14,7 +15,15 @@ import {
   IconButton
 } from '@mui/material'
 import { DataGrid } from '@mui/x-data-grid'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts'
 import dayjs from 'dayjs'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
@@ -31,33 +40,45 @@ import {
 export default function WorkforcePage() {
   const [tab, setTab] = useState(0)
 
-  // lookups
+  // ── lookups ─────────────────────────────
   const [teams, setTeams] = useState([])
-  useEffect(() => { listTeams().then(r => setTeams(r.data)) }, [])
+  useEffect(() => {
+    listTeams().then(r => setTeams(r.data))
+  }, [])
 
   const [agents, setAgents] = useState([])
-  useEffect(() => { listAgents().then(r => setAgents(r.data)) }, [])
+  useEffect(() => {
+    listAgents().then(r => setAgents(r.data))
+  }, [])
 
-  // track current open engagements for termination logic
+  // ── track current open engagements ─────────────────
   const [engs, setEngs] = useState([])
   useEffect(() => {
-    listEngagements({ activeOn: dayjs().format('YYYY-MM-DD') })
+    const today = dayjs().format('YYYY-MM-DD')
+    listEngagements({ activeOn: today })
       .then(r => setEngs(r.data))
   }, [])
 
-  // Movements tab data
+  // ── Movements tab data ─────────────────────────────
   const [rows, setRows] = useState([])
   const loadEngagements = () =>
     listEngagements({}).then(r => setRows(r.data))
   useEffect(loadEngagements, [])
 
-  // dialog state
+  // ── dialog state ────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [form, setForm] = useState({ agentId: '', teamId: '', startDate: '' })
+  const [form, setForm] = useState({
+    agentId: '',
+    teamId: '',
+    startDate: ''
+  })
 
   const saveEngagement = async () => {
     if (form.teamId === 0) {
-      const current = engs.find(e => e.agentId === form.agentId && !e.endDate)
+      // terminate
+      const current = engs.find(
+        e => e.agentId === form.agentId && !e.endDate
+      )
       if (!current) {
         alert('No active engagement to terminate')
         return
@@ -67,48 +88,79 @@ export default function WorkforcePage() {
         note: 'Left NOC'
       })
     } else {
+      // new engagement
       await createEngagement(form)
     }
 
-    // refresh data
     setDialogOpen(false)
     await loadEngagements()
-    listEngagements({ activeOn: dayjs().format('YYYY-MM-DD') })
-      .then(r => setEngs(r.data))
+
+    const today = dayjs().format('YYYY-MM-DD')
+    listEngagements({ activeOn: today }).then(r => setEngs(r.data))
   }
 
-  // Headcount chart data
-  const [chart, setChart] = useState([])
+  // ── Headcount chart data ────────────────────────────
+  const [rawChart, setRawChart] = useState([])
+  const [barData, setBarData]   = useState([])
+  const [chartTeams, setChartTeams] = useState([])
+
   useEffect(() => {
     const from = dayjs().startOf('year').format('YYYY-MM-DD')
     const to   = dayjs().endOf('year').format('YYYY-MM-DD')
-    headcountReport(from, to).then(r => setChart(r.data))
+    headcountReport(from, to).then(r => {
+      const data = r.data
+      setRawChart(data)
+
+      // figure out which teams appear
+      const names = Array.from(new Set(data.map(d => d.name)))
+      setChartTeams(names)
+
+      // pivot into { month, [team1]: count, [team2]: count, ... }
+      const pivot = {}
+      data.forEach(({ month, name, headcount }) => {
+        if (!pivot[month]) pivot[month] = { month }
+        pivot[month][name] = headcount
+      })
+      setBarData(Object.values(pivot))
+    })
   }, [])
 
-  // grid columns
+  // ── DataGrid columns ────────────────────────────────
   const cols = [
     {
-      field: 'agent.fullName', headerName: 'Agent', flex: 1,
-      valueGetter: p => p.row.agent.fullName
+      field: 'agent.fullName',
+      headerName: 'Agent',
+      flex: 1,
+      valueGetter: params => params.row.agent?.fullName || ''
     },
     {
-      field: 'team.name', headerName: 'Team', flex: 1,
-      valueGetter: p => p.row.team.name
+      field: 'team.name',
+      headerName: 'Team',
+      flex: 1,
+      valueGetter: params => params.row.team?.name || ''
     },
     {
-      field: 'startDate', headerName: 'Start', flex: 1,
-      valueGetter: p => p.row.startDate?.slice(0, 10) || ''
+      field: 'startDate',
+      headerName: 'Start',
+      flex: 1,
+      valueGetter: params => params.row.startDate?.slice(0, 10) || ''
     },
     {
-      field: 'endDate', headerName: 'End', flex: 1,
-      valueGetter: p => p.row.endDate?.slice(0, 10) || '—'
+      field: 'endDate',
+      headerName: 'End',
+      flex: 1,
+      valueGetter: params => params.row.endDate?.slice(0, 10) || '—'
     },
     { field: 'note', headerName: 'Note', flex: 1 }
   ]
 
   return (
     <Box>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        sx={{ mb: 2 }}
+      >
         <Tab label='Movements' />
         <Tab label='Headcount' />
       </Tabs>
@@ -136,7 +188,10 @@ export default function WorkforcePage() {
             pageSize={10}
           />
 
-          <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
+          <Dialog
+            open={dialogOpen}
+            onClose={() => setDialogOpen(false)}
+          >
             <DialogTitle>
               New engagement
               <IconButton
@@ -148,15 +203,22 @@ export default function WorkforcePage() {
             </DialogTitle>
             <DialogContent dividers>
               <Grid container spacing={4}>
-                <Grid item xs={14}>
+                <Grid item xs={12}>
                   <TextField
                     select
                     label='Agent'
                     fullWidth
                     value={form.agentId || ''}
-                    onChange={e => setForm(f => ({ ...f, agentId: Number(e.target.value) }))}
+                    onChange={e =>
+                      setForm(f => ({
+                        ...f,
+                        agentId: Number(e.target.value)
+                      }))
+                    }
                   >
-                    <MenuItem value=''><em>Select agent</em></MenuItem>
+                    <MenuItem value=''>
+                      <em>Select agent</em>
+                    </MenuItem>
                     {agents.map(a => (
                       <MenuItem key={a.id} value={a.id}>
                         {a.fullName} ({a.role})
@@ -166,29 +228,43 @@ export default function WorkforcePage() {
                 </Grid>
 
                 {form.agentId && (
-                  <Grid item xs={14}>
+                  <Grid item xs={12}>
                     <TextField
                       label='Current Team'
                       fullWidth
                       disabled
-                      value={agents.find(a => a.id === form.agentId)?.role || ''}
+                      value={
+                        agents.find(a => a.id === form.agentId)
+                          ?.role || ''
+                      }
                     />
                   </Grid>
                 )}
 
-                <Grid item xs={14}>
+                <Grid item xs={12}>
                   <TextField
                     select
                     label='Move to'
                     fullWidth
-                    value={form.teamId || ''}
-                    onChange={e => setForm(f => ({ ...f, teamId: Number(e.target.value) }))}
+                    value={form.teamId ?? ''}
+                    onChange={e =>
+                      setForm(f => ({
+                        ...f,
+                        teamId: Number(e.target.value)
+                      }))
+                    }
                   >
-                    <MenuItem value=''><em>Select team</em></MenuItem>
+                    <MenuItem value=''>
+                      <em>Select team</em>
+                    </MenuItem>
                     {teams.map(t => (
-                      <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+                      <MenuItem key={t.id} value={t.id}>
+                        {t.name}
+                      </MenuItem>
                     ))}
-                    <MenuItem value={0}><em>Left NOC</em></MenuItem>
+                    <MenuItem value={0}>
+                      <em>Left NOC</em>
+                    </MenuItem>
                   </TextField>
                 </Grid>
 
@@ -199,7 +275,12 @@ export default function WorkforcePage() {
                     fullWidth
                     InputLabelProps={{ shrink: true }}
                     value={form.startDate || ''}
-                    onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
+                    onChange={e =>
+                      setForm(f => ({
+                        ...f,
+                        startDate: e.target.value
+                      }))
+                    }
                   />
                 </Grid>
 
@@ -208,7 +289,11 @@ export default function WorkforcePage() {
                     variant='contained'
                     fullWidth
                     onClick={saveEngagement}
-                    disabled={!form.agentId || form.teamId === '' || form.startDate === ''}
+                    disabled={
+                      !form.agentId ||
+                      form.teamId === '' ||
+                      !form.startDate
+                    }
                   >
                     Save
                   </Button>
@@ -222,16 +307,17 @@ export default function WorkforcePage() {
       {tab === 1 && (
         <Paper sx={{ p: 2, height: 400 }}>
           <ResponsiveContainer width='100%' height='100%'>
-            <BarChart data={chart}>
+            <BarChart data={barData}>
               <XAxis dataKey='month' />
               <YAxis />
               <Tooltip />
               <Legend />
-              {Array.from(new Set(chart.map(r => r.name))).map(team => (
+              {chartTeams.map(team => (
                 <Bar
                   key={team}
-                  dataKey={r => (r.name === team ? r.headcount : 0)}
+                  dataKey={team}
                   stackId='a'
+                  name={team}
                 />
               ))}
             </BarChart>
