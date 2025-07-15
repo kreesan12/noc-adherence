@@ -1,3 +1,4 @@
+// frontend/src/pages/LeavePlannerPage.jsx
 import { useEffect, useState } from 'react'
 import {
   Box, Button, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -52,10 +53,10 @@ export default function LeavePlannerPage () {
         agentName: leave.agent.fullName,
         team: leave.agent.role,
         reason: leave.reason,
-        startDate: leave.startsAt,
-        endDate: leave.endsAt,
+        startDate:  new Date(leave.startsAt),
+        endDate:    new Date(leave.endsAt),
         createdBy: leave.createdBy,
-        createdAt: leave.createdAt
+        createdAt:  new Date(leave.createdAt)
       })))
     } catch {
       setSnack('Save failed')

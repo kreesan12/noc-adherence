@@ -147,8 +147,8 @@ export default function WorkforcePage() {
               </IconButton>
             </DialogTitle>
             <DialogContent dividers>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
+              <Grid container spacing={4}>
+                <Grid item xs={14}>
                   <TextField
                     select
                     label='Agent'
@@ -166,7 +166,7 @@ export default function WorkforcePage() {
                 </Grid>
 
                 {form.agentId && (
-                  <Grid item xs={12}>
+                  <Grid item xs={14}>
                     <TextField
                       label='Current Team'
                       fullWidth
@@ -176,7 +176,7 @@ export default function WorkforcePage() {
                   </Grid>
                 )}
 
-                <Grid item xs={12}>
+                <Grid item xs={14}>
                   <TextField
                     select
                     label='Move to'
