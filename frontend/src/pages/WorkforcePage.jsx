@@ -1,41 +1,63 @@
 // frontend/src/pages/WorkforcePage.jsx
 import React, { useState, useEffect } from 'react'
 import {
-  Box, Tab, Tabs, Paper, Button, Dialog, DialogTitle, DialogContent,
-  TextField, MenuItem, Grid, IconButton
+  Box,
+  Tab,
+  Tabs,
+  Paper,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  TextField,
+  MenuItem,
+  Grid,
+  IconButton
 } from '@mui/material'
 import { DataGrid } from '@mui/x-data-grid'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts'
 import dayjs from 'dayjs'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 
 import {
-  listTeams, listAgents, listEngagements,
-  createEngagement, terminateEngagement, headcountReport
+  listTeams,
+  listAgents,
+  listEngagements,
+  createEngagement,
+  terminateEngagement,
+  headcountReport
 } from '../api/workforce'
 
 export default function WorkforcePage() {
   const [tab, setTab] = useState(0)
 
-  // lookups
+  // ── lookups ─────────────────────────────
   const [teams, setTeams]   = useState([])
   const [agents, setAgents] = useState([])
   useEffect(() => { listTeams().then(r => setTeams(r.data)) }, [])
   useEffect(() => { listAgents().then(r => setAgents(r.data)) }, [])
 
-  // track open engagements for termination
+  // ── track currently open engagements ─────
   const [engs, setEngs] = useState([])
   useEffect(() => {
-    listEngagements({ activeOn: dayjs().format('YYYY-MM-DD') })
-      .then(r => setEngs(r.data))
+    const today = dayjs().format('YYYY-MM-DD')
+    listEngagements({ activeOn: today }).then(r => setEngs(r.data))
   }, [])
 
-  // ─── MOVEMENTS TAB ───────────────────────
+  // ── MOVEMENTS TAB ───────────────────────
   const [rows, setRows] = useState([])
   const loadEngagements = () =>
     listEngagements({}).then(r => {
-      // flatten so DataGrid can use simple fields
+      // flatten each engagement for the grid
       const flat = r.data.map(e => ({
         id:         e.id,
         agentId:    e.agentId,
@@ -50,39 +72,47 @@ export default function WorkforcePage() {
     })
   useEffect(loadEngagements, [])
 
-  // dialog state
+  // ── dialog state ─────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [form, setForm]             = useState({ agentId:'', teamId:'', startDate:'' })
+  const [form, setForm]             = useState({
+    agentId: '', teamId: '', startDate: ''
+  })
 
   const saveEngagement = async () => {
     if (form.teamId === 0) {
-      const current = engs.find(e => e.agentId === form.agentId && !e.endDate)
-      if (!current) { alert('No active engagement') ; return }
+      // terminate existing
+      const current = engs.find(
+        e => e.agentId === form.agentId && !e.endDate
+      )
+      if (!current) {
+        alert('No active engagement to terminate')
+        return
+      }
       await terminateEngagement(current.id, {
         endDate: form.startDate,
         note:    'Left NOC'
       })
     } else {
+      // create new
       await createEngagement(form)
     }
+
     setDialogOpen(false)
     await loadEngagements()
-    listEngagements({ activeOn: dayjs().format('YYYY-MM-DD') })
-      .then(r => setEngs(r.data))
+    const today = dayjs().format('YYYY-MM-DD')
+    listEngagements({ activeOn: today }).then(r => setEngs(r.data))
   }
 
-  // ─── HEADCOUNT TAB ──────────────────────
-  const [barData, setBarData]     = useState([])
-  const [chartTeams, setChartTeams] = useState([])
+  // ── HEADCOUNT TAB ───────────────────────
+  const [barData, setBarData]         = useState([])
+  const [chartTeams, setChartTeams]   = useState([])
   useEffect(() => {
     const from = dayjs().startOf('year').format('YYYY-MM-DD')
     const to   = dayjs().endOf('year').format('YYYY-MM-DD')
-    headcountReport(from,to).then(r => {
+    headcountReport(from, to).then(r => {
       const data = r.data
-      // collect distinct team names
-      const names = Array.from(new Set(data.map(d=>d.name)))
+      const names = Array.from(new Set(data.map(d => d.name)))
       setChartTeams(names)
-      // pivot into { month, [team1]: headcount, [team2]: headcount, ... }
       const pivot = {}
       data.forEach(({ month, name, headcount }) => {
         if (!pivot[month]) pivot[month] = { month }
@@ -92,7 +122,7 @@ export default function WorkforcePage() {
     })
   }, [])
 
-  // ─── COLUMNS ────────────────────────────
+  // ── grid columns ────────────────────────
   const cols = [
     { field:'agentName', headerName:'Agent', flex:1 },
     { field:'teamName',  headerName:'Team',  flex:1 },
@@ -109,36 +139,47 @@ export default function WorkforcePage() {
 
   return (
     <Box>
-      <Tabs value={tab} onChange={(_,v)=>setTab(v)} sx={{ mb:2 }}>
-        <Tab label="Movements"/>
-        <Tab label="Headcount"/>
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        sx={{ mb: 2 }}
+      >
+        <Tab label='Movements' />
+        <Tab label='Headcount' />
       </Tabs>
 
-      {tab===0 && (
-        <Paper sx={{p:2}}>
-          <Box sx={{display:'flex',justifyContent:'flex-end',mb:1}}>
+      {tab === 0 && (
+        <Paper sx={{ p: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
             <Button
-              startIcon={<AddIcon/>}
-              variant="contained"
-              onClick={()=>{ setForm({}); setDialogOpen(true) }}
+              startIcon={<AddIcon />}
+              variant='contained'
+              onClick={() => {
+                setForm({ agentId:'', teamId:'', startDate:'' })
+                setDialogOpen(true)
+              }}
             >
               Add engagement
             </Button>
           </Box>
+
           <DataGrid
             autoHeight
             rows={rows}
             columns={cols}
-            getRowId={r=>r.id}
+            getRowId={r => r.id}
             pageSize={10}
           />
 
-          <Dialog open={dialogOpen} onClose={()=>setDialogOpen(false)}>
+          <Dialog
+            open={dialogOpen}
+            onClose={() => setDialogOpen(false)}
+          >
             <DialogTitle>
               New engagement
               <IconButton
-                onClick={()=>setDialogOpen(false)}
-                sx={{position:'absolute',right:8,top:8}}
+                onClick={() => setDialogOpen(false)}
+                sx={{ position:'absolute', right:8, top:8 }}
               >
                 <CloseIcon/>
               </IconButton>
@@ -146,52 +187,81 @@ export default function WorkforcePage() {
             <DialogContent dividers>
               <Grid container spacing={2}>
                 <Grid item xs={12}>
-                  <TextField select label="Agent" fullWidth
+                  <TextField
+                    select
+                    label='Agent'
+                    fullWidth
                     value={form.agentId||''}
-                    onChange={e=>setForm(f=>({...f,agentId:Number(e.target.value)}))}
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      agentId: Number(e.target.value)
+                    }))}
                   >
-                    <MenuItem value=""><em>Select agent</em></MenuItem>
-                    {agents.map(a=>(
+                    <MenuItem value=''><em>Select agent</em></MenuItem>
+                    {agents.map(a => (
                       <MenuItem key={a.id} value={a.id}>
                         {a.fullName} ({a.role})
                       </MenuItem>
                     ))}
                   </TextField>
                 </Grid>
+
                 {form.agentId && (
                   <Grid item xs={12}>
                     <TextField
-                      label="Current Team"
-                      fullWidth disabled
-                      value={agents.find(a=>a.id===form.agentId)?.role||''}
+                      label='Current Team'
+                      fullWidth
+                      disabled
+                      value={
+                        agents.find(a => a.id===form.agentId)?.role || ''
+                      }
                     />
                   </Grid>
                 )}
+
                 <Grid item xs={12}>
-                  <TextField select label="Move to" fullWidth
+                  <TextField
+                    select
+                    label='Move to'
+                    fullWidth
                     value={form.teamId||''}
-                    onChange={e=>setForm(f=>({...f,teamId:Number(e.target.value)}))}
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      teamId: Number(e.target.value)
+                    }))}
                   >
-                    <MenuItem value=""><em>Select team</em></MenuItem>
-                    {teams.map(t=>(
+                    <MenuItem value=''><em>Select team</em></MenuItem>
+                    {teams.map(t => (
                       <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
                     ))}
                     <MenuItem value={0}><em>Left NOC</em></MenuItem>
                   </TextField>
                 </Grid>
+
                 <Grid item xs={12}>
                   <TextField
-                    label="Start date" type="date" fullWidth
-                    InputLabelProps={{shrink:true}}
+                    label='Start date'
+                    type='date'
+                    fullWidth
+                    InputLabelProps={{ shrink:true }}
                     value={form.startDate||''}
-                    onChange={e=>setForm(f=>({...f,startDate:e.target.value}))}
+                    onChange={e => setForm(f => ({
+                      ...f,
+                      startDate: e.target.value
+                    }))}
                   />
                 </Grid>
+
                 <Grid item xs={12}>
                   <Button
-                    variant="contained" fullWidth
+                    variant='contained'
+                    fullWidth
                     onClick={saveEngagement}
-                    disabled={!form.agentId||form.teamId===''||!form.startDate}
+                    disabled={
+                      !form.agentId ||
+                      form.teamId === '' ||
+                      !form.startDate
+                    }
                   >
                     Save
                   </Button>
@@ -202,19 +272,19 @@ export default function WorkforcePage() {
         </Paper>
       )}
 
-      {tab===1 && (
-        <Paper sx={{p:2,height:400}}>
-          <ResponsiveContainer width="100%" height="100%">
+      {tab === 1 && (
+        <Paper sx={{ p: 2, height: 400 }}>
+          <ResponsiveContainer width='100%' height='100%'>
             <BarChart data={barData}>
-              <XAxis dataKey="month" />
+              <XAxis dataKey='month' />
               <YAxis />
               <Tooltip />
               <Legend />
-              {chartTeams.map(team=>(
+              {chartTeams.map(team => (
                 <Bar
                   key={team}
                   dataKey={team}
-                  stackId="a"
+                  stackId='a'
                   name={team}
                 />
               ))}
