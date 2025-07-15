@@ -103,7 +103,7 @@ r.get('/reports/headcount', async (req, res) => {
     SELECT t.name,
            to_char(m.mon, 'YYYY-MM')  AS month,
            COUNT(e.id)                AS headcount,
-           COUNT(v.id) FILTER (WHERE v.closedAt IS NULL OR v.closedAt >= m.mon) AS vacancies
+           COUNT(v.id) FILTER (WHERE v."closedAt" IS NULL OR v."closedAt" >= m.mon) AS vacancies
       FROM months m
       CROSS JOIN "Team" t
       LEFT JOIN "Engagement" e
