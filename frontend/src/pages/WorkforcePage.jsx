@@ -46,11 +46,12 @@ export default function WorkforcePage() {
   useEffect(() => { listTeams().then(r => setTeams(r.data)) }, [])
   useEffect(() => { listAgents().then(r => setAgents(r.data)) }, [])
 
-  // ── track currently open engagements ─────
+  // ── track currently-open engagements ───────
   const [engs, setEngs] = useState([])
   useEffect(() => {
     const today = dayjs().format('YYYY-MM-DD')
-    listEngagements({ activeOn: today }).then(r => setEngs(r.data))
+    listEngagements({ activeOn: today })
+      .then(r => setEngs(r.data))
   }, [])
 
   // ── MOVEMENTS TAB ───────────────────────
@@ -58,14 +59,14 @@ export default function WorkforcePage() {
   const loadEngagements = () =>
     listEngagements({}).then(r => {
       const flat = r.data.map(e => ({
-        id:         e.id,
-        agentId:    e.agentId,
-        teamId:     e.teamId,
-        startDate:  e.startDate,
-        endDate:    e.endDate,
-        note:       e.note,
-        agentName:  e.agent?.fullName ?? '',
-        teamName:   e.team?.name     ?? ''
+        id:        e.id,
+        agentId:   e.agentId,
+        teamId:    e.teamId,
+        startDate: e.startDate,
+        endDate:   e.endDate,
+        note:      e.note,
+        agentName: e.agent?.fullName ?? '',
+        teamName:  e.team?.name     ?? ''
       }))
       setRows(flat)
     })
@@ -74,13 +75,18 @@ export default function WorkforcePage() {
   // ── dialog state ─────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState({
-    agentId: '', teamId: '', startDate: ''
+    agentId:   '',
+    teamId:    '',
+    startDate: ''
   })
 
   const saveEngagement = async () => {
     if (form.teamId === 0) {
       const current = engs.find(e => e.agentId === form.agentId && !e.endDate)
-      if (!current) { alert('No active engagement to terminate'); return }
+      if (!current) {
+        alert('No active engagement to terminate')
+        return
+      }
       await terminateEngagement(current.id, {
         endDate: form.startDate,
         note:    'Left NOC'
@@ -94,9 +100,9 @@ export default function WorkforcePage() {
     listEngagements({ activeOn: today }).then(r => setEngs(r.data))
   }
 
-  // ── HEADCOUNT TAB ───────────────────────
-  const [barData, setBarData]       = useState([])
-  const [chartTeams, setChartTeams] = useState([])
+  // ── HEADCOUNT TAB ──────────────────────
+  const [barData, setBarData]         = useState([])
+  const [chartTeams, setChartTeams]   = useState([])
   useEffect(() => {
     const from = dayjs().startOf('year').format('YYYY-MM-DD')
     const to   = dayjs().endOf('year').format('YYYY-MM-DD')
@@ -113,7 +119,7 @@ export default function WorkforcePage() {
     })
   }, [])
 
-  // ── grid columns ────────────────────────
+  // ── grid columns ───────────────────────
   const cols = [
     { field:'agentName', headerName:'Agent', flex:1 },
     { field:'teamName',  headerName:'Team',  flex:1 },
