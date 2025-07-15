@@ -101,8 +101,8 @@ export default function WorkforcePage() {
   }
 
   // ── HEADCOUNT TAB ──────────────────────
-  const [barData, setBarData]         = useState([])
-  const [chartTeams, setChartTeams]   = useState([])
+  const [barData, setBarData]       = useState([])
+  const [chartTeams, setChartTeams] = useState([])
   useEffect(() => {
     const from = dayjs().startOf('year').format('YYYY-MM-DD')
     const to   = dayjs().endOf('year').format('YYYY-MM-DD')
@@ -125,13 +125,17 @@ export default function WorkforcePage() {
     { field:'teamName',  headerName:'Team',  flex:1 },
     {
       field:'startDate', headerName:'Start', flex:1,
-      valueFormatter: ({ value }) =>
-        value ? dayjs(value).format('YYYY-MM-DD') : ''
+      valueFormatter: params => {
+        const v = params?.value
+        return v ? dayjs(v).format('YYYY-MM-DD') : ''
+      }
     },
     {
       field:'endDate', headerName:'End', flex:1,
-      valueFormatter: ({ value }) =>
-        value ? dayjs(value).format('YYYY-MM-DD') : '—'
+      valueFormatter: params => {
+        const v = params?.value
+        return v ? dayjs(v).format('YYYY-MM-DD') : '—'
+      }
     },
     { field:'note', headerName:'Note', flex:1 }
   ]
