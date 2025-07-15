@@ -28,10 +28,10 @@ export default function LeavePlannerPage () {
         agentName: leave.agent.fullName,
         team: leave.agent.role,
         reason: leave.reason,
-        startDate: leave.startsAt,
-        endDate: leave.endsAt,
+        startDate: new Date(leave.startsAt),
+        endDate:   new Date(leave.endsAt),
         createdBy: leave.createdBy,
-        createdAt: leave.createdAt
+        createdAt: new Date(leave.createdAt)
       })))
     })()
   }, [])
@@ -68,16 +68,16 @@ export default function LeavePlannerPage () {
     { field: 'reason', headerName: 'Reason', flex: 1.5 },
     {
       field: 'startDate', headerName: 'Start', flex: 1,
-      valueFormatter: params => params.value ? dayjs(params.value).format('YYYY-MM-DD') : ''
+      type: 'date'
     },
     {
       field: 'endDate', headerName: 'End', flex: 1,
-      valueFormatter: params => params.value ? dayjs(params.value).format('YYYY-MM-DD') : ''
+      type: 'date'
     },
     { field: 'createdBy', headerName: 'Created By', flex: 1 },
     {
       field: 'createdAt', headerName: 'Created At', flex: 1,
-      valueFormatter: params => params.value ? dayjs(params.value).format('YYYY-MM-DD HH:mm') : ''
+      type: 'date'
     }
   ]
 
