@@ -68,16 +68,25 @@ export default function LeavePlannerPage () {
     { field: 'reason', headerName: 'Reason', flex: 1.5 },
     {
       field: 'startDate', headerName: 'Start', flex: 1,
-      type: 'date'
+        renderCell: params =>
+    params.value
+      ? dayjs(params.value).format('YYYY-MM-DD')
+      : ''
     },
     {
       field: 'endDate', headerName: 'End', flex: 1,
-      type: 'date'
+        renderCell: params =>
+    params.value
+      ? dayjs(params.value).format('YYYY-MM-DD')
+      : ''
     },
     { field: 'createdBy', headerName: 'Created By', flex: 1 },
     {
       field: 'createdAt', headerName: 'Created At', flex: 1,
-      type: 'date'
+        renderCell: params =>
+    params.value
+      ? dayjs(params.value).format('YYYY-MM-DD')
+      : ''
     }
   ]
 
