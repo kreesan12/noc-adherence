@@ -107,44 +107,90 @@ r.get('/vacancies', async (req, res) => {
   res.json(rows)
 })
 
-// ─── Headcount report ────────────────────────────────────────────
-r.get('/reports/headcount', async (req, res) => {
-  const { from, to } = req.query
+/* ───────────────────── PATCH  /vacancies/:id  ← NEW ───────────────── */
+r.patch('/vacancies/:id', async (req,res)=> {
+  const id   = Number(req.params.id)
+  const body = req.body      // any subset of the Vacancy fields
+  try {
+    const row = await prisma.vacancy.update({ where:{ id }, data: body })
+    res.json(row)
+  } catch (err) {
+    console.error(err) ; res.status(400).json({ error:'Bad payload' })
+  }
+})
 
-  // your raw SQL with generate_series
-  const rawRows = await prisma.$queryRaw`
-    WITH months AS (
-      SELECT generate_series(${from}::date, ${to}::date, interval '1 month') mon
+/* ───────────── DOCX requisition generator  ← NEW ────────────── */
+import Docxtemplater from 'docxtemplater'
+import PizZip from 'pizzip'
+import fs from 'fs'
+import path from 'path'
+
+r.get('/vacancies/:id/requisition', async (req,res)=> {
+  const id   = Number(req.params.id)
+  const v    = await prisma.vacancy.findUnique({ where:{ id }, include:{ team:true }})
+  if (!v) return res.status(404).end()
+
+  /* load template.docx from /templates folder */
+  const tplPath = path.resolve('templates/requisition-template.docx')
+  const zip = new PizZip(fs.readFileSync(tplPath))
+  const doc = new Docxtemplater(zip).setData({
+    team:        v.team.name,
+    openFrom:    dayjs(v.openFrom).format('YYYY-MM-DD'),
+    reason:      v.reason ?? '',
+    status:      v.status,
+    candidate:   v.candidateName ?? '',
+    startDate:   v.startDate ? dayjs(v.startDate).format('YYYY-MM-DD') : ''
+  })
+  try { doc.render() } catch(e){ return res.status(500).end() }
+
+  const buf = doc.getZip().generate({type:'nodebuffer'})
+  res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  res.setHeader('Content-Disposition',`attachment; filename=requisition-${id}.docx`)
+  res.send(buf)
+})
+
+/* ─────────── Head-count: week OR month ─────────── */
+r.get('/reports/headcount', async (req,res)=>{
+  const { from, to, gran='month' } = req.query     // gran = 'month' | 'week'
+
+  const step = gran === 'week'
+    ? "interval '1 week'"
+    : "interval '1 month'"
+
+  const fmt  = gran === 'week'
+    ? "to_char(m.mon, 'IYYY-\"W\"IW')"      
+    : "to_char(m.mon, 'YYYY-MM')"
+
+  const raw = await prisma.$queryRawUnsafe(`
+    WITH periods AS (
+      SELECT generate_series($1::date, $2::date, ${step}) mon
     )
     SELECT
       t.name,
-      to_char(m.mon, 'YYYY-MM') AS month,
+      ${fmt} AS period,
       COUNT(e.id) AS headcount,
       COUNT(v.id) FILTER (
-        WHERE v."closedAt" IS NULL OR v."closedAt" >= m.mon
+        WHERE v.status IN ('OPEN','AWAITING_APPROVAL','APPROVED','INTERVIEWING','OFFER_SENT')
       ) AS vacancies
-    FROM months m
+    FROM periods m
     CROSS JOIN "Team" t
     LEFT JOIN "Engagement" e
       ON e."teamId" = t.id
-     AND e."startDate" <= m.mon + interval '1 month - 1 day'
+     AND e."startDate" <= m.mon + ${step} - interval '1 day'
      AND (e."endDate" IS NULL OR e."endDate" >= m.mon)
     LEFT JOIN "Vacancy" v
       ON v."teamId" = t.id
-     AND v."openFrom" <= m.mon + interval '1 month - 1 day'
-    GROUP BY t.name, month
-    ORDER BY t.name, month
-  `
+     AND v."openFrom" <= m.mon + ${step} - interval '1 day'
+    GROUP BY t.name, period
+    ORDER BY t.name, period
+  `,[from,to])
 
-  // BigInt → Number so JSON.stringify works
-  const rows = rawRows.map(r => ({
-    name:      r.name,
-    month:     r.month,
+  res.json(raw.map(r=>({
+    name: r.name,
+    period: r.period,
     headcount: Number(r.headcount),
     vacancies: Number(r.vacancies)
-  }))
-
-  res.json(rows)
+  })))
 })
 
 export default r

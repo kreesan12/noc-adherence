@@ -7,9 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ──────────────────────────────────────────────────────────
-//  MODELS  (NEW / CHANGED lines are marked)  
-// ──────────────────────────────────────────────────────────
 
 model Agent {
   id          Int     @id @default(autoincrement())
@@ -167,18 +164,44 @@ model Engagement {
   @@index([teamId, startDate, endDate])
 }
 
+enum VacancyStatus {
+  OPEN
+  AWAITING_APPROVAL
+  APPROVED
+  INTERVIEWING
+  OFFER_SENT
+  OFFER_ACCEPTED
+  CLOSED
+}
+
 model Vacancy {
-  id        Int      @id @default(autoincrement())
-  teamId    Int
-  team      Team     @relation(fields:[teamId], references:[id])
+  id        Int   @id @default(autoincrement())
 
-  openFrom  DateTime           @db.Date
-  closedAt  DateTime?          @db.Date        // set once the seat is filled
-  reason    String?            // exit, expansion, temp leave, etc.
+  // FKs
+  teamId    Int   @map("team_id")
+  team      Team  @relation(fields: [teamId], references: [id])
 
-  createdAt DateTime @default(now())
+  // Core dates
+  openFrom  DateTime @map("open_from")
+  closedAt  DateTime? @map("closed_at")
 
-  @@index([teamId, openFrom, closedAt])
+  // Status tracking
+  status    VacancyStatus @default(OPEN)
+
+  // Candidate offer pipeline
+  candidateName    String?   @map("candidate_name")
+  candidateEmail   String?   @map("candidate_email")
+  offerSentAt      DateTime? @map("offer_sent_at")
+  offerAcceptedAt  DateTime? @map("offer_accepted_at")
+  startDate        DateTime? @map("start_date")
+
+  // Optional free-text
+  reason     String?  @db.VarChar(250)
+
+  @@map("Vacancy")          // ← actual table name
+  @@index([teamId])
+  @@index([status])
+  @@index([openFrom])
 }
 
 enum Status {

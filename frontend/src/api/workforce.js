@@ -9,9 +9,14 @@ export const listEngagements       = (params) => api.get('/engagements', { param
 export const createEngagement      = (data)   => api.post('/engagements', data)
 export const terminateEngagement   = (id, b)  => api.patch(`/engagements/${id}/terminate`, b)
 
-export const listVacancies         = (open=true) =>
-  api.get('/vacancies', { params: { open } })
+export const listVacancies    = params =>
+  api.get('/vacancies', { params })
 
-export const headcountReport       = (from, to) =>
-  api.get('/reports/headcount', { params: { from, to } })
+export const updateVacancy    = (id, data) =>
+  api.patch(`/vacancies/${id}`, data)
 
+export const downloadReqDoc   = id =>
+  api.get(`/vacancies/${id}/requisition`, { responseType:'blob' })
+
+export const headcountReport  = (from, to, gran='month') =>
+  api.get('/reports/headcount', { params:{ from, to, gran } })
