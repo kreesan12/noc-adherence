@@ -9,7 +9,7 @@
     "start": "node index.js",
     "migrate": "prisma migrate deploy",
     "generate": "prisma generate",
-    "heroku-postbuild": "npm run generate && npm run migrate && npm run seed"
+    "heroku-postbuild": "npm run generate && npm run migrate"
   },
   "engines": {
     "node": ">=18 <23"
