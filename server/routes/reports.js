@@ -97,15 +97,23 @@ export default prisma => {
             forecastCalls:   0,
             forecastTickets: 0,
             actualCalls:     0,
-            actualTickets:   0
+            actualTickets:   0,
+            autoDfa:         0,
+            autoMnt:         0,
+            autoOutage:      0
           }
         }
-        byDate[d].actualCalls += a.calls
-        const autoSum  = a.autoDfaLogged + a.autoMntLogged + a.autoOutageLinked
-        byDate[d].manualTickets += (a.tickets - autoSum)
-        byDate[d].autoDfa       += a.autoDfaLogged
-        byDate[d].autoMnt       += a.autoMntLogged
-        byDate[d].autoOutage    += a.autoOutageLinked
+        byDate[d].actualCalls += (a.calls ?? 0)
+
+        const autoDfa = a.autoDfaLogged      ?? 0
+        const autoMnt = a.autoMntLogged      ?? 0
+        const autoOut = a.autoOutageLinked   ?? 0
+        const autoSum = autoDfa + autoMnt + autoOut
+
+        byDate[d].manualTickets += (a.tickets ?? 0) - autoSum
+        byDate[d].autoDfa       += autoDfa
+        byDate[d].autoMnt       += autoMnt
+        byDate[d].autoOutage    += autoOut
       })
 
       res.json(Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)))
@@ -171,8 +179,10 @@ export default prisma => {
         const fcHour = fcs.filter(f => dayjs(f.date).hour() === h)
         const acHour = acs.filter(a => dayjs(a.date).hour() === h)
 
-        const autoSum = acHour.reduce(
-          (s, a) => s + a.autoDfaLogged + a.autoMntLogged + a.autoOutageLinked, 0)
+        const autoDfa = acHour.reduce((s,a)=> s + (a.autoDfaLogged    ?? 0), 0)
+        const autoMnt = acHour.reduce((s,a)=> s + (a.autoMntLogged    ?? 0), 0)
+        const autoOut = acHour.reduce((s,a)=> s + (a.autoOutageLinked ?? 0), 0)
+        const autoSum = autoDfa + autoMnt + autoOut
 
         return {
           hour: h,
