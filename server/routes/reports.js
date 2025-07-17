@@ -189,10 +189,11 @@ export default prisma => {
           forecastCalls:   fcHour.reduce((s,f)=>s+f.expectedCalls  ,0),
           forecastTickets: fcHour.reduce((s,f)=>s+f.expectedTickets,0),
           actualCalls:     acHour.reduce((s,a)=>s+a.calls ,0),
-          manualTickets:   acHour.reduce((s,a)=>s+a.tickets,0) - autoSum,
-          autoDfa:         acHour.reduce((s,a)=>s+a.autoDfaLogged    ,0),
-          autoMnt:         acHour.reduce((s,a)=>s+a.autoMntLogged    ,0),
-          autoOutage:      acHour.reduce((s,a)=>s+a.autoOutageLinked ,0)
+          actualCalls:     acHour.reduce((s,a)=> s + (a.calls   ?? 0), 0),
+          manualTickets:   acHour.reduce((s,a)=> s + (a.tickets ?? 0), 0) - autoSum,
+          autoDfa,
+          autoMnt,
+          autoOutage:      autoOut
         }
       })
       res.json(hours)
