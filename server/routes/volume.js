@@ -94,14 +94,18 @@ export default prisma => {
       history.forEach(r => {
         const dow  = dayjs(r.date).day()      // 0-6
         const key  = `${dow}|${r.hour}`
-        const obj  = bucket[key] || { calls:0, tickets:0, n:0 }
-        obj.calls   += r.calls
-        obj.tickets += r.tickets
-        obj.autoDfa  += r.autoDfaLogged
-        obj.autoMnt  += r.autoMntLogged
-        obj.autoOut  += r.autoOutageLinked
-        obj.n       += 1
-        bucket[key]  = obj
+        const obj = bucket[key] || {
+          calls:0, tickets:0,
+          autoDfa:0, autoMnt:0, autoOut:0,
+          n:0
+        }
+        obj.calls    += (r.calls             ?? 0)
+        obj.tickets  += (r.tickets           ?? 0)
+        obj.autoDfa  += (r.autoDfaLogged     ?? 0)
+        obj.autoMnt  += (r.autoMntLogged     ?? 0)
+        obj.autoOut  += (r.autoOutageLinked  ?? 0)
+        obj.n        += 1
+        bucket[key]   = obj
       })
       Object.values(bucket).forEach(b => {
         b.calls   = Math.round(b.calls   / b.n)
