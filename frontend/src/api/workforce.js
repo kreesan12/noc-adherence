@@ -14,3 +14,4 @@ export const listVacancies         = (open=true) =>
 
 export const headcountReport       = (from, to) =>
   api.get('/reports/headcount', { params: { from, to } })
+
