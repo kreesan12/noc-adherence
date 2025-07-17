@@ -250,6 +250,8 @@ export default function VolumePage() {
           )}
         </Box>
 
+        {/* ── DAILY ACTUAL chart ───────────────────────────── */}
+        <Typography variant="h6" gutterBottom>Daily Actual Volume</Typography>
         {/* ── 3) ACTUAL RANGE (for charts) ──────────────── */}
         <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4, flexWrap:'wrap' }}>
           <DatePicker
@@ -267,12 +269,9 @@ export default function VolumePage() {
           <FormControlLabel
             control={<Switch checked={stackAutomation}
                             onChange={e => setStackAutomation(e.target.checked)} />}
-            label="Stack automation?"
+            label="Show automation contribution"
           />
         </Box>
-
-        {/* ── DAILY ACTUAL chart ───────────────────────────── */}
-        <Typography variant="h6" gutterBottom>Daily Actual Volume</Typography>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={dailyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
             <CartesianGrid strokeDasharray="3 3" />
