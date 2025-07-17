@@ -150,11 +150,26 @@ export default prisma => {
           byDate[d] = {
             date: d,
             forecastCalls:   0,
-            forecastTickets: 0
+            forecastTickets: 0,
+            manualTickets:   0,
+            autoDfa:         0,
+            autoMnt:         0,
+            autoOutage:      0
           }
         }
         byDate[d].forecastCalls   += f.expectedCalls
         byDate[d].forecastTickets += f.expectedTickets
+        /* ── automation breakdown ───────────────────────────── */
+        const autoDfa = f.autoDfaLogged     ?? 0
+        const autoMnt = f.autoMntLogged     ?? 0
+        const autoOut = f.autoOutageLinked  ?? 0
+        const autoSum = autoDfa + autoMnt + autoOut
+        
+        byDate[d].manualTickets += f.expectedTickets - autoSum
+        byDate[d].autoDfa       += autoDfa
+        byDate[d].autoMnt       += autoMnt
+        byDate[d].autoOutage    += autoOut
+        
       })
 
       res.json(Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)))
