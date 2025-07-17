@@ -223,11 +223,6 @@ export default function VolumePage() {
                             onChange={e => setOverwrite(e.target.checked)} />}
             label="Overwrite?"
           />
-          <FormControlLabel
-            control={<Switch checked={stackAutomation}
-                            onChange={e => setStackAutomation(e.target.checked)} />}
-            label="Stack automation?"
-          />
 
           <Button variant="contained" onClick={buildForecast}>
             Build Forecast
@@ -264,6 +259,11 @@ export default function VolumePage() {
             value={endDate}
             onChange={d => d && setEndDate(d)}
             renderInput={p => <TextField {...p} size="small" />}
+          />
+          <FormControlLabel
+            control={<Switch checked={stackAutomation}
+                            onChange={e => setStackAutomation(e.target.checked)} />}
+            label="Stack automation?"
           />
         </Box>
 
