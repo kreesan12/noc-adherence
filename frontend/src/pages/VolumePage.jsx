@@ -251,9 +251,8 @@ export default function VolumePage() {
         </Box>
 
         {/* ── DAILY ACTUAL chart ───────────────────────────── */}
-        <Typography variant="h6" gutterBottom>Daily Actual Volume</Typography>
-        {/* ── 3) ACTUAL RANGE (for charts) ──────────────── */}
         <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4, flexWrap:'wrap' }}>
+          <Typography variant="h6" gutterBottom>Daily Actual Volume</Typography>
           <DatePicker
             label="Actual from"
             value={startDate}
