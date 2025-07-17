@@ -348,8 +348,7 @@ export default function VolumePage() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="forecastCalls"   name="Calls"   fill="#8884d8" />
-                <Bar dataKey="forecastCalls" fill="#8884d8" />
+                <Bar dataKey="forecastCalls"   name="Forecast Calls"   fill="#8884d8" />
                 {stackAutomation ? (
                   <>
                     <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="forecast" />
@@ -358,7 +357,7 @@ export default function VolumePage() {
                     <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="forecast" />
                   </>
                 ) : (
-                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" />
+                  <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ff8042" />
                 )}
               </BarChart>
             </ResponsiveContainer>
