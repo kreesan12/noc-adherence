@@ -44,10 +44,10 @@ export default prisma => {
         hour:    d.hour,
         calls:   d.calls,
         tickets: d.tickets,
-        priority1:           Number(d.priority1  || 0),
-        autoDfaLogged:       Number(d.autoDfa    || 0),
-        autoMntLogged:       Number(d.autoMnt    || 0),
-        autoOutageLinked:    Number(d.autoOutage || 0)
+        priority1:           d.priority1,
+        autoDfaLogged:       d.autoDfa,
+        autoMntLogged:       d.autoMnt,
+        autoOutageLinked:    d.autoOutage
       }))
       await prisma.volumeActual.createMany({ data: rows })
       return res.json({ ok:true })
