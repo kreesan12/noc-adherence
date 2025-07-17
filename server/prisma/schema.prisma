@@ -107,6 +107,10 @@ model VolumeForecast {
   hour            Int
   expectedCalls   Int
   expectedTickets Int
+  priority1         Int      @default(0)
+  autoDfaLogged     Int      @map("auto_dfa_logged")    @default(0)
+  autoMntLogged     Int      @map("auto_mnt_logged")    @default(0)
+  autoOutageLinked  Int      @map("auto_outage_linked") @default(0)
 }
 
 model VolumeActual {

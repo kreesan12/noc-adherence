@@ -97,12 +97,18 @@ export default prisma => {
         const obj  = bucket[key] || { calls:0, tickets:0, n:0 }
         obj.calls   += r.calls
         obj.tickets += r.tickets
+        obj.autoDfa  += r.autoDfaLogged
+        obj.autoMnt  += r.autoMntLogged
+        obj.autoOut  += r.autoOutageLinked
         obj.n       += 1
         bucket[key]  = obj
       })
       Object.values(bucket).forEach(b => {
         b.calls   = Math.round(b.calls   / b.n)
         b.tickets = Math.round(b.tickets / b.n)
+        b.autoDfa  = Math.round(b.autoDfa  / b.n)
+        b.autoMnt  = Math.round(b.autoMnt  / b.n)
+        b.autoOut  = Math.round(b.autoOut  / b.n)
       })
 
       /* 3-C) generate future rows */
@@ -121,7 +127,11 @@ export default prisma => {
               date:            cursor.toDate(),
               hour:            h,
               expectedCalls:   b.calls,
-              expectedTickets: b.tickets
+              expectedTickets: b.tickets,
+              priority1:       0,          // keep if you plan to forecast this
+              autoDfaLogged:   b.autoDfa,
+              autoMntLogged:   b.autoMnt,
+              autoOutageLinked:b.autoOut
             })
           }
         }
