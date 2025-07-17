@@ -140,7 +140,11 @@ export default function VolumePage() {
             date:    row.date,
             hour:    Number(row.hour),
             calls:   Number(row.calls),
-            tickets: Number(row.tickets)
+            tickets: Number(row.tickets),
+            priority1:  Number(row.priority1  ?? 0),
+            autoDfa:    Number(row.autoDfa    ?? 0),
+            autoMnt:    Number(row.autoMnt    ?? 0),
+            autoOutage: Number(row.autoOutage ?? 0)
           }))
           await api.post('/volume/actual', { role: team, data: payload })
           await fetchDailyActual().then(setDailyData)
