@@ -80,6 +80,7 @@ export default prisma => {
             forecastCalls:   0,
             forecastTickets: 0,
             actualCalls:     0,
+            actualTickets:   0,
             manualTickets:   0,
             autoDfa:         0,
             autoMnt:         0,
@@ -98,12 +99,14 @@ export default prisma => {
             forecastTickets: 0,
             actualCalls:     0,
             actualTickets:   0,
+            manualTickets:   0,
             autoDfa:         0,
             autoMnt:         0,
             autoOutage:      0
           }
         }
         byDate[d].actualCalls += (a.calls ?? 0)
+        byDate[d].actualTickets += (a.tickets ?? 0)
 
         const autoDfa = a.autoDfaLogged      ?? 0
         const autoMnt = a.autoMntLogged      ?? 0
@@ -188,8 +191,8 @@ export default prisma => {
           hour: h,
           forecastCalls:   fcHour.reduce((s,f)=>s+f.expectedCalls  ,0),
           forecastTickets: fcHour.reduce((s,f)=>s+f.expectedTickets,0),
-          actualCalls:     acHour.reduce((s,a)=>s+a.calls ,0),
           actualCalls:     acHour.reduce((s,a)=> s + (a.calls   ?? 0), 0),
+          actualTickets:   acHour.reduce((s,a)=> s + (a.tickets ?? 0), 0),
           manualTickets:   acHour.reduce((s,a)=> s + (a.tickets ?? 0), 0) - autoSum,
           autoDfa,
           autoMnt,
