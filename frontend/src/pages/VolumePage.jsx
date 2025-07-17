@@ -316,7 +316,7 @@ export default function VolumePage() {
                     <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
                   </>
                 ) : (
-                  <Bar dataKey="manualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
+                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
                 )}
               </BarChart>
             </ResponsiveContainer>
