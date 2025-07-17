@@ -80,7 +80,10 @@ export default prisma => {
             forecastCalls:   0,
             forecastTickets: 0,
             actualCalls:     0,
-            actualTickets:   0
+            manualTickets:   0,
+            autoDfa:         0,
+            autoMnt:         0,
+            autoOutage:      0
           }
         }
         byDate[d].forecastCalls   += f.expectedCalls
@@ -97,8 +100,12 @@ export default prisma => {
             actualTickets:   0
           }
         }
-        byDate[d].actualCalls   += a.calls
-        byDate[d].actualTickets += a.tickets
+        byDate[d].actualCalls += a.calls
+        const autoSum  = a.autoDfaLogged + a.autoMntLogged + a.autoOutageLinked
+        byDate[d].manualTickets += (a.tickets - autoSum)
+        byDate[d].autoDfa       += a.autoDfaLogged
+        byDate[d].autoMnt       += a.autoMntLogged
+        byDate[d].autoOutage    += a.autoOutageLinked
       })
 
       res.json(Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)))
@@ -160,22 +167,24 @@ export default prisma => {
         prisma.volumeActual.findMany({  where: { role, date: { gte: start, lte: end } } })
       ])
 
-      const hours = Array.from({ length: 24 }, (_, h) => ({
-        hour: h,
-        forecastCalls:
-          fcs.filter(f => dayjs(f.date).hour() === h)
-             .reduce((s, f) => s + f.expectedCalls, 0),
-        forecastTickets:
-          fcs.filter(f => dayjs(f.date).hour() === h)
-             .reduce((s, f) => s + f.expectedTickets, 0),
-        actualCalls:
-          acs.filter(a => dayjs(a.date).hour() === h)
-             .reduce((s, a) => s + a.calls, 0),
-        actualTickets:
-          acs.filter(a => dayjs(a.date).hour() === h)
-             .reduce((s, a) => s + a.tickets, 0)
-      }))
+      const hours = Array.from({ length: 24 }, (_, h) => {
+        const fcHour = fcs.filter(f => dayjs(f.date).hour() === h)
+        const acHour = acs.filter(a => dayjs(a.date).hour() === h)
 
+        const autoSum = acHour.reduce(
+          (s, a) => s + a.autoDfaLogged + a.autoMntLogged + a.autoOutageLinked, 0)
+
+        return {
+          hour: h,
+          forecastCalls:   fcHour.reduce((s,f)=>s+f.expectedCalls  ,0),
+          forecastTickets: fcHour.reduce((s,f)=>s+f.expectedTickets,0),
+          actualCalls:     acHour.reduce((s,a)=>s+a.calls ,0),
+          manualTickets:   acHour.reduce((s,a)=>s+a.tickets,0) - autoSum,
+          autoDfa:         acHour.reduce((s,a)=>s+a.autoDfaLogged    ,0),
+          autoMnt:         acHour.reduce((s,a)=>s+a.autoMntLogged    ,0),
+          autoOutage:      acHour.reduce((s,a)=>s+a.autoOutageLinked ,0)
+        }
+      })
       res.json(hours)
     } catch (err) {
       next(err)

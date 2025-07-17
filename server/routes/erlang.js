@@ -1,50 +1,48 @@
-// server/routes/erlang.js
-import { Router } from 'express'
-import dayjs      from '../utils/dayjs.js'
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore.js'
-import { requiredAgents, computeDayStaffing } from '../utils/erlang.js'
-import { autoAssignRotations } from '../utils/scheduler.js'
+import { Router }               from 'express'
+import dayjs                    from '../utils/dayjs.js'
+import isSameOrBefore           from 'dayjs/plugin/isSameOrBefore.js'
+import {
+  requiredAgents,
+  computeDayStaffing
+} from '../utils/erlang.js'
+import { autoAssignRotations }  from '../utils/scheduler.js'
 
 dayjs.extend(isSameOrBefore)
 
 export default prisma => {
   const r = Router()
 
-  // ─── 1) Single staffing calc ────────────────────────────────────
+  /* ──────────────────────────────────────────────────────────
+   * 1) Single-point Erlang
+   * ────────────────────────────────────────────────────────── */
   r.post('/staff', (req, res, next) => {
     try {
       const {
-        callsPerHour,
-        ahtSeconds,
-        serviceLevel,
-        thresholdSeconds,
+        callsPerHour, ahtSeconds,
+        serviceLevel, thresholdSeconds,
         shrinkage
       } = req.body
 
       const agents = requiredAgents({
         callsPerHour,
         ahtSeconds,
-        targetServiceLevel:       serviceLevel,
-        serviceThresholdSeconds:  thresholdSeconds,
+        targetServiceLevel:      serviceLevel,
+        serviceThresholdSeconds: thresholdSeconds,
         shrinkage
       })
-
       res.json({ requiredAgents: agents })
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   })
 
-  // ─── 2) One-day bulk staffing ─────────────────────────────────────
+  /* ──────────────────────────────────────────────────────────
+   * 2) One-day bulk staffing
+   * ────────────────────────────────────────────────────────── */
   r.post('/staff/bulk', async (req, res, next) => {
     try {
       const {
-        role,
-        date,
-        callAhtSeconds,
-        ticketAhtSeconds,
-        serviceLevel,
-        thresholdSeconds,
+        role, date,
+        callAhtSeconds, ticketAhtSeconds,
+        serviceLevel,   thresholdSeconds,
         shrinkage
       } = req.body
 
@@ -57,51 +55,45 @@ export default prisma => {
 
       const hours = Array.from({ length: 24 }, (_, h) => {
         const slice   = actuals.filter(a => a.hour === h)
-        const calls   = slice.reduce((sum, a) => sum + a.calls,   0)
-        const tickets = slice.reduce((sum, a) => sum + a.tickets, 0)
+        const calls   = slice.reduce((s, a) => s + a.calls,   0)
+        const tickets = slice.reduce((s, a) => s + a.tickets, 0)
         return { hour: h, calls, tickets }
       })
 
       const staffing = hours.map(({ hour, calls, tickets }) => {
-        const callAgents   = requiredAgents({
-          callsPerHour:             calls,
-          ahtSeconds:               callAhtSeconds,
-          targetServiceLevel:       serviceLevel,
-          serviceThresholdSeconds:  thresholdSeconds,
+        const callAgents = requiredAgents({
+          callsPerHour:            calls,
+          ahtSeconds:              callAhtSeconds,
+          targetServiceLevel:      serviceLevel,
+          serviceThresholdSeconds: thresholdSeconds,
           shrinkage
         })
         const ticketAgents = requiredAgents({
-          callsPerHour:             tickets,
-          ahtSeconds:               ticketAhtSeconds,
-          targetServiceLevel:       serviceLevel,
-          serviceThresholdSeconds:  thresholdSeconds,
+          callsPerHour:            tickets,
+          ahtSeconds:              ticketAhtSeconds,
+          targetServiceLevel:      serviceLevel,
+          serviceThresholdSeconds: thresholdSeconds,
           shrinkage
         })
-        return {
-          hour,
-          calls,
-          tickets,
-          requiredAgents: callAgents + ticketAgents
-        }
+        return { hour, calls, tickets, requiredAgents: callAgents + ticketAgents }
       })
 
       res.json(staffing)
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   })
 
-  // ─── 3) Multi-day forecast ───────────────────────────────────────
+  /* ──────────────────────────────────────────────────────────
+   * 3) Multi-day forecast staffing  ➜ now supports
+   *    `excludeAutomation` flag (bool, default false)
+   * ────────────────────────────────────────────────────────── */
   r.post('/staff/bulk-range', async (req, res, next) => {
     try {
       const {
-        role,
-        start, end,
-        callAhtSeconds,
-        ticketAhtSeconds,
-        serviceLevel,
-        thresholdSeconds,
-        shrinkage
+        role, start, end,
+        callAhtSeconds, ticketAhtSeconds,
+        serviceLevel,   thresholdSeconds,
+        shrinkage,
+        excludeAutomation = false      // ⬅️ NEW
       } = req.body
 
       const days = []
@@ -116,26 +108,26 @@ export default prisma => {
           ticketAhtSeconds,
           serviceLevel,
           thresholdSeconds,
-          shrinkage
+          shrinkage,
+          excludeAutomation          // ⬅️ pass through
         })
         days.push({ date, staffing })
         cursor = cursor.add(1, 'day')
       }
-
       res.json(days)
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   })
 
-  // ─── 4) Shift-schedule generator ─────────────────────────────────
+  /* ──────────────────────────────────────────────────────────
+   * 4) Shift-schedule generator
+   * ────────────────────────────────────────────────────────── */
   r.post('/staff/schedule', (req, res, next) => {
     try {
       const {
         staffing: forecast,
-        weeks       = 3,
+        weeks = 3,
         shiftLength = 9,
-        topN        = 5,
+        topN = 5,
         maxStaff
       } = req.body
 
@@ -151,9 +143,7 @@ export default prisma => {
       )
 
       res.json({ bestStartHours, solution })
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   })
 
   return r

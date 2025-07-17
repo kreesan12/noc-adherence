@@ -42,6 +42,7 @@ export default function VolumePage() {
   const [selectedDate,   setSelectedDate]  = useState(null)
 
   const [fcDailyData,    setFcDailyData]   = useState([])   // forecast
+  const [stackAutomation, setStackAutomation] = useState(true)
 
   /* ─── 1) load role list once ─────────────────────────────── */
   useEffect(() => {
@@ -220,7 +221,13 @@ export default function VolumePage() {
             control={<Switch checked={overwrite} onChange={e => setOverwrite(e.target.checked)} />}
             label="Overwrite?"
           />
-
+          <FormControlLabel
+            control={
+              <Switch checked={stackAutomation}
+                      onChange={e => setStackAutomation(e.target.checked)} />
+            }
+            label="Stack automation?"
+          />
           <Button variant="contained" onClick={buildForecast}>Build Forecast</Button>
 
           {/* CSV upload buttons */}
@@ -246,7 +253,16 @@ export default function VolumePage() {
             <Tooltip />
             <Legend />
             <Bar dataKey="actualCalls"     name="Calls"   fill="#82ca9d" onClick={onBarClick}/>
-            <Bar dataKey="actualTickets"   name="Tickets" fill="#ff8042" onClick={onBarClick}/>
+            {stackAutomation ? (
+              <>
+                <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" onClick={onBarClick}/>
+                <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" onClick={onBarClick}/>
+                <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" onClick={onBarClick}/>
+                <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
+              </>
+            ) : (
+              <Bar dataKey="manualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
+            )}
           </BarChart>
         </ResponsiveContainer>
 
@@ -264,7 +280,16 @@ export default function VolumePage() {
                 <Tooltip />
                 <Legend />
                 <Bar dataKey="actualCalls"   name="Calls"   fill="#82ca9d" />
-                <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" />
+                {stackAutomation ? (
+                  <>
+                    <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" onClick={onBarClick}/>
+                    <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" onClick={onBarClick}/>
+                    <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" onClick={onBarClick}/>
+                    <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
+                  </>
+                ) : (
+                  <Bar dataKey="manualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
+                )}
               </BarChart>
             </ResponsiveContainer>
           </>

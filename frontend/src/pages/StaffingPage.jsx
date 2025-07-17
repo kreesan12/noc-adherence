@@ -45,6 +45,7 @@ export default function StaffingPage() {
   const [personSchedule,  setPersonSchedule]  = useState({}); // keyed by #1, #2…
   const [useFixedStaff,   setUseFixedStaff]   = useState(false);
   const [fixedStaff,      setFixedStaff]      = useState(0);
+  const [excludeAuto,     setExcludeAuto]     = useState(true);
 
   /* 3. LOAD AGENTS & ROLES (once) ---------------------------- */
   useEffect(() => {
@@ -223,7 +224,8 @@ export default function StaffingPage() {
       ticketAhtSeconds : ticketAht,
       serviceLevel     : sl,
       thresholdSeconds : threshold,
-      shrinkage
+      shrinkage,
+      excludeAutomation: excludeAuto
     });
 
     setForecast(data);
@@ -429,6 +431,13 @@ export default function StaffingPage() {
           <TextField label="Shrinkage %"      type="number" size="small"
                      value={shrinkage * 100}
                      onChange={e => setShrinkage(+e.target.value / 100)} />
+          <FormControlLabel
+            control={
+              <Switch checked={excludeAuto}
+                      onChange={e => setExcludeAuto(e.target.checked)} />
+            }
+            label="Ignore automation?"
+          />
 
           {/* Actions */}
           <Button variant="contained" onClick={calcForecast}>
@@ -621,7 +630,8 @@ export default function StaffingPage() {
               <Typography variant="subtitle1">
                 {useFixedStaff
                   ? `Staff cap set to ${fixedStaff}.`
-                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} agents.`}
+                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} agents
+                  (${excludeAuto ? 'automation excluded' : 'automation included'}).`}
               </Typography>
             </Box>
           </Box>

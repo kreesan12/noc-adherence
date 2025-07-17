@@ -67,69 +67,82 @@ export function requiredAgents({
  * @returns [{ hour, calls, tickets, requiredAgents }]
  */
 /**
-  * Build 24-hour staffing array for one date.
-  * Uses ACTUAL rows when any exist for that date/role,
-  * otherwise uses FORECAST rows.
-  */
- export async function computeDayStaffing({
-   prisma,
-   role,
-   date,
-   callAhtSeconds,
-   ticketAhtSeconds,
-   serviceLevel,
-   thresholdSeconds,
-   shrinkage
- }) {
-   const start = dayjs(date).startOf('day').toDate()
-   const end   = dayjs(date).endOf('day')  .toDate()
+ * Build 24-hour staffing array for one date.
+ * Uses ACTUAL rows when present; otherwise FORECAST rows.
+ * @param excludeAutomation  when true, subtracts auto-processed
+ *                           ticket counts (DFA/MNT/Outage) from total.
+ */
+export async function computeDayStaffing({
+  prisma,
+  role,
+  date,
+  callAhtSeconds,
+  ticketAhtSeconds,
+  serviceLevel,
+  thresholdSeconds,
+  shrinkage,
+  excludeAutomation = false    // NEW – default off
+}) {
+  const start = dayjs(date).startOf('day').toDate()
+  const end   = dayjs(date).endOf('day').toDate()
 
-   /* 1️⃣  pull actual; if empty, pull forecast                       */
-   const actualRows = await prisma.volumeActual.findMany({
-     where: { role, date: { gte: start, lte: end } }
-   })
+  /* 1️⃣  get rows */
+  const actualRows = await prisma.volumeActual.findMany({
+    where: { role, date: { gte: start, lte: end } }
+  })
 
-   const rows = actualRows.length
-     ? actualRows                        // use entire actual day
-     : await prisma.volumeForecast.findMany({
-         where: { role, date: { gte: start, lte: end } }
-       })
+  const rows = actualRows.length
+    ? actualRows
+    : await prisma.volumeForecast.findMany({
+        where: { role, date: { gte: start, lte: end } }
+      })
 
-   /* 2️⃣  put rows into a map keyed by hour for quick access          */
-   const byHour = {}
-   rows.forEach(r => {
-     const h = r.hour
-     byHour[h] = {
-       calls:   r.calls   ?? r.expectedCalls   ?? 0,
-       tickets: r.tickets ?? r.expectedTickets ?? 0
-     }
-   })
+  /* 2️⃣  bucket by hour */
+  const byHour = {}
+  rows.forEach(r => {
+    const h        = r.hour
+    const callsRaw = r.calls ?? r.expectedCalls ?? 0
 
-   /* 3️⃣  24-hour staffing calculation                                */
-   return Array.from({ length: 24 }, (_, h) => {
-     const { calls = 0, tickets = 0 } = byHour[h] || {}
+    /* tickets w/ optional automation stripping */
+    const ticketsRaw = r.tickets ?? r.expectedTickets ?? 0
+    const autoSum    = excludeAutomation
+      ? (r.autoDfaLogged        ?? 0) +
+        (r.autoMntLogged        ?? 0) +
+        (r.autoOutageLinked     ?? 0)
+      : 0
+    const ticketsAdj = Math.max(0, ticketsRaw - autoSum)
 
-     const callAgents = requiredAgents({
-       callsPerHour:            calls,
-       ahtSeconds:              callAhtSeconds,
-       targetServiceLevel:      serviceLevel,
-       serviceThresholdSeconds: thresholdSeconds,
-       shrinkage
-     })
+    byHour[h] = {
+      calls:   callsRaw,
+      tickets: ticketsAdj
+    }
+  })
 
-     const ticketAgents = requiredAgents({
-       callsPerHour:            tickets,
-       ahtSeconds:              ticketAhtSeconds,
-       targetServiceLevel:      serviceLevel,
-       serviceThresholdSeconds: thresholdSeconds,
-       shrinkage
-     })
+  /* 3️⃣  staffing for each hour */
+  return Array.from({ length: 24 }, (_, h) => {
+    const { calls = 0, tickets = 0 } = byHour[h] || {}
 
-     return {
-       hour:           h,
-       calls,
-       tickets,
-       requiredAgents: callAgents + ticketAgents
-     }
-   })
-  }
+    const callAgents = requiredAgents({
+      callsPerHour:            calls,
+      ahtSeconds:              callAhtSeconds,
+      targetServiceLevel:      serviceLevel,
+      serviceThresholdSeconds: thresholdSeconds,
+      shrinkage
+    })
+
+    const ticketAgents = requiredAgents({
+      callsPerHour:            tickets,
+      ahtSeconds:              ticketAhtSeconds,
+      targetServiceLevel:      serviceLevel,
+      serviceThresholdSeconds: thresholdSeconds,
+      shrinkage
+    })
+
+    return {
+      hour:           h,
+      calls,
+      tickets,
+      requiredAgents: callAgents + ticketAgents
+    }
+  })
+}
