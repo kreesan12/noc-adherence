@@ -43,6 +43,8 @@ export default function VolumePage() {
 
   const [fcDailyData,    setFcDailyData]   = useState([])   // forecast
   const [stackAutomation, setStackAutomation] = useState(true)
+  const [uploading,  setUploading]  = useState(false) // spinner / disable btn
+  const [uploadMsg, setUploadMsg]  = useState('')     // success / error text
 
   /* ─── 1) load role list once ─────────────────────────────── */
   useEffect(() => {
@@ -126,22 +128,29 @@ export default function VolumePage() {
   }
 
   /* ─── 5) CSV upload (forecast | actual) ──────────────────── */
-  const handleUpload = (file, endpoint) => {
+  const handleUploadActual = (file) => {
+    setUploading(true)
+    setUploadMsg('')
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       complete: async ({ data }) => {
-        const payload = data.map(row => ({
-          date:    row.date,
-          hour:    Number(row.hour),
-          calls:   Number(row.calls),
-          tickets: Number(row.tickets)
-        }))
-        await api.post(`/volume/${endpoint}`, { role: team, data: payload })
-        /* refresh actual view */
-        fetchDailyActual().then(setDailyData)
-        /* refresh forecast view if we just uploaded forecast CSV */
-        if (endpoint === 'forecast') fetchDailyForecast().then(setFcDailyData)
+        try {
+          const payload = data.map(row => ({
+            date:    row.date,
+            hour:    Number(row.hour),
+            calls:   Number(row.calls),
+            tickets: Number(row.tickets)
+          }))
+          await api.post('/volume/actual', { role: team, data: payload })
+          await fetchDailyActual().then(setDailyData)
+          setUploadMsg('Upload successful ✔︎')
+        } catch (err) {
+          console.error(err)
+          setUploadMsg('Upload failed ✖︎')
+        } finally {
+          setUploading(false)
+        }
       }
     })
   }
@@ -173,74 +182,89 @@ export default function VolumePage() {
       <Box sx={{ p:3 }}>
         <Typography variant="h4" gutterBottom>Volume Dashboard</Typography>
 
-        {/* ── controls row ─────────────────────────────────── */}
-        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4, flexWrap:'wrap' }}>
-          <FormControl sx={{ minWidth:140 }}>
+        {/* ── 1) TEAM SELECT ─────────────────────────────── */}
+        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:3, flexWrap:'wrap' }}>
+          <FormControl sx={{ minWidth:160 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
               {roles.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
             </Select>
           </FormControl>
+        </Box>
 
-          {/* ACTUAL range */}
+        {/* ── 2) FORECASTING PANEL ───────────────────────── */}
+        <Box sx={{
+          display:'flex', alignItems:'center', gap:2, mb:3, flexWrap:'wrap',
+          bgcolor:'#fafafa', p:2, borderRadius:1
+        }}>
+          <Typography variant="subtitle1" sx={{ fontWeight:600, mr:1 }}>
+            Forecasting
+          </Typography>
+
+          {/* look-back / horizon */}
+          <FormControl sx={{ minWidth:110 }}>
+            <InputLabel>Look-back (mo)</InputLabel>
+            <Select value={lookBack} label="Look-back (mo)"
+                    onChange={e => setLookBack(+e.target.value)}>
+              {monthChoices.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+            </Select>
+          </FormControl>
+
+          <FormControl sx={{ minWidth:110 }}>
+            <InputLabel>Horizon (mo)</InputLabel>
+            <Select value={horizon} label="Horizon (mo)"
+                    onChange={e => setHorizon(+e.target.value)}>
+              {monthChoices.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+            </Select>
+          </FormControl>
+
+          <FormControlLabel
+            control={<Switch checked={overwrite}
+                            onChange={e => setOverwrite(e.target.checked)} />}
+            label="Overwrite?"
+          />
+          <FormControlLabel
+            control={<Switch checked={stackAutomation}
+                            onChange={e => setStackAutomation(e.target.checked)} />}
+            label="Stack automation?"
+          />
+
+          <Button variant="contained" onClick={buildForecast}>
+            Build Forecast
+          </Button>
+
+          {/* Upload ACTUAL CSV only */}
+          <Button
+            variant="outlined"
+            component="label"
+            disabled={uploading}
+          >
+            {uploading ? 'Uploading…' : 'Upload Actual CSV'}
+            <input hidden type="file" accept=".csv"
+                  onChange={e => handleUploadActual(e.target.files[0])} />
+          </Button>
+
+          {uploadMsg && (
+            <Typography variant="body2" sx={{ ml:1 }}>
+              {uploadMsg}
+            </Typography>
+          )}
+        </Box>
+
+        {/* ── 3) ACTUAL RANGE (for charts) ──────────────── */}
+        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4, flexWrap:'wrap' }}>
           <DatePicker
-            label="Actual - from"
+            label="Actual from"
             value={startDate}
             onChange={d => d && setStartDate(d)}
             renderInput={p => <TextField {...p} size="small" />}
           />
           <DatePicker
-            label="Actual - to"
+            label="Actual to"
             value={endDate}
             onChange={d => d && setEndDate(d)}
             renderInput={p => <TextField {...p} size="small" />}
           />
-
-          {/* LOOK-BACK / HORIZON selections */}
-          <FormControl sx={{ minWidth:110 }}>
-            <InputLabel>Look-back (mo)</InputLabel>
-            <Select
-              value={lookBack}
-              label="Look-back (mo)"
-              onChange={e => setLookBack(+e.target.value)}
-            >
-              {monthChoices.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <FormControl sx={{ minWidth:110 }}>
-            <InputLabel>Horizon (mo)</InputLabel>
-            <Select
-              value={horizon}
-              label="Horizon (mo)"
-              onChange={e => setHorizon(+e.target.value)}
-            >
-              {monthChoices.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <FormControlLabel
-            control={<Switch checked={overwrite} onChange={e => setOverwrite(e.target.checked)} />}
-            label="Overwrite?"
-          />
-          <FormControlLabel
-            control={
-              <Switch checked={stackAutomation}
-                      onChange={e => setStackAutomation(e.target.checked)} />
-            }
-            label="Stack automation?"
-          />
-          <Button variant="contained" onClick={buildForecast}>Build Forecast</Button>
-
-          {/* CSV upload buttons */}
-          <Button variant="outlined" component="label">
-            Upload Forecast CSV
-            <input hidden type="file" accept=".csv"
-              onChange={e => handleUpload(e.target.files[0], 'forecast')} />
-          </Button>
-          <Button variant="outlined" component="label">
-            Upload Actual CSV
-            <input hidden type="file" accept=".csv"
-              onChange={e => handleUpload(e.target.files[0], 'actual')} />
-          </Button>
         </Box>
 
         {/* ── DAILY ACTUAL chart ───────────────────────────── */}
