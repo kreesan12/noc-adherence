@@ -8,22 +8,19 @@ datasource db {
 }
 
 model Supervisor {
-  id       Int    @id @default(autoincrement())
-  fullName String
-  email    String @unique
-  hash     String
-  role     String @default("supervisor")
+  id        Int      @id @default(autoincrement())
+  fullName  String
+  email     String   @unique
+  hash      String
+  role      String   @default("supervisor")
 
-  /* NEW — one-to-many forward relation */
-  agents Agent[] @relation("AgentSupervisor")
+  /// one-to-many: a supervisor **has many** agents
+  agents    Agent[]  @relation("AgentSupervisor")
 
-  /* existing back-relations */
-  auditLogs       AuditLog[]      @relation("SupervisorAuditEntries")
-  attendanceLogs  AttendanceLog[] @relation("SupervisorAttendance")
-
-  @@map("Supervisor")
+  /// existing back-relations
+  auditLogs      AuditLog[]      @relation("SupervisorAuditEntries")
+  attendanceLogs AttendanceLog[] @relation("SupervisorAttendance")
 }
-
 
 model Agent {
   id          Int      @id @default(autoincrement())
@@ -34,17 +31,17 @@ model Agent {
   role        String?
   standbyFlag Boolean  @default(false)
 
-  /* HR metadata you added earlier */
+  /// HR metadata
   employeeNo  String?   @map("employee_no")
   startDate   DateTime? @map("start_date")
   address     String?
   province    String?
 
-  /* NEW — foreign-key column and relation */
-  supervisorId Int?        @map("supervisor_id")
-  supervisor   Supervisor? @relation("AgentSupervisor", fields: [supervisorId], references: [id])
+  /// FK to Supervisor (nullable = can be un-assigned)
+  supervisorId Int?     @map("supervisor_id")
+  supervisor   Supervisor? @relation("AgentSupervisor", fields:[supervisorId], references:[id])
 
-  /* existing back-relations */
+  /// existing back-relations
   engagements   Engagement[]
   shifts        Shift[]
   leave         Leave[]
@@ -52,7 +49,6 @@ model Agent {
 
   @@map("Agent")
 }
-
 
 model Shift {
   id         Int       @id @default(autoincrement())
