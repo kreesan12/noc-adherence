@@ -1,4 +1,4 @@
-/* frontend/src/pages/AgentsPage.jsx */
+/* ── frontend/src/pages/AgentsPage.jsx ───────────────────────── */
 import { useEffect, useState } from 'react'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import {
@@ -6,57 +6,56 @@ import {
   Stack, TextField, Checkbox, FormControlLabel, MenuItem
 } from '@mui/material'
 
-import api                                from '../api'
-import { listTeams, createTeam }          from '../api/workforce'
+import api                          from '../api'
+import { listTeams, createTeam }    from '../api/workforce'
 
-/* ── single canonical list – keep in one place ─────────────────────── */
+/* single canonical list – keep in one place */
 const ROLES = ['NOC Tier 1', 'NOC Tier 2', 'NOC Tier 3']
 
-/* =================================================================== */
 export default function AgentsPage () {
-/* ─────────────── STATE ───────────────────────────────────────────── */
-  /** Agents grid + add-dialog                                   */
+/* ─────────────── STATE ─────────────────────────────────────── */
+  /* agents grid + add-dialog */
   const [agents, setAgents]       = useState([])
   const [openAgent, setOpenAgent] = useState(false)
   const [agentForm, setAgentForm] = useState({
-    fullName  : '',   email:'',     role:ROLES[0], standby:false,
-    employeeNo: '',   startDate:'', address:'',    province:''
+    fullName  : '', email:'', role:ROLES[0], standby:false,
+    employeeNo: '', startDate:'', address:'', province:''
   })
 
-  /** Supervisors grid + dialog  (unchanged)                     */
+  /* supervisors (unchanged) */
   const [supers, setSupers]     = useState([])
   const [openSup, setOpenSup]   = useState(false)
   const [supForm, setSupForm]   = useState({ fullName:'', email:'', password:'' })
 
-  /** Teams grid + dialog (unchanged)                            */
+  /* teams (unchanged) */
   const [teams, setTeams]       = useState([])
   const [openTeam, setOpenTeam] = useState(false)
   const [teamName, setTeamName] = useState('')
 
-/* ─────────────── LOAD LOOK-UPS ONCE ─────────────────────────────── */
+/* ─────────────── LOAD LOOK-UPS ─────────────────────────────── */
   useEffect(() => {
     api.get('/agents').then(r => setAgents(r.data))
     api.get('/supervisors').then(r => setSupers(r.data))
     listTeams().then(r => setTeams(r.data))
   }, [])
 
-/* ─────────────── GRID COLUMNS ───────────────────────────────────── */
+/* ─────────────── GRID COLUMNS ──────────────────────────────── */
   const agentCols = [
-    { field:'id',         headerName:'ID',       width:70  },
-    { field:'fullName',   headerName:'Name',     flex:1    },
-    { field:'email',      headerName:'Email',    flex:1    },
-    { field:'role',       headerName:'Role',     width:130 },
-    { field:'employeeNo', headerName:'Emp #',    width:90  },
-    { field:'startDate',  headerName:'Start',    width:110,
-      valueGetter:p => p.row.startDate?.slice(0,10) || '—' },
-    { field:'province',   headerName:'Province', width:110 },
+    { field:'id',         headerName:'ID',    width:70  },
+    { field:'fullName',   headerName:'Name',  flex:1    },
+    { field:'email',      headerName:'Email', flex:1    },
+    { field:'role',       headerName:'Role',  width:130 },
+    { field:'employeeNo', headerName:'Emp #', width:90  },
+    { field:'startDate',  headerName:'Start', width:110,
+      valueGetter:p => p.row.startDate ? p.row.startDate.slice(0,10) : '—' },
+    { field:'province',   headerName:'Province', width:120 },
     {
       field:'standbyFlag', headerName:'Stand-by', width:100,
       renderCell:p => (p.value ? '✅' : '—')
     }
   ]
 
-  const supCols  = [
+  const supCols = [
     { field:'id',       headerName:'ID',    width:70 },
     { field:'fullName', headerName:'Name',  flex:1  },
     { field:'email',    headerName:'Email', flex:1  },
@@ -68,13 +67,12 @@ export default function AgentsPage () {
     { field:'name', headerName:'Team Name', flex:1  }
   ]
 
-/* ─────────────── HELPERS / HANDLERS ─────────────────────────────── */
+/* ─────────────── HANDLERS ──────────────────────────────────── */
   const resetAgentForm = () => setAgentForm({
     fullName:'', email:'', role:ROLES[0], standby:false,
     employeeNo:'', startDate:'', address:'', province:''
   })
 
-  /* save new agent (or re-load list) */
   async function handleAgentSave () {
     await api.post('/agents', {
       fullName  : agentForm.fullName,
@@ -106,15 +104,15 @@ export default function AgentsPage () {
     setTeamName('')
   }
 
-/* ─────────────── RENDER ─────────────────────────────────────────── */
+/* ─────────────── RENDER ────────────────────────────────────── */
   return (
     <Box p={2}>
-
-      {/* ── AGENTS GRID ─────────────────────────────────────────── */}
+      {/* AGENTS GRID */}
       <Typography variant="h6" gutterBottom>Agents</Typography>
       <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenAgent(true)}>
         + Add agent
       </Button>
+
       <DataGrid
         rows={agents}
         columns={agentCols}
@@ -123,13 +121,11 @@ export default function AgentsPage () {
         slots={{ toolbar: GridToolbar }}
       />
 
-      {/* ── ADD-AGENT DIALOG ───────────────────────────────────── */}
+      {/* ADD-AGENT DIALOG */}
       <Dialog open={openAgent} onClose={()=>setOpenAgent(false)}>
         <DialogTitle>New agent</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt:1, width:340 }}>
-
-            {/* basic details */}
             <TextField label="Full name" required
               value={agentForm.fullName}
               onChange={e=>setAgentForm({...agentForm, fullName:e.target.value})}
@@ -145,7 +141,6 @@ export default function AgentsPage () {
               {ROLES.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
             </TextField>
 
-            {/* new HR fields */}
             <TextField label="Employee #"
               value={agentForm.employeeNo}
               onChange={e=>setAgentForm({...agentForm, employeeNo:e.target.value})}
@@ -179,7 +174,7 @@ export default function AgentsPage () {
         </DialogContent>
       </Dialog>
 
-      {/* ── SUPERVISORS (unchanged) ────────────────────────────── */}
+      {/* SUPERVISORS GRID (unchanged) */}
       <Typography variant="h6" gutterBottom sx={{ mt:4 }}>Supervisors</Typography>
       <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenSup(true)}>
         + Add supervisor
@@ -191,6 +186,8 @@ export default function AgentsPage () {
         disableRowSelectionOnClick
         slots={{ toolbar: GridToolbar }}
       />
+
+      {/* Add-supervisor dialog (unchanged) */}
       <Dialog open={openSup} onClose={()=>setOpenSup(false)}>
         <DialogTitle>New supervisor</DialogTitle>
         <DialogContent>
@@ -212,7 +209,7 @@ export default function AgentsPage () {
         </DialogContent>
       </Dialog>
 
-      {/* ── TEAMS (unchanged) ─────────────────────────────────── */}
+      {/* TEAMS GRID (unchanged) */}
       <Typography variant="h6" gutterBottom sx={{ mt:4 }}>Teams</Typography>
       <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenTeam(true)}>
         + Add team

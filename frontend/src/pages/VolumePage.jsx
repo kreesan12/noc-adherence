@@ -23,7 +23,7 @@ export default function VolumePage() {
   const [team,            setTeam]            = useState('')
 
   /* range for ACTUAL chart (defaults: last 6 days) */
-  const [startDate,       setStartDate]       = useState(dayjs().subtract(6, 'day'))
+  const [startDate,       setStartDate]       = useState(dayjs().subtract(45, 'day'))
   const [endDate,         setEndDate]         = useState(dayjs())
 
   /* range for FORECAST chart (defaults: today → +6 mo) */
