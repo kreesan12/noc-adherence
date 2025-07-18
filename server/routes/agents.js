@@ -17,10 +17,6 @@ export default prisma => {
     startDate:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
                       .optional(),                    // yyyy-mm-dd
     employeeNo:   z.string().max(30).optional(),
-    idNumber:         z.string().max(30).optional(),
-    phoneMobile:      z.string().max(30).optional(),
-    phoneAlt:         z.string().max(30).optional(),
-    physicalAddress:  z.string().max(200).optional(),
     province:         z.string().max(60).optional(),
 
     /* supervisor FK may be null */
@@ -49,10 +45,6 @@ export default prisma => {
         /* HR fields exposed to Workforce / Admin UIs */
         employeeNo:      true,
         startDate:       true,
-        idNumber:        true,
-        phoneMobile:     true,
-        phoneAlt:        true,
-        physicalAddress: true,
         province:        true,
 
         supervisorId: true,
@@ -86,10 +78,6 @@ export default prisma => {
         /* HR meta */
         startDate:       data.startDate      ? new Date(data.startDate) : null,
         employeeNo:      data.employeeNo ?? null,
-        idNumber:        data.idNumber       ?? null,
-        phoneMobile:     data.phoneMobile    ?? null,
-        phoneAlt:        data.phoneAlt       ?? null,
-        physicalAddress: data.physicalAddress?? null,
         province:        data.province       ?? null
       }
     })
