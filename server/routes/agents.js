@@ -16,7 +16,7 @@ export default prisma => {
     /* HR metadata (all optional) */
     startDate:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
                       .optional(),                    // yyyy-mm-dd
-    employeeNumber:   z.string().max(30).optional(),
+    employeeNo:   z.string().max(30).optional(),
     idNumber:         z.string().max(30).optional(),
     phoneMobile:      z.string().max(30).optional(),
     phoneAlt:         z.string().max(30).optional(),
@@ -47,7 +47,7 @@ export default prisma => {
         id: true, fullName: true, email: true, role: true, standbyFlag: true,
 
         /* HR fields exposed to Workforce / Admin UIs */
-        employeeNumber:  true,
+        employeeNo:      true,
         startDate:       true,
         idNumber:        true,
         phoneMobile:     true,
@@ -71,8 +71,8 @@ export default prisma => {
     if (await prisma.agent.findUnique({ where:{ email:data.email } }))
       return res.status(400).json({ error:'email already in use' })
 
-    if (data.employeeNumber &&
-        await prisma.agent.findFirst({ where:{ employeeNumber:data.employeeNumber } }))
+    if (data.employeeNo &&
+        await prisma.agent.findFirst({ where:{ employeeNo:data.employeeNo } }))
       return res.status(400).json({ error:'employee # already exists' })
 
     const agent = await prisma.agent.create({
@@ -85,7 +85,7 @@ export default prisma => {
 
         /* HR meta */
         startDate:       data.startDate      ? new Date(data.startDate) : null,
-        employeeNumber:  data.employeeNumber ?? null,
+        employeeNo:      data.employeeNo ?? null,
         idNumber:        data.idNumber       ?? null,
         phoneMobile:     data.phoneMobile    ?? null,
         phoneAlt:        data.phoneAlt       ?? null,
@@ -107,9 +107,9 @@ export default prisma => {
         await prisma.agent.findFirst({ where:{ email:data.email, NOT:{ id } } }))
       return res.status(400).json({ error:'email already in use' })
 
-    if (data.employeeNumber &&
+    if (data.employeeNo &&
         await prisma.agent.findFirst({
-          where:{ employeeNumber:data.employeeNumber, NOT:{ id } }
+          where:{ employeeNo:data.employeeNo, NOT:{ id } }
         }))
       return res.status(400).json({ error:'employee # already exists' })
 
