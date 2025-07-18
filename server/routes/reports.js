@@ -221,7 +221,72 @@ export default prisma => {
   })
 
   /* ─────────────────────────────────────────────────────────────┐
-   * 4) Audit feed  (unchanged)
+  * 4) Quick helper – default head-count range
+  *     GET /api/reports/headcount/quick?gran=month|week
+  *           • from = today – 6 months (start-of-month)
+  *           • to   = end of next month
+  *           • gran defaults to "month"
+  *   Returns the same shape as /reports/headcount so the front-end
+  *   can call it without choosing dates.
+  * ─────────────────────────────────────────────────────────────*/
+  r.get('/headcount/quick', async (req, res, next) => {
+    try {
+      const gran = req.query.gran === 'week' ? 'week' : 'month';           // default = month
+
+      const from = dayjs().subtract(6, 'month').startOf('month')
+                  .format('YYYY-MM-DD');   // e.g. 2025-01-01
+      const to   = dayjs().add(1, 'month').endOf('month')
+                  .format('YYYY-MM-DD');   // e.g. 2025-08-31
+
+      // Re-use your existing headcount SQL with the same logic  
+      const step = gran === 'week'
+        ? "interval '1 week'"
+        : "interval '1 month'";
+
+      const fmt  = gran === 'week'
+        ? "to_char(m.mon, 'IYYY-\"W\"IW')"      // 2025-W32
+        : "to_char(m.mon, 'YYYY-MM')";          // 2025-03
+
+      const raw = await prisma.$queryRawUnsafe(`
+        WITH periods AS (
+          SELECT generate_series($1::date, $2::date, ${step}) mon
+        )
+        SELECT
+          t.name,
+          ${fmt} AS period,
+          COUNT(e.id) AS headcount,
+          COUNT(v.id) FILTER (
+            WHERE v.status IN (
+              'OPEN','AWAITING_APPROVAL','APPROVED','INTERVIEWING','OFFER_SENT'
+            )
+          ) AS vacancies
+        FROM periods m
+        CROSS JOIN "Team" t
+        LEFT JOIN "Engagement" e
+          ON e."teamId" = t.id
+        AND e."startDate" <= m.mon + ${step} - interval '1 day'
+        AND (e."endDate" IS NULL OR e."endDate" >= m.mon)
+        LEFT JOIN "Vacancy" v
+          ON v."teamId" = t.id
+        AND v."openFrom" <= m.mon + ${step} - interval '1 day'
+        GROUP BY t.name, period
+        ORDER BY t.name, period
+      `, [from, to]);
+
+      res.json(raw.map(r => ({
+        name:       r.name,
+        period:     r.period,
+        headcount:  Number(r.headcount),
+        vacancies:  Number(r.vacancies)
+      })));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+
+  /* ─────────────────────────────────────────────────────────────┐
+   * 5) Audit feed  (unchanged)
    * ─────────────────────────────────────────────────────────────*/
   r.get('/audit', async (req, res, next) => {
     try {

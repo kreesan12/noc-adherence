@@ -205,6 +205,13 @@ export default function WorkforcePage () {
                       label="Current Team" fullWidth disabled
                       value={agents.find(a=>a.id===form.agentId)?.role||''}
                     />
+                    <TextField
+                      label="Hire date"
+                      fullWidth disabled
+                      value={
+                        agents.find(a=>a.id===form.agentId)?.startDate?.slice(0,10) || ''
+                      }
+                    />
                   </Grid>
                 )}
 

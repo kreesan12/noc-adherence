@@ -149,48 +149,99 @@ r.get('/vacancies/:id/requisition', async (req,res)=> {
   res.send(buf)
 })
 
-/* ─────────── Head-count: week OR month ─────────── */
-r.get('/reports/headcount', async (req,res)=>{
-  const { from, to, gran='month' } = req.query     // gran = 'month' | 'week'
+/* ──────────────────────────────────────────────────────────────────────────
+ * HEAD-COUNT REPORT
+ * GET /api/workforce/reports/headcount
+ *   ?from=YYYY-MM-DD
+ *   ?to=YYYY-MM-DD
+ *   ?gran=month | week      (optional, default = month)
+ * ------------------------------------------------------------------------ */
+r.get('/reports/headcount', async (req, res, next) => {
+  try {
+    const { from, to, gran = 'month' } = req.query
+    if (!from || !to) {
+      return res.status(400).json({ error: 'from & to are required (YYYY-MM-DD)' })
+    }
 
-  const step = gran === 'week'
-    ? "interval '1 week'"
-    : "interval '1 month'"
+    /* 1) STEP + DATE-FORMAT STRINGS -------------------------------------- */
+    const step = gran === 'week'
+      ? "interval '1 week'"
+      : "interval '1 month'"
 
-  const fmt  = gran === 'week'
-    ? "to_char(m.mon, 'IYYY-\"W\"IW')"      
-    : "to_char(m.mon, 'YYYY-MM')"
+    const fmt = gran === 'week'
+      ? "to_char(p.mon, 'IYYY-\"W\"IW')"      /* 2025-W29 ISO week */
+      : "to_char(p.mon, 'YYYY-MM')"           /* 2025-07         */
 
-  const raw = await prisma.$queryRawUnsafe(`
-    WITH periods AS (
-      SELECT generate_series($1::date, $2::date, ${step}) mon
+    /* 2)  FULL SQL  ------------------------------------------------------ */
+    const sql = `
+      WITH periods AS (
+        SELECT generate_series($1::date, $2::date, ${step}) AS mon
+      ),
+      /* ---------- A) Heads coming from the Engagement table ---------- */
+      eng_rows AS (
+        SELECT
+          e."teamId",
+          p.mon
+        FROM "Engagement" e
+        JOIN periods p
+          ON e."startDate" <= p.mon + ${step} - interval '1 day'
+         AND (e."endDate"  IS NULL OR e."endDate" >= p.mon)
+      ),
+      /* ---------- B) Agents that have NO engagement rows ------------- */
+      agents_no_eng AS (
+        SELECT
+          t.id  AS "teamId",
+          p.mon
+        FROM "Agent" a
+        JOIN "Team"  t ON t.name = a.role
+        JOIN periods p
+          ON a."startDate" <= p.mon + ${step} - interval '1 day'
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "Engagement" e WHERE e."agentId" = a.id
+        )
+      ),
+      heads AS (
+        SELECT * FROM eng_rows
+        UNION ALL
+        SELECT * FROM agents_no_eng
+      )
+      /* ---------- Final aggregation ---------------------------------- */
+      SELECT
+        t.name,
+        ${fmt}                    AS period,
+        COUNT(h.teamId)           AS headcount,
+        COUNT(v.id) FILTER (
+          WHERE v.status IN (
+            'OPEN','AWAITING_APPROVAL','APPROVED',
+            'INTERVIEWING','OFFER_SENT'
+          )
+        )                         AS vacancies
+      FROM periods p
+      CROSS JOIN "Team" t
+      LEFT JOIN heads    h
+             ON h."teamId" = t.id
+            AND h.mon      = p.mon
+      LEFT JOIN "Vacancy" v
+             ON v."teamId" = t.id
+            AND v."openFrom" <= p.mon + ${step} - interval '1 day'
+      GROUP BY t.name, period
+      ORDER BY t.name, period;
+    `
+
+    const raw = await prisma.$queryRawUnsafe(sql, from, to)
+
+    res.json(
+      raw.map(r => ({
+        name      : r.name,
+        period    : r.period,
+        headcount : Number(r.headcount),
+        vacancies : Number(r.vacancies)
+      }))
     )
-    SELECT
-      t.name,
-      ${fmt} AS period,
-      COUNT(e.id) AS headcount,
-      COUNT(v.id) FILTER (
-        WHERE v.status IN ('OPEN','AWAITING_APPROVAL','APPROVED','INTERVIEWING','OFFER_SENT')
-      ) AS vacancies
-    FROM periods m
-    CROSS JOIN "Team" t
-    LEFT JOIN "Engagement" e
-      ON e."teamId" = t.id
-     AND e."startDate" <= m.mon + ${step} - interval '1 day'
-     AND (e."endDate" IS NULL OR e."endDate" >= m.mon)
-    LEFT JOIN "Vacancy" v
-      ON v."teamId" = t.id
-     AND v."openFrom" <= m.mon + ${step} - interval '1 day'
-    GROUP BY t.name, period
-    ORDER BY t.name, period
-  `,[from,to])
-
-  res.json(raw.map(r=>({
-    name: r.name,
-    period: r.period,
-    headcount: Number(r.headcount),
-    vacancies: Number(r.vacancies)
-  })))
+  } catch (err) {
+    next(err)
+  }
 })
+/* ────────────────────────────────────────────────────────────────────────── */
 
 export default r
