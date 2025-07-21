@@ -52,10 +52,10 @@ export default function AgentsPage () {
       field:'startDate',
       headerName:'Start',
       width:110,
-      valueFormatter: (params) => {
-      const v = params?.value            // defensively check first
-      return v ? String(v).slice(0, 10) : '—'
-    }
+      valueGetter: (params) => {
+        const v = params?.row?.startDate               // <- guard everything
+        return v ? String(v).slice(0, 10) : '—'        // show YYYY-MM-DD or em-dash
+      }
     },
     { field:'province', headerName:'Province', width:120 },
     {
