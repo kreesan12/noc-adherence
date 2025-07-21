@@ -83,6 +83,18 @@ export default function AgentsPage () {
     }
   ]
 
+  const supCols = [
+    { field:'id',       headerName:'ID',    width:70 },
+    { field:'fullName', headerName:'Name',  flex:1  },
+    { field:'email',    headerName:'Email', flex:1  },
+    { field:'role',     headerName:'Role',  width:130 }
+  ]
+
+  const teamCols = [
+    { field:'id',   headerName:'ID',        width:70 },
+    { field:'name', headerName:'Team Name', flex:1  }
+  ]
+
   /* ─────────── create / update helpers (unchanged) ─────────── */
   const resetAgentForm = () => setAgentForm({
     fullName:'', email:'', role:teams[0]?.name || '', standby:false,

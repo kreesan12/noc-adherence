@@ -1,3 +1,4 @@
+// frontend/src/pages/WorkforcePage.jsx
 import React, { useState, useEffect } from 'react'
 import {
   Box, Paper, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent,
