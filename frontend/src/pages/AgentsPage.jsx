@@ -1,90 +1,95 @@
 /* ── frontend/src/pages/AgentsPage.jsx ───────────────────────── */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent,
-  Stack, TextField, Checkbox, FormControlLabel, MenuItem
+  Stack, TextField, Checkbox, FormControlLabel, MenuItem, Select
 } from '@mui/material'
-
-import api                          from '../api'
-import { listTeams, createTeam }    from '../api/workforce'
-
-/* single canonical list – keep in one place */
-const ROLES = ['NOC Tier 1', 'NOC Tier 2', 'NOC Tier 3']
+import api from '../api'
+import { listTeams, createTeam } from '../api/workforce'
 
 export default function AgentsPage () {
-/* ─────────────── STATE ─────────────────────────────────────── */
-  /* agents grid + add-dialog */
-  const [agents, setAgents]       = useState([])
+  /* ─────────── state ───────────────────────────────────────── */
+  const [agents, setAgents]   = useState([])
+  const [teams,  setTeams]    = useState([])
+
+  /* add-agent dialog */
   const [openAgent, setOpenAgent] = useState(false)
   const [agentForm, setAgentForm] = useState({
-    fullName  : '', email:'', role:ROLES[0], standby:false,
-    employeeNo: '', startDate:'', address:'', province:''
+    fullName:'', email:'', role:'', standby:false,
+    employeeNo:'', startDate:'', address:'', province:''
   })
 
-  /* supervisors (unchanged) */
+  /* supervisors + team-admin (unchanged) */
   const [supers, setSupers]     = useState([])
   const [openSup, setOpenSup]   = useState(false)
   const [supForm, setSupForm]   = useState({ fullName:'', email:'', password:'' })
 
-  /* teams (unchanged) */
-  const [teams, setTeams]       = useState([])
   const [openTeam, setOpenTeam] = useState(false)
   const [teamName, setTeamName] = useState('')
 
-/* ─────────────── LOAD LOOK-UPS ─────────────────────────────── */
-  useEffect(() => {
-    api.get('/agents')
-      .then(r => setAgents(r.data))
-      .catch(err => console.error('GET /agents failed →', err?.response?.data || err))
+  /* filter */
+  const [teamFilter, setTeamFilter] = useState('')
 
-    api.get('/supervisors').then(r => setSupers(r.data))
-    listTeams().then(r => setTeams(r.data))
-  }, [])
-/* ─────────────── GRID COLUMNS ──────────────────────────────── */
-  const agentCols = [
-    { field:'id',       headerName:'ID',    width:70 },
-    { field:'fullName', headerName:'Name',  flex:1  },
-    { field:'email',    headerName:'Email', flex:1  },
-    { field:'role',     headerName:'Role',  width:130 },
-    { field:'employeeNo', headerName:'Emp #', width:90 },
-    {
-      field:'startDate',
-      headerName:'Start',
-      width:110,
-      valueGetter: (params) => {
-        const v = params?.row?.startDate               // <- guard everything
-        return v ? String(v).slice(0, 10) : '—'        // show YYYY-MM-DD or em-dash
+  /* ─────────── load once ───────────────────────────────────── */
+  useEffect(() => {
+    const fetch = async () => {
+      const [{ data:agentRows }, { data:teamRows }, { data:supRows }] =
+        await Promise.all([api.get('/agents'), listTeams(), api.get('/supervisors')])
+
+      setAgents(agentRows)
+      setTeams(teamRows)
+      setSupers(supRows)
+
+      /* default role in dialog = first team */
+      if (teamRows.length) {
+        setAgentForm(f => ({ ...f, role: teamRows[0].name }))
       }
-    },
-    { field:'province', headerName:'Province', width:120 },
+    }
+    fetch().catch(console.error)
+  }, [])
+
+  /* ─────────── inline edit save ────────────────────────────── */
+  const handleCellEditCommit = async ({ id, field, value }) => {
+    if (!['employeeNo', 'startDate', 'province'].includes(field)) return
+    try {
+      await api.patch(`/agents/${id}`, { [field]: value || null })
+      setAgents(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+    } catch (err) {
+      console.error('PATCH /agents failed', err?.response?.data || err)
+    }
+  }
+
+  /* filtered view */
+  const viewRows = useMemo(() =>
+    teamFilter ? agents.filter(a => a.role === teamFilter) : agents
+  , [agents, teamFilter])
+
+  /* ─────────── columns ─────────────────────────────────────── */
+  const cols = [
+    { field:'id', headerName:'ID', width:70 },
+    { field:'fullName', headerName:'Name', flex:1 },
+    { field:'email', headerName:'Email', flex:1 },
+    { field:'role', headerName:'Team', width:160 },
+    { field:'employeeNo', headerName:'Emp #', width:100, editable:true },
     {
-      field:'standbyFlag',
-      headerName:'Stand-by',
-      width:100,
+      field:'startDate', headerName:'Start', width:110, editable:true,
+      valueGetter:p => p.row?.startDate ? String(p.row.startDate).slice(0,10) : '—'
+    },
+    { field:'province', headerName:'Province', width:120, editable:true },
+    {
+      field:'standbyFlag', headerName:'Stand-by', width:100,
       renderCell:p => (p.value ? '✅' : '—')
     }
   ]
 
-  const supCols = [
-    { field:'id',       headerName:'ID',    width:70 },
-    { field:'fullName', headerName:'Name',  flex:1  },
-    { field:'email',    headerName:'Email', flex:1  },
-    { field:'role',     headerName:'Role',  width:130 }
-  ]
-
-  const teamCols = [
-    { field:'id',   headerName:'ID',        width:70 },
-    { field:'name', headerName:'Team Name', flex:1  }
-  ]
-
-/* ─────────────── HANDLERS ──────────────────────────────────── */
+  /* ─────────── create / update helpers (unchanged) ─────────── */
   const resetAgentForm = () => setAgentForm({
-    fullName:'', email:'', role:ROLES[0], standby:false,
+    fullName:'', email:'', role:teams[0]?.name || '', standby:false,
     employeeNo:'', startDate:'', address:'', province:''
   })
 
-  async function handleAgentSave () {
+  const handleAgentSave = async () => {
     await api.post('/agents', {
       fullName  : agentForm.fullName,
       email     : agentForm.email,
@@ -115,71 +120,70 @@ export default function AgentsPage () {
     setTeamName('')
   }
 
-/* ─────────────── RENDER ────────────────────────────────────── */
+  /* ─────────── render ──────────────────────────────────────── */
   return (
     <Box p={2}>
-      {/* AGENTS GRID */}
-      <Typography variant="h6" gutterBottom>Agents</Typography>
-      <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenAgent(true)}>
-        + Add agent
-      </Button>
+
+      {/* header row with filter + add button */}
+      <Box sx={{display:'flex', alignItems:'center', mb:2}}>
+        <Typography variant="h6" sx={{flexGrow:1}}>Agents</Typography>
+
+        <Select
+          value={teamFilter}
+          onChange={e => setTeamFilter(e.target.value)}
+          displayEmpty size="small" sx={{ mr:2, minWidth:160 }}
+        >
+          <MenuItem value=''><em>All teams</em></MenuItem>
+          {teams.map(t => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
+        </Select>
+
+        <Button variant="contained" onClick={()=>setOpenAgent(true)}>
+          + Add agent
+        </Button>
+      </Box>
 
       <DataGrid
-        rows={agents}
-        columns={agentCols}
+        rows={viewRows}
+        columns={cols}
         autoHeight
+        editMode="cell"
+        onCellEditCommit={handleCellEditCommit}
         disableRowSelectionOnClick
         slots={{ toolbar: GridToolbar }}
       />
 
-      {/* ADD-AGENT DIALOG */}
+      {/* add-agent dialog – only change is dynamic team list */}
       <Dialog open={openAgent} onClose={()=>setOpenAgent(false)}>
         <DialogTitle>New agent</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt:1, width:340 }}>
             <TextField label="Full name" required
               value={agentForm.fullName}
-              onChange={e=>setAgentForm({...agentForm, fullName:e.target.value})}
-            />
+              onChange={e=>setAgentForm({...agentForm, fullName:e.target.value})}/>
             <TextField label="Email" type="email" required
               value={agentForm.email}
-              onChange={e=>setAgentForm({...agentForm, email:e.target.value})}
-            />
-            <TextField label="Role" select
+              onChange={e=>setAgentForm({...agentForm, email:e.target.value})}/>
+            <TextField label="Team" select
               value={agentForm.role}
-              onChange={e=>setAgentForm({...agentForm, role:e.target.value})}
-            >
-              {ROLES.map(r => <MenuItem key={r} value={r}>{r}</MenuItem>)}
+              onChange={e=>setAgentForm({...agentForm, role:e.target.value})}>
+              {teams.map(t => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
             </TextField>
 
             <TextField label="Employee #"
               value={agentForm.employeeNo}
-              onChange={e=>setAgentForm({...agentForm, employeeNo:e.target.value})}
-            />
-            <TextField
-              label="Start date" type="date" InputLabelProps={{ shrink:true }}
+              onChange={e=>setAgentForm({...agentForm, employeeNo:e.target.value})}/>
+            <TextField label="Start date" type="date" InputLabelProps={{shrink:true}}
               value={agentForm.startDate}
-              onChange={e=>setAgentForm({...agentForm, startDate:e.target.value})}
-            />
-            <TextField label="Address"
-              value={agentForm.address}
-              onChange={e=>setAgentForm({...agentForm, address:e.target.value})}
-            />
+              onChange={e=>setAgentForm({...agentForm, startDate:e.target.value})}/>
             <TextField label="Province"
               value={agentForm.province}
-              onChange={e=>setAgentForm({...agentForm, province:e.target.value})}
-            />
+              onChange={e=>setAgentForm({...agentForm, province:e.target.value})}/>
 
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={agentForm.standby}
-                  onChange={e=>setAgentForm({...agentForm, standby:e.target.checked})}
-                />
-              }
-              label="Stand-by rota"
-            />
-
+            <FormControlLabel control={
+              <Checkbox checked={agentForm.standby}
+                        onChange={e=>setAgentForm({...agentForm,
+                                                   standby:e.target.checked})}/> }
+              label="Stand-by rota"/>
             <Button variant="contained" onClick={handleAgentSave}>Save</Button>
           </Stack>
         </DialogContent>
@@ -248,3 +252,4 @@ export default function AgentsPage () {
     </Box>
   )
 }
+
