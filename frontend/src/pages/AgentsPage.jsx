@@ -52,9 +52,8 @@ export default function AgentsPage () {
       field:'startDate',
       headerName:'Start',
       width:110,
-      valueGetter:p => (p.row && p.row.startDate)
-        ? p.row.startDate.slice(0,10)
-        : '—'
+      valueFormatter: ({ value }) =>
+        value ? String(value).slice(0, 10) : '—'
     },
     { field:'province', headerName:'Province', width:120 },
     {
