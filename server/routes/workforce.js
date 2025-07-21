@@ -222,8 +222,8 @@ r.get('/reports/headcount', async (req, res, next) => {
              ON h."teamId" = t.id
             AND h.mon      = p.mon
       LEFT JOIN "Vacancy" v
-             ON v."teamId" = t.id
-            AND v."openFrom" <= p.mon + ${step} - interval '1 day'
+             ON v."team_id" = t.id
+            AND v."open_from" <= p.mon + ${step} - interval '1 day'
       GROUP BY t.name, period
       ORDER BY t.name, period;
     `

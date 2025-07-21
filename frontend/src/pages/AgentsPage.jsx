@@ -205,10 +205,12 @@ export default function AgentsPage () {
       </Dialog>
 
       {/* SUPERVISORS GRID (unchanged) */}
+      <Box p={2}>
       <Typography variant="h6" gutterBottom sx={{ mt:4 }}>Supervisors</Typography>
       <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenSup(true)}>
         + Add supervisor
       </Button>
+      </Box>
       <DataGrid
         rows={supers}
         columns={supCols}
@@ -240,10 +242,12 @@ export default function AgentsPage () {
       </Dialog>
 
       {/* TEAMS GRID (unchanged) */}
+      <Box p={2}>
       <Typography variant="h6" gutterBottom sx={{ mt:4 }}>Teams</Typography>
       <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenTeam(true)}>
         + Add team
       </Button>
+      </Box>
       <DataGrid
         rows={teams}
         columns={teamCols}
