@@ -195,7 +195,7 @@ r.get('/reports/headcount', async (req, res, next) => {
         FROM "Agent" a
         JOIN "Team"  t ON t.name = a.role
         JOIN periods p
-          ON a."startDate" <= p.mon + ${step} - interval '1 day'
+          ON a."start_date" <= p.mon + ${step} - interval '1 day'
         WHERE NOT EXISTS (
           SELECT 1 FROM "Engagement" e WHERE e."agentId" = a.id
         )
