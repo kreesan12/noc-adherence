@@ -78,7 +78,10 @@ async function downloadCsv(gmail) {
 // ─── 3. upsert into dbo.VolumeActual ────────────────────────
 async function upsert(csv) {
   const rows  = parse(csv, { columns: true, skip_empty_lines: true });
-  const pool  = new pg.Pool({ connectionString: DATABASE_URL });
+  const pool  = new pg.Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false }     // Heroku: accept their wildcard cert
+  });
   const cx    = await pool.connect();
 
   /*  !! make sure you have a UNIQUE index !!
