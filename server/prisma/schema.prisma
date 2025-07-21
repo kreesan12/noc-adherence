@@ -135,6 +135,8 @@ model VolumeActual {
   autoDfaLogged      Int       @map("auto_dfa_logged")     @default(0)
   autoMntLogged      Int       @map("auto_mnt_logged")     @default(0)
   autoOutageLinked   Int       @map("auto_outage_linked")  @default(0)
+
+  @@unique([date, hour])
 }
 
 model AuditLog {
