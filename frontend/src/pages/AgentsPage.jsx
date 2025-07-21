@@ -74,7 +74,10 @@ export default function AgentsPage () {
     { field:'employeeNo', headerName:'Emp #', width:100, editable:true },
     {
       field:'startDate', headerName:'Start', width:110, editable:true,
-      valueGetter:p => p.row?.startDate ? String(p.row.startDate).slice(0,10) : '—'
+      valueGetter: (params) => {
+      const v = params?.row?.startDate               // <- guard everything
+      return v ? String(v).slice(0, 10) : '—'        // show YYYY-MM-DD or em-dash
+    }
     },
     { field:'province', headerName:'Province', width:120, editable:true },
     {
