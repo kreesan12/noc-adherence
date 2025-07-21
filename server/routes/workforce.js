@@ -209,7 +209,7 @@ r.get('/reports/headcount', async (req, res, next) => {
       SELECT
         t.name,
         ${fmt}                    AS period,
-        COUNT(h.teamId)           AS headcount,
+        COUNT(h."teamId")           AS headcount,
         COUNT(v.id) FILTER (
           WHERE v.status IN (
             'OPEN','AWAITING_APPROVAL','APPROVED',
