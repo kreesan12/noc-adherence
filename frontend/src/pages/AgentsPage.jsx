@@ -34,23 +34,33 @@ export default function AgentsPage () {
 
 /* ─────────────── LOAD LOOK-UPS ─────────────────────────────── */
   useEffect(() => {
-    api.get('/agents').then(r => setAgents(r.data))
+    api.get('/agents')
+      .then(r => setAgents(r.data))
+      .catch(err => console.error('GET /agents failed →', err?.response?.data || err))
+
     api.get('/supervisors').then(r => setSupers(r.data))
     listTeams().then(r => setTeams(r.data))
   }, [])
-
 /* ─────────────── GRID COLUMNS ──────────────────────────────── */
   const agentCols = [
-    { field:'id',         headerName:'ID',    width:70  },
-    { field:'fullName',   headerName:'Name',  flex:1    },
-    { field:'email',      headerName:'Email', flex:1    },
-    { field:'role',       headerName:'Role',  width:130 },
-    { field:'employeeNo', headerName:'Emp #', width:90  },
-    { field:'startDate',  headerName:'Start', width:110,
-      valueGetter:p => p.row.startDate ? p.row.startDate.slice(0,10) : '—' },
-    { field:'province',   headerName:'Province', width:120 },
+    { field:'id',       headerName:'ID',    width:70 },
+    { field:'fullName', headerName:'Name',  flex:1  },
+    { field:'email',    headerName:'Email', flex:1  },
+    { field:'role',     headerName:'Role',  width:130 },
+    { field:'employeeNo', headerName:'Emp #', width:90 },
     {
-      field:'standbyFlag', headerName:'Stand-by', width:100,
+      field:'startDate',
+      headerName:'Start',
+      width:110,
+      valueGetter:p => (p.row && p.row.startDate)
+        ? p.row.startDate.slice(0,10)
+        : '—'
+    },
+    { field:'province', headerName:'Province', width:120 },
+    {
+      field:'standbyFlag',
+      headerName:'Stand-by',
+      width:100,
       renderCell:p => (p.value ? '✅' : '—')
     }
   ]
