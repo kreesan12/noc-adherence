@@ -206,13 +206,13 @@ export default function AgentsPage () {
 
       {/* SUPERVISORS GRID (unchanged) */}
       <Box p={2}>
+
         <Box sx={{display:'flex', alignItems:'center', mb:2}}>
-      <Typography variant="h6" gutterBottom sx={{ mt:4 }}>Supervisors</Typography>
-      <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenSup(true)}>
-        + Add supervisor
-      </Button>
-      </Box>
-      </Box>
+          <Typography variant="h6" sx={{flexGrow:1}}>Supervisors</Typography>
+          <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenSup(true)}>
+            + Add supervisor
+          </Button>
+        </Box>
       <DataGrid
         rows={supers}
         columns={supCols}
@@ -242,16 +242,18 @@ export default function AgentsPage () {
           </Stack>
         </DialogContent>
       </Dialog>
+      </Box>
 
       {/* TEAMS GRID (unchanged) */}
       <Box p={2}>
+
         <Box sx={{display:'flex', alignItems:'center', mb:2}}>
-      <Typography variant="h6" gutterBottom sx={{ mt:4 }}>Teams</Typography>
-      <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenTeam(true)}>
-        + Add team
-      </Button>
-      </Box>
-      </Box>
+          <Typography variant="h6" sx={{flexGrow:1}}>Teams</Typography>
+          <Button variant="contained" sx={{ mb:2 }} onClick={()=>setOpenTeam(true)}>
+            + Add team
+          </Button>
+        </Box>
+
       <DataGrid
         rows={teams}
         columns={teamCols}
@@ -272,6 +274,7 @@ export default function AgentsPage () {
           </Box>
         </DialogContent>
       </Dialog>
+      </Box>
     </Box>
   )
 }
