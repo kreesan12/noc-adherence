@@ -193,62 +193,85 @@ r.get('/reports/headcount', async (req, res, next) => {
 
     /* 2)  FULL SQL  ------------------------------------------------------ */
     const sql = `
-      WITH periods AS (
-        SELECT generate_series($1::date, $2::date, ${step}) AS mon
-      ),
+    WITH periods AS (
+      SELECT generate_series($1::date, $2::date, ${step}) AS mon
+    ),
 
-      -- collapse to one row per agent+team+month
-      eng_distinct AS (
-        SELECT DISTINCT
-          e."agentId",
-          e."teamId",
-          p.mon
-        FROM "Engagement" e
-        JOIN periods p
-          ON e."startDate" <= p.mon + ${step} - interval '1 day'
-        AND (e."endDate" IS NULL OR e."endDate" >= p.mon)
-      ),
+    -- A) Distinct engagement rows per agent/team/period
+    eng_distinct AS (
+      SELECT DISTINCT
+        e."agentId",
+        e."teamId",
+        p.mon
+      FROM "Engagement" e
+      JOIN periods p
+        ON e."startDate" <= p.mon + ${step} - interval '1 day'
+      AND (e."endDate" IS NULL OR e."endDate" >= p.mon)
+    ),
 
-      -- count distinct agents per team/month
-      headcounts AS (
-        SELECT
-          ed."teamId",
-          ed.mon,
-          COUNT(ed."agentId") AS headcount
-        FROM eng_distinct ed
-        GROUP BY ed."teamId", ed.mon
-      )
-
+    -- B) Agents with NO engagements at all, but whose start_date ≤ period
+    agents_no_eng AS (
       SELECT
-        t.name,
-        to_char(p.mon, 'YYYY-MM') AS period,         -- format month
-        COALESCE(hc.headcount, 0) AS headcount,
-        COUNT(v.id) FILTER (                         -- vacancies unchanged
-          WHERE v.status IN (
-            'OPEN','AWAITING_APPROVAL','APPROVED',
-            'INTERVIEWING','OFFER_SENT'
-          )
-        ) AS vacancies
-      FROM periods p
-      CROSS JOIN "Team" t
+        a.id            AS "agentId",
+        t.id            AS "teamId",
+        p.mon
+      FROM "Agent" a
+      JOIN "Team" t
+        ON t.name = a.role
+      JOIN periods p
+        ON a."start_date" <= p.mon + ${step} - interval '1 day'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "Engagement" e WHERE e."agentId" = a.id
+      )
+    ),
 
-      LEFT JOIN headcounts hc
-        ON hc."teamId" = t.id
-      AND hc.mon       = p.mon
+    -- C) Union them: one row per agent/team/period
+    heads AS (
+      SELECT * FROM eng_distinct
+      UNION
+      SELECT * FROM agents_no_eng
+    ),
 
-      LEFT JOIN "Vacancy" v
-        ON v."team_id"   = t.id
-      AND v."open_from" <= p.mon + ${step} - interval '1 day'
+    -- D) Now aggregate headcounts per team/period
+    headcounts AS (
+      SELECT
+        h."teamId",
+        h.mon,
+        COUNT(h."agentId") AS headcount
+      FROM heads h
+      GROUP BY h."teamId", h.mon
+    )
 
-      GROUP BY
-        t.name,
-        p.mon,                 -- group by the real date
-        hc.headcount
+    SELECT
+      t.name,
+      ${fmt}                    AS period,
+      COALESCE(hc.headcount,0)  AS headcount,
+      COUNT(v.id) FILTER (
+        WHERE v.status IN (
+          'OPEN','AWAITING_APPROVAL','APPROVED',
+          'INTERVIEWING','OFFER_SENT'
+        )
+      )                         AS vacancies
+    FROM periods p
+    CROSS JOIN "Team" t
 
-      ORDER BY
-        t.name,
-        p.mon;                 -- order by date so periods are chronological
-    `
+    LEFT JOIN headcounts hc
+      ON hc."teamId" = t.id
+    AND hc.mon       = p.mon
+
+    LEFT JOIN "Vacancy" v
+      ON v."team_id"   = t.id
+    AND v."open_from" <= p.mon + ${step} - interval '1 day'
+
+    GROUP BY
+      t.name,
+      p.mon,
+      hc.headcount
+
+    ORDER BY
+      t.name,
+      p.mon;
+  `
 
     const raw = await prisma.$queryRawUnsafe(sql, from, to)
 
