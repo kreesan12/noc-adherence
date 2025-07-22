@@ -100,15 +100,6 @@ export default function WorkforcePage () {
     loadVacancies()
   }
 
-  /* ————————————————— CLEAN-UP ON UNMOUNT ———————————————— */
-  useEffect(() => {
-    return () => {
-      setEngRows([])   // clear movements
-      setHcRows([])    // clear head-count
-      setVacRows([])   // clear vacancies
-    }
-  }, [])
-
   const downloadDocx = async id => {
     const { data } = await downloadReqDoc(id)
     const url = URL.createObjectURL(data)
