@@ -123,7 +123,7 @@ export default function WorkforcePage () {
   <Box sx={{ height: 300, mb: 3 }}>
     <ResponsiveContainer>
       <LineChart
-        data={hcRows}                     /* same rows as the table */
+        data={hc}                     /* same rows as the table */
         margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
       >
         <CartesianGrid strokeDasharray="3 3" />
@@ -132,7 +132,7 @@ export default function WorkforcePage () {
         <ReTooltip />
         <Legend />
         {/* one line per team */}
-        {[...new Set(hcRows.map(r => r.name))].map(team => (
+        {[...new Set(hc.map(r => r.name))].map(team => (
           <Line
             key={team}
             type="monotone"
