@@ -84,9 +84,13 @@ export default function AgentsPage () {
       headerName: 'Start',
       width: 120,
       editable: true,
-      valueGetter: ({ row }) => row.startDate,          // pass raw value through
+
+      // 1️⃣ give the grid the raw ISO string
+      valueGetter: ({ row }) => row.startDate ?? null,
+
+      // 2️⃣ decide what the user sees
       renderCell: ({ value }) =>
-        value ? value.slice(0, 10) : '—',              // -or- dayjs(value).format('YYYY-MM-DD')
+        value ? value.toString().slice(0, 10) : '—',     // 2024-01-01
     },
     { field:'province', headerName:'Province', width:120, editable:true },
     {
