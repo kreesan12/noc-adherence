@@ -131,6 +131,23 @@ export default function AgentsPage () {
     resetAgentForm()
   }
 
+  const handleRowUpdate = async (newRow, oldRow) => {
+    // Only send the fields that changed and that the API accepts
+    const allowed = ['employeeNo', 'startDate', 'province']
+    const diff = Object.fromEntries(
+      allowed
+        .filter(k => newRow[k] !== oldRow[k])
+        .map(k => [k, newRow[k] || null])
+    )
+
+    if (Object.keys(diff).length) {
+      await api.patch(`/agents/${newRow.id}`, diff)
+    }
+
+    // Return the row the grid should store
+    return newRow
+  }
+
   async function handleSupSave () {
     await api.post('/supervisors', supForm)
     setSupers((await api.get('/supervisors')).data)
@@ -172,11 +189,12 @@ export default function AgentsPage () {
         rows={viewRows}
         columns={cols}
         autoHeight
-        editMode="cell"
-        onCellEditCommit={handleCellEditCommit}
+        editMode="cell"                 // keep cell editing
+        processRowUpdate={handleRowUpdate}
+        onProcessRowUpdateError={(e)=>console.error(e)}
         disableRowSelectionOnClick
         slots={{ toolbar: GridToolbar }}
-        getRowId={(r) => r.id}          /* explicit */
+        getRowId={(r) => r.id}
       />
 
       {/* add-agent dialog – only change is dynamic team list */}
