@@ -11,7 +11,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend, LabelList
 } from 'recharts'
 
 
@@ -152,6 +152,7 @@ export default function WorkforcePage () {
           dataKey={team}
           name={team}
           fill={COLORS[idx % COLORS.length]}
+          label={{ position: 'top' }} 
         />
       ))}
     </BarChart>
