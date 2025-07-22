@@ -36,7 +36,7 @@ export default function AgentsPage () {
     const fetch = async () => {
       const [{ data:agentRows }, { data:teamRows }, { data:supRows }] =
         await Promise.all([api.get('/agents'), listTeams(), api.get('/supervisors')])
-
+      console.log('first agent keys →', Object.keys(agentRows[0]))
       setAgents(agentRows)
       setTeams(teamRows)
       setSupers(supRows)
