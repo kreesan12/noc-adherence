@@ -2,9 +2,13 @@
  * scripts/importVolumes/index.js
  * ------------------------------------------------------------
  * 1.  Pull yesterday’s Explore “hourly workload” e-mail from Gmail
- * 2.  Accept either a raw CSV or a ZIP containing one CSV
- * 3.  Parse columns  date | hour | priority1 | autoDfa | autoMnt | autoOutage
+ * 2.  Accept either raw CSVs or a ZIP containing multiple CSVs
+ * 3.  Parse
+ *       • T1 - hourly workload (DB extract)……………… date | hour | priority1 | autoDfa | autoMnt | autoOutage
+ *       • T1 - hourly workload updates - total…… date | hour | tickets
  * 4.  UPSERT into dbo.VolumeActual  (key = date + hour)
+ *       Columns: role | date | hour | priority1 | auto_dfa_logged |
+ *                auto_mnt_logged | auto_outage_linked | tickets
  * ------------------------------------------------------------
  */
 import { google } from 'googleapis';
@@ -28,19 +32,16 @@ async function gmailClient() {
   return google.gmail({ version: 'v1', auth });
 }
 
-// ─── 2. download yesterday’s attachment (CSV or ZIP) ────────
-async function downloadCsv(gmail) {
-  const y      = dayjs().subtract(1, 'day').format('YYYY/MM/DD');
-  /* Gmail query:
-     • after: filters to messages received yesterday or later
-     • subject: matches the exact daily report subject (ignore the “Fw:” prefix;
-       Gmail still finds it)
-  */
-  const search = `subject:"Your delivery of T1 - hourly workload P1" after:${y}`;
+// ─── 2. download yesterday’s attachments (CSV / ZIP) ───────
+async function downloadCsvs(gmail) {
+  const y = dayjs().subtract(1, 'day').format('YYYY/MM/DD');
+
+  const query =
+    `subject:"Your delivery of T1 - hourly workload P1" after:${y}`;
 
   const { data: { messages } } = await gmail.users.messages.list({
     userId: 'me',
-    q: search,
+    q: query,
     maxResults: 1,
   });
   if (!messages?.length) throw new Error('No matching e-mail yet');
@@ -50,43 +51,77 @@ async function downloadCsv(gmail) {
     id: messages[0].id,
   });
 
-  const part = msg.payload.parts.find(p => /\.csv$|\.zip$/i.test(p.filename));
-  if (!part) throw new Error('No CSV or ZIP attachment found');
+  const parts = msg.payload.parts?.filter(
+    p => /\.csv$|\.zip$/i.test(p.filename),
+  ) ?? [];
+  if (!parts.length) throw new Error('No CSV or ZIP attachment found');
 
-  const { data: { data: b64 } } = await gmail.users.messages.attachments.get({
-    userId: 'me',
-    messageId: msg.id,
-    id: part.body.attachmentId,
-  });
+  const csvMap = new Map();          // filename => csv text
 
-  const bin = Buffer.from(b64, 'base64');
-
-  // unzip if needed
-  let csvText;
-  if (part.filename.toLowerCase().endsWith('.zip')) {
-    const zip   = new AdmZip(bin);
-    const entry = zip.getEntries().find(e => e.entryName.endsWith('.csv'));
-    if (!entry) throw new Error('ZIP contained no *.csv');
-    csvText = entry.getData().toString('utf8');
-  } else {
-    csvText = bin.toString('utf8');
+  // helper: fetch attachment binary
+  async function fetchAttachment(part) {
+    const { data: { data: b64 } } =
+      await gmail.users.messages.attachments.get({
+        userId: 'me',
+        messageId: msg.id,
+        id: part.body.attachmentId,
+      });
+    return Buffer.from(b64, 'base64');
   }
 
-  return csvText;
+  for (const part of parts) {
+    const bin = await fetchAttachment(part);
+
+    if (part.filename.toLowerCase().endsWith('.zip')) {
+      const zip = new AdmZip(bin);
+      zip.getEntries()
+        .filter(e => e.entryName.toLowerCase().endsWith('.csv'))
+        .forEach(e =>
+          csvMap.set(e.entryName, e.getData().toString('utf8')),
+        );
+    } else {
+      csvMap.set(part.filename, bin.toString('utf8'));
+    }
+  }
+
+  return csvMap;                     // Map<string, string>
 }
 
 // ─── 3. upsert into dbo.VolumeActual ────────────────────────
-async function upsert(csv) {
-  const rows  = parse(csv, { columns: true, skip_empty_lines: true });
-  const pool  = new pg.Pool({
-    connectionString: DATABASE_URL,
-    ssl: { rejectUnauthorized: false }     // Heroku: accept their wildcard cert
-  });
-  const cx    = await pool.connect();
+async function upsert(csvMap) {
+  // identify files (fallback to first / second in map if names vary)
+  const mainName    =
+    [...csvMap.keys()].find(n => /hourly workload[^u].*\.csv/i.test(n))
+    ?? [...csvMap.keys()][0];
 
-  /*  !! make sure you have a UNIQUE index !!
-      CREATE UNIQUE INDEX volumeactual_uk
-      ON "VolumeActual"(date, hour);
+  const updatesName =
+    [...csvMap.keys()].find(n => /updates.*\.csv/i.test(n))
+    ?? [...csvMap.keys()][1];
+
+  if (!mainName) throw new Error('Could not locate primary workload CSV');
+  if (!updatesName) console.warn('⚠️  No “updates” CSV found – tickets left null');
+
+  const mainRows    = parse(csvMap.get(mainName),    { columns: true, skip_empty_lines: true });
+  const updatesRows = updatesName
+    ? parse(csvMap.get(updatesName), { columns: true, skip_empty_lines: true })
+    : [];
+
+  // map date+hour → tickets
+  const ticketMap = new Map();
+  for (const r of updatesRows) {
+    const iso = dayjs(r.date, ['M/D/YYYY', 'YYYY-MM-DD'])
+      .format('YYYY-MM-DD');
+    ticketMap.set(`${iso}|${Number(r.hour)}`, Number(r.tickets));
+  }
+
+  const pool = new pg.Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },   // Heroku wildcard cert
+  });
+  const cx = await pool.connect();
+
+  /* Ensure UNIQUE index exists:
+     CREATE UNIQUE INDEX volumeactual_uk ON "VolumeActual"(date, hour);
   */
 
   const sql = `
@@ -97,32 +132,38 @@ async function upsert(csv) {
       priority1,
       auto_dfa_logged,
       auto_mnt_logged,
-      auto_outage_linked
+      auto_outage_linked,
+      tickets
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
     ON CONFLICT (date, hour)
     DO UPDATE SET
       priority1          = EXCLUDED.priority1,
       auto_dfa_logged    = EXCLUDED.auto_dfa_logged,
       auto_mnt_logged    = EXCLUDED.auto_mnt_logged,
-      auto_outage_linked = EXCLUDED.auto_outage_linked;
+      auto_outage_linked = EXCLUDED.auto_outage_linked,
+      tickets            = COALESCE(EXCLUDED.tickets, "VolumeActual".tickets);
   `;
 
   try {
     await cx.query('BEGIN');
 
-    for (const r of rows) {
+    for (const r of mainRows) {
       const isoDate = dayjs(r.date, ['M/D/YYYY', 'YYYY-MM-DD'])
-        .format('YYYY-MM-DD');            // normalise 7/20/2025 → 2025-07-20
+        .format('YYYY-MM-DD');
+      const hour    = Number(r.hour);
+      const tKey    = `${isoDate}|${hour}`;
+      const tickets = ticketMap.get(tKey) ?? null;   // preserve null if no match
 
       await cx.query(sql, [
-        'NOC Tier 1',                            // role  – constant, adjust if needed
+        'NOC Tier 1',                     // role – adjust if needed
         isoDate,
-        Number(r.hour),
+        hour,
         Number(r.priority1),
-        Number(r.autoDfa       ?? 0),
-        Number(r.autoMnt       ?? 0),
-        Number(r.autoOutage    ?? 0),
+        Number(r.autoDfa    ?? 0),
+        Number(r.autoMnt    ?? 0),
+        Number(r.autoOutage ?? 0),
+        tickets,
       ]);
     }
 
@@ -138,9 +179,9 @@ async function upsert(csv) {
 // ─── 4. main ────────────────────────────────────────────────
 (async () => {
   try {
-    const gmail = await gmailClient();
-    const csv   = await downloadCsv(gmail);
-    await upsert(csv);
+    const gmail  = await gmailClient();
+    const csvMap = await downloadCsvs(gmail);
+    await upsert(csvMap);
 
     console.log(
       'Imported workload for',
