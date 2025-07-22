@@ -11,7 +11,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend
 } from 'recharts'
 
 
@@ -129,7 +129,7 @@ export default function WorkforcePage () {
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="period" />
         <YAxis allowDecimals={false}/>
-        <Tooltip />
+        <ReTooltip />
         <Legend />
         {/* one line per team */}
         {[...new Set(hcRows.map(r => r.name))].map(team => (
