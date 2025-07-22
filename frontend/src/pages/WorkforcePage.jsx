@@ -133,9 +133,13 @@ export default function WorkforcePage () {
   ]
   const vacCols = [
     { field:'team', headerName:'Team', flex:1,
-      valueGetter:({row})=>row.team.name },
+      valueGetter:({ row }) => row?.team?.name ?? '—' },          
     { field:'openFrom', headerName:'Open From', flex:1,
-      valueGetter:({row})=>row.openFrom.slice(0,10) },
+      valueGetter:({ row }) =>
+        row?.openFrom && row.openFrom.length >= 10
+          ? row.openFrom.slice(0,10)
+          : '—'
+    },
     { field:'status', headerName:'Status', flex:1,
       renderCell:({row})=>(
         <TextField
