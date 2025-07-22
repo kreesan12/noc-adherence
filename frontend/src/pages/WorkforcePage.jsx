@@ -94,7 +94,7 @@ export default function WorkforcePage () {
 
 {/* MOVEMENTS TABLE */}
 {tab===0 && (
-<Paper sx={{p:2}}>
+<Paper sx={{ p: 2, bgcolor: 'white' }}>
   <TableContainer>
   <Table size="small">
     <TableHead><TableRow>
@@ -114,7 +114,7 @@ export default function WorkforcePage () {
 
 {/* HEADCOUNT TABLE */}
 {tab===1 && (
-<Paper sx={{p:2}}>
+<Paper sx={{ p: 2, bgcolor: 'white' }}>
   <Box mb={2}>
     <TextField select size="small" value={gran}
       onChange={e=>setGran(e.target.value)}>
@@ -181,7 +181,7 @@ export default function WorkforcePage () {
 
 {/* VACANCIES TABLE */}
 {tab===2 && (
-<Paper sx={{p:2}}>
+<Paper sx={{ p: 2, bgcolor: 'white' }}>
   <TableContainer>
   <Table size="small">
     <TableHead><TableRow>
