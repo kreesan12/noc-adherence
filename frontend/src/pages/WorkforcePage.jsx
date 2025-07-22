@@ -10,6 +10,10 @@ import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+} from 'recharts';
+
 
 import {
   listTeams, listAgents,
@@ -114,6 +118,34 @@ export default function WorkforcePage () {
       <MenuItem value="week">Week</MenuItem>
     </TextField>
   </Box>
+
+  {/* ─── HEADCOUNT CHART ───────────────────────────────────── */}
+  <Box sx={{ height: 300, mb: 3 }}>
+    <ResponsiveContainer>
+      <LineChart
+        data={hcRows}                     /* same rows as the table */
+        margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="period" />
+        <YAxis allowDecimals={false}/>
+        <Tooltip />
+        <Legend />
+        {/* one line per team */}
+        {[...new Set(hcRows.map(r => r.name))].map(team => (
+          <Line
+            key={team}
+            type="monotone"
+            dataKey={d => (d.name === team ? d.headcount : null)}
+            name={team}
+            connectNulls
+            strokeWidth={2}
+          />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  </Box>
+  {/* ───────────────────────────────────────────────────────── */}
 
   {hcLoad ? 'Loading…' : (
   <TableContainer>
