@@ -1,4 +1,4 @@
-/* frontend/src/components/AssignTab.jsx */
+// frontend/src/components/AssignTab.jsx
 import { useState } from 'react'
 import {
   DndContext,
@@ -16,9 +16,10 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import api from '../api'
-import { Card, CardContent, Chip, Stack, Typography } from '@mui/material'
+import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material'
 
-export default function AssignTab ({ agents, supers, refreshAgents }) {
+export default function AssignTab({ agents, supers, refreshAgents }) {
+  // Build lists keyed by supervisorId (string) plus "unassigned"
   const [lists, setLists] = useState(() => {
     const bySup = Object.fromEntries(
       supers.map(s => [String(s.id), []])
@@ -31,30 +32,32 @@ export default function AssignTab ({ agents, supers, refreshAgents }) {
     return { unassigned, ...bySup }
   })
 
+  // Drag-and-drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   )
 
+  // Handle drop events
   const handleDragEnd = async ({ active, over }) => {
     if (!over) return
 
     const fromKey = active.data.current.sortable.containerId
     const toKey =
-      over.data.current?.sortable?.containerId  // drop on item
+      over.data.current?.sortable?.containerId  // drop on an item
       ?? over.id                                // drop on empty column
 
     if (fromKey === toKey) return
 
-    // optimistic UI
+    // 1️⃣ Optimistic UI update
     setLists(prev => {
-      const from = [...prev[fromKey]]
-      const to   = [...prev[toKey]]
-      const idx  = from.findIndex(a => a.id === active.id)
-      to.push(from.splice(idx, 1)[0])
-      return { ...prev, [fromKey]: from, [toKey]: to }
+      const src = [...prev[fromKey]]
+      const dest = [...prev[toKey]]
+      const idx = src.findIndex(a => a.id === active.id)
+      dest.push(src.splice(idx, 1)[0])
+      return { ...prev, [fromKey]: src, [toKey]: dest }
     })
 
-    // persist
+    // 2️⃣ Persist change & refresh
     const supervisorId = toKey === 'unassigned' ? null : Number(toKey)
     await api.patch(`/agents/${active.id}/supervisor`, { supervisorId })
     await refreshAgents()
@@ -66,8 +69,19 @@ export default function AssignTab ({ agents, supers, refreshAgents }) {
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <Stack direction="row" spacing={2} flexWrap="wrap">
+      {/* Grid container: auto-wrap, top-align, consistent gaps */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+          gap: 2,
+          alignItems: 'start'
+        }}
+      >
+        {/* Unassigned bucket */}
         <SupColumn id="unassigned" title="Unassigned" agents={lists.unassigned} />
+
+        {/* One column per supervisor */}
         {supers.map(s => (
           <SupColumn
             key={s.id}
@@ -76,23 +90,22 @@ export default function AssignTab ({ agents, supers, refreshAgents }) {
             agents={lists[String(s.id)]}
           />
         ))}
-      </Stack>
+      </Box>
 
+      {/* Drag overlay */}
       <DragOverlay>
-        {({ active }) =>
-          active ? <Chip label={active.data.current.label} /> : null}
+        {({ active }) => active ? <Chip label={active.data.current.label} /> : null}
       </DragOverlay>
     </DndContext>
   )
 }
 
-/* ─────────── Column + Chip helpers ───────────────── */
-function SupColumn ({ id, title, agents }) {
-  // register the droppable container and get its ref setter
+function SupColumn({ id, title, agents }) {
+  // Make the Card itself a droppable target (even if it's empty)
   const { setNodeRef } = useDroppable({ id })
 
   return (
-    <Card ref={setNodeRef} sx={{ minWidth: 220, mb: 2 }}>
+    <Card ref={setNodeRef} sx={{ minWidth: 220 }}>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           {title}
@@ -107,18 +120,11 @@ function SupColumn ({ id, title, agents }) {
   )
 }
 
-function AgentChip ({ agent }) {
-  const {
-    attributes, listeners, setNodeRef, transform, transition
-  } = useSortable({
+function AgentChip({ agent }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: agent.id,
     data: { label: agent.fullName }
   })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition
-  }
 
   return (
     <Chip
@@ -127,7 +133,14 @@ function AgentChip ({ agent }) {
       variant="outlined"
       {...attributes}
       {...listeners}
-      sx={{ cursor: 'grab', ...style }}
+      sx={{
+        cursor: 'grab',
+        width: '100%',        // fill the card’s width
+        whiteSpace: 'normal', // allow wrapping
+        textAlign: 'center',  // center the text
+        transform: CSS.Transform.toString(transform),
+        transition
+      }}
     />
   )
 }
