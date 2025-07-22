@@ -262,8 +262,17 @@ export default function WorkforcePage () {
               <MenuItem value="week">Week</MenuItem>
             </TextField>
           </Box>
-          <DataGrid autoHeight rows={hcRows.map((r,i)=>({id:i,...r}))}
-            columns={hcCols} loading={hcLoading} pageSize={20}/>
+          <DataGrid
+            autoHeight
+            rows={hcRows}
+            columns={hcCols}
+            loading={hcLoading}
+            pageSize={20}
+
+            /* NEW → guarantee every row id is unique & stable */
+            getRowId={(r) => `${r.name}-${r.period}`}
+            /* --------------------------------------------- */
+          />
         </Paper>
       )}
 
