@@ -97,6 +97,25 @@ r.patch('/engagements/:id/terminate', async (req, res) => {
 })
 
 // ─── Vacancies ────────────────────────────────────────────────────
+// ───────────────────── POST /vacancies ───────────────────────────────
+r.post('/vacancies', async (req, res) => {
+  const { teamId, openFrom, status, reason } = req.body
+  try {
+    const vac = await prisma.vacancy.create({
+      data: {
+        teamId,
+        openFrom: new Date(openFrom),
+        status,
+        reason,
+      }
+    })
+    res.status(201).json(vac)
+  } catch (err) {
+    console.error('POST /vacancies failed', err)
+    res.status(400).json({ error: 'Bad payload' })
+  }
+})
+
 r.get('/vacancies', async (req, res) => {
   const open = req.query.open === 'true'
   const rows = await prisma.vacancy.findMany({
