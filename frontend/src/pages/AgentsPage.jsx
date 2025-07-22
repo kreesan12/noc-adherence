@@ -72,12 +72,21 @@ export default function AgentsPage () {
     { field:'email', headerName:'Email', flex:1 },
     { field:'role', headerName:'Team', width:160 },
     { field:'employeeNo', headerName:'Emp #', width:100, editable:true },
-    {
+/*    {
       field:'startDate', headerName:'Start', width:110, editable:true,
       valueGetter: (params) => {
       const v = params?.row?.startDate               // <- guard everything
       return v ? String(v).slice(0, 10) : '—'        // show YYYY-MM-DD or em-dash
     }
+    },*/
+    {
+      field: 'startDate',
+      headerName: 'Start',
+      width: 120,
+      editable: true,
+      type: 'date',
+      valueFormatter: ({ value }) =>
+        value ? value.slice(0, 10) : '—',    // shows YYYY-MM-DD or em-dash
     },
     { field:'province', headerName:'Province', width:120, editable:true },
     {
