@@ -116,7 +116,7 @@ async function upsert(csv) {
         .format('YYYY-MM-DD');            // normalise 7/20/2025 → 2025-07-20
 
       await cx.query(sql, [
-        'NOC',                            // role  – constant, adjust if needed
+        'NOC Tier 1',                            // role  – constant, adjust if needed
         isoDate,
         Number(r.hour),
         Number(r.priority1),
