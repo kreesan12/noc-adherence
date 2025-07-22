@@ -188,6 +188,7 @@ enum VacancyStatus {
   OFFER_SENT
   OFFER_ACCEPTED
   CLOSED
+  PENDING
 }
 
 model Vacancy {
