@@ -100,6 +100,15 @@ export default function WorkforcePage () {
     loadVacancies()
   }
 
+  /* ————————————————— CLEAN-UP ON UNMOUNT ———————————————— */
+  useEffect(() => {
+    return () => {
+      setEngRows([])   // clear movements
+      setHcRows([])    // clear head-count
+      setVacRows([])   // clear vacancies
+    }
+  }, [])
+
   const downloadDocx = async id => {
     const { data } = await downloadReqDoc(id)
     const url = URL.createObjectURL(data)
@@ -174,11 +183,12 @@ export default function WorkforcePage () {
           </Box>
 
           <DataGrid
+            key={`mv-${engRows.length}`}          /* remount on every reload        */
             autoHeight
             rows={engRows}
             columns={engCols}
             pageSize={10}
-            getRowId={(r) => r.id}         // ← explicit
+            getRowId={(r) => r.id}               /* explicit                       */
           />
 
           {/* modal */}
