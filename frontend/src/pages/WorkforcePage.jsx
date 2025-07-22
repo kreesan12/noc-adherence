@@ -92,7 +92,16 @@ export default function WorkforcePage () {
   },[tab,gran])
 
   /* ————————————————— VACANCIES ————————————————— */
-  const loadVacancies = ()=> listVacancies().then(r=>setVacRows(r.data))
+  const loadVacancies = () =>
+    listVacancies().then(r => {
+      const flat = r.data.map(v => ({
+        id       : v.id,
+        teamName : v.team.name,        // ← plain string
+        openFrom : v.openFrom,
+        status   : v.status
+      }))
+      setVacRows(flat)
+    })
   useEffect(()=>{ if(tab===2) loadVacancies() },[tab])
 
   const updateStatus = async (row, status) => {
@@ -123,13 +132,10 @@ export default function WorkforcePage () {
     { field:'vacancies',headerName:'Vac.',   flex:1, type:'number' }
   ]
   const vacCols = [
-    { field:'team', headerName:'Team', flex:1,
-      valueGetter:({ row }) => row?.team?.name ?? '—' },          
+    { field:'teamName', headerName:'Team', flex:1 },
     { field:'openFrom', headerName:'Open From', flex:1,
-      valueGetter:({ row }) =>
-        row?.openFrom && row.openFrom.length >= 10
-          ? row.openFrom.slice(0,10)
-          : '—'
+      valueGetter: ({row}) =>
+        row.openFrom ? row.openFrom.slice(0,10) : '—'
     },
     { field:'status', headerName:'Status', flex:1,
       renderCell:({row})=>(
