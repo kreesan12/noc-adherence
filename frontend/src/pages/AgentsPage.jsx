@@ -7,6 +7,7 @@ import {
 } from '@mui/material'
 import api from '../api'
 import { listTeams, createTeam } from '../api/workforce'
+import dayjs from 'dayjs'
 
 export default function AgentsPage () {
   /* ─────────── state ───────────────────────────────────────── */
@@ -84,13 +85,10 @@ export default function AgentsPage () {
       headerName: 'Start',
       width: 120,
       editable: true,
-
-      // supply the raw value (or null) – note the ?.
-      valueGetter: (params) => params.row?.startDate ?? null,
-
-      // render what the user sees
       renderCell: (params) =>
-        params.value ? params.value.slice(0, 10) : '—',
+        params.value
+          ? dayjs(params.value).format('YYYY-MM-DD')
+          : '—',          // show em-dash when null / blank
     },
     { field:'province', headerName:'Province', width:120, editable:true },
     {
