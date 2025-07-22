@@ -132,7 +132,7 @@ export default function AgentsPage () {
   }
 
   const handleRowUpdate = async (newRow, oldRow) => {
-    // Only send the fields that changed and that the API accepts
+    // send only the fields that changed
     const allowed = ['employeeNo', 'startDate', 'province']
     const diff = Object.fromEntries(
       allowed
@@ -140,12 +140,22 @@ export default function AgentsPage () {
         .map(k => [k, newRow[k] || null])
     )
 
-    if (Object.keys(diff).length) {
-      await api.patch(`/agents/${newRow.id}`, diff)
-    }
+    try {
+      if (Object.keys(diff).length) {
+        // 1️⃣ update the row on the server
+        await api.patch(`/agents/${newRow.id}`, diff)
 
-    // Return the row the grid should store
-    return newRow
+        // 2️⃣ pull the fresh list from the API
+        const { data } = await api.get('/agents')
+        setAgents(data)
+      }
+      // 3️⃣ tell the grid everything is fine
+      return newRow
+    } catch (err) {
+      // let the grid revert the change & show error
+      console.error(err)
+      throw err               // important!
+    }
   }
 
   async function handleSupSave () {
