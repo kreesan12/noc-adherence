@@ -104,8 +104,17 @@ function SupColumn({ id, title, agents }) {
   // Make the Card itself a droppable target (even if it's empty)
   const { setNodeRef } = useDroppable({ id })
 
-  return (
-    <Card ref={setNodeRef} sx={{ minWidth: 220 }}>
+    return (
+    <Card
+        ref={setNodeRef}
+        sx={{
+        minWidth: 220,
+        backgroundColor: 'white',
+        boxShadow: 3,        // subtle shadow
+        borderRadius: 2,     // rounded corners
+        p: 1,                // inner padding
+        }}
+    >
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           {title}
