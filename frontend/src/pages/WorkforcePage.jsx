@@ -1,156 +1,182 @@
-/* frontend/src/pages/WorkforcePage.jsx */
-import React, { useState, useEffect, useCallback } from 'react';
+/* frontend/src/pages/WorkforcePage.jsx
+   ——— Uses plain MUI <Table> to avoid DataGrid internals ——— */
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   Box, Paper, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent,
-  Grid, TextField, MenuItem, IconButton, Tooltip
-} from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import CloseIcon from '@mui/icons-material/Close';
-import DownloadIcon from '@mui/icons-material/Download';
-import dayjs from 'dayjs';
-
-import GridSafe          from '../components/GridSafe';
-import { flatVacancy,
-         flatEngagement } from '../lib/flat';
+  Grid, TextField, MenuItem, IconButton, Tooltip,
+  Table, TableHead, TableBody, TableRow, TableCell, TableContainer
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
+import CloseIcon from '@mui/icons-material/Close'
+import DownloadIcon from '@mui/icons-material/Download'
+import dayjs from 'dayjs'
 
 import {
-  /* look-ups & movements */
   listTeams, listAgents,
   listEngagements, createEngagement, terminateEngagement,
-  /* head-count */
   headcountReport,
-  /* vacancies */
   listVacancies, updateVacancy, downloadReqDoc
-} from '../api/workforce';
+} from '../api/workforce'
 
-/* ────────────────────────────────────────────────────────── */
 export default function WorkforcePage () {
-/* ───── tabs & static look-ups ───── */
-  const [tab, setTab]   = useState(0);          // 0-move 1-head 2-vac
-  const [teams,   setTeams]  = useState([]);
-  const [agents,  setAgents] = useState([]);
-  useEffect(()=>{ listTeams().then(r=>setTeams(r.data)) },[]);
-  useEffect(()=>{ listAgents().then(r=>setAgents(r.data)) },[]);
+/* ─── basic look-ups ────────────────────────────────────────── */
+  const [tab,setTab] = useState(0)                 // 0-move 1-head 2-vac
+  const [teams,setTeams]   = useState([])
+  const [agents,setAgents] = useState([])
+  useEffect(()=>{ listTeams().then(r=>setTeams(r.data)) },[])
+  useEffect(()=>{ listAgents().then(r=>setAgents(r.data)) },[])
 
-/* ───── MOVEMENTS ───── */
-  const [eng, setEng] = useState([]);
-  const loadEng = useCallback(() =>
-    listEngagements({}).then(r=> setEng(r.data.map(flatEngagement)))
-  ,[]);
-  useEffect(loadEng,[]);
+/* ─── MOVEMENTS ─────────────────────────────────────────────── */
+  const [eng,setEng] = useState([])
+  const loadEng = useCallback(()=> {
+    listEngagements({}).then(r=>{
+      setEng(r.data.map(e=>({
+        id:e.id,
+        agent:e.agent.fullName,
+        team :e.team.name,
+        start:e.startDate?e.startDate.slice(0,10):'',
+        end  :e.endDate  ?e.endDate.slice(0,10):'—',
+        note :e.note??''
+      })))
+    })
+  },[])
+  useEffect(loadEng,[])
 
-/* ───── HEAD-COUNT ───── */
-  const [gran, setGran]   = useState('month');
-  const [hcRows, setHc]   = useState([]);
-  const [hcLoad, setHcL]  = useState(false);
+/* ─── HEADCOUNT ─────────────────────────────────────────────── */
+  const [gran,setGran]   = useState('month')
+  const [hc,setHc]       = useState([])
+  const [hcLoad,setHcL]  = useState(false)
   useEffect(()=> {
-    if (tab!==1) return;
-    const from = dayjs().subtract(5,'month').startOf('month').format('YYYY-MM-DD');
-    const to   = dayjs().add(1,'month').endOf('month').format('YYYY-MM-DD');
-    setHcL(true);
+    if (tab!==1) return
+    const from = dayjs().subtract(5,'month').startOf('month').format('YYYY-MM-DD')
+    const to   = dayjs().add(1,'month').endOf('month').format('YYYY-MM-DD')
+    setHcL(true)
     headcountReport(from,to,gran)
       .then(r=>setHc(r.data))
-      .finally(()=>setHcL(false));
-  },[tab,gran]);
+      .finally(()=>setHcL(false))
+  },[tab,gran])
 
-/* ───── VACANCIES ───── */
-  const [vac, setVac] = useState([]);
-  const loadVac = useCallback(() =>
-    listVacancies().then(r=> setVac(r.data.map(flatVacancy)))
-  ,[]);
-  useEffect(()=>{ if(tab===2) loadVac() },[tab]);
+/* ─── VACANCIES ─────────────────────────────────────────────── */
+  const [vac,setVac] = useState([])
+  const loadVac = useCallback(()=> {
+    listVacancies().then(r=>{
+      setVac(r.data.map(v=>({
+        id:v.id,
+        team :v.team.name,
+        open :v.openFrom.slice(0,10),
+        status:v.status
+      })))
+    })
+  },[])
+  useEffect(()=>{ if(tab===2) loadVac() },[tab])
 
-/* ───── column defs (all primitives) ───── */
-  const engCols = [
-    {field:'agent', headerName:'Agent', flex:1},
-    {field:'team',  headerName:'Team',  flex:1},
-    {field:'start', headerName:'Start', flex:1},
-    {field:'end',   headerName:'End',   flex:1},
-    {field:'note',  headerName:'Note',  flex:1}
-  ];
-  const hcCols = [
-    {field:'name',      headerName:'Team',  flex:1},
-    {field:'period',    headerName: gran==='month'?'Month':'Week', flex:1},
-    {field:'headcount', headerName:'Heads', flex:1, type:'number'},
-    {field:'vacancies', headerName:'Vac.',  flex:1, type:'number'}
-  ];
-  const vacCols = [
-    {field:'team',  headerName:'Team', flex:1},
-    {field:'open',  headerName:'Open', flex:1},
-    {field:'status',headerName:'Status', flex:1,
-      renderCell:({row})=>(
-        <TextField size="small" select value={row.status}
-          onChange={e=>{
-            updateVacancy(row.id,{status:e.target.value}).then(loadVac);
-          }}>
-          {['OPEN','AWAITING_APPROVAL','APPROVED','INTERVIEWING',
-            'OFFER_SENT','OFFER_ACCEPTED','CLOSED'].map(s=>(
-              <MenuItem key={s} value={s}>{s.replace('_',' ')}</MenuItem>
-          ))}
-        </TextField>
-      )
-    },
-    {field:'doc', headerName:'Req.', width:90,
-      renderCell:({row})=>(
-        <Tooltip title="Download requisition DOCX">
-          <IconButton size="small" onClick={async()=>{
-            const {data}=await downloadReqDoc(row.id);
-            const url = URL.createObjectURL(data);
-            const a=document.createElement('a');
-            a.href=url; a.download=`requisition-${row.id}.docx`; a.click();
-            URL.revokeObjectURL(url);
-          }}>
-            <DownloadIcon fontSize="small"/>
-          </IconButton>
-        </Tooltip>
-      )
-    }
-  ];
+  const updateStatus = (row, status) =>
+    updateVacancy(row.id,{status}).then(loadVac)
 
-/* ───── RENDER ───── */
+/* ─── simple cell renderer helpers ──────────────────────────── */
+  const TH = p => <TableCell sx={{fontWeight:'bold'}} {...p}/>
+  const TC = p => <TableCell {...p}/>
+
+/* ─── RENDER ────────────────────────────────────────────────── */
   return (
     <Box>
       <Tabs value={tab} onChange={(_,v)=>setTab(v)} sx={{mb:2}}>
         <Tab label="Movements"/><Tab label="Headcount"/><Tab label="Vacancies"/>
       </Tabs>
 
-      {/* MOVEMENTS */}
-      {tab===0 && (
-        <Paper sx={{p:2}}>
-          <GridSafe key={eng.length}
-            rows={eng} columns={engCols} pageSize={10}
-            getRowId={r=>r.id} autoHeight/>
-        </Paper>
-      )}
+{/* MOVEMENTS TABLE */}
+{tab===0 && (
+<Paper sx={{p:2}}>
+  <TableContainer>
+  <Table size="small">
+    <TableHead><TableRow>
+      <TH>Agent</TH><TH>Team</TH><TH>Start</TH><TH>End</TH><TH>Note</TH>
+    </TableRow></TableHead>
+    <TableBody>
+      {eng.map(r=>(
+        <TableRow key={r.id}>
+          <TC>{r.agent}</TC><TC>{r.team}</TC><TC>{r.start}</TC>
+          <TC>{r.end}</TC><TC>{r.note}</TC>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table></TableContainer>
+</Paper>
+)}
 
-      {/* HEADCOUNT */}
-      {tab===1 && (
-        <Paper sx={{p:2}}>
-          <Box mb={2}>
-            <TextField select size="small" value={gran}
-              onChange={e=>setGran(e.target.value)}>
-              <MenuItem value="month">Month</MenuItem>
-              <MenuItem value="week">Week</MenuItem>
+{/* HEADCOUNT TABLE */}
+{tab===1 && (
+<Paper sx={{p:2}}>
+  <Box mb={2}>
+    <TextField select size="small" value={gran}
+      onChange={e=>setGran(e.target.value)}>
+      <MenuItem value="month">Month</MenuItem>
+      <MenuItem value="week">Week</MenuItem>
+    </TextField>
+  </Box>
+
+  {hcLoad ? 'Loading…' : (
+  <TableContainer>
+  <Table size="small">
+    <TableHead><TableRow>
+      <TH>Team</TH><TH>{gran==='month'?'Month':'Week'}</TH>
+      <TH>Heads</TH><TH>Vac.</TH>
+    </TableRow></TableHead>
+    <TableBody>
+      {hc.map((r,i)=>(
+        <TableRow key={i}>
+          <TC>{r.name}</TC><TC>{r.period}</TC>
+          <TC>{r.headcount}</TC><TC>{r.vacancies}</TC>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table></TableContainer>
+  )}
+</Paper>
+)}
+
+{/* VACANCIES TABLE */}
+{tab===2 && (
+<Paper sx={{p:2}}>
+  <TableContainer>
+  <Table size="small">
+    <TableHead><TableRow>
+      <TH>Team</TH><TH>Open</TH><TH>Status</TH><TH>Req.</TH>
+    </TableRow></TableHead>
+    <TableBody>
+      {vac.map(r=>(
+        <TableRow key={r.id}>
+          <TC>{r.team}</TC><TC>{r.open}</TC>
+          <TC>
+            <TextField select size="small" value={r.status}
+              onChange={e=>updateStatus(r,e.target.value)}>
+              {['OPEN','AWAITING_APPROVAL','APPROVED','INTERVIEWING',
+                'OFFER_SENT','OFFER_ACCEPTED','CLOSED'].map(s=>(
+                  <MenuItem key={s} value={s}>
+                    {s.replace('_',' ')}
+                  </MenuItem>
+              ))}
             </TextField>
-          </Box>
-          <GridSafe key={`hc-${gran}`}
-            rows={hcRows}
-            columns={hcCols}
-            loading={hcLoad}
-            pageSize={20}
-            getRowId={r=>`${r.name}-${r.period}`}
-            autoHeight/>
-        </Paper>
-      )}
-
-      {/* VACANCIES */}
-      {tab===2 && (
-        <Paper sx={{p:2}}>
-          <GridSafe key={vac.length}
-            rows={vac} columns={vacCols} pageSize={10}
-            getRowId={r=>r.id} autoHeight/>
-        </Paper>
-      )}
+          </TC>
+          <TC>
+            <Tooltip title="Download requisition DOCX">
+              <IconButton size="small" onClick={async()=>{
+                const {data}=await downloadReqDoc(r.id)
+                const url=URL.createObjectURL(data)
+                const a=document.createElement('a')
+                a.href=url; a.download=`requisition-${r.id}.docx`; a.click()
+                URL.revokeObjectURL(url)
+              }}>
+                <DownloadIcon fontSize="small"/>
+              </IconButton>
+            </Tooltip>
+          </TC>
+        </TableRow>
+      ))}
+    </TableBody>
+  </Table></TableContainer>
+</Paper>
+)}
     </Box>
-  );
+  )
 }
