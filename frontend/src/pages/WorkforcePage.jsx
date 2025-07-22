@@ -9,6 +9,7 @@ import AddIcon   from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
+import GridSafe from '../components/GridSafe'
 
 import {
   /* look-ups & movements */
@@ -183,7 +184,7 @@ export default function WorkforcePage () {
             </Button>
           </Box>
 
-          <DataGrid
+          <GridSafe
             key={`mv-${engRows.length}`}          /* remount on every reload        */
             autoHeight
             rows={engRows}
@@ -279,7 +280,7 @@ export default function WorkforcePage () {
               <MenuItem value="week">Week</MenuItem>
             </TextField>
           </Box>
-          <DataGrid
+          <GridSafe
             key={`hc-${gran}`}                /* forces a clean mount on gran change */
 
             autoHeight
@@ -297,7 +298,7 @@ export default function WorkforcePage () {
       {/* VACANCIES */}
       {tab===2 && (
         <Paper sx={{p:2}}>
-        <DataGrid
+        <GridSafe
           autoHeight
           rows={vacRows}
           columns={vacCols}
