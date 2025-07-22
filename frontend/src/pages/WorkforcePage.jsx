@@ -237,7 +237,11 @@ export default function WorkforcePage() {
                     }
                   >
                     {agents
-                      .filter(a => a.role === teams.find(t => t.id === f.sourceTeamId)?.name)
+                      .filter(a => {
+                        const srcId = Number(moveForm.sourceTeamId)
+                        const src   = teams.find(t => t.id === srcId)
+                        return src && a.role === src.name
+                      })
                       .map(a => (
                         <MenuItem key={a.id} value={a.id}>
                           {a.fullName}
