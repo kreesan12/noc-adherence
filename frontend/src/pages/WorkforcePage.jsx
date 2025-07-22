@@ -173,7 +173,13 @@ export default function WorkforcePage () {
             </Button>
           </Box>
 
-          <DataGrid autoHeight rows={engRows} columns={engCols} pageSize={10}/>
+          <DataGrid
+            autoHeight
+            rows={engRows}
+            columns={engCols}
+            pageSize={10}
+            getRowId={(r) => r.id}         // ← explicit
+          />
 
           {/* modal */}
           <Dialog open={dialogOpen} onClose={()=>setDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -263,7 +269,7 @@ export default function WorkforcePage () {
             </TextField>
           </Box>
           <DataGrid
-            key={`hc-grid-${gran}`}
+            key={`hc-${gran}`}                /* forces a clean mount on gran change */
 
             autoHeight
             rows={hcRows}
@@ -271,9 +277,8 @@ export default function WorkforcePage () {
             loading={hcLoading}
             pageSize={20}
 
-            /* NEW — stable, deterministic row id                        */
+            /* always unique: team-name + period (e.g. “NOC-2025-07”) */
             getRowId={(r) => `${r.name}-${r.period}`}
-            /* --------------------------------------------- */
           />
         </Paper>
       )}
@@ -281,8 +286,13 @@ export default function WorkforcePage () {
       {/* VACANCIES */}
       {tab===2 && (
         <Paper sx={{p:2}}>
-          <DataGrid autoHeight rows={vacRows} columns={vacCols}
-            pageSize={10} getRowId={r=>r.id}/>
+        <DataGrid
+          autoHeight
+          rows={vacRows}
+          columns={vacCols}
+          pageSize={10}
+          getRowId={(r) => r.id}         /* explicit & stable */
+        />
         </Paper>
       )}
     </Box>

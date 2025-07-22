@@ -165,6 +165,7 @@ export default function AgentsPage () {
         onCellEditCommit={handleCellEditCommit}
         disableRowSelectionOnClick
         slots={{ toolbar: GridToolbar }}
+        getRowId={(r) => r.id}          /* explicit */
       />
 
       {/* add-agent dialog – only change is dynamic team list */}
