@@ -12,7 +12,7 @@ import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
-} from 'recharts';
+} from 'recharts'
 
 
 import {
