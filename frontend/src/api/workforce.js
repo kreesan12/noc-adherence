@@ -22,5 +22,5 @@ export const headcountReport  = (from, to, gran='month') =>
   api.get('/reports/headcount', { params:{ from, to, gran } })
 
 export const createVacancy = payload =>
-  axios.post('/api/workforce/vacancies', payload)
+  api.post('/vacancies', payload)
 
