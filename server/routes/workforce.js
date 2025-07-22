@@ -196,54 +196,54 @@ r.get('/reports/headcount', async (req, res, next) => {
       WITH periods AS (
         SELECT generate_series($1::date, $2::date, ${step}) AS mon
       ),
-      /* ---------- A) Heads coming from the Engagement table ---------- */
-      eng_rows AS (
-        SELECT
+
+      -- 1) One row per agent/team/period
+      eng_distinct AS (
+        SELECT DISTINCT
+          e."agentId",
           e."teamId",
           p.mon
         FROM "Engagement" e
         JOIN periods p
           ON e."startDate" <= p.mon + ${step} - interval '1 day'
-         AND (e."endDate"  IS NULL OR e."endDate" >= p.mon)
+        AND (e."endDate" IS NULL OR e."endDate" >= p.mon)
       ),
-      /* ---------- B) Agents that have NO engagement rows ------------- */
-      agents_no_eng AS (
+
+      -- 2) Now aggregate headcounts per team+period
+      headcounts AS (
         SELECT
-          t.id  AS "teamId",
-          p.mon
-        FROM "Agent" a
-        JOIN "Team"  t ON t.name = a.role
-        JOIN periods p
-          ON a."start_date" <= p.mon + ${step} - interval '1 day'
-        WHERE NOT EXISTS (
-          SELECT 1 FROM "Engagement" e WHERE e."agentId" = a.id
-        )
-      ),
-      heads AS (
-        SELECT * FROM eng_rows
-        UNION ALL
-        SELECT * FROM agents_no_eng
+          ed."teamId",
+          ed.mon                    AS period,
+          COUNT(ed."agentId")       AS headcount
+        FROM eng_distinct ed
+        GROUP BY ed."teamId", ed.mon
       )
-      /* ---------- Final aggregation ---------------------------------- */
+
       SELECT
         t.name,
-        ${fmt}                    AS period,
-        COUNT(h."teamId")           AS headcount,
+        ${fmt}        AS period,
+        COALESCE(h.headcount, 0) AS headcount,
         COUNT(v.id) FILTER (
           WHERE v.status IN (
             'OPEN','AWAITING_APPROVAL','APPROVED',
             'INTERVIEWING','OFFER_SENT'
           )
-        )                         AS vacancies
+        ) AS vacancies
       FROM periods p
+      -- every team×period combo
       CROSS JOIN "Team" t
-      LEFT JOIN heads    h
-             ON h."teamId" = t.id
-            AND h.mon      = p.mon
+
+      -- join in our distinct headcounts
+      LEFT JOIN headcounts h
+        ON h."teamId" = t.id
+      AND h.period   = p.mon
+
+      -- join vacancies as before
       LEFT JOIN "Vacancy" v
-             ON v."team_id" = t.id
-            AND v."open_from" <= p.mon + ${step} - interval '1 day'
-      GROUP BY t.name, period
+        ON v."team_id"   = t.id
+      AND v."open_from" <= p.mon + ${step} - interval '1 day'
+
+      GROUP BY t.name, period, h.headcount
       ORDER BY t.name, period;
     `
 
