@@ -85,12 +85,12 @@ export default function AgentsPage () {
       width: 120,
       editable: true,
 
-      // 1️⃣ give the grid the raw ISO string
-      valueGetter: ({ row }) => row.startDate ?? null,
+      // supply the raw value (or null) – note the ?.
+      valueGetter: (params) => params.row?.startDate ?? null,
 
-      // 2️⃣ decide what the user sees
-      renderCell: ({ value }) =>
-        value ? value.toString().slice(0, 10) : '—',     // 2024-01-01
+      // render what the user sees
+      renderCell: (params) =>
+        params.value ? params.value.slice(0, 10) : '—',
     },
     { field:'province', headerName:'Province', width:120, editable:true },
     {
