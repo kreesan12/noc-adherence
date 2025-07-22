@@ -10,6 +10,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
 import GridSafe from '../components/GridSafe'
+import { debugRows } from '../lib/debugGrid'
 
 import {
   /* look-ups & movements */
@@ -59,6 +60,7 @@ export default function WorkforcePage () {
         end:      e.endDate   ? dayjs(e.endDate).format('YYYY-MM-DD')   : '—',
         note:     e.note ?? ''
       }))
+      debugRows('engRows', flat, (r)=>r.id)
       setEngRows(flat)
     })
   useEffect(loadEngagements,[])
@@ -82,15 +84,22 @@ export default function WorkforcePage () {
   }
 
   /* ————————————————— HEAD-COUNT ————————————————— */
-  useEffect(()=>{
-    if (tab!==1) return
-    const from = dayjs().subtract(5,'month').startOf('month').format('YYYY-MM-DD')
-    const to   = dayjs().add(1,'month').endOf('month').format('YYYY-MM-DD')
-    setHcLoading(true)
-    headcountReport(from,to,gran)
-      .then(r=>setHcRows(r.data))
-      .finally(()=>setHcLoading(false))
-  },[tab,gran])
+  useEffect(() => {
+    if (tab !== 1) return;
+
+    const from = dayjs().subtract(5, 'month').startOf('month').format('YYYY-MM-DD');
+    const to   = dayjs().add(1, 'month').endOf('month').format('YYYY-MM-DD');
+    setHcLoading(true);
+
+    headcountReport(from, to, gran)
+      .then(r => {
+        /*  ⬇️  log the rows & id rule  */
+        debugRows('hcRows', r.data, (row) => `${row.name}-${row.period}`);
+
+        setHcRows(r.data);
+      })
+      .finally(() => setHcLoading(false));
+  }, [tab, gran]);
 
   /* ————————————————— VACANCIES ————————————————— */
   const loadVacancies = () =>
@@ -101,6 +110,7 @@ export default function WorkforcePage () {
         openFrom : v.openFrom,
         status   : v.status
       }))
+      debugRows('vacRows', flat, (r)=>r.id)
       setVacRows(flat)
     })
   useEffect(()=>{ if(tab===2) loadVacancies() },[tab])
