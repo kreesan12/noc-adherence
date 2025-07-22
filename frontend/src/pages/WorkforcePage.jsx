@@ -408,7 +408,7 @@ export default function WorkforcePage() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TH>Team</TH><TH>Open</TH><TH>Status</TH><TH>Req.</TH>
+                  <TH>Team</TH><TH>Left Date</TH><TH>Status</TH><TH>Req.</TH>
                 </TableRow>
               </TableHead>
               <TableBody>
