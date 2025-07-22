@@ -263,13 +263,15 @@ export default function WorkforcePage () {
             </TextField>
           </Box>
           <DataGrid
+            key={`hc-grid-${gran}`}
+
             autoHeight
             rows={hcRows}
             columns={hcCols}
             loading={hcLoading}
             pageSize={20}
 
-            /* NEW → guarantee every row id is unique & stable */
+            /* NEW — stable, deterministic row id                        */
             getRowId={(r) => `${r.name}-${r.period}`}
             /* --------------------------------------------- */
           />
