@@ -11,7 +11,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, Legend
 } from 'recharts'
 
 
@@ -21,6 +21,10 @@ import {
   headcountReport,
   listVacancies, updateVacancy, downloadReqDoc
 } from '../api/workforce'
+
+/* palette for bars — tweak as you like */
+const COLORS = ['#1976d2', '#9c27b0', '#ff9800', '#2e7d32', '#d32f2f'];
+
 
 export default function WorkforcePage () {
 /* ─── basic look-ups ────────────────────────────────────────── */
@@ -122,27 +126,35 @@ export default function WorkforcePage () {
   {/* ─── HEADCOUNT CHART ───────────────────────────────────── */}
   <Box sx={{ height: 300, mb: 3 }}>
     <ResponsiveContainer>
-      <LineChart
-        data={hc}                     /* same rows as the table */
-        margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
-      >
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="period" />
-        <YAxis allowDecimals={false}/>
-        <ReTooltip />
-        <Legend />
-        {/* one line per team */}
-        {[...new Set(hc.map(r => r.name))].map(team => (
-          <Line
-            key={team}
-            type="monotone"
-            dataKey={d => (d.name === team ? d.headcount : null)}
-            name={team}
-            connectNulls
-            strokeWidth={2}
-          />
-        ))}
-      </LineChart>
+    <BarChart
+      data={
+        /* pivot rows → one object per period with team head-counts */
+        Object.values(
+          hc.reduce((acc, cur) => {
+            const p = cur.period;
+            if (!acc[p]) acc[p] = { period: p };
+            acc[p][cur.name] = cur.headcount;
+            return acc;
+          }, {})
+        ).sort((a, b) => a.period.localeCompare(b.period))
+      }
+      margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
+    >
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="period" />
+      <YAxis allowDecimals={false} />
+      <ReTooltip />
+      <Legend />
+      {/* one bar per team — clustered automatically */}
+      {[...new Set(hc.map(r => r.name))].map((team, idx) => (
+        <Bar
+          key={team}
+          dataKey={team}
+          name={team}
+          fill={COLORS[idx % COLORS.length]}
+        />
+      ))}
+    </BarChart>
     </ResponsiveContainer>
   </Box>
   {/* ───────────────────────────────────────────────────────── */}
