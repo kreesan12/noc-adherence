@@ -100,16 +100,19 @@ export default function WorkforcePage() {
       }
 
       // Always create a pending vacancy in the source team
+      // 3️⃣ Create a pending vacancy in the old team,
+      //     using the *actual* leave date
+      const vacancyDate = destTeamId === 'left' ? endDate : moveDate
       await createVacancy({
         teamId:   +sourceTeamId,
-        openFrom: dayjs().format('YYYY-MM-DD'),
+        openFrom: vacancyDate,
         status:   'PENDING',
         reason
       })
 
-      // Reload
-      loadEng()
-      listVacancies().then(_=>{})
+      // 4️⃣ refresh *both* tables so you see the terminated engagement
+      await loadEng()
+      await loadVac()
     } catch (err) {
       console.error('Movement save failed', err)
     } finally {
