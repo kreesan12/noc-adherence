@@ -84,9 +84,9 @@ export default function AgentsPage () {
       headerName: 'Start',
       width: 120,
       editable: true,
-      type: 'date',
-      valueFormatter: ({ value }) =>
-        value ? value.slice(0, 10) : '—',    // shows YYYY-MM-DD or em-dash
+      valueGetter: ({ row }) => row.startDate,          // pass raw value through
+      renderCell: ({ value }) =>
+        value ? value.slice(0, 10) : '—',              // -or- dayjs(value).format('YYYY-MM-DD')
     },
     { field:'province', headerName:'Province', width:120, editable:true },
     {
