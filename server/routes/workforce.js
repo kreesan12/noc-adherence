@@ -197,7 +197,7 @@ r.get('/reports/headcount', async (req, res, next) => {
         SELECT generate_series($1::date, $2::date, ${step}) AS mon
       ),
 
-      -- 1) One row per agent/team/period
+      -- collapse to one row per agent+team+month
       eng_distinct AS (
         SELECT DISTINCT
           e."agentId",
@@ -209,42 +209,45 @@ r.get('/reports/headcount', async (req, res, next) => {
         AND (e."endDate" IS NULL OR e."endDate" >= p.mon)
       ),
 
-      -- 2) Now aggregate headcounts per team+period
+      -- count distinct agents per team/month
       headcounts AS (
         SELECT
           ed."teamId",
-          ed.mon                    AS period,
-          COUNT(ed."agentId")       AS headcount
+          ed.mon,
+          COUNT(ed."agentId") AS headcount
         FROM eng_distinct ed
         GROUP BY ed."teamId", ed.mon
       )
 
       SELECT
         t.name,
-        ${fmt}        AS period,
-        COALESCE(h.headcount, 0) AS headcount,
-        COUNT(v.id) FILTER (
+        to_char(p.mon, 'YYYY-MM') AS period,         -- format month
+        COALESCE(hc.headcount, 0) AS headcount,
+        COUNT(v.id) FILTER (                         -- vacancies unchanged
           WHERE v.status IN (
             'OPEN','AWAITING_APPROVAL','APPROVED',
             'INTERVIEWING','OFFER_SENT'
           )
         ) AS vacancies
       FROM periods p
-      -- every team×period combo
       CROSS JOIN "Team" t
 
-      -- join in our distinct headcounts
-      LEFT JOIN headcounts h
-        ON h."teamId" = t.id
-      AND h.period   = p.mon
+      LEFT JOIN headcounts hc
+        ON hc."teamId" = t.id
+      AND hc.mon       = p.mon
 
-      -- join vacancies as before
       LEFT JOIN "Vacancy" v
         ON v."team_id"   = t.id
       AND v."open_from" <= p.mon + ${step} - interval '1 day'
 
-      GROUP BY t.name, period, h.headcount
-      ORDER BY t.name, period;
+      GROUP BY
+        t.name,
+        p.mon,                 -- group by the real date
+        hc.headcount
+
+      ORDER BY
+        t.name,
+        p.mon;                 -- order by date so periods are chronological
     `
 
     const raw = await prisma.$queryRawUnsafe(sql, from, to)
