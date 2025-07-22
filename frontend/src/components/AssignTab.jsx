@@ -1,37 +1,33 @@
-/* Drag-and-drop supervisor assignment tab
-   --------------------------------------------------------------- */
+/* frontend/src/components/AssignTab.jsx */
 import { useState } from 'react'
 import {
-  DndContext, closestCenter,
-  PointerSensor, useSensor, useSensors,
+  DndContext, PointerSensor, useSensor, useSensors, closestCenter,
   DragOverlay
 } from '@dnd-kit/core'
 import {
-  SortableContext, useSortable,
-  verticalListSortingStrategy
+  SortableContext, useSortable, verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import api from '../api'
-
-import {
-  Card, CardContent, Chip, Stack, Typography
-} from '@mui/material'
+import { Card, CardContent, Chip, Stack, Typography } from '@mui/material'
 
 export default function AssignTab ({ agents, supers, refreshAgents }) {
-  /* ─────────── build list-per-supervisor once ─────────── */
+  /* ---------- build list-per-supervisor ---------- */
   const [lists, setLists] = useState(() => {
-    const bySup = Object.fromEntries(supers.map(s => [s.id, []]))
+    const bySup = Object.fromEntries(
+      supers.map(s => [String(s.id), []])     /* ← keys are strings */
+    )
     const unassigned = []
     agents.forEach(a => {
-      if (a.supervisorId) bySup[a.supervisorId]?.push(a)
+      if (a.supervisorId) bySup[String(a.supervisorId)]?.push(a)
       else unassigned.push(a)
     })
-    return { unassigned, ...bySup }   // key = 'unassigned' or supervisorId
+    return { unassigned, ...bySup }
   })
 
-  /* ─────────── DnD sensors & handlers ─────────────────── */
+  /* ---------- dnd sensors & handler ---------- */
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint:{ distance:5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   )
 
   const handleDragEnd = async ({ active, over }) => {
@@ -41,22 +37,21 @@ export default function AssignTab ({ agents, supers, refreshAgents }) {
     const toKey   = over.data.current.sortable.containerId
     if (fromKey === toKey) return
 
-    /* 1️⃣ optimistic UI */
+    /* optimistic UI */
     setLists(prev => {
-      const from  = [...prev[fromKey]]
-      const to    = [...prev[toKey]]
-      const idx   = from.findIndex(a => a.id === active.id)
+      const from = [...prev[fromKey]]
+      const to   = [...prev[toKey]]
+      const idx  = from.findIndex(a => a.id === active.id)
       to.push(from.splice(idx, 1)[0])
       return { ...prev, [fromKey]: from, [toKey]: to }
     })
 
-    /* 2️⃣ persist */
+    /* persist & refresh */
     const supervisorId = toKey === 'unassigned' ? null : Number(toKey)
     await api.patch(`/agents/${active.id}/supervisor`, { supervisorId })
     await refreshAgents()
   }
 
-  /* ─────────── render ─────────────────────────────────── */
   return (
     <DndContext
       sensors={sensors}
@@ -64,18 +59,17 @@ export default function AssignTab ({ agents, supers, refreshAgents }) {
       onDragEnd={handleDragEnd}
     >
       <Stack direction="row" spacing={2} flexWrap="wrap">
-        {/* unassigned column */}
-        <SupColumn id="unassigned" title="Unassigned"
-                   agents={lists.unassigned} />
-
-        {/* one column per supervisor */}
+        <SupColumn id="unassigned" title="Unassigned" agents={lists.unassigned} />
         {supers.map(s => (
-          <SupColumn key={s.id} id={String(s.id)}
-                     title={s.fullName} agents={lists[s.id]} />
+          <SupColumn
+            key={s.id}
+            id={String(s.id)}
+            title={s.fullName}
+            agents={lists[String(s.id)]}
+          />
         ))}
       </Stack>
 
-      {/* chip follows the cursor while dragging */}
       <DragOverlay dropAnimation={null}>
         {({ active }) =>
           active ? <Chip label={active.data.current.label} /> : null}
@@ -84,14 +78,13 @@ export default function AssignTab ({ agents, supers, refreshAgents }) {
   )
 }
 
-/* ───── helper column & chip components ────────────────── */
+/* ---------- column & chip helpers ---------- */
 function SupColumn ({ id, title, agents }) {
   return (
-    <Card sx={{ minWidth:220, mb:2 }}>
+    <Card sx={{ minWidth: 220, mb: 2 }}>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>{title}</Typography>
-        <SortableContext id={id} items={agents}
-                         strategy={verticalListSortingStrategy}>
+        <SortableContext id={id} items={agents} strategy={verticalListSortingStrategy}>
           <Stack spacing={1}>
             {agents.map(a => <AgentChip key={a.id} agent={a} />)}
           </Stack>
@@ -121,7 +114,7 @@ function AgentChip ({ agent }) {
       variant="outlined"
       {...attributes}
       {...listeners}
-      sx={{ cursor:'grab', ...style }}
+      sx={{ cursor: 'grab', ...style }}
     />
   )
 }
