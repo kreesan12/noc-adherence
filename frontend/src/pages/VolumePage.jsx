@@ -314,37 +314,42 @@ export default function VolumePage() {
             <Typography variant="h6" sx={{ mt:4 }}>
               Hourly Actual for {dayjs(selectedDate).format('YYYY-MM-DD')}
             </Typography>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={hourlyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="hour"
-                  type="number"
-                  domain={[0, 23]}                 // hard cap
-                  ticks={[...Array(24).keys()]}    // 0 through 23
-                  tickCount={24}                   // hint for spacing
-                  allowDecimals={false}
-                  tickFormatter={h =>
-                    `${String(h).padStart(2, '0')}:00`
-                  }
-                />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="actualCalls"   name="Calls"   fill="#82ca9d" barSize={28}/>
-                {stackAutomation ? (
-                  <>
-                    <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" barSize={28}/>
-                    <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" barSize={28}/>
-                    <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" barSize={28}/>
-                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="tickets" barSize={28}/>
-                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" barSize={28}/>
-                  </>
-                ) : (
-                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" barSize={28}/>
-                )}
-              </BarChart>
-            </ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart
+              data={hourlyData}
+              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              barCategoryGap="10%"   // gap between hour slots (10 % of the slot)
+              barGap={3}             // gap between the stacked bars inside a slot
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+
+              {/* BAND scale (no type/domains) — same as your Staffing chart */}
+              <XAxis
+                dataKey="hour"
+                ticks={[...Array(24).keys()]}        // 0-23 labels
+                allowDecimals={false}
+                tickFormatter={h => `${String(h).padStart(2, '0')}:00`}
+              />
+
+              <YAxis />
+              <Tooltip />
+              <Legend />
+
+              {/* bars – inherit width from band; no need for barSize unless you want it fixed */}
+              <Bar dataKey="actualCalls"   fill="#82ca9d" />
+              {stackAutomation ? (
+                <>
+                  <Bar dataKey="manualTickets" fill="#ff8042" stackId="tickets" />
+                  <Bar dataKey="autoDfa"       fill="#a4de6c" stackId="tickets" />
+                  <Bar dataKey="autoMnt"       fill="#ffc658" stackId="tickets" />
+                  <Bar dataKey="autoOutage"    fill="#8884d8" stackId="tickets" />
+                  <Bar dataKey="autoMntSolved" fill="#d0ed57" stackId="tickets" />
+                </>
+              ) : (
+                <Bar dataKey="actualTickets" fill="#ff8042" />
+              )}
+            </BarChart>
+          </ResponsiveContainer>
           </>
         )}
 
