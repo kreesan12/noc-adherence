@@ -115,7 +115,7 @@ export default prisma => {
         b.autoDfa  = Math.round(b.autoDfa  / b.n)
         b.autoMnt  = Math.round(b.autoMnt  / b.n)
         b.autoOut  = Math.round(b.autoOut  / b.n)
-        b.autoMntSolved  = Math.round(autoMntSolved  / b.n)
+        b.autoMntSolved  = Math.round(b.autoMntSolved  / b.n)
       })
 
       /* 3-C) generate future rows */
