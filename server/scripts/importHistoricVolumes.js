@@ -48,7 +48,8 @@ function loadCsvs(filePaths) {
 
   // …with a single parserOpts that trims headers & values
   const parserOpts = {
-    columns: header => header.trim(),
+    // trim each header name & also trim all values
+    columns: headerArray => headerArray.map(h => h.trim()),
     skip_empty_lines: true,
     trim: true
   }
