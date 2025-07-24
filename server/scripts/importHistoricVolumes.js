@@ -65,8 +65,11 @@ function loadCsvs(filePaths) {
 
   const mntSolvedMap = new Map()
   mntRows.forEach(r => {
-    const d = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-    mntSolvedMap.set(`${d}|${+r.hour}`, +r.autoMntSolved)
+    const d   = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
+    const key = `${d}|${+r.hour}`
+    // read the actual CSV header "auto_mnt_solved", coerce to number, guard NaN
+    const val = Number(r.auto_mnt_solved)
+    mntSolvedMap.set(key, isNaN(val) ? null : val)
   })
 
   // merge into recordMap
