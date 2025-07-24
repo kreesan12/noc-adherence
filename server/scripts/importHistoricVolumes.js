@@ -1,180 +1,148 @@
 /**
  * scripts/importHistoricVolumes.js
- *
+ * ------------------------------------------------------------------
  * Usage:
  *   node scripts/importHistoricVolumes.js \
  *     path/to/T1-hourly-workload.csv \
  *     path/to/T1-hourly-workload-updates.csv \
  *     path/to/T1-hourly-workload-mnt-auto.csv
  *
- * Needs DATABASE_URL in the env.
+ * Expects DATABASE_URL env-var.
  */
-import fs               from 'fs'
-import pg               from 'pg'
-import dayjs            from 'dayjs'
-import { parse }        from 'csv-parse/sync'
+import fs    from 'fs';
+import pg    from 'pg';
+import dayjs from 'dayjs';
+import { parse } from 'csv-parse/sync';
 
-/* ─── ENV ─────────────────────────────────────────────────── */
-const { DATABASE_URL } = process.env
+const { DATABASE_URL } = process.env;
 if (!DATABASE_URL) {
-  console.error('❌  DATABASE_URL not set'); process.exit(1)
+  console.error('ERROR: set DATABASE_URL'); process.exit(1);
 }
 
-/* ─── tiny helpers ────────────────────────────────────────── */
-const num        = v => { const n = Number(v); return isNaN(n) ? 0    : n }
-const numOrNull  = v => { const n = Number(v); return isNaN(n) ? null : n }
+/* ───────────────────────── helpers ───────────────────────────── */
+function loadCsvs(paths) {
+  const reMain = /hourly[- ]workload(?!.*updates).*\.csv$/i;
+  const reUpd  = /updates.*\.csv$/i;
+  const reMnt  = /mnt[- ]auto.*\.csv$/i;
 
-/* ─── Load & merge the three CSV files ───────────────────── */
-function loadCsvs(filePaths) {
-  /* recognise files by name fragment (space or dash both allowed) */
-  const mainRe    = /hourly[- ]workload(?!.*updates).*\.csv$/i
-  const updateRe  = /updates.*\.csv$/i
-  const mntAutoRe = /mnt[- ]auto.*\.csv$/i
-
-  let mainPath, updPath, mntPath
-  for (const p of filePaths) {
-    if (mainRe.test(p))        mainPath = p
-    else if (updateRe.test(p)) updPath  = p
-    else if (mntAutoRe.test(p)) mntPath = p
+  let main, upd, mnt;
+  for (const p of paths) {
+    if (reMain.test(p)) main = p;
+    else if (reUpd.test(p)) upd = p;
+    else if (reMnt.test(p)) mnt = p;
   }
-  /* fall back to positional order */
-  if (!mainPath && filePaths[0]) mainPath = filePaths[0]
-  if (!updPath  && filePaths[1]) updPath  = filePaths[1]
-  if (!mntPath  && filePaths[2]) mntPath  = filePaths[2]
-
-  if (!mainPath || !updPath || !mntPath) {
-    console.error('❌  Could not identify all three CSVs.\nGot:', filePaths)
-    process.exit(1)
+  if (!main || !upd || !mnt) {
+    console.error('Need all three CSVs – got', paths); process.exit(1);
   }
 
-  /* single parser config: trim headers AND every cell */
-  const parseOpts = {
-    columns: hdr => hdr.map(h => h.trim()),
-    skip_empty_lines: true,
-    trim: true
-  }
-  const mainRows = parse(fs.readFileSync(mainPath,'utf8'), parseOpts)
-  const updRows  = parse(fs.readFileSync(updPath ,'utf8'), parseOpts)
-  const mntRows  = parse(fs.readFileSync(mntPath ,'utf8'), parseOpts)
+  const opts   = { columns:h=>h.map(s=>s.trim()), trim:true, skip_empty_lines:true };
+  const mainR  = parse(fs.readFileSync(main,'utf8'), opts);
+  const updR   = parse(fs.readFileSync(upd ,'utf8'), opts);
+  const mntR   = parse(fs.readFileSync(mnt ,'utf8'), opts);
 
-  /* --- build quick-lookup maps ------------------------------------ */
-  const ticketsMap = new Map()
-  updRows.forEach(r => {
-    const d = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-    ticketsMap.set(`${d}|${num(r.hour)}`, numOrNull(r.tickets))
-  })
+  /* build look-ups */
+  const tMap = new Map();
+  updR.forEach(r=>{
+    const d = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD');
+    tMap.set(`${d}|${+r.hour}`, +r.tickets);
+  });
 
-  const mntSolvedMap = new Map()
-  mntRows.forEach(r => {
-    const d = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-    mntSolvedMap.set(`${d}|${num(r.hour)}`, numOrNull(r.auto_mnt_solved))
-  })
+  const mMap = new Map();
+  mntR.forEach(r=>{
+    const d = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD');
+    const v = Number(r.auto_mnt_solved);
+    mMap.set(`${d}|${+r.hour}`, isNaN(v)?null:v);
+  });
 
-  /* --- merge into one record per date|hour ------------------------ */
-  const recMap = new Map()
-
-  mainRows.forEach(r => {
-    const date = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-    const hour = num(r.hour)           // 0-23 or 0 if bad
-    if (hour < 0 || hour > 23) return  // skip garbage rows
-
-    const key = `${date}|${hour}`
-    recMap.set(key, {
-      date,
-      hour,
-      priority1         : num(r.priority1),
-      autoDfaLogged     : num(r.autoDfa),
-      autoMntLogged     : num(r.autoMnt),
-      autoOutageLinked  : num(r.autoOutage),
-      tickets           : ticketsMap.get(key),
-      autoMntSolved     : mntSolvedMap.get(key)
-    })
-  })
-
-  return recMap
+  /* merge */
+  const rec = new Map();
+  mainR.forEach(r=>{
+    const date = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD');
+    const hour = +r.hour;
+    const key  = `${date}|${hour}`;
+    rec.set(key,{
+      date,hour,
+      priority1       : +r.priority1,
+      autoDfaLogged   : +r.autoDfa    || 0,
+      autoMntLogged   : +r.autoMnt    || 0,
+      autoOutageLinked: +r.autoOutage || 0,
+      tickets         : tMap.get(key) ?? null,
+      autoMntSolved   : mMap.get(key) ?? null
+    });
+  });
+  return rec;
 }
 
-/* ─── MAIN ────────────────────────────────────────────────── */
+/* ───────────────────────── main import ──────────────────────── */
 async function main() {
-  const args = process.argv.slice(2)
-  if (args.length !== 3) {
-    console.error('Usage: node importHistoricVolumes.js <main.csv> <updates.csv> <mnt-auto.csv>')
-    process.exit(1)
+  const args = process.argv.slice(2);
+  if (args.length!==3) {
+    console.error('Usage: node importHistoricVolumes.js main.csv updates.csv mnt-auto.csv');
+    process.exit(1);
   }
 
-  const records = loadCsvs(args)
-  console.log(`Loaded ${records.size} distinct (date,hour) rows`)
+  const rows = loadCsvs(args);
+  console.log(`Loaded ${rows.size} distinct (date,hour) rows`);
 
-  const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl:{ rejectUnauthorized:false } })
-  const cx   = await pool.connect()
+  const pool = new pg.Pool({ connectionString: DATABASE_URL,
+                             ssl:{rejectUnauthorized:false} });
+  const cx   = await pool.connect();
+  let ins=0, upd=0, skip=0;
 
-  let inserted = 0, updated = 0, skipped = 0
   try {
-    await cx.query('BEGIN')
+    await cx.query('BEGIN');
 
-    for (const r of records.values()) {
-      /* does a row already exist? */
-      const { rows } = await cx.query(
-        `SELECT priority1, auto_dfa_logged, auto_mnt_logged,
-                auto_outage_linked, tickets, "autoMntSolved"
-           FROM "VolumeActual"
-          WHERE date=$1 AND hour=$2`,
-        [ r.date, r.hour ]
-      )
+    for (const r of rows.values()) {
+      const { rows:exist } = await cx.query(
+        `SELECT tickets FROM "VolumeActual"
+         WHERE date=$1 AND hour=$2`, [r.date,r.hour]);
 
-      if (!rows.length) {
-        /* INSERT new row */
+      if (!exist.length) {
+        /* INSERT – coerce tickets null→0 */
         await cx.query(`
           INSERT INTO "VolumeActual"
-            (role, date, hour, priority1,
-             auto_dfa_logged, auto_mnt_logged, auto_outage_linked,
-             tickets, "autoMntSolved")
+            (role,date,hour,priority1,auto_dfa_logged,
+             auto_mnt_logged,auto_outage_linked,tickets,"autoMntSolved")
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [
-            'NOC Tier 1',
-            r.date, r.hour,
-            r.priority1, r.autoDfaLogged, r.autoMntLogged, r.autoOutageLinked,
-            r.tickets, r.autoMntSolved
-          ])
-        inserted++
-      } else {
-        const e = rows[0]
-        const same =
-          e.priority1          === r.priority1 &&
-          e.auto_dfa_logged    === r.autoDfaLogged &&
-          e.auto_mnt_logged    === r.autoMntLogged &&
-          e.auto_outage_linked === r.autoOutageLinked &&
-          (e.tickets          ?? null) === r.tickets &&
-          (e.autoMntSolved    ?? null) === r.autoMntSolved
-
-        if (same) { skipped++; continue }
-
-        await cx.query(`
-          UPDATE "VolumeActual"
-             SET priority1          = $3,
-                 auto_dfa_logged    = $4,
-                 auto_mnt_logged    = $5,
-                 auto_outage_linked = $6,
-                 tickets            = $7,
-                 "autoMntSolved"    = $8
-           WHERE date=$1 AND hour=$2`,
-          [
-            r.date, r.hour,
-            r.priority1, r.autoDfaLogged, r.autoMntLogged, r.autoOutageLinked,
-            r.tickets, r.autoMntSolved
-          ])
-        updated++
+          ['NOC Tier 1', r.date,r.hour,
+           r.priority1, r.autoDfaLogged,r.autoMntLogged,r.autoOutageLinked,
+           (r.tickets??0), r.autoMntSolved]);
+        ins++; continue;
       }
+
+      /* UPDATE — only change tickets if new value is not null */
+      const newTickets = (r.tickets===null || isNaN(r.tickets))
+                          ? exist[0].tickets   // keep old
+                          : r.tickets;
+
+      /* detect no-change */
+      if (exist[0].tickets===newTickets &&
+          exist[0].priority1      === r.priority1 &&
+          exist[0].auto_dfa_logged=== r.autoDfaLogged &&
+          exist[0].auto_mnt_logged=== r.autoMntLogged &&
+          exist[0].auto_outage_linked === r.autoOutageLinked &&
+          exist[0].autoMntSolved  === r.autoMntSolved) { skip++; continue; }
+
+      await cx.query(`
+        UPDATE "VolumeActual" SET
+          priority1          = $3,
+          auto_dfa_logged    = $4,
+          auto_mnt_logged    = $5,
+          auto_outage_linked = $6,
+          tickets            = $7,
+          "autoMntSolved"    = $8
+        WHERE date=$1 AND hour=$2`,
+        [r.date,r.hour,
+         r.priority1,r.autoDfaLogged,r.autoMntLogged,r.autoOutageLinked,
+         newTickets,r.autoMntSolved]);
+      upd++;
     }
 
-    await cx.query('COMMIT')
-    console.log(`✅  Done. inserted=${inserted}, updated=${updated}, skipped=${skipped}`)
-  } catch (err) {
-    await cx.query('ROLLBACK')
-    console.error('❌  Import failed:', err.message)
-  } finally {
-    cx.release(); await pool.end()
-  }
+    await cx.query('COMMIT');
+    console.log(`Done. inserted=${ins}, updated=${upd}, skipped=${skip}`);
+  } catch(e){
+    await cx.query('ROLLBACK'); throw e;
+  } finally { cx.release(); await pool.end(); }
 }
 
-main().catch(e => { console.error(e); process.exit(1) })
+main().catch(e=>{console.error(e); process.exit(1);});
