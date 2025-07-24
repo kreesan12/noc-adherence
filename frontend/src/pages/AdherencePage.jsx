@@ -72,7 +72,7 @@ export default function AdherencePage () {
   useEffect(() => {
     api.get('/shifts', {
       params: {
-        role      : team || undefined,
+        team      : team || undefined,
         startDate : date.format('YYYY-MM-DD'),
         endDate   : date.format('YYYY-MM-DD')
       }
@@ -282,6 +282,8 @@ export default function AdherencePage () {
           label="Select date"
           value={date}
           onChange={setDate}
+          disableFuture                     
+          maxDate={dayjs()}           
           renderInput={props => <TextField {...props} size="small" />}
         />
 
