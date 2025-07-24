@@ -23,9 +23,10 @@ if (!DATABASE_URL) {
 
 // Helper: map date|hour → merged record
 function loadCsvs(filePaths) {
-  const mainRe    = /hourly workload(?!.*updates).*\.csv$/i
+  // match either a space or dash between words:
+  const mainRe    = /hourly[- ]workload(?!.*updates).*\.csv$/i
   const updateRe  = /updates.*\.csv$/i
-  const mntAutoRe = /mnt auto.*\.csv$/i
+  const mntAutoRe = /mnt[- ]auto.*\.csv$/i
 
   let mainPath, updPath, mntPath
   for (const p of filePaths) {
