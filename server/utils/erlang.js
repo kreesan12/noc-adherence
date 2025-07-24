@@ -108,7 +108,8 @@ export async function computeDayStaffing({
     const autoSum    = excludeAutomation
       ? (r.autoDfaLogged        ?? 0) +
         (r.autoMntLogged        ?? 0) +
-        (r.autoOutageLinked     ?? 0)
+        (r.autoOutageLinked     ?? 0) +
+        (r.autoMntSolved    ?? 0)
       : 0
     const ticketsAdj = Math.max(0, ticketsRaw - autoSum)
 

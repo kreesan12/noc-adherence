@@ -79,7 +79,12 @@ export default function VolumePage() {
       forecastCalls:   0,
       actualCalls:     0,
       forecastTickets: 0,
-      actualTickets:   0
+      actualTickets:   0,
+      manualTickets:   0,           
+      autoDfa:         0,           
+      autoMnt:         0,          
+      autoOutage:      0,           
+      autoMntSolved:   0          
     })))
     return data
   }
@@ -119,7 +124,12 @@ export default function VolumePage() {
             forecastCalls:   e.forecastCalls   || 0,
             actualCalls:     e.actualCalls     || 0,
             forecastTickets: e.forecastTickets || 0,
-            actualTickets:   e.actualTickets   || 0
+            actualTickets:   e.actualTickets   || 0,
+            manualTickets:   e.manualTickets   || 0,          // ✨ NEW
+            autoDfa:         e.autoDfa         || 0,          // ✨ NEW
+            autoMnt:         e.autoMnt         || 0,          // ✨ NEW
+            autoOutage:      e.autoOutage      || 0,          // ✨ NEW
+            autoMntSolved:   e.autoMntSolved   || 0           // ✨ NEW
           }
         })
         setHourlyData(filled)
@@ -144,7 +154,8 @@ export default function VolumePage() {
             priority1:  Number(row.priority1  ?? 0),
             autoDfa:    Number(row.autoDfa    ?? 0),
             autoMnt:    Number(row.autoMnt    ?? 0),
-            autoOutage: Number(row.autoOutage ?? 0)
+            autoOutage: Number(row.autoOutage ?? 0),
+            autoMntSolved: Number(row.autoMntSolved ?? 0)
           }))
           await api.post('/volume/actual', { role: team, data: payload })
           await fetchDailyActual().then(setDailyData)
@@ -284,7 +295,8 @@ export default function VolumePage() {
                 <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" onClick={onBarClick}/>
                 <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" onClick={onBarClick}/>
                 <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" onClick={onBarClick}/>
-                <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
+                <Bar dataKey="autoOutage"    name="Auto Outage Linked" fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
+                <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" onClick={onBarClick}/>
               </>
             ) : (
               <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
@@ -311,7 +323,8 @@ export default function VolumePage() {
                     <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" onClick={onBarClick}/>
                     <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" onClick={onBarClick}/>
                     <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" onClick={onBarClick}/>
-                    <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
+                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
+                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" onClick={onBarClick}/>
                   </>
                 ) : (
                   <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
@@ -352,7 +365,8 @@ export default function VolumePage() {
                     <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="forecast" />
                     <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="forecast" />
                     <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="forecast" />
-                    <Bar dataKey="autoOutage"    name="Auto Out." fill="#8884d8" stackId="forecast" />
+                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="forecast" />
+                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="forecast" />
                   </>
                 ) : (
                   <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ff8042" />

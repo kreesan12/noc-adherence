@@ -47,7 +47,8 @@ export default prisma => {
         priority1:           d.priority1,
         autoDfaLogged:       d.autoDfa,
         autoMntLogged:       d.autoMnt,
-        autoOutageLinked:    d.autoOutage
+        autoOutageLinked:    d.autoOutage,
+        autoMntSolved:       d.auto_mnt_solved
       }))
       await prisma.volumeActual.createMany({ data: rows })
       return res.json({ ok:true })
@@ -97,13 +98,14 @@ export default prisma => {
         const obj = bucket[key] || {
           calls:0, tickets:0,
           autoDfa:0, autoMnt:0, autoOut:0,
-          n:0
+          n:0, autoMntSolved: 0
         }
         obj.calls    += (r.calls             ?? 0)
         obj.tickets  += (r.tickets           ?? 0)
         obj.autoDfa  += (r.autoDfaLogged     ?? 0)
         obj.autoMnt  += (r.autoMntLogged     ?? 0)
         obj.autoOut  += (r.autoOutageLinked  ?? 0)
+        obj.autoMntSolved += (r.autoMntSolved ?? 0)
         obj.n        += 1
         bucket[key]   = obj
       })
@@ -113,6 +115,7 @@ export default prisma => {
         b.autoDfa  = Math.round(b.autoDfa  / b.n)
         b.autoMnt  = Math.round(b.autoMnt  / b.n)
         b.autoOut  = Math.round(b.autoOut  / b.n)
+        b.autoMntSolved  = Math.round(autoMntSolved  / b.n)
       })
 
       /* 3-C) generate future rows */
@@ -135,7 +138,8 @@ export default prisma => {
               priority1:       0,          // keep if you plan to forecast this
               autoDfaLogged:   b.autoDfa,
               autoMntLogged:   b.autoMnt,
-              autoOutageLinked:b.autoOut
+              autoOutageLinked:b.autoOut,
+              autoMntSolved:   b.autoMntSolved
             })
           }
         }
