@@ -113,7 +113,7 @@ async function main() {
       // check existing
       const sel = await cx.query(
         `SELECT priority1, auto_dfa_logged, auto_mnt_logged,
-                auto_outage_linked, tickets, autoMntSolved
+                auto_outage_linked, tickets, "autoMntSolved"
          FROM "VolumeActual"
          WHERE date=$1 AND hour=$2`,
         [ r.date, r.hour ]
@@ -124,7 +124,7 @@ async function main() {
         await cx.query(
           `INSERT INTO "VolumeActual"
             ( role, date, hour, priority1, auto_dfa_logged,
-              auto_mnt_logged, auto_outage_linked, tickets, autoMntSolved )
+              auto_mnt_logged, auto_outage_linked, tickets, "autoMntSolved" )
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
             'NOC Tier 1',   // adjust if needed
@@ -155,7 +155,7 @@ async function main() {
                  auto_mnt_logged    = $5,
                  auto_outage_linked = $6,
                  tickets            = $7,
-                 autoMntSolved      = $8
+                 "autoMntSolved"      = $8
              WHERE date=$1 AND hour=$2`,
             [
               r.date, r.hour,
