@@ -24,16 +24,23 @@ if (!DATABASE_URL) {
 // Helper: map date|hour → merged record
 function loadCsvs(filePaths) {
   // match either a space or dash between words:
-  const mainRe    = /hourly[- ]workload(?!.*updates).*\.csv$/i
-  const updateRe  = /updates.*\.csv$/i
-  const mntAutoRe = /mnt[- ]auto.*\.csv$/i
+  // allow either space or dash in “hourly-workload” and “mnt-auto”
+   const mainRe    = /hourly[- ]workload(?!.*updates).*\.csv$/i
+   const updateRe  = /updates.*\.csv$/i
+   const mntAutoRe = /mnt[- ]auto.*\.csv$/i
 
   let mainPath, updPath, mntPath
   for (const p of filePaths) {
-    if (mainRe.test(p))       mainPath = p
-    else if (updateRe.test(p)) updPath = p
-    else if (mntAutoRe.test(p)) mntPath = p
+    if (mainRe.test(p))        mainPath = p
+    else if (updateRe.test(p)) updPath  = p
+    else if (mntAutoRe.test(p)) mntPath  = p
   }
+
+  // fallback to the exact order you passed on the CLI
+  if (!mainPath && filePaths[0]) mainPath = filePaths[0]
+  if (!updPath  && filePaths[1]) updPath  = filePaths[1]
+  if (!mntPath  && filePaths[2]) mntPath  = filePaths[2]
+
   if (!mainPath || !updPath || !mntPath) {
     console.error('Could not identify all three CSVs. Got:', filePaths)
     process.exit(1)
