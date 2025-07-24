@@ -317,7 +317,17 @@ export default function VolumePage() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={hourlyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="hour" type="number" domain={[0,23]} tickFormatter={h => `${h}:00`} />
+                <XAxis
+                  dataKey="hour"
+                  type="number"
+                  domain={[0, 23]}                 // hard cap
+                  ticks={[...Array(24).keys()]}    // 0 through 23
+                  tickCount={24}                   // hint for spacing
+                  allowDecimals={false}
+                  tickFormatter={h =>
+                    `${String(h).padStart(2, '0')}:00`
+                  }
+                />
                 <YAxis />
                 <Tooltip />
                 <Legend />
