@@ -150,8 +150,8 @@ async function upsert(csvMap) {
       const iso   = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
       const hr    = Number(r.hour)
       const key   = `${iso}|${hr}`
-      const tickets     = ticketMap.get(key) ?? null
-      const mntSolved   = mntMap.get(key)    ?? null
+      const tickets   = ticketMap.get(key) ?? 0
+      const mntSolved = mntMap.get(key)    ?? 0
 
       await cx.query(sql, [
         'NOC Tier 1',           // role
