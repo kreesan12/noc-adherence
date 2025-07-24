@@ -48,7 +48,7 @@ export default prisma => {
         autoDfaLogged:       d.autoDfa,
         autoMntLogged:       d.autoMnt,
         autoOutageLinked:    d.autoOutage,
-        autoMntSolved:       d.auto_mnt_solved
+        autoMntSolved:       d.autoMntSolved
       }))
       await prisma.volumeActual.createMany({ data: rows })
       return res.json({ ok:true })

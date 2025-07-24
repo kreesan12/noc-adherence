@@ -359,7 +359,7 @@ export default function VolumePage() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="forecastCalls"   name="Forecast Calls"   fill="#8884d8" />
+                <Bar dataKey="forecastCalls"   name="Forecast Calls"   fill="#82ca9d" />
                 {stackAutomation ? (
                   <>
                     <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="forecast" />
