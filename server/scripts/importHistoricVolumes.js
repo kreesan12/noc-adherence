@@ -20,57 +20,67 @@ if (!DATABASE_URL) {
 }
 
 /* ───────────────────────── helpers ───────────────────────────── */
-function loadCsvs(paths) {
-  const reMain = /hourly[- ]workload(?!.*updates).*\.csv$/i;
-  const reUpd  = /updates.*\.csv$/i;
-  const reMnt  = /mnt[- ]auto.*\.csv$/i;
-
-  let main, upd, mnt;
-  for (const p of paths) {
-    if (reMain.test(p)) main = p;
-    else if (reUpd.test(p)) upd = p;
-    else if (reMnt.test(p)) mnt = p;
+// Helper ──────────────────────────────────────────────────────────
+// args[0] = main   (hourly workload)
+// args[1] = updates
+// args[2] = mnt-auto
+function loadCsvs ([ mainPath, updPath, mntPath ]) {
+  if (!mainPath || !updPath || !mntPath) {
+    throw new Error('Need three CSV paths: main, updates, mnt-auto')
   }
-  if (!main || !upd || !mnt) {
-    console.error('Need all three CSVs – got', paths); process.exit(1);
+  // verify they exist inside the dyno
+  [mainPath, updPath, mntPath].forEach(p => {
+    if (!fs.existsSync(p)) throw new Error(`File not found: ${p}`)
+  })
+
+  const parserOpts = {
+    columns: h => h.trim(),
+    skip_empty_lines: true,
+    trim: true
   }
 
-  const opts   = { columns:h=>h.map(s=>s.trim()), trim:true, skip_empty_lines:true };
-  const mainR  = parse(fs.readFileSync(main,'utf8'), opts);
-  const updR   = parse(fs.readFileSync(upd ,'utf8'), opts);
-  const mntR   = parse(fs.readFileSync(mnt ,'utf8'), opts);
+  const mainRows = parse(fs.readFileSync(mainPath, 'utf8'), parserOpts)
+  const updRows  = parse(fs.readFileSync(updPath , 'utf8'), parserOpts)
+  const mntRows  = parse(fs.readFileSync(mntPath , 'utf8'), parserOpts)
 
-  /* build look-ups */
-  const tMap = new Map();
-  updR.forEach(r=>{
-    const d = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD');
-    tMap.set(`${d}|${+r.hour}`, +r.tickets);
-  });
+  /* ---------- build the lookup maps exactly as before ---------- */
+  const ticketsMap   = new Map()
+  const mntSolvedMap = new Map()
 
-  const mMap = new Map();
-  mntR.forEach(r=>{
-    const d = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD');
-    const v = Number(r.auto_mnt_solved);
-    mMap.set(`${d}|${+r.hour}`, isNaN(v)?null:v);
-  });
+  updRows.forEach(r => {
+    const d = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
+    const k = `${d}|${+r.hour}`
+    const v = Number(r.tickets)
+    ticketsMap.set(k, isNaN(v) ? null : v)
+  })
 
-  /* merge */
-  const rec = new Map();
-  mainR.forEach(r=>{
-    const date = dayjs(r.date,['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD');
-    const hour = +r.hour;
-    const key  = `${date}|${hour}`;
-    rec.set(key,{
-      date,hour,
-      priority1       : +r.priority1,
-      autoDfaLogged   : +r.autoDfa    || 0,
-      autoMntLogged   : +r.autoMnt    || 0,
-      autoOutageLinked: +r.autoOutage || 0,
-      tickets         : tMap.get(key) ?? null,
-      autoMntSolved   : mMap.get(key) ?? null
-    });
-  });
-  return rec;
+  mntRows.forEach(r => {
+    const d = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
+    const k = `${d}|${+r.hour}`
+    const v = Number(r.auto_mnt_solved)
+    mntSolvedMap.set(k, isNaN(v) ? null : v)
+  })
+
+  /* ---------- merge into one map keyed by date|hour ------------ */
+  const recordMap = new Map()
+  mainRows.forEach(r => {
+    const date = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
+    const hour = +r.hour
+    const key  = `${date}|${hour}`
+
+    recordMap.set(key, {
+      date,
+      hour,
+      priority1        : +r.priority1,
+      autoDfaLogged    : +r.autoDfa    || 0,
+      autoMntLogged    : +r.autoMnt    || 0,
+      autoOutageLinked : +r.autoOutage || 0,
+      tickets          : ticketsMap.get(key)   ?? null,
+      autoMntSolved    : mntSolvedMap.get(key) ?? null
+    })
+  })
+
+  return recordMap
 }
 
 /* ───────────────────────── main import ──────────────────────── */

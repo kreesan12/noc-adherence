@@ -115,7 +115,8 @@ async function upsert(csvMap) {
   const mntMap = new Map()
   for (const r of mntRows) {
     const iso = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-    mntMap.set(`${iso}|${Number(r.hour)}`, Number(r.auto_mnt_solved))
+    const v = Number(r.auto_mnt_solved)
+    mntMap.set(`${iso}|${+r.hour}`, isNaN(v) ? null : v)
   }
 
   // connect to Postgres
@@ -160,8 +161,8 @@ async function upsert(csvMap) {
         Number(r.autoDfa ?? 0),
         Number(r.autoMnt ?? 0),
         Number(r.autoOutage ?? 0),
-        tickets,
-        mntSolved
+        (tickets   ?? 0),         // INSERT must satisfy NOT-NULL; 0 = “no tickets”
+        mntSolved                 // can stay null – column is nullable
       ])
     }
 
