@@ -10,8 +10,12 @@ import dayjs from 'dayjs'
 // calendar
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
-import '@fullcalendar/common/main.css'
-import '@fullcalendar/daygrid/main.css'
+// v6 style sheets
+import '@fullcalendar/core/index.css'
+import '@fullcalendar/daygrid/index.css'
+
+// React wrapper needs this once in your bundle (before any FullCalendar CSS)
+import '@fullcalendar/core/vdom'
 
 import api from '../api'
 
