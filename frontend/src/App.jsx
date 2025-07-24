@@ -86,15 +86,15 @@ function SideNav() {
       items: [
         { label:'Adherence Tracking', path:'/',          icon:<DashboardIcon/> },
         { label:'Weekly Schedule',    path:'/schedule',  icon:<CalendarTodayIcon/> },
+        { label:'Leave Planner',      path:'/leave-planner',   icon:<EventBusyIcon/> },
       ],
     },
     {
       title: 'STAFFING/SCHEDULING',
       items: [
-        { label:'Forecasting',           path:'/volume',   icon:<BarChartIcon/> },
+        { label:'Volumes & Forecasting', path:'/volume',   icon:<BarChartIcon/> },
         { label:'Staffing & Scheduling', path:'/staffing', icon:<WorkHistoryIcon/> },
         { label:'Shift Manager',         path:'/shifts',   icon:<ManageAccountsIcon/> },
-        { label:'Leave Planner',         path:'/leave-planner',   icon:<EventBusyIcon/> },
       ],
     },
     {
