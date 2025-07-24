@@ -331,17 +331,17 @@ export default function VolumePage() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="actualCalls"   name="Calls"   fill="#82ca9d" />
+                <Bar dataKey="actualCalls"   name="Calls"   fill="#82ca9d" barSize={28}/>
                 {stackAutomation ? (
                   <>
-                    <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" />
-                    <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" />
-                    <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" />
-                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="tickets" />
-                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" />
+                    <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" barSize={28}/>
+                    <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" barSize={28}/>
+                    <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" barSize={28}/>
+                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="tickets" barSize={28}/>
+                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" barSize={28}/>
                   </>
                 ) : (
-                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" />
+                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" barSize={28}/>
                 )}
               </BarChart>
             </ResponsiveContainer>
