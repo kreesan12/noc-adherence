@@ -46,15 +46,15 @@ function loadCsvs(filePaths) {
     process.exit(1)
   }
 
-  const mainRows = parse(fs.readFileSync(mainPath,'utf8'), {
-    columns:true, skip_empty_lines:true
-  })
-  const updRows  = parse(fs.readFileSync(updPath,'utf8'), {
-    columns:true, skip_empty_lines:true
-  })
-  const mntRows  = parse(fs.readFileSync(mntPath,'utf8'), {
-    columns:true, skip_empty_lines:true
-  })
+  // …with a single parserOpts that trims headers & values
+  const parserOpts = {
+    columns: header => header.trim(),
+    skip_empty_lines: true,
+    trim: true
+  }
+  const mainRows = parse(fs.readFileSync(mainPath,'utf8'), parserOpts)
+  const updRows  = parse(fs.readFileSync(updPath,'utf8'),  parserOpts)
+  const mntRows  = parse(fs.readFileSync(mntPath,'utf8'),  parserOpts)
 
   // build lookup maps
   const ticketsMap = new Map()
