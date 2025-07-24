@@ -22,7 +22,7 @@ export default function VolumePage() {
   const [roles,           setRoles]           = useState([])
   const [team,            setTeam]            = useState('')
 
-  /* range for ACTUAL chart (defaults: last 6 days) */
+  /* range for ACTUAL chart (defaults: last 45 d) */
   const [startDate,       setStartDate]       = useState(dayjs().subtract(45, 'day'))
   const [endDate,         setEndDate]         = useState(dayjs())
 
@@ -61,7 +61,7 @@ export default function VolumePage() {
     fetchDailyActual()
       .then(setDailyData)
       .catch(console.error)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team, startDate, endDate])
 
   async function fetchDailyActual() {
@@ -80,11 +80,11 @@ export default function VolumePage() {
       actualCalls:     0,
       forecastTickets: 0,
       actualTickets:   0,
-      manualTickets:   0,           
-      autoDfa:         0,           
-      autoMnt:         0,          
-      autoOutage:      0,           
-      autoMntSolved:   0          
+      manualTickets:   0,
+      autoDfa:         0,
+      autoMnt:         0,
+      autoOutage:      0,
+      autoMntSolved:   0
     })))
     return data
   }
@@ -95,7 +95,7 @@ export default function VolumePage() {
     fetchDailyForecast()
       .then(setFcDailyData)
       .catch(console.error)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team, fcStart, fcEnd])
 
   async function fetchDailyForecast() {
@@ -110,9 +110,10 @@ export default function VolumePage() {
   }
 
   /* ─── 4) drill-down hourly on bar click (actuals) ────────── */
-  function onBarClick({ activePayload }) {
-    if (!activePayload?.length) return
-    const { date } = activePayload[0].payload
+  function onBarClick(entry /*, index */) {
+    // 'entry' is the data row for the clicked bar
+    if (!entry || !entry.date) return
+    const { date } = entry
     setSelectedDate(date)
 
     api.get('/reports/volume/hourly', { params: { role: team, date } })
@@ -125,11 +126,11 @@ export default function VolumePage() {
             actualCalls:     e.actualCalls     || 0,
             forecastTickets: e.forecastTickets || 0,
             actualTickets:   e.actualTickets   || 0,
-            manualTickets:   e.manualTickets   || 0,          // ✨ NEW
-            autoDfa:         e.autoDfa         || 0,          // ✨ NEW
-            autoMnt:         e.autoMnt         || 0,          // ✨ NEW
-            autoOutage:      e.autoOutage      || 0,          // ✨ NEW
-            autoMntSolved:   e.autoMntSolved   || 0           // ✨ NEW
+            manualTickets:   e.manualTickets   || 0,
+            autoDfa:         e.autoDfa         || 0,
+            autoMnt:         e.autoMnt         || 0,
+            autoOutage:      e.autoOutage      || 0,
+            autoMntSolved:   e.autoMntSolved   || 0
           }
         })
         setHourlyData(filled)
@@ -283,7 +284,10 @@ export default function VolumePage() {
           />
         </Box>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={dailyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
+          <BarChart
+            data={dailyData}
+            margin={{ top:20,right:30,left:20,bottom:5 }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" />
             <YAxis />
@@ -320,14 +324,14 @@ export default function VolumePage() {
                 <Bar dataKey="actualCalls"   name="Calls"   fill="#82ca9d" />
                 {stackAutomation ? (
                   <>
-                    <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" onClick={onBarClick}/>
-                    <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" onClick={onBarClick}/>
-                    <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" onClick={onBarClick}/>
-                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="tickets" onClick={onBarClick}/>
-                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" onClick={onBarClick}/>
+                    <Bar dataKey="manualTickets" name="Manual"    fill="#ff8042" stackId="tickets" />
+                    <Bar dataKey="autoDfa"       name="Auto DFA"  fill="#a4de6c" stackId="tickets" />
+                    <Bar dataKey="autoMnt"       name="Auto MNT"  fill="#ffc658" stackId="tickets" />
+                    <Bar dataKey="autoOutage"    name="Auto Outage linked" fill="#8884d8" stackId="tickets" />
+                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" />
                   </>
                 ) : (
-                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick}/>
+                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" />
                 )}
               </BarChart>
             </ResponsiveContainer>
