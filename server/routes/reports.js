@@ -113,14 +113,14 @@ export default prisma => {
         const autoDfa = a.autoDfaLogged      ?? 0
         const autoMnt = a.autoMntLogged      ?? 0
         const autoOut = a.autoOutageLinked   ?? 0
-        const autoSolved = a.autoMntSolved   ?? 0
-        const autoSum = autoDfa + autoMnt + autoOut + autoSolved
+        const autoMntSolved = a.autoMntSolved   ?? 0
+        const autoSum = autoDfa + autoMnt + autoOut + autoMntSolved
 
         byDate[d].manualTickets += (a.tickets ?? 0) - autoSum
         byDate[d].autoDfa       += autoDfa
         byDate[d].autoMnt       += autoMnt
         byDate[d].autoOutage    += autoOut
-        byDate[d].autoMntSolved += autoSolved
+        byDate[d].autoMntSolved += autoMntSolved
       })
 
       res.json(Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)))
@@ -167,14 +167,14 @@ export default prisma => {
         const autoDfa = f.autoDfaLogged     ?? 0
         const autoMnt = f.autoMntLogged     ?? 0
         const autoOut = f.autoOutageLinked  ?? 0
-        const autoSolved = f.autoMntSolved  ?? 0
-        const autoSum = autoDfa + autoMnt + autoOut + autoSolved
+        const autoMntSolved = f.autoMntSolved  ?? 0
+        const autoSum = autoDfa + autoMnt + autoOut + autoMntSolved
         
         byDate[d].manualTickets += f.expectedTickets - autoSum
         byDate[d].autoDfa       += autoDfa
         byDate[d].autoMnt       += autoMnt
         byDate[d].autoOutage    += autoOut
-        byDate[d].autoMntSolved   += autoSolved 
+        byDate[d].autoMntSolved   += autoMntSolved 
         
       })
 
@@ -200,14 +200,14 @@ export default prisma => {
       ])
 
       const hours = Array.from({ length: 24 }, (_, h) => {
-        const fcHour = fcs.filter(f => dayjs(f.date).hour() === h)
-        const acHour = acs.filter(a => dayjs(a.date).hour() === h)
+      const fcHour = fcs.filter(f => f.hour === h)
+      const acHour = acs.filter(a => a.hour === h)
 
         const autoDfa = acHour.reduce((s,a)=> s + (a.autoDfaLogged    ?? 0), 0)
         const autoMnt = acHour.reduce((s,a)=> s + (a.autoMntLogged    ?? 0), 0)
         const autoOut = acHour.reduce((s,a)=> s + (a.autoOutageLinked ?? 0), 0)
-        const autoSolved = acHour.reduce((s,a)=> s + (a.autoMntSolved    ?? 0), 0)
-        const autoSum    = autoDfa + autoMnt + autoOut + autoSolved
+        const autoMntSolved = acHour.reduce((s,a)=> s + (a.autoMntSolved    ?? 0), 0)
+        const autoSum    = autoDfa + autoMnt + autoOut + autoMntSolved
 
         return {
           hour: h,
@@ -216,7 +216,7 @@ export default prisma => {
           actualCalls:     acHour.reduce((s,a)=> s + (a.calls   ?? 0), 0),
           actualTickets:   acHour.reduce((s,a)=> s + (a.tickets ?? 0), 0),
           manualTickets:   acHour.reduce((s,a)=> s + (a.tickets ?? 0), 0) - autoSum,
-          autoSolved,
+          autoMntSolved,
           autoDfa,
           autoMnt,
           autoOutage:      autoOut
