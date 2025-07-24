@@ -197,29 +197,6 @@ export default function SchedulePage () {
           />
         </Paper>
 
-        {/* staffing chart */}
-        <Box sx={{ display:'flex', alignItems:'center', mb:2, gap:2 }}>
-          <Typography variant='h6'>Staffing vs Required</Typography>
-
-          <DatePicker
-            label='Select day'
-            value={staffingDate}
-            onChange={d => d && setStaffingDate(d)}
-            slotProps={{ textField:{ size:'small' } }}
-          />
-        </Box>
-
-        <ResponsiveContainer width='100%' height={300}>
-          <ComposedChart data={staffingData}>
-            <XAxis dataKey='hour' />
-            <YAxis />
-            <Tooltip />
-            <Bar  dataKey='staffedHeads'   name='On Shift' fill='#00e676' barSize={20} />
-            <Line type='monotone' dataKey='requiredHeads' name='Required'
-                  stroke='#ff1744' dot={false} strokeWidth={2} />
-          </ComposedChart>
-        </ResponsiveContainer>
-
         {/* hour-by-hour table */}
         <Box sx={{ mt:4, overflowX:'auto' }}>
           <Typography variant='h6' gutterBottom>
