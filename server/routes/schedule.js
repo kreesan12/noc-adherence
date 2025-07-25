@@ -11,12 +11,22 @@ export default prisma => {
   // OR  GET /api/schedule?week=YYYY-MM-DD  (Monday)
   r.get('/', async (req, res, next) => {
     try {
-      if (req.query.week) {
+      const { week, date, team } = req.query;
+
+      // reusable piece: add role filter when team is supplied
+      const roleFilter = team?.trim()
+        ? { agent: { is: { role: team.trim() } } }
+        : {};
+
+      if (week) {
         const start = new Date(req.query.week)
         const end   = new Date(start)
         end.setDate(end.getDate() + 6)
         const shifts = await prisma.shift.findMany({
-          where: { shiftDate: { gte: start, lte: end } },
+          where: {
+                    shiftDate: { gte: start, lte: end },
+                    ...roleFilter
+                  },
           include: {
             agent: true,
             attendance: { include: { duty: true } }
@@ -25,9 +35,9 @@ export default prisma => {
         return res.json(shifts)
       }
 
-      const date = new Date(req.query.date)
+      const dateObj = new Date(date);
       const shifts = await prisma.shift.findMany({
-        where: { shiftDate: date },
+        where: { shiftDate: dateObj, ...roleFilter },
         include: {
           agent: true,
           attendance: { include: { duty: true } }

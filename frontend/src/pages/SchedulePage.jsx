@@ -67,7 +67,7 @@ export default function SchedulePage () {
     api.get('/schedule', {
       params: {
         week : weekStart.format('YYYY-MM-DD'),
-        role : team || undefined
+        team: team.trim() ? team.trim() : undefined
       }
     })
     .then(({ data: shifts }) => {
