@@ -73,7 +73,7 @@ export default function ShiftManager () {
       const { team, agent, from, to } = filters
       const { data } = await api.get('/shifts', {
         params: {
-          role     : team  || undefined,
+          team     : team  || undefined,
           agentId  : agent || undefined,
           startDate: from.format('YYYY-MM-DD'),
           endDate  : to.format('YYYY-MM-DD')
