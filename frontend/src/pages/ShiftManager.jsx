@@ -62,7 +62,7 @@ export default function ShiftManager () {
     (async () => {
       const { data } = await api.get('/agents')
       setAgents(data)
-      setTeams([...new Set(data.map(a => a.role))])
+      setTeams([...new Set(data.map(a => a.team))])
     })()
   }, [])
 
@@ -167,7 +167,7 @@ export default function ShiftManager () {
 
   /* ───────── derived agent list for team filter ─────── */
   const agentOptions = useMemo(() => (
-    filters.team ? agents.filter(a => a.role === filters.team) : agents
+    filters.team ? agents.filter(a => a.team === filters.team) : agents
   ), [agents, filters.team])
 
   /* ───────── range‑op submit handlers ───────────────── */
@@ -281,7 +281,7 @@ function SwapRangeDialog ({ agents, teams, onCancel, onConfirm }) {
 
   // only show agents on the chosen team
   const filteredAgents = team
-    ? agents.filter(a => a.role === team)
+    ? agents.filter(a => a.team === team)
     : []
 
   const disabled = !team || !agentIdA || !agentIdB || agentIdA === agentIdB || from.isAfter(to)
@@ -356,7 +356,7 @@ function ReassignRangeDialog ({ agents, teams, onCancel, onConfirm }) {
   const [markLeave,   setMarkLeave] = useState(true)
 
   const filteredAgents = team
-  ? agents.filter(a => a.role === team)
+  ? agents.filter(a => a.team === team)
   : []
 
   const disabled = !team || !fromAgentId || !toAgentId || fromAgentId === toAgentId || from.isAfter(to)
