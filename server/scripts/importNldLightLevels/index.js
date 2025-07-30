@@ -3,7 +3,7 @@
  * Daily cron – fetch “NLD Tracking” e-mail (ZIP / CSV),
  * parse the file(s), UPSERT events, update live circuit levels.
  *
- * CLI : node … [YYYY-MM-DD]   ← optional back-fill date; default = yesterday
+ * CLI : node … [YYYY-MM-DD]   ← optional back-fill; default = yesterday
  */
 import { google } from 'googleapis'
 import AdmZip     from 'adm-zip'
@@ -17,6 +17,25 @@ dayjs.extend(timezone)
 dayjs.tz.setDefault('Africa/Johannesburg')
 
 const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, DATABASE_URL } = process.env
+
+/* ───────────────── helper: detect swapped sides ───────── */
+function maybeSwap (aLive, bLive, prevA, prevB, currA, currB) {
+  const d = (x, y) => Math.abs((x ?? 0) - (y ?? 0))
+
+  const same      = d(currA, aLive) + d(currB, bLive)
+  const cross     = d(currA, bLive) + d(currB, aLive)
+  const samePrev  = d(prevA, aLive) + d(prevB, bLive)
+  const crossPrev = d(prevA, bLive) + d(prevB, aLive)
+
+  if ((cross + crossPrev) + 0.4 < (same + samePrev)) {
+    return {
+      prevA: prevB, prevB: prevA,
+      currA: currB, currB: currA,
+      swapped: true
+    }
+  }
+  return { prevA, prevB, currA, currB, swapped: false }
+}
 
 /* ── Gmail helpers ─────────────────────────────────────── */
 async function gmail () {
@@ -78,27 +97,32 @@ async function main (targetDate) {
     for (const r of rows) {
       /* ── normalise circuit-ID ─────────────────────────── */
       let circuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
-      if (!circuitId) continue                              // blank row
-      circuitId = circuitId
-        .replace(/\|/g,'&')
-        .replace(/\s*&\s*/g,' & ')
+      if (!circuitId) continue                 // blank / subtotal row
+      circuitId = circuitId.replace(/\|/g,'&').replace(/\s*&\s*/g,' & ')
 
-      /* numeric & text fields */
+      /* parse numeric / text fields */
       const tid   = r['Ticket ID']
       const it    = r['Impact Type']
       const edate = r['Date']
-      const prevA = parseFloat(r['Side A previous level'])
-      const currA = parseFloat(r['Side A current level'])
-      const prevB = parseFloat(r['Side B previous level'])
-      const currB = parseFloat(r['Side B current level'])
+      let prevA   = parseFloat(r['Side A previous level'])
+      let currA   = parseFloat(r['Side A current level'])
+      let prevB   = parseFloat(r['Side B previous level'])
+      let currB   = parseFloat(r['Side B current level'])
       const hours = parseFloat(r['Impact Duration (hours)'])
 
-      /* look-up circuit */
+      /* look-up circuit first (needed for swap check) */
       const { rows:cRows } = await cx.query(
         `SELECT id,current_rx_site_a,current_rx_site_b
            FROM "Circuit" WHERE circuit_id=$1`, [circuitId])
       if (!cRows.length) { console.warn('⚠︎ unknown circuit', circuitId); continue }
       const c = cRows[0]
+
+      /* auto-fix potentially swapped sides */
+      ({ prevA, prevB, currA, currB, swapped } =
+          maybeSwap(c.current_rx_site_a, c.current_rx_site_b,
+                    prevA, prevB, currA, currB))
+      if (swapped)
+        console.log(`↻ swapped sides for ticket ${tid} (${circuitId})`)
 
       /* UPSERT event */
       await cx.query(
@@ -125,7 +149,7 @@ async function main (targetDate) {
           hours, msg.id
         ])
 
-      /* live-level update & history */
+      /* live-level drift ≥0.1 dB → update & write history */
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
       const diffB = Math.abs((currB ?? 0) - (c.current_rx_site_b ?? 0))
       if (diffA >= 0.1 || diffB >= 0.1) {
