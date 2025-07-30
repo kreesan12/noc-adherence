@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Daily cron – fetch “NLD Tracking” e-mail (ZIP / CSV),
- * parse the file(s), UPSERT events, update live circuit levels.
+ * parse it, UPSERT events, auto-correct swapped sides, update live levels.
  *
  * CLI : node … [YYYY-MM-DD]   ← optional back-fill; default = yesterday
  */
@@ -18,23 +18,18 @@ dayjs.tz.setDefault('Africa/Johannesburg')
 
 const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, DATABASE_URL } = process.env
 
-/* ───────────────── helper: detect swapped sides ───────── */
+/* ───────── helper: detect swapped sides ───────── */
 function maybeSwap (aLive, bLive, prevA, prevB, currA, currB) {
   const d = (x, y) => Math.abs((x ?? 0) - (y ?? 0))
+  const same      = d(currA,aLive) + d(currB,bLive)
+  const cross     = d(currA,bLive) + d(currB,aLive)
+  const samePrev  = d(prevA,aLive) + d(prevB,bLive)
+  const crossPrev = d(prevA,bLive) + d(prevB,aLive)
 
-  const same      = d(currA, aLive) + d(currB, bLive)
-  const cross     = d(currA, bLive) + d(currB, aLive)
-  const samePrev  = d(prevA, aLive) + d(prevB, bLive)
-  const crossPrev = d(prevA, bLive) + d(prevB, aLive)
-
-  if ((cross + crossPrev) + 0.4 < (same + samePrev)) {
-    return {
-      prevA: prevB, prevB: prevA,
-      currA: currB, currB: currA,
-      swapped: true
-    }
+  if ((cross+crossPrev) + 0.4 < (same+samePrev)) {
+    return { prevA:prevB, prevB:prevA, currA:currB, currB:currA, swapped:true }
   }
-  return { prevA, prevB, currA, currB, swapped: false }
+  return { prevA, prevB, currA, currB, swapped:false }
 }
 
 /* ── Gmail helpers ─────────────────────────────────────── */
@@ -43,21 +38,17 @@ async function gmail () {
   auth.setCredentials({ refresh_token: REFRESH_TOKEN })
   return google.gmail({ version:'v1', auth })
 }
-
-async function findMail (client, targetDay) {
-  const after  = targetDay.format('YYYY/MM/DD')
-  const before = targetDay.add(1,'day').format('YYYY/MM/DD')
+async function findMail (client, day) {
+  const after  = day.format('YYYY/MM/DD')
+  const before = day.add(1,'day').format('YYYY/MM/DD')
   const q = `subject:(NLD Tracking) after:${after} before:${before}`
 
   const { data:{ messages } } = await client.users.messages.list({
     userId:'me', q, maxResults:1
   })
-  if (!messages?.length) throw new Error('No e-mail for date ' + after)
-  return (await client.users.messages.get({
-    userId:'me', id:messages[0].id
-  })).data
+  if (!messages?.length) throw new Error('No e-mail for date '+after)
+  return (await client.users.messages.get({ userId:'me', id:messages[0].id })).data
 }
-
 async function fetchAttachment (client,msg,part) {
   const { data:{ data:b64 } } =
     await client.users.messages.attachments.get({
@@ -95,9 +86,9 @@ async function main (targetDate) {
     const rows = parse(buf,{ columns:true, skip_empty_lines:true })
 
     for (const r of rows) {
-      /* ── normalise circuit-ID ─────────────────────────── */
+      /* ── normalise circuit-ID ───────────────────────── */
       let circuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
-      if (!circuitId) continue                 // blank / subtotal row
+      if (!circuitId) continue
       circuitId = circuitId.replace(/\|/g,'&').replace(/\s*&\s*/g,' & ')
 
       /* parse numeric / text fields */
@@ -110,15 +101,15 @@ async function main (targetDate) {
       let currB   = parseFloat(r['Side B current level'])
       const hours = parseFloat(r['Impact Duration (hours)'])
 
-      /* look-up circuit first (needed for swap check) */
+      /* look-up circuit first (needed for swap logic) */
       const { rows:cRows } = await cx.query(
         `SELECT id,current_rx_site_a,current_rx_site_b
            FROM "Circuit" WHERE circuit_id=$1`, [circuitId])
       if (!cRows.length) { console.warn('⚠︎ unknown circuit', circuitId); continue }
       const c = cRows[0]
 
-      /* auto-fix potentially swapped sides */
-      ({ prevA, prevB, currA, currB, swapped } =
+      /* auto-fix swapped sides */
+      ;({ prevA, prevB, currA, currB, swapped } =
           maybeSwap(c.current_rx_site_a, c.current_rx_site_b,
                     prevA, prevB, currA, currB))
       if (swapped)
@@ -149,7 +140,7 @@ async function main (targetDate) {
           hours, msg.id
         ])
 
-      /* live-level drift ≥0.1 dB → update & write history */
+      /* live-level drift ≥0.1 dB → update & history */
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
       const diffB = Math.abs((currB ?? 0) - (c.current_rx_site_b ?? 0))
       if (diffA >= 0.1 || diffB >= 0.1) {
