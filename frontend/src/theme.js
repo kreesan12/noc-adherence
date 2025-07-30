@@ -21,6 +21,8 @@ export default createTheme({
     }
   },
 
+  shape: { borderRadius: 12 },          // softer corners everywhere
+
   // ---------- Component tweaks ----------
   components: {
     MuiCssBaseline: {
@@ -41,9 +43,24 @@ export default createTheme({
     },
     MuiDataGrid: {
       styleOverrides: {
-        root: { fontSize: 14 },
-        columnHeaders: { backgroundColor: '#f0f0f0' }
+       root: {
+         fontSize: 14,
+         border: 0
+       },
+       columnHeaders: {
+         backgroundColor: '#f0f0f0',
+         color: '#37474f',
+         fontWeight: 600
+       }
       }
-    }
+    },
+   MuiAccordion: {
+     styleOverrides: {
+       root: {
+         boxShadow: 'none',
+         '&:before': { display: 'none' }
+       }
+     }
+   }
   }
 })
