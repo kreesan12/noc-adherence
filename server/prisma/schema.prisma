@@ -235,44 +235,45 @@ enum Status {
 
 model Circuit {
   id               Int      @id @default(autoincrement())
-  circuitId        String   @unique
-  nodeA            String
-  nodeB            String
-  techType         String   // EDFA | RAMAN
-  currentRxSiteA   Float?
-  currentRxSiteB   Float?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  circuitId        String   @unique @map("circuit_id")
+  nodeA            String   @map("node_a")
+  nodeB            String   @map("node_b")
+  techType         String   @map("tech_type")
+  currentRxSiteA   Float?   @map("current_rx_site_a")
+  currentRxSiteB   Float?   @map("current_rx_site_b")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt      @map("updated_at")
+
   levelHistory     CircuitLevelHistory[]
   lightEvents      LightLevelEvent[]
 }
 
 model CircuitLevelHistory {
   id          Int      @id @default(autoincrement())
-  circuit     Circuit  @relation(fields:[circuitId], references:[id])
-  circuitId   Int
-  rxSiteA     Float?
-  rxSiteB     Float?
+  circuit     Circuit  @relation(fields: [circuitId], references: [id])
+  circuitId   Int      @map("circuit_id")
+  rxSiteA     Float?   @map("rx_site_a")
+  rxSiteB     Float?   @map("rx_site_b")
   reason      String
   source      String
-  changedById Int?
-  changedAt   DateTime @default(now())
+  changedById Int?     @map("changed_by_id")
+  changedAt   DateTime @default(now()) @map("changed_at")
 }
 
 model LightLevelEvent {
   id            Int      @id @default(autoincrement())
-  circuit       Circuit  @relation(fields:[circuitId], references:[id])
-  circuitId     Int
-  ticketId      Int?
-  impactType    String?
-  eventDate     DateTime?
-  sideAPrev     Float?
-  sideACurr     Float?
-  sideBPrev     Float?
-  sideBCurr     Float?
-  sideADelta    Float?
-  sideBDelta    Float?
-  impactHours   Float?
-  sourceEmailId String?
-  createdAt     DateTime @default(now())
+  circuit       Circuit  @relation(fields: [circuitId], references: [id])
+  circuitId     Int      @map("circuit_id")
+  ticketId      Int?     @map("ticket_id")
+  impactType    String?  @map("impact_type")
+  eventDate     DateTime?@map("event_date")
+  sideAPrev     Float?   @map("side_a_prev")
+  sideACurr     Float?   @map("side_a_curr")
+  sideBPrev     Float?   @map("side_b_prev")
+  sideBCurr     Float?   @map("side_b_curr")
+  sideADelta    Float?   @map("side_a_delta")
+  sideBDelta    Float?   @map("side_b_delta")
+  impactHours   Float?   @map("impact_hours")
+  sourceEmailId String?  @map("source_email_id")
+  createdAt     DateTime @default(now()) @map("created_at")
 }
