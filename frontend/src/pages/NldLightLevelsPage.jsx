@@ -61,7 +61,9 @@ export default function NldLightLevelsPage () {
       field:'updatedAt',
       headerName:'Updated',
       minWidth:170,
-      valueFormatter: ({ value }) =>
+      type:'dateTime',
+      valueGetter:({ value }) => value ? dayjs(value).toDate() : null,
+      valueFormatter:({ value }) =>
         value ? dayjs(value).format('YYYY-MM-DD HH:mm') : ''
     },
     {
