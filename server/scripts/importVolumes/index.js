@@ -4,12 +4,12 @@
  * 1.  Pull yesterday’s Explore “hourly workload” e-mail from Gmail
  * 2.  Accept raw CSVs or a ZIP containing multiple CSVs
  * 3.  Parse three CSVs:
- *     • Main  → date | hour | priority1 | autoDfa | autoMnt | autoOutage
+ *     • Main    → date | hour | priority1 | autoDfa | autoMnt | autoOutage
  *     • Updates → date | hour | tickets
- *     • MntAuto → date | hour | auto_mnt_solved
+ *     • MntAuto → date | hour | auto_mnt_solved     (CSV keeps snake_case)
  * 4.  UPSERT into dbo.VolumeActual  (key = date + hour)
  *     Columns: role | date | hour | priority1 | auto_dfa_logged |
- *              auto_mnt_logged | auto_outage_linked | tickets | auto_mnt_solved
+ *              auto_mnt_logged | auto_outage_linked | tickets | autoMntSolved
  * ------------------------------------------------------------
  */
 import { google } from 'googleapis'
@@ -22,24 +22,24 @@ import dayjs      from 'dayjs'
 const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, DATABASE_URL } = process.env
 
 // ─── 1. gmail helper ─────────────────────────────────────────
-async function gmailClient() {
+async function gmailClient () {
   const auth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET)
   auth.setCredentials({ refresh_token: REFRESH_TOKEN })
   return google.gmail({ version: 'v1', auth })
 }
 
 // ─── 2. download yesterday’s attachments (CSV / ZIP) ───────
-async function downloadCsvs(gmail) {
+async function downloadCsvs (gmail) {
   const y      = dayjs().subtract(1, 'day').format('YYYY/MM/DD')
   const search = `subject:"Your delivery of T1 - hourly workload P1" after:${y}`
 
-  const { data:{ messages } } = await gmail.users.messages.list({
-    userId:'me', q:search, maxResults:1
+  const { data: { messages } } = await gmail.users.messages.list({
+    userId: 'me', q: search, maxResults: 1
   })
   if (!messages?.length) throw new Error('No matching e-mail yet')
 
   const { data: msg } = await gmail.users.messages.get({
-    userId:'me', id:messages[0].id
+    userId: 'me', id: messages[0].id
   })
 
   const parts = msg.payload.parts?.filter(
@@ -49,10 +49,10 @@ async function downloadCsvs(gmail) {
 
   const csvMap = new Map()
 
-  async function fetchAttachment(part) {
-    const { data:{ data:b64 } } =
+  async function fetchAttachment (part) {
+    const { data: { data: b64 } } =
       await gmail.users.messages.attachments.get({
-        userId:'me',
+        userId: 'me',
         messageId: msg.id,
         id: part.body.attachmentId
       })
@@ -75,7 +75,7 @@ async function downloadCsvs(gmail) {
 }
 
 // ─── 3. upsert into dbo.VolumeActual ────────────────────────
-async function upsert(csvMap) {
+async function upsert (csvMap) {
   const files = [...csvMap.keys()]
 
   // main workload CSV
@@ -95,34 +95,34 @@ async function upsert(csvMap) {
 
   if (!mainName)   throw new Error('Primary workload CSV missing')
   if (!updatesName) console.warn('⚠️  No updates CSV – tickets will stay null')
-  if (!mntName)     console.warn('⚠️  No mnt-auto CSV – auto_mnt_solved will stay null')
+  if (!mntName)     console.warn('⚠️  No mnt-auto CSV – autoMntSolved will stay null')
 
-  const mainRows    = parse(csvMap.get(mainName),   { columns:true, skip_empty_lines:true })
-  const updateRows  = updatesName
-    ? parse(csvMap.get(updatesName), { columns:true, skip_empty_lines:true })
+  const mainRows   = parse(csvMap.get(mainName),   { columns: true, skip_empty_lines: true })
+  const updateRows = updatesName
+    ? parse(csvMap.get(updatesName), { columns: true, skip_empty_lines: true })
     : []
-  const mntRows     = mntName
-    ? parse(csvMap.get(mntName),    { columns:true, skip_empty_lines:true })
+  const mntRows    = mntName
+    ? parse(csvMap.get(mntName),     { columns: true, skip_empty_lines: true })
     : []
 
   // build maps by "YYYY-MM-DD|hour"
   const ticketMap = new Map()
   for (const r of updateRows) {
-    const iso = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
+    const iso = dayjs(r.date, ['M/D/YYYY', 'YYYY-MM-DD']).format('YYYY-MM-DD')
     ticketMap.set(`${iso}|${Number(r.hour)}`, Number(r.tickets))
   }
 
   const mntMap = new Map()
   for (const r of mntRows) {
-    const iso = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-    const v = Number(r.auto_mnt_solved)
+    const iso = dayjs(r.date, ['M/D/YYYY', 'YYYY-MM-DD']).format('YYYY-MM-DD')
+    const v   = Number(r.auto_mnt_solved)               // CSV column stays snake_case
     mntMap.set(`${iso}|${+r.hour}`, isNaN(v) ? null : v)
   }
 
   // connect to Postgres
   const pool = new pg.Pool({
     connectionString: DATABASE_URL,
-    ssl: { rejectUnauthorized:false }
+    ssl: { rejectUnauthorized: false }
   })
   const cx = await pool.connect()
 
@@ -131,25 +131,27 @@ async function upsert(csvMap) {
       role, date, hour,
       priority1, auto_dfa_logged,
       auto_mnt_logged, auto_outage_linked,
-      tickets, auto_mnt_solved
+      tickets, "autoMntSolved"
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-    ON CONFLICT (date,hour)
+    ON CONFLICT (date, hour)
     DO UPDATE SET
       priority1          = EXCLUDED.priority1,
       auto_dfa_logged    = EXCLUDED.auto_dfa_logged,
       auto_mnt_logged    = EXCLUDED.auto_mnt_logged,
       auto_outage_linked = EXCLUDED.auto_outage_linked,
-      tickets            = COALESCE(EXCLUDED.tickets, "VolumeActual".tickets),
-      auto_mnt_solved    = COALESCE(EXCLUDED.auto_mnt_solved, "VolumeActual".auto_mnt_solved);
+      tickets            = COALESCE(EXCLUDED.tickets,
+                                     "VolumeActual".tickets),
+      "autoMntSolved"    = COALESCE(EXCLUDED."autoMntSolved",
+                                     "VolumeActual"."autoMntSolved");
   `
 
   try {
     await cx.query('BEGIN')
 
     for (const r of mainRows) {
-      const iso   = dayjs(r.date, ['M/D/YYYY','YYYY-MM-DD']).format('YYYY-MM-DD')
-      const hr    = Number(r.hour)
-      const key   = `${iso}|${hr}`
+      const iso       = dayjs(r.date, ['M/D/YYYY', 'YYYY-MM-DD']).format('YYYY-MM-DD')
+      const hr        = Number(r.hour)
+      const key       = `${iso}|${hr}`
       const tickets   = ticketMap.get(key) ?? 0
       const mntSolved = mntMap.get(key)    ?? 0
 
@@ -161,8 +163,8 @@ async function upsert(csvMap) {
         Number(r.autoDfa ?? 0),
         Number(r.autoMnt ?? 0),
         Number(r.autoOutage ?? 0),
-        (tickets   ?? 0),         // INSERT must satisfy NOT-NULL; 0 = “no tickets”
-        mntSolved                 // can stay null – column is nullable
+        tickets,                // cannot be null
+        mntSolved               // may be null
       ])
     }
 
@@ -181,7 +183,7 @@ async function upsert(csvMap) {
     const gmail = await gmailClient()
     const csvs  = await downloadCsvs(gmail)
     await upsert(csvs)
-    console.log('Imported workload for', dayjs().subtract(1,'day').format('YYYY-MM-DD'))
+    console.log('Imported workload for', dayjs().subtract(1, 'day').format('YYYY-MM-DD'))
   } catch (err) {
     console.error('Import failed:', err.message)
     process.exitCode = 1
