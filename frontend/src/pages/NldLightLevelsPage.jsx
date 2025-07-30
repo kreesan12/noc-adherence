@@ -1,24 +1,25 @@
 // frontend/src/pages/NldLightLevelsPage.jsx
 import { useEffect, useState, useMemo } from 'react'
+import dayjs                 from 'dayjs'
 import {
   Box, Paper, Typography, IconButton, Tooltip, Stack,
   TextField, Button, Drawer, Accordion, AccordionSummary,
-  AccordionDetails, Chip, Badge
+  AccordionDetails, Chip
 } from '@mui/material'
-import { DataGrid } from '@mui/x-data-grid'
-import EditNoteIcon    from '@mui/icons-material/EditNote'
-import HistoryIcon     from '@mui/icons-material/History'
-import ExpandMoreIcon  from '@mui/icons-material/ExpandMore'
-import { useAuth }     from '../context/AuthContext'
-import api             from '../api'
+import { DataGrid }          from '@mui/x-data-grid'
+import EditNoteIcon          from '@mui/icons-material/EditNote'
+import HistoryIcon           from '@mui/icons-material/History'
+import ExpandMoreIcon        from '@mui/icons-material/ExpandMore'
+import { useAuth }           from '../context/AuthContext'
+import api                   from '../api'
 
 export default function NldLightLevelsPage () {
   const { user } = useAuth()
 
   /* ── state ─────────────────────────────────────────── */
-  const [rows, setRows]   = useState([])
-  const [edit, setEdit]   = useState(null)   // { id, rxA, rxB }
-  const [hist, setHist]   = useState(null)
+  const [rows, setRows] = useState([])
+  const [edit, setEdit] = useState(null)   // { id, rxA, rxB }
+  const [hist, setHist] = useState(null)
 
   /* ── initial fetch ────────────────────────────────── */
   useEffect(() => {
@@ -56,14 +57,16 @@ export default function NldLightLevelsPage () {
     { field:'techType',  headerName:'Tech',    width:80 },
     { field:'currentRxSiteA', headerName:'Rx A (dBm)', width:110, type:'number' },
     { field:'currentRxSiteB', headerName:'Rx B (dBm)', width:110, type:'number' },
-    { field:'updatedAt',
+    {
+      field:'updatedAt',
       headerName:'Updated',
       minWidth:170,
       valueFormatter: ({ value }) =>
-        value ? new Date(value).toLocaleString() : '' },
+        value ? dayjs(value).format('YYYY-MM-DD HH:mm') : ''
+    },
     {
       field:'actions',
-      headerName:'', width:110, sortable:false, filterable:false,
+      headerName:'', width:130, sortable:false, filterable:false,
       renderCell: (p) => (
         <Stack direction="row" spacing={0.5} alignItems="center">
           {user?.role === 'engineering' && (
@@ -74,19 +77,17 @@ export default function NldLightLevelsPage () {
             </Tooltip>
           )}
           <Tooltip title="View history">
-            <IconButton size="small" onClick={() => openHist(p.row.id)}>
-              <Badge
-                badgeContent={p.row._count?.levelHistory ?? 0}
-                color="secondary"
-                sx={{
-                  '& .MuiBadge-badge': {
-                    fontSize:'0.65rem', minWidth:16, height:16
-                  }
-                }}
-              >
+            <Stack direction="row" spacing={0.6} alignItems="center">
+              <IconButton size="small" onClick={() => openHist(p.row.id)}>
                 <HistoryIcon fontSize="inherit" />
-              </Badge>
-            </IconButton>
+              </IconButton>
+              <Chip
+                label={p.row._count?.levelHistory ?? 0}
+                size="small"
+                color="secondary"
+                sx={{ fontWeight:600 }}
+              />
+            </Stack>
           </Tooltip>
         </Stack>
       )
@@ -102,9 +103,10 @@ export default function NldLightLevelsPage () {
 
       {Object.entries(groupBy(rows, 'nldGroup')).map(([grp, list]) => (
         <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon/>}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Typography variant="subtitle1" fontWeight={600}>
-              {grp} <Chip label={list.length} size="small" sx={{ ml:1 }}/>
+              {grp}&nbsp;
+              <Chip label={list.length} size="small" sx={{ ml:1 }} />
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ p:0 }}>
@@ -118,8 +120,8 @@ export default function NldLightLevelsPage () {
                 pageSizeOptions={[25,50,100]}
                 initialState={{ pagination:{ paginationModel:{ pageSize:25 } } }}
                 sx={{
-                  '.MuiDataGrid-cell:hover': { bgcolor:'rgba(0,0,0,0.04)' },
-                  border: 0
+                  '.MuiDataGrid-cell:hover':{ bgcolor:'rgba(0,0,0,0.04)' },
+                  border:0
                 }}
               />
             </Paper>
@@ -127,7 +129,7 @@ export default function NldLightLevelsPage () {
         </Accordion>
       ))}
 
-      {/* ------------ Edit drawer ------------ */}
+      {/* ---------- Edit drawer ---------- */}
       <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)}>
         <Box p={3} width={320}>
           <Typography variant="h6" mb={2}>Edit Levels</Typography>
@@ -148,14 +150,14 @@ export default function NldLightLevelsPage () {
         </Box>
       </Drawer>
 
-      {/* ------------ History drawer ------------ */}
+      {/* ---------- History drawer ---------- */}
       <Drawer anchor="right" open={Boolean(hist)} onClose={() => setHist(null)}>
         <Box p={3} width={360}>
           <Typography variant="h6" gutterBottom>Level History</Typography>
           {hist?.map(h => (
             <Box key={h.id} mb={1} p={1.5} sx={{ borderBottom:'1px solid #eee' }}>
               <Typography variant="body2" fontWeight={600}>
-                {new Date(h.changedAt).toLocaleString()}
+                {dayjs(h.changedAt).format('YYYY-MM-DD HH:mm')}
               </Typography>
               <Typography variant="body2">
                 RxA:&nbsp;{h.rxSiteA ?? '—'}&nbsp;&nbsp;
