@@ -109,11 +109,17 @@ async function main (targetDate) {
       const c = cRows[0]
 
       /* auto-fix swapped sides */
-      ;({ prevA, prevB, currA, currB, swapped } =
-          maybeSwap(c.current_rx_site_a, c.current_rx_site_b,
-                    prevA, prevB, currA, currB))
-      if (swapped)
+      const fixed = maybeSwap(
+        c.current_rx_site_a, c.current_rx_site_b,
+        prevA, prevB, currA, currB
+      )
+      prevA = fixed.prevA
+      prevB = fixed.prevB
+      currA = fixed.currA
+      currB = fixed.currB
+      if (fixed.swapped) {
         console.log(`↻ swapped sides for ticket ${tid} (${circuitId})`)
+      }
 
       /* UPSERT event */
       await cx.query(
