@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import prisma     from '../db.js'      // your Prisma / pg instance
+import prisma from '../lib/prisma.js'
 
 function requireEngineering(req,res,next){
   if (req.user?.role !== 'engineering')
