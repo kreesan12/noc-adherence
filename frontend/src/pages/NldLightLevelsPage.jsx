@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   Box, Typography, IconButton, Tooltip, Stack,
-  TextField, Button,
-+ Drawer                                    // 🔹 NEW
+  TextField, Button, Drawer                             
 } from '@mui/material'
 import { DataGrid } from '@mui/x-data-grid'
 import EditNoteIcon   from '@mui/icons-material/EditNote'
-+import HistoryIcon   from '@mui/icons-material/History'     // 🔹 NEW
+import HistoryIcon   from '@mui/icons-material/History'     // 🔹 NEW
 import { useAuth }    from '../contexts/AuthContext'
 import api            from '../api'
 
@@ -17,16 +16,16 @@ export default function NldLightLevelsPage () {
   const [editA,  setEditA]  = useState('')
   const [editB,  setEditB]  = useState('')
 
-+ const [hist,   setHist]   = useState(null)                 // 🔹 NEW
+  const [hist,   setHist]   = useState(null)                 // 🔹 NEW
 
   useEffect(() => {
     api.get('/engineering/circuits').then(r => setRows(r.data))
   }, [])
 
-+ async function openHist(id) {                              // 🔹 NEW
-+   const { data } = await api.get(`/engineering/circuit/${id}`)
-+   setHist(data.levelHistory)
-+ }
+  async function openHist(id) {                              // 🔹 NEW
+    const { data } = await api.get(`/engineering/circuit/${id}`)
+    setHist(data.levelHistory)
+  }
 
   const cols = [
     { field:'circuitId', headerName:'Circuit', width:180 },
@@ -102,23 +101,23 @@ export default function NldLightLevelsPage () {
         </Box>
       )}
 
-+     {/*  🔹 HISTORY DRAWER  -------------------------------------- */}
-+     <Drawer anchor="right" open={Boolean(hist)} onClose={() => setHist(null)}>
-+       <Box p={2} width={360}>
-+         <Typography variant="h6" gutterBottom>Level History</Typography>
-+         {hist?.map(h => (
-+           <Box key={h.id} mb={1} p={1} sx={{ borderBottom:'1px solid #eee' }}>
-+             <Typography variant="body2">
-+               {new Date(h.changedAt).toLocaleString()}
-+             </Typography>
-+             <Typography variant="body2">
-+               RxA: {h.rxSiteA ?? '—'}&nbsp;&nbsp;RxB: {h.rxSiteB ?? '—'}
-+             </Typography>
-+             <Typography variant="caption">{h.reason}</Typography>
-+           </Box>
-+         ))}
-+       </Box>
-+     </Drawer>
+     {/*  🔹 HISTORY DRAWER  -------------------------------------- */}
+     <Drawer anchor="right" open={Boolean(hist)} onClose={() => setHist(null)}>
+       <Box p={2} width={360}>
+         <Typography variant="h6" gutterBottom>Level History</Typography>
+         {hist?.map(h => (
+           <Box key={h.id} mb={1} p={1} sx={{ borderBottom:'1px solid #eee' }}>
+             <Typography variant="body2">
+               {new Date(h.changedAt).toLocaleString()}
+             </Typography>
+             <Typography variant="body2">
+               RxA: {h.rxSiteA ?? '—'}&nbsp;&nbsp;RxB: {h.rxSiteB ?? '—'}
+             </Typography>
+             <Typography variant="caption">{h.reason}</Typography>
+           </Box>
+         ))}
+       </Box>
+     </Drawer>
     </Box>
   )
 }
