@@ -105,12 +105,25 @@ async function main (targetDate) {
            (circuit_id,ticket_id,impact_type,event_date,
             side_a_prev,side_a_curr,side_b_prev,side_b_curr,
             side_a_delta,side_b_delta,impact_hours,source_email_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [c.id, tid, it, edate,
-         prevA, currA, prevB, currB,
-         currA - prevA, currB - prevB,
-         hours, msg.id]
-      )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (ticket_id)           -- ← matches the UNIQUE key you added
+         DO UPDATE SET
+           impact_type   = EXCLUDED.impact_type,
+           side_a_prev   = EXCLUDED.side_a_prev,
+           side_a_curr   = EXCLUDED.side_a_curr,
+           side_b_prev   = EXCLUDED.side_b_prev,
+           side_b_curr   = EXCLUDED.side_b_curr,
+           side_a_delta  = EXCLUDED.side_a_delta,
+           side_b_delta  = EXCLUDED.side_b_delta,
+           impact_hours  = EXCLUDED.impact_hours,
+           source_email_id = EXCLUDED.source_email_id,
+           event_date    = EXCLUDED.event_date`
+        ,[
+          c.id, tid, it, edate,
+          prevA, currA, prevB, currB,
+          currA-prevA, currB-prevB,
+          hours, msg.id
+        ])
 
       /* update live levels + history if ≥0.1 dB change */
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
