@@ -29,9 +29,18 @@ async function gmailClient () {
 }
 
 // ─── 2. download yesterday’s attachments (CSV / ZIP) ───────
-async function downloadCsvs (gmail) {
-  const y      = dayjs().subtract(1, 'day').format('YYYY/MM/DD')
-  const search = `subject:"Your delivery of T1 - hourly workload P1" after:${y}`
+async function downloadCsvs (gmail, targetDate) {
+  // targetDate: Day we want to **import** (YYYY-MM-DD)
+  // Gmail search needs “after: D   before: D+1” to isolate that day’s mail
+  const day   = (targetDate
+                 ? dayjs(targetDate, 'YYYY-MM-DD')
+                 : dayjs().subtract(1, 'day'))
+  const after  = day.format('YYYY/MM/DD')
+  const before = day.add(1, 'day').format('YYYY/MM/DD')
+
+  const search =
+    `subject:"Your delivery of T1 - hourly workload P1" ` +
+    `after:${after} before:${before}`
 
   const { data: { messages } } = await gmail.users.messages.list({
     userId: 'me', q: search, maxResults: 1
@@ -180,10 +189,12 @@ async function upsert (csvMap) {
 // ─── 4. main ────────────────────────────────────────────────
 ;(async () => {
   try {
-    const gmail = await gmailClient()
-    const csvs  = await downloadCsvs(gmail)
+    const target = process.argv[2]         // node … 2025-07-24
+    const gmail  = await gmailClient()
+    const csvs   = await downloadCsvs(gmail, target)
     await upsert(csvs)
-    console.log('Imported workload for', dayjs().subtract(1, 'day').format('YYYY-MM-DD'))
+    console.log('Imported workload for',
+                (target || dayjs().subtract(1, 'day').format('YYYY-MM-DD')))
   } catch (err) {
     console.error('Import failed:', err.message)
     process.exitCode = 1
