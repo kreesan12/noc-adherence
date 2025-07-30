@@ -6,7 +6,7 @@ import {
 import { DataGrid } from '@mui/x-data-grid'
 import EditNoteIcon   from '@mui/icons-material/EditNote'
 import HistoryIcon   from '@mui/icons-material/History'     // 🔹 NEW
-import { useAuth }    from '../contexts/AuthContext'
+import { useAuth }    from '../context/AuthContext'
 import api            from '../api'
 
 export default function NldLightLevelsPage () {
