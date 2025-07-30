@@ -11,7 +11,8 @@ import {
   Drawer,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Chip
 } from '@mui/material'
 import { DataGrid } from '@mui/x-data-grid'
 import EditNoteIcon    from '@mui/icons-material/EditNote'
@@ -81,8 +82,8 @@ export default function NldLightLevelsPage () {
       width:90,
       sortable:false,
       filterable:false,
-      renderCell:(p) => (
-        <Stack direction="row" spacing={0.5}>
+      renderCell: (p) => (
+        <Stack direction="row" spacing={0.5} alignItems="center">
           {user?.role === 'engineering' && (
             <Tooltip title="Edit levels">
               <IconButton size="small" onClick={() => startEdit(p.row)}>
@@ -90,17 +91,19 @@ export default function NldLightLevelsPage () {
               </IconButton>
             </Tooltip>
           )}
+
           <Tooltip title="View history">
             <IconButton size="small" onClick={() => openHist(p.row.id)}>
-              <Badge
-                badgeContent={p.row._count?.levelHistory ?? 0}
-                color="secondary"
-                overlap="circular"
-              >
-                <HistoryIcon fontSize="inherit" />
-              </Badge>
+              <HistoryIcon fontSize="inherit" />
             </IconButton>
           </Tooltip>
+
+          {/* little pill with the count */}
+          <Chip
+            label={p.row._count?.levelHistory ?? 0}
+            size="small"
+            sx={{ fontWeight:600 }}
+          />
         </Stack>
       )
     }
