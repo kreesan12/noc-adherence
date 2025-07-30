@@ -1,29 +1,24 @@
 #!/usr/bin/env node
 /**
- * Daily cron – fetch “NLD Tracking” e-mail (ZIP of CSVs),
- * parse the CSV(s), UPSERT light-level events, update live circuit levels.
+ * Daily cron – fetch “NLD Tracking” e-mail (ZIP / CSV),
+ * parse the file(s), UPSERT events, update live circuit levels.
  *
- * CLI  : node … [YYYY-MM-DD]   ← optional back-fill date; default = yesterday
- * Notes:
- *   • “|” inside the sheet is converted to “ & ” (ampersand with spaces).
- *   • “&” is a valid part of a circuit-ID string and is **not** split.
- *   • Accepts either “Circuit” or “Circuit ID” header.
- *   • Idempotent via ON CONFLICT(ticket_id).
+ * CLI : node … [YYYY-MM-DD]   ← optional back-fill date; default = yesterday
  */
 import { google } from 'googleapis'
-import AdmZip              from 'adm-zip'
-import { parse }           from 'csv-parse/sync'
-import pg                  from 'pg'
-import dayjs               from 'dayjs'
-import utc                 from 'dayjs/plugin/utc.js'
-import timezone            from 'dayjs/plugin/timezone.js'
+import AdmZip     from 'adm-zip'
+import { parse }  from 'csv-parse/sync'
+import pg         from 'pg'
+import dayjs      from 'dayjs'
+import utc        from 'dayjs/plugin/utc.js'
+import timezone   from 'dayjs/plugin/timezone.js'
 dayjs.extend(utc)
 dayjs.extend(timezone)
 dayjs.tz.setDefault('Africa/Johannesburg')
 
 const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, DATABASE_URL } = process.env
 
-/* ── Gmail helpers ──────────────────────────────────────── */
+/* ── Gmail helpers ─────────────────────────────────────── */
 async function gmail () {
   const auth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET)
   auth.setCredentials({ refresh_token: REFRESH_TOKEN })
@@ -81,18 +76,14 @@ async function main (targetDate) {
     const rows = parse(buf,{ columns:true, skip_empty_lines:true })
 
     for (const r of rows) {
-      /* ── normalise & validate circuit-ID ─────────────── */
+      /* ── normalise circuit-ID ─────────────────────────── */
       let circuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
-      if (!circuitId) continue                                 // blank row
-
+      if (!circuitId) continue                              // blank row
       circuitId = circuitId
-        .replace(/\|/g,'&')            // pipe → ampersand
-        .replace(/\s*&\s*/g,' & ')     // ensure single-spaced “ & ”
+        .replace(/\|/g,'&')
+        .replace(/\s*&\s*/g,' & ')
 
-      /* sheet may contain group in first column */
-      const nldGroup = (r['NLD portion'] ?? r['NLD portion\t'] ?? '').trim() || null
-
-      /* pull & coerce rest of columns */
+      /* numeric & text fields */
       const tid   = r['Ticket ID']
       const it    = r['Impact Type']
       const edate = r['Date']
@@ -102,20 +93,20 @@ async function main (targetDate) {
       const currB = parseFloat(r['Side B current level'])
       const hours = parseFloat(r['Impact Duration (hours)'])
 
-      /* fetch circuit row */
+      /* look-up circuit */
       const { rows:cRows } = await cx.query(
         `SELECT id,current_rx_site_a,current_rx_site_b
            FROM "Circuit" WHERE circuit_id=$1`, [circuitId])
       if (!cRows.length) { console.warn('⚠︎ unknown circuit', circuitId); continue }
       const c = cRows[0]
 
-      /* UPSERT light-level event */
+      /* UPSERT event */
       await cx.query(
         `INSERT INTO "LightLevelEvent"
            (circuit_id,ticket_id,impact_type,event_date,
             side_a_prev,side_a_curr,side_b_prev,side_b_curr,
-            side_a_delta,side_b_delta,impact_hours,source_email_id,nld_group)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            side_a_delta,side_b_delta,impact_hours,source_email_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (ticket_id) DO UPDATE SET
            impact_type     = EXCLUDED.impact_type,
            event_date      = EXCLUDED.event_date,
@@ -126,16 +117,15 @@ async function main (targetDate) {
            side_a_delta    = EXCLUDED.side_a_delta,
            side_b_delta    = EXCLUDED.side_b_delta,
            impact_hours    = EXCLUDED.impact_hours,
-           source_email_id = EXCLUDED.source_email_id,
-           nld_group       = EXCLUDED.nld_group`,
+           source_email_id = EXCLUDED.source_email_id`,
         [
           c.id, tid, it, edate,
           prevA, currA, prevB, currB,
           currA - prevA, currB - prevB,
-          hours, msg.id, nldGroup
+          hours, msg.id
         ])
 
-      /* update live levels + write history if ≥0.1 dB drift */
+      /* live-level update & history */
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
       const diffB = Math.abs((currB ?? 0) - (c.current_rx_site_b ?? 0))
       if (diffA >= 0.1 || diffB >= 0.1) {
@@ -150,15 +140,15 @@ async function main (targetDate) {
            VALUES ($1,$2,$3,'event importer',$4)`,
           [c.id,currA,currB,'light-level csv '+msg.id])
       }
-    } /* end row loop */
-  }   /* end buffer loop */
+    }
+  }
 
   await cx.query('COMMIT')
   cx.release()
   console.log('Imported light levels for', targetDate.format('YYYY-MM-DD'))
 }
 
-/* ── Runner ─────────────────────────────────────────────── */
+/* ── Runner ───────────────────────────────────────────── */
 (async () => {
   const target = process.argv[2]
     ? dayjs.tz(process.argv[2],'YYYY-MM-DD','Africa/Johannesburg')
