@@ -153,7 +153,7 @@ async function main (targetDate) {
 /* ───────── Runner ───────────────────────────────────────── */
 (async () => {
   const target = process.argv[2]
-    ? dayjs.tz(process.argv[2], 'YYYY-MM-DD')   // back-fill run
+    ? dayjs.tz(process.argv[2], 'YYYY-MM-DD', 'Africa/Johannesburg')
     : dayjs().subtract(1, 'day')                // cron default
   try { await main(target) }
   catch (e) { console.error(e.message); process.exitCode = 1 }
