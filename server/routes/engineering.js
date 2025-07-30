@@ -13,9 +13,11 @@ const r = Router()
 r.get('/circuits', async (_,res) => {
   const circuits = await prisma.circuit.findMany({
     select:{
-      id:true,circuitId:true,nodeA:true,nodeB:true,techType:true,
-      currentRxSiteA:true,currentRxSiteB:true,updatedAt:true
-    }, orderBy:{ circuitId:'asc' }
+     id:true,circuitId:true,nodeA:true,nodeB:true,techType:true,
+     currentRxSiteA:true,currentRxSiteB:true,updatedAt:true,
+     nldGroup:true
+   },
+    orderBy:[{ nldGroup:'asc' },{ circuitId:'asc' }]
   })
   res.json(circuits)
 })
