@@ -29,6 +29,7 @@ import ExpandMore             from '@mui/icons-material/ExpandMore'
 import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
 import EventBusyIcon          from '@mui/icons-material/EventBusy';
 import PeopleIcon          from '@mui/icons-material/People';
+import LanOutlinedIcon        from '@mui/icons-material/LanOutlined'
 
 
 /* ── pages ──────────────────────────────────────────────── */
@@ -42,6 +43,7 @@ import StaffingPage   from './pages/StaffingPage'
 import ShiftManager   from './pages/ShiftManager'
 import LeavePlannerPage    from './pages/LeavePlannerPage'   // ← NEW
 import WorkforcePage  from './pages/WorkforcePage'         // ← add this
+import NldLightLevelsPage  from './pages/NldLightLevelsPage' 
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -110,6 +112,14 @@ function SideNav() {
         },
         { label:'Admin',         path:'/agents', icon:<AdminPanelSettingsIcon/> },
         { label:'Upload Roster', path:'/roster', icon:<UploadIcon/> },
+      ],
+    },
+    {
+      title: 'ENGINEERING',
+      items: [
+        { label:'NLD Light Levels',
+          path:'/engineering/nlds',
+          icon:<LanOutlinedIcon/> },
       ],
     },
   ]
@@ -213,6 +223,7 @@ export default function App() {
                 <Route path="/shifts"   element={<ShiftManager/>}/>
                 <Route path='/leave-planner'   element={<LeavePlannerPage />} />
                 <Route path="/workforce" element={<WorkforcePage />} />
+                <Route path="/engineering/nlds" element={<NldLightLevelsPage/>} />
               </Route>
 
               {/* Fallback */}

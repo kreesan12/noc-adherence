@@ -22,6 +22,7 @@ import erlangRoutes     from './routes/erlang.js'
 import shiftRoutes      from './routes/shifts.js'
 import leaveRoutes      from './routes/leave.js'
 import workforceRouter from './routes/workforce.js'
+import engineeringRoutes from './routes/engineering.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -104,6 +105,8 @@ app.use(
   verifyToken, authRole('supervisor'),
   shiftRoutes(prisma)
 );
+
+app.use('/api/engineering', engineeringRoutes)
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {

@@ -232,3 +232,47 @@ enum Status {
   emergency_leave
   awol
 }
+
+model Circuit {
+  id               Int      @id @default(autoincrement())
+  circuitId        String   @unique
+  nodeA            String
+  nodeB            String
+  techType         String   // EDFA | RAMAN
+  currentRxSiteA   Float?
+  currentRxSiteB   Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  levelHistory     CircuitLevelHistory[]
+  lightEvents      LightLevelEvent[]
+}
+
+model CircuitLevelHistory {
+  id          Int      @id @default(autoincrement())
+  circuit     Circuit  @relation(fields:[circuitId], references:[id])
+  circuitId   Int
+  rxSiteA     Float?
+  rxSiteB     Float?
+  reason      String
+  source      String
+  changedById Int?
+  changedAt   DateTime @default(now())
+}
+
+model LightLevelEvent {
+  id            Int      @id @default(autoincrement())
+  circuit       Circuit  @relation(fields:[circuitId], references:[id])
+  circuitId     Int
+  ticketId      Int?
+  impactType    String?
+  eventDate     DateTime?
+  sideAPrev     Float?
+  sideACurr     Float?
+  sideBPrev     Float?
+  sideBCurr     Float?
+  sideADelta    Float?
+  sideBDelta    Float?
+  impactHours   Float?
+  sourceEmailId String?
+  createdAt     DateTime @default(now())
+}
