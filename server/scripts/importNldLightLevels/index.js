@@ -10,8 +10,8 @@ import AdmZip     from 'adm-zip'
 import { parse }  from 'csv-parse/sync'
 import pg         from 'pg'
 import dayjs      from 'dayjs'
-import utc        from 'dayjs/plugin/utc'          // ← NEW
-import timezone   from 'dayjs/plugin/timezone'     // ← NEW
+import utc        from 'dayjs/plugin/utc.js'          // ← NEW
+import timezone   from 'dayjs/plugin/timezone.js'     // ← NEW
 dayjs.extend(utc)                                  // ← NEW
 dayjs.extend(timezone)                             // ← NEW
 dayjs.tz.setDefault('Africa/Johannesburg')         // now safe
