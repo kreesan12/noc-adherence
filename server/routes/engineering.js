@@ -1,3 +1,4 @@
+// server/routes/engineering.js
 import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 
@@ -15,7 +16,14 @@ r.get('/circuits', async (_,res) => {
     select:{
      id:true,circuitId:true,nodeA:true,nodeB:true,techType:true,
      currentRxSiteA:true,currentRxSiteB:true,updatedAt:true,
-     nldGroup:true
+     nldGroup:true,
+      _count:{
+        select:{
+          levelHistory:{
+            where:{ reason:{ not:'initial import' } }
+          }
+        }
+      }
    },
     orderBy:[{ nldGroup:'asc' },{ circuitId:'asc' }]
   })

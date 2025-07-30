@@ -146,10 +146,12 @@ async function main (targetDate) {
           hours, msg.id
         ])
 
-      /* live-level drift ≥0.1 dB → update & history */
+      /* always record the ticket; only update live levels if drift ≥0.1 dB */
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
       const diffB = Math.abs((currB ?? 0) - (c.current_rx_site_b ?? 0))
+
       if (diffA >= 0.1 || diffB >= 0.1) {
+        /* levels changed → update live values */
         await cx.query(
           `UPDATE "Circuit"
              SET current_rx_site_a=$1,current_rx_site_b=$2
@@ -159,6 +161,13 @@ async function main (targetDate) {
           `INSERT INTO "CircuitLevelHistory"
              (circuit_id,rx_site_a,rx_site_b,reason,source)
            VALUES ($1,$2,$3,'event importer',$4)`,
+          [c.id,currA,currB,'light-level csv '+msg.id])
+      } else {
+        /* no drift → still write history so UI can show the event */
+        await cx.query(
+          `INSERT INTO "CircuitLevelHistory"
+             (circuit_id,rx_site_a,rx_site_b,reason,source)
+           VALUES ($1,$2,$3,'event importer (no drift)',$4)`,
           [c.id,currA,currB,'light-level csv '+msg.id])
       }
     }

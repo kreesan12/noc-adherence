@@ -16,6 +16,7 @@ import {
 import { DataGrid } from '@mui/x-data-grid'
 import EditNoteIcon    from '@mui/icons-material/EditNote'
 import HistoryIcon     from '@mui/icons-material/History'
+import Badge           from '@mui/material/Badge'
 import ExpandMoreIcon  from '@mui/icons-material/ExpandMore'
 import { useAuth }     from '../context/AuthContext'
 import api             from '../api'
@@ -69,10 +70,13 @@ export default function NldLightLevelsPage () {
     { field:'techType',         headerName:'Tech',       width:90  },
     { field:'currentRxSiteA',   headerName:'Rx A (dBm)', width:130 },
     { field:'currentRxSiteB',   headerName:'Rx B (dBm)', width:130 },
-    { field:'updatedAt',        headerName:'Updated',    width:180,
-      valueGetter:({ value }) => new Date(value).toLocaleString() },
-    {
-      field:'actions',
+    { field:'updatedAt',
+      headerName:'Updated',
+      width:180,
+      valueFormatter:({ value }) =>
+        value ? new Date(value).toLocaleString() : '' 
+    },
+    { field:'actions',
       headerName:'',
       width:90,
       sortable:false,
@@ -88,7 +92,13 @@ export default function NldLightLevelsPage () {
           )}
           <Tooltip title="View history">
             <IconButton size="small" onClick={() => openHist(p.row.id)}>
-              <HistoryIcon fontSize="inherit" />
+              <Badge
+                badgeContent={p.row._count?.levelHistory ?? 0}
+                color="secondary"
+                overlap="circular"
+              >
+                <HistoryIcon fontSize="inherit" />
+              </Badge>
             </IconButton>
           </Tooltip>
         </Stack>
