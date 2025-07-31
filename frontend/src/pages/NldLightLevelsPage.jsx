@@ -62,9 +62,12 @@ export default function NldLightLevelsPage () {
       headerName:'Updated',
       minWidth:170,
       type:'dateTime',
-      valueGetter:({ value }) => value ? dayjs(value).toDate() : null,
-      valueFormatter:({ value }) =>
-        value ? dayjs(value).format('YYYY-MM-DD HH:mm') : ''
+      valueGetter:({ value }) => value ? dayjs(value).toDate() : undefined,
+      /* ↓↓↓  safe access – no destructuring  ↓↓↓ */
+      valueFormatter: params =>
+        params && params.value
+          ? dayjs(params.value).format('YYYY-MM-DD HH:mm')
+          : ''
     },
     {
       field:'actions',
