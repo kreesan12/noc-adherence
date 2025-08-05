@@ -285,13 +285,14 @@ enum ManagerRole {
   engineering
 }
 
-// NEW MODEL
 model Manager {
-  id          Int          @id @default(autoincrement())
-  fullName    String
-  email       String       @unique
-  password    String
-  role        ManagerRole  @default(manager)
-  createdAt   DateTime     @default(now())
-  lastLogin   DateTime?
+  id         Int       @id @default(autoincrement())
+  fullName   String    @map("full_name")    // ← map to full_name
+  email      String    @unique
+  password   String                             // column is already “password”
+  role       ManagerRole @default(manager)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastLogin  DateTime?                @map("last_login")
+
+  @@map("Manager")   // table name stays quoted-capitalised
 }
