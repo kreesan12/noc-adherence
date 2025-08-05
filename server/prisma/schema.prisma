@@ -278,3 +278,20 @@ model LightLevelEvent {
   sourceEmailId String?  @map("source_email_id")
   createdAt     DateTime @default(now()) @map("created_at")
 }
+
+// NEW ENUM
+enum ManagerRole {
+  manager
+  engineering
+}
+
+// NEW MODEL
+model Manager {
+  id          Int          @id @default(autoincrement())
+  fullName    String
+  email       String       @unique
+  password    String
+  role        ManagerRole  @default(manager)
+  createdAt   DateTime     @default(now())
+  lastLogin   DateTime?
+}

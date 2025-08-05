@@ -46,6 +46,7 @@ import LeavePlannerPage    from './pages/LeavePlannerPage'
 import WorkforcePage  from './pages/WorkforcePage'         
 import NldLightLevelsPage  from './pages/NldLightLevelsPage'
 import NldMappingPage     from './pages/NldMappingPage'
+import ManagersPage       from './pages/ManagersPage'
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -114,6 +115,9 @@ function SideNav() {
         },
         { label:'Admin',         path:'/agents', icon:<AdminPanelSettingsIcon/> },
         { label:'Upload Roster', path:'/roster', icon:<UploadIcon/> },
+        ...(user.role === 'admin'
+          ? [{ label:'Managers', path:'/managers', icon:<ManageAccountsIcon/> }]
+          : []),
       ],
     },
     {
@@ -224,6 +228,7 @@ export default function App() {
                 <Route path="/shifts"   element={<ShiftManager/>}/>
                 <Route path='/leave-planner'   element={<LeavePlannerPage />} />
                 <Route path="/workforce" element={<WorkforcePage />} />
+                <Route path="/managers"         element={<ManagersPage />} />
                 <Route path="/engineering/nlds" element={<NldLightLevelsPage/>} />
                 <Route path="/nld-mapping" element={<NldMappingPage/>}/>
               </Route>

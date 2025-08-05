@@ -108,6 +108,10 @@ app.use(
 
 app.use('/api/engineering', engineeringRoutes)
 
+app.use('/api/managers',
+  verifyToken, authRole('admin'),   /* only admins can change managers */
+  managersRouter(prisma))
+
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
   console.error(err)
