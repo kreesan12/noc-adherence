@@ -141,7 +141,7 @@ export default function NldMappingPage () {
 
       {/* new-group dialog */}
       <Dialog open={openNew} onClose={()=>setOpenNew(false)}>
-        <DialogTitle>Create NLD group</DialogTitle>
+        <DialogTitle>Create NLD Group</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt:1, width:300 }}>
             <TextField label="Name" value={newName}
