@@ -2,6 +2,7 @@
   "name": "noc-adherence-frontend",
   "private": true,
   "scripts": {
+    "prebuild": "node server/scripts/generate-nlds.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
