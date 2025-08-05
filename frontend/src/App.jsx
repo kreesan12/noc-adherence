@@ -29,7 +29,8 @@ import ExpandMore             from '@mui/icons-material/ExpandMore'
 import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
 import EventBusyIcon          from '@mui/icons-material/EventBusy';
 import PeopleIcon          from '@mui/icons-material/People';
-import LanOutlinedIcon        from '@mui/icons-material/LanOutlined'
+import LanOutlinedIcon        from '@mui/icons-material/LanOutlined';
+import MapIcon        from '@mui/icons-material/Map'
 
 
 /* ── pages ──────────────────────────────────────────────── */
@@ -41,9 +42,10 @@ import LoginPage      from './pages/LoginPage'
 import AgentsPage     from './pages/AgentsPage'
 import StaffingPage   from './pages/StaffingPage'
 import ShiftManager   from './pages/ShiftManager'
-import LeavePlannerPage    from './pages/LeavePlannerPage'   // ← NEW
-import WorkforcePage  from './pages/WorkforcePage'         // ← add this
-import NldLightLevelsPage  from './pages/NldLightLevelsPage' 
+import LeavePlannerPage    from './pages/LeavePlannerPage'   
+import WorkforcePage  from './pages/WorkforcePage'         
+import NldLightLevelsPage  from './pages/NldLightLevelsPage'
+import NldMappingPage     from './pages/NldMappingPage'
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -117,9 +119,8 @@ function SideNav() {
     {
       title: 'ENGINEERING',
       items: [
-        { label:'NLD Light Levels',
-          path:'/engineering/nlds',
-          icon:<LanOutlinedIcon/> },
+        { label:'NLD Light Levels', path:'/engineering/nlds', icon:<LanOutlinedIcon/> },
+          { label:'NLD Mapping',    path:'/nld-mapping',      icon:<MapIcon/> },
       ],
     },
   ]
@@ -224,6 +225,7 @@ export default function App() {
                 <Route path='/leave-planner'   element={<LeavePlannerPage />} />
                 <Route path="/workforce" element={<WorkforcePage />} />
                 <Route path="/engineering/nlds" element={<NldLightLevelsPage/>} />
+                <Route path="/nld-mapping" element={<NldMappingPage/>}/>
               </Route>
 
               {/* Fallback */}
