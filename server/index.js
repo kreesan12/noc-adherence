@@ -23,6 +23,7 @@ import shiftRoutes      from './routes/shifts.js'
 import leaveRoutes      from './routes/leave.js'
 import workforceRouter from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
+import managersRoutes    from './routes/managers.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -110,7 +111,7 @@ app.use('/api/engineering', engineeringRoutes)
 
 app.use('/api/managers',
   verifyToken, authRole('admin'),   /* only admins can change managers */
-  managersRouter(prisma))
+  managersRoutes(prisma))           // ← matches the import name
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
