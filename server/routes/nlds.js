@@ -5,24 +5,27 @@ import prisma from '../lib/prisma.js';
 const r = Router();
 
 r.get('/nlds.json', async (_req, res) => {
-  const rows = await prisma.$queryRaw`
-    SELECT
-      c."circuit_id" AS "circuitId",
-      c."nld_group"  AS "nldGroup",
-      na.name  AS "nodeAName", na.lat AS "nodeALat", na.lon AS "nodeALon",
-      nb.name  AS "nodeBName", nb.lat AS "nodeBLat", nb.lon AS "nodeBLon"
-    FROM "Circuit" c
-    JOIN "Node" na ON na.id = c.node_a_id
-    JOIN "Node" nb ON nb.id = c.node_b_id
-    ORDER BY c."nld_group", c."circuit_id";
-  `;
+  const spans = await prisma.circuit.findMany({
+    select: {
+      circuitId: true,
+      nldGroup : true,
+      nodeA    : true,
+      nodeB    : true,
+      nodeALat : true,
+      nodeALon : true,
+      nodeBLat : true,
+      nodeBLon : true,
+    },
+    orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }],
+  });
 
-  res.json(rows.map(r => ({
-    circuitId: r.circuitId,
-    nldGroup : r.nldGroup,
-    nodeA: { name: r.nodeAName, lat: r.nodeALat, lon: r.nodeALon },
-    nodeB: { name: r.nodeBName, lat: r.nodeBLat, lon: r.nodeBLon },
+  res.json(spans.map(s => ({
+    circuitId: s.circuitId,
+    nldGroup : s.nldGroup,
+    nodeA: { name: s.nodeA, lat: s.nodeALat, lon: s.nodeALon },
+    nodeB: { name: s.nodeB, lat: s.nodeBLat, lon: s.nodeBLon },
   })));
 });
+
 
 export default r;
