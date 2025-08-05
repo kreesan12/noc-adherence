@@ -28,9 +28,9 @@ import ExpandLess             from '@mui/icons-material/ExpandLess'
 import ExpandMore             from '@mui/icons-material/ExpandMore'
 import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
 import EventBusyIcon          from '@mui/icons-material/EventBusy';
-import PeopleIcon          from '@mui/icons-material/People';
+import PeopleIcon             from '@mui/icons-material/People';
 import LanOutlinedIcon        from '@mui/icons-material/LanOutlined';
-import MapIcon        from '@mui/icons-material/Map'
+import MapIcon                from '@mui/icons-material/Map'
 
 
 /* ── pages ──────────────────────────────────────────────── */
