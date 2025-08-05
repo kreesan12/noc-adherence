@@ -47,6 +47,7 @@ import WorkforcePage  from './pages/WorkforcePage'
 import NldLightLevelsPage  from './pages/NldLightLevelsPage'
 import NldMappingPage     from './pages/NldMappingPage'
 import ManagersPage       from './pages/ManagersPage'
+import NldMapPage from './pages/NldMapPage'
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -124,7 +125,8 @@ function SideNav() {
       title: 'ENGINEERING',
       items: [
         { label:'NLD Light Levels', path:'/engineering/nlds', icon:<LanOutlinedIcon/> },
-          { label:'NLD Mapping',    path:'/nld-mapping',      icon:<MapIcon/> },
+        { label:'NLD Mapping',    path:'/nld-mapping',      icon:<MapIcon/> },
+        { label:'NLD Map',    path:'/nld-map',      icon:<MapIcon/> },
       ],
     },
   ]
@@ -231,6 +233,7 @@ export default function App() {
                 <Route path="/managers"         element={<ManagersPage />} />
                 <Route path="/engineering/nlds" element={<NldLightLevelsPage/>} />
                 <Route path="/nld-mapping" element={<NldMappingPage/>}/>
+                <Route path="/nld-map" element={<NldMapPage/>}/>
               </Route>
 
               {/* Fallback */}
