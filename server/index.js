@@ -24,6 +24,7 @@ import leaveRoutes      from './routes/leave.js'
 import workforceRouter from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
 import managersRoutes    from './routes/managers.js'
+import nldsRoutes from './routes/nlds.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -100,6 +101,8 @@ app.use('/api/erlang', verifyToken, authRole('supervisor'), erlangRoutes(prisma)
 app.use('/api/leave', leaveRoutes(prisma))
 
 app.use('/api', workforceRouter)
+
+app.use('/api', nldsRoutes)
 
 app.use(
   '/api/shifts',
