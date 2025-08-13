@@ -1,32 +1,44 @@
 // frontend/src/components/UserStatus.jsx
 import { useEffect, useState } from 'react'
 import { Box, Button, Typography } from '@mui/material'
-import api from '../api'
+import { useAuth } from '../context/AuthContext'
 
 export default function UserStatus() {
-  const [user, setUser] = useState(null)
+  const { user } = useAuth()                 // ← trust the context (works in SideNav)
+  const [fallbackUser, setFallbackUser] = useState(null)
 
+  // Fallback: if context is momentarily null, decode the JWT to show something
   useEffect(() => {
-    api.get('/me')
-      .then(res => setUser(res.data))
-      .catch(() => setUser(null))
-  }, [])
+    if (!user) {
+      const t = localStorage.getItem('token')
+      if (t) {
+        try {
+          const payload = JSON.parse(atob(t.split('.')[1]))
+          setFallbackUser({ name: payload.name, role: payload.role })
+        } catch {}
+      }
+    }
+  }, [user])
+
+  const display = user ?? fallbackUser
 
   const handleLogout = () => {
+    // if your AuthContext exposes logout(), call it here instead
     localStorage.removeItem('token')
-    window.location.href = '/login'
+    window.location.href = '/noc-adherence/login'
   }
 
   return (
     <Box sx={{
-      position:'fixed', top:8, right:8, zIndex:2000,
+      position:'fixed', top:8, left:8, zIndex:2000,
       bgcolor:'white', border:'1px solid #ddd', borderRadius:1,
       px:1, py:0.5, boxShadow:1
     }}>
-      {user ? (
+      {display ? (
         <>
           <Typography variant="body2">
-            <strong>{user.name}</strong> ({user.role})
+            <strong>{display.name}</strong>{' '}
+            <span style={{opacity:.8}}>({display.role})</span>
           </Typography>
           <Button size="small" variant="text" onClick={handleLogout}>Logout</Button>
         </>
