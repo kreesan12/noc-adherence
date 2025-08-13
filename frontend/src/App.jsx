@@ -216,11 +216,10 @@ export default function App() {
         <BrowserRouter basename="/noc-adherence">
           <SideNav/>
           <Box sx={{ ml:`${DRAWER_WIDTH}px`, p:3 }}>
+            <UserStatus />
             <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage/>}/>
-
-              <UserStatus />
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>
