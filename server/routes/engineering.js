@@ -77,4 +77,65 @@ r.post('/circuit/:id/comment', requireEngineering, async (req,res)=>{
   res.sendStatus(201)
 })
 
+// NEW: PATCH endpoint to update mapping fields like nldGroup
+r.patch('/circuit/:id', requireEngineering, async (req,res) => {
+  const id = +req.params.id
+
+  // Whitelist fields you allow to be patched
+  const allowed = [
+    'nldGroup',
+    'nodeALat','nodeALon','nodeBLat','nodeBLon',
+    'currentRxSiteA','currentRxSiteB' // optional: if included, we’ll log history
+  ]
+
+  const data = {}
+  for (const k of allowed) {
+    if (Object.prototype.hasOwnProperty.call(req.body, k)) {
+      data[k] = req.body[k]
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    return res.status(400).json({ error: 'No allowed fields provided to update' })
+  }
+
+  const addHistory = (
+    Object.prototype.hasOwnProperty.call(req.body, 'currentRxSiteA') ||
+    Object.prototype.hasOwnProperty.call(req.body, 'currentRxSiteB')
+  )
+
+  try {
+    const updated = await prisma.circuit.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(addHistory ? {
+          levelHistory: {
+            create: {
+              rxSiteA: req.body.currentRxSiteA ?? undefined,
+              rxSiteB: req.body.currentRxSiteB ?? undefined,
+              reason: req.body.reason ?? 'manual edit (PATCH)',
+              source: 'web ui',
+              changedById: req.user.id
+            }
+          }
+        } : {})
+      },
+      select: {
+        id:true, circuitId:true, nldGroup:true,
+        nodeALat:true,nodeALon:true,nodeBLat:true,nodeBLon:true,
+        currentRxSiteA:true,currentRxSiteB:true, updatedAt:true
+      }
+    })
+    res.json(updated)
+  } catch (e) {
+    // Prisma "record not found"
+    if (e?.code === 'P2025') {
+      return res.status(404).json({ error: 'Circuit not found' })
+    }
+    console.error(e)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 export default r
