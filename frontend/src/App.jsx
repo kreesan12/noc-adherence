@@ -52,6 +52,7 @@ import NldMapPage from './pages/NldMapPage'
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute            from './components/ProtectedRoute'
+import UserStatus from './components/UserStatus'
 
 /* ─── Drawer styling ────────────────────────────────────── */
 const DRAWER_WIDTH = 250
@@ -218,6 +219,8 @@ export default function App() {
             <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage/>}/>
+
+              <UserStatus />
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>

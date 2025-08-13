@@ -1,6 +1,7 @@
 // server/routes/engineering.js
 import { Router } from 'express'
 import prisma from '../lib/prisma.js'
+import { verifyToken } from './auth.js'
 
 function requireEngineering(req,res,next){
   if (req.user?.role !== 'engineering')
@@ -44,7 +45,7 @@ r.get('/circuit/:id', async (req,res) => {
 })
 
 /* ---------- write endpoints (engineering only) ----------- */
-r.post('/circuit/:id', requireEngineering, async (req,res) => {
+r.post('/circuit/:id', verifyToken, requireEngineering, async (req,res) => {
   const id = +req.params.id
   const { currentRxSiteA, currentRxSiteB, reason='manual edit' } = req.body
   const updated = await prisma.circuit.update({
@@ -65,7 +66,7 @@ r.post('/circuit/:id', requireEngineering, async (req,res) => {
   res.json(updated)
 })
 
-r.post('/circuit/:id/comment', requireEngineering, async (req,res)=>{
+r.post('/circuit/:id/comment', verifyToken, requireEngineering, async (req,res)=>{
   const id = +req.params.id
   const { comment } = req.body
   await prisma.circuitLevelHistory.create({
@@ -78,7 +79,7 @@ r.post('/circuit/:id/comment', requireEngineering, async (req,res)=>{
 })
 
 // NEW: PATCH endpoint to update mapping fields like nldGroup
-r.patch('/circuit/:id', requireEngineering, async (req,res) => {
+r.patch('/circuit/:id', verifyToken, requireEngineering, async (req,res) => {
   const id = +req.params.id
 
   // Whitelist fields you allow to be patched
