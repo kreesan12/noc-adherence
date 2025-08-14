@@ -3,41 +3,70 @@ import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
 
-function requireEngineering(req,res,next){
-  if (req.user?.role !== 'engineering')
-    return res.status(403).json({error:'Engineering role required'})
+function requireEngineering(req, res, next) {
+  if ((req.user?.role || '').toLowerCase() !== 'engineering')
+    return res.status(403).json({ error: 'Engineering role required' })
   next()
 }
 
 const r = Router()
 
 /* ---------- read endpoints (public) ---------------------- */
-r.get('/circuits', async (_,res) => {
+r.get('/circuits', async (_, res) => {
   const circuits = await prisma.circuit.findMany({
-    select:{
-     id:true,circuitId:true,nodeA:true,nodeB:true,techType:true,
-     currentRxSiteA:true,currentRxSiteB:true,updatedAt:true,
-     nldGroup:true,
-      _count:{
-        select:{
-          levelHistory:{
-            where:{ reason:{ not:'initial import' } }
+    select: {
+      id: true,
+      circuitId: true,
+      nodeA: true,
+      nodeB: true,
+      techType: true,
+      currentRxSiteA: true,
+      currentRxSiteB: true,
+      updatedAt: true,
+      nldGroup: true,
+
+      // Count of history excluding the initial import (unchanged)
+      _count: {
+        select: {
+          levelHistory: {
+            where: { reason: { not: 'initial import' } }
           }
         }
+      },
+
+      // NEW: fetch the very first "initial import" record for deltas
+      levelHistory: {
+        where: { reason: 'initial import' },
+        orderBy: { changedAt: 'asc' },
+        take: 1,
+        select: { rxSiteA: true, rxSiteB: true, changedAt: true }
       }
-   },
-    orderBy:[{ nldGroup:'asc' },{ circuitId:'asc' }]
+    },
+    orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }]
   })
-  res.json(circuits)
+
+  // Flatten initial import info for the frontend (initRxSiteA/B + initial)
+  const shaped = circuits.map(c => {
+    const { levelHistory: initArr, ...rest } = c
+    const init = initArr?.[0] ?? null
+    return {
+      ...rest,
+      initRxSiteA: init?.rxSiteA ?? null,
+      initRxSiteB: init?.rxSiteB ?? null,
+      initial: init
+    }
+  })
+
+  res.json(shaped)
 })
 
-r.get('/circuit/:id', async (req,res) => {
+r.get('/circuit/:id', async (req, res) => {
   const id = +req.params.id
   const c = await prisma.circuit.findUnique({
-    where:{ id },
-    include:{
-      levelHistory:{ orderBy:{ changedAt:'desc' }, take:20 },
-      lightEvents :{ orderBy:{ eventDate:'desc'  }, take:20 }
+    where: { id },
+    include: {
+      levelHistory: { orderBy: { changedAt: 'desc' }, take: 20 },
+      lightEvents: { orderBy: { eventDate: 'asc' }, take: 20 } // order any way you prefer
     }
   })
   if (!c) return res.sendStatus(404)
@@ -45,48 +74,53 @@ r.get('/circuit/:id', async (req,res) => {
 })
 
 /* ---------- write endpoints (engineering only) ----------- */
-r.post('/circuit/:id', verifyToken, requireEngineering, async (req,res) => {
+r.post('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
   const id = +req.params.id
-  const { currentRxSiteA, currentRxSiteB, reason='manual edit' } = req.body
+  const { currentRxSiteA, currentRxSiteB, changedAt, reason = 'manual edit' } = req.body
+
   const updated = await prisma.circuit.update({
-    where:{ id },
-    data :{
-      currentRxSiteA,currentRxSiteB,
-      levelHistory:{
-        create:{
-          rxSiteA:currentRxSiteA,
-          rxSiteB:currentRxSiteB,
+    where: { id },
+    data: {
+      currentRxSiteA,
+      currentRxSiteB,
+      levelHistory: {
+        create: {
+          rxSiteA: currentRxSiteA,
+          rxSiteB: currentRxSiteB,
           reason,
-          source:'web ui',
-          changedById:req.user.id
+          source: 'web ui',
+          changedById: req.user.id,
+          ...(changedAt ? { changedAt: new Date(changedAt) } : {})
         }
       }
     }
   })
+
   res.json(updated)
 })
 
-r.post('/circuit/:id/comment', verifyToken, requireEngineering, async (req,res)=>{
+
+r.post('/circuit/:id/comment', verifyToken, requireEngineering, async (req, res) => {
   const id = +req.params.id
   const { comment } = req.body
   await prisma.circuitLevelHistory.create({
-    data:{
-      circuitId:id, reason:comment, source:'comment',
-      changedById:req.user.id
+    data: {
+      circuitId: id, reason: comment, source: 'comment',
+      changedById: req.user.id
     }
   })
   res.sendStatus(201)
 })
 
 // NEW: PATCH endpoint to update mapping fields like nldGroup
-r.patch('/circuit/:id', verifyToken, requireEngineering, async (req,res) => {
+r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
   const id = +req.params.id
 
   // Whitelist fields you allow to be patched
   const allowed = [
     'nldGroup',
-    'nodeALat','nodeALon','nodeBLat','nodeBLon',
-    'currentRxSiteA','currentRxSiteB' // optional: if included, we’ll log history
+    'nodeALat', 'nodeALon', 'nodeBLat', 'nodeBLon',
+    'currentRxSiteA', 'currentRxSiteB' // optional: if included, we’ll log history
   ]
 
   const data = {}
@@ -100,10 +134,9 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req,res) => {
     return res.status(400).json({ error: 'No allowed fields provided to update' })
   }
 
-  const addHistory = (
+  const addHistory =
     Object.prototype.hasOwnProperty.call(req.body, 'currentRxSiteA') ||
     Object.prototype.hasOwnProperty.call(req.body, 'currentRxSiteB')
-  )
 
   try {
     const updated = await prisma.circuit.update({
@@ -123,14 +156,13 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req,res) => {
         } : {})
       },
       select: {
-        id:true, circuitId:true, nldGroup:true,
-        nodeALat:true,nodeALon:true,nodeBLat:true,nodeBLon:true,
-        currentRxSiteA:true,currentRxSiteB:true, updatedAt:true
+        id: true, circuitId: true, nldGroup: true,
+        nodeALat: true, nodeALon: true, nodeBLat: true, nodeBLon: true,
+        currentRxSiteA: true, currentRxSiteB: true, updatedAt: true
       }
     })
     res.json(updated)
   } catch (e) {
-    // Prisma "record not found"
     if (e?.code === 'P2025') {
       return res.status(404).json({ error: 'Circuit not found' })
     }
