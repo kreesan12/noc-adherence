@@ -4,9 +4,9 @@ import dayjs from 'dayjs'
 import {
   Box, Paper, Typography, IconButton, Tooltip, Stack,
   TextField, Button, Drawer, Accordion, AccordionSummary,
-  AccordionDetails, Chip
+  AccordionDetails, Chip, Divider
 } from '@mui/material'
-import { DataGrid } from '@mui/x-data-grid'
+import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import HistoryIcon from '@mui/icons-material/History'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -17,6 +17,47 @@ import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
+
+/* ── tiny, dependency-free sparkline ───────────────────── */
+function Sparkline ({ values = [], width = 160, height = 44, stroke = '#1976d2', label }) {
+  const pts = values.filter(v => typeof v === 'number' && !Number.isNaN(v))
+  if (pts.length < 2) {
+    return (
+      <Box sx={{ width, height, display:'flex', alignItems:'center', justifyContent:'center', opacity:0.6 }}>
+        <Typography variant="caption">N/A</Typography>
+      </Box>
+    )
+  }
+  const min = Math.min(...pts), max = Math.max(...pts)
+  const pad = 3
+  const W = width - pad * 2
+  const H = height - pad * 2
+  const normY = v => {
+    if (max === min) return H / 2
+    return H - ((v - min) / (max - min)) * H
+  }
+  const stepX = W / (pts.length - 1)
+  const d = pts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${pad + i * stepX} ${pad + normY(v)}`).join(' ')
+  const lastX = pad + (pts.length - 1) * stepX
+  const lastY = pad + normY(pts[pts.length - 1])
+
+  return (
+    <Box sx={{ width, height, position:'relative' }}>
+      <svg width={width} height={height}>
+        <path d={d} fill="none" stroke={stroke} strokeWidth="2" />
+        <circle cx={lastX} cy={lastY} r="3" fill={stroke} />
+      </svg>
+      {label && (
+        <Box sx={{ position:'absolute', top:2, left:6, bgcolor:'rgba(255,255,255,0.8)', px:0.5, borderRadius:0.5 }}>
+          <Typography variant="caption" sx={{ fontWeight: 600, color: stroke }}>{label}</Typography>
+        </Box>
+      )}
+      <Box sx={{ position:'absolute', bottom:2, right:6, opacity:0.6 }}>
+        <Typography variant="caption">{`min ${min}  max ${max}`}</Typography>
+      </Box>
+    </Box>
+  )
+}
 
 export default function NldLightLevelsPage () {
   const { user } = useAuth()
@@ -94,10 +135,16 @@ export default function NldLightLevelsPage () {
     { field:'nodeA',     headerName:'Node A',  flex:1, minWidth:120 },
     { field:'nodeB',     headerName:'Node B',  flex:1, minWidth:120 },
     { field:'techType',  headerName:'Tech',    width:80 },
-    { field:'currentRxSiteA', headerName:'Rx A (dBm)', width:110, type:'number' },
-    { field:'currentRxSiteB', headerName:'Rx B (dBm)', width:110, type:'number' },
 
-    // Init A/B — render directly from the row (no valueGetter → null-safe)
+    // ── Side A group ─────────────────────────────
+    {
+      field:'currentRxSiteA',
+      headerName:'Rx A (dBm)',
+      width:112,
+      type:'number',
+      headerClassName:'groupAStart',
+      cellClassName:'groupAStart'
+    },
     {
       field:'initRxSiteA',
       headerName:'Init A',
@@ -109,19 +156,6 @@ export default function NldLightLevelsPage () {
         return <span>{v ?? '—'}</span>
       }
     },
-    {
-      field:'initRxSiteB',
-      headerName:'Init B',
-      width:95,
-      sortable:false,
-      renderCell:(p) => {
-        const r = p?.row ?? {}
-        const v = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
-        return <span>{v ?? '—'}</span>
-      }
-    },
-
-    // Δ A — compute and render inside renderCell, plus a safe sortComparator
     {
       field:'deltaA',
       headerName:'Δ A',
@@ -141,20 +175,45 @@ export default function NldLightLevelsPage () {
             sx={{ fontWeight:600 }}
           />
         )
-      },
-      sortComparator: (_a, _b, p1, p2) => {
-        const r1 = p1?.row ?? {}, r2 = p2?.row ?? {}
-        const i1 = r1.initRxSiteA ?? r1.initial?.rxSiteA ?? null
-        const c1 = r1.currentRxSiteA
-        const d1 = (i1 == null || c1 == null) ? -Infinity : c1 - i1
-        const i2 = r2.initRxSiteA ?? r2.initial?.rxSiteA ?? null
-        const c2 = r2.currentRxSiteA
-        const d2 = (i2 == null || c2 == null) ? -Infinity : c2 - i2
-        return d1 - d2
+      }
+    },
+    {
+      field:'trendA',
+      headerName:'Trend A',
+      width:118,
+      headerClassName:'groupAEnd',
+      cellClassName:'groupAEnd',
+      sortable:false,
+      renderCell:(p)=>{
+        const r = p?.row ?? {}
+        const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
+        const curr = r.currentRxSiteA
+        const d = (init == null || curr == null) ? null : (curr - init)
+        const k = chipForDelta(d)
+        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
 
-    // Δ B — same pattern
+    // ── Side B group ─────────────────────────────
+    {
+      field:'currentRxSiteB',
+      headerName:'Rx B (dBm)',
+      width:112,
+      type:'number',
+      headerClassName:'groupBStart',
+      cellClassName:'groupBStart'
+    },
+    {
+      field:'initRxSiteB',
+      headerName:'Init B',
+      width:95,
+      sortable:false,
+      renderCell:(p) => {
+        const r = p?.row ?? {}
+        const v = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
+        return <span>{v ?? '—'}</span>
+      }
+    },
     {
       field:'deltaB',
       headerName:'Δ B',
@@ -174,38 +233,14 @@ export default function NldLightLevelsPage () {
             sx={{ fontWeight:600 }}
           />
         )
-      },
-      sortComparator: (_a, _b, p1, p2) => {
-        const r1 = p1?.row ?? {}, r2 = p2?.row ?? {}
-        const i1 = r1.initRxSiteB ?? r1.initial?.rxSiteB ?? null
-        const c1 = r1.currentRxSiteB
-        const d1 = (i1 == null || c1 == null) ? -Infinity : c1 - i1
-        const i2 = r2.initRxSiteB ?? r2.initial?.rxSiteB ?? null
-        const c2 = r2.currentRxSiteB
-        const d2 = (i2 == null || c2 == null) ? -Infinity : c2 - i2
-        return d1 - d2
-      }
-    },
-
-    // Trend A/B — per-side chips using the same delta logic
-    {
-      field:'trendA',
-      headerName:'Trend A',
-      width:120,
-      sortable:false,
-      renderCell:(p)=>{
-        const r = p?.row ?? {}
-        const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
-        const curr = r.currentRxSiteA
-        const d = (init == null || curr == null) ? null : (curr - init)
-        const k = chipForDelta(d)
-        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
     {
       field:'trendB',
       headerName:'Trend B',
-      width:120,
+      width:118,
+      headerClassName:'groupBEnd',
+      cellClassName:'groupBEnd',
       sortable:false,
       renderCell:(p)=>{
         const r = p?.row ?? {}
@@ -217,7 +252,7 @@ export default function NldLightLevelsPage () {
       }
     },
 
-    // Last Event (safe to use valueGetter on the direct field value)
+    // ── Last event + actions ────────────────────
     {
       field:'updatedAt',
       headerName:'Last Event',
@@ -227,7 +262,6 @@ export default function NldLightLevelsPage () {
       valueFormatter: (params) =>
         params?.value ? dayjs(params.value).format('YYYY-MM-DD HH:mm') : ''
     },
-
     {
       field:'actions',
       headerName:'', width:130, sortable:false, filterable:false,
@@ -285,11 +319,30 @@ export default function NldLightLevelsPage () {
                 density="compact"
                 getRowId={(r) => r.id}
                 pageSizeOptions={[25,50,100]}
-                initialState={{ pagination:{ paginationModel:{ pageSize:25 } } }}
-                sx={{
-                  '.MuiDataGrid-cell:hover':{ bgcolor:'rgba(0,0,0,0.04)' },
-                  border:0
+                initialState={{
+                  pagination:{ paginationModel:{ pageSize:25 } },
                 }}
+                slots={{ toolbar: GridToolbar }}
+                slotProps={{
+                  toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } }
+                }}
+                sx={(theme) => ({
+                  '.MuiDataGrid-cell:hover':{ bgcolor:'rgba(0,0,0,0.04)' },
+                  border:0,
+                  // group borders
+                  '& .MuiDataGrid-columnHeader.groupAStart, & .groupAStart': {
+                    borderLeft: `1px solid ${theme.palette.divider}`,
+                  },
+                  '& .MuiDataGrid-columnHeader.groupAEnd, & .groupAEnd': {
+                    borderRight: `1px solid ${theme.palette.divider}`,
+                  },
+                  '& .MuiDataGrid-columnHeader.groupBStart, & .groupBStart': {
+                    borderLeft: `1px solid ${theme.palette.divider}`,
+                  },
+                  '& .MuiDataGrid-columnHeader.groupBEnd, & .groupBEnd': {
+                    borderRight: `1px solid ${theme.palette.divider}`,
+                  },
+                })}
               />
             </Paper>
           </AccordionDetails>
@@ -297,7 +350,7 @@ export default function NldLightLevelsPage () {
       ))}
 
       {/* ---------- Edit drawer ---------- */}
-      <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)} ModalProps={{ sx: { zIndex: 2400 } }} slotProps={{ paper: { sx: { pt: 7, width: 380 } } }}>
+      <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)}>
         <Box p={3} width={320}>
           <Typography variant="h6" mb={2}>Edit Levels</Typography>
           <Stack spacing={2}>
@@ -346,10 +399,29 @@ export default function NldLightLevelsPage () {
         open={Boolean(hist)}
         onClose={() => setHist(null)}
         ModalProps={{ sx: { zIndex: 2400 } }}
-        slotProps={{ paper: { sx: { pt: 7, width: 380 } } }}
+        slotProps={{ paper: { sx: { pt: 7, width: 420 } } }}
       >
-        <Box p={3} width={380}>
+        <Box p={3} width={420}>
           <Typography variant="h6" gutterBottom>Level History</Typography>
+
+          {/* Mini sparklines */}
+          {!!hist?.length && (
+            <Box sx={{ mb: 1.5 }}>
+              {(() => {
+                const sorted = [...hist].sort((a,b)=>dayjs(a.changedAt)-dayjs(b.changedAt))
+                const valsA = sorted.map(h => h.rxSiteA).filter(v => v != null)
+                const valsB = sorted.map(h => h.rxSiteB).filter(v => v != null)
+                return (
+                  <Box>
+                    <Sparkline values={valsA} stroke="#2e7d32" label="Rx A" />
+                    <Sparkline values={valsB} stroke="#1565c0" label="Rx B" />
+                  </Box>
+                )
+              })()}
+              <Divider sx={{ mt:1, mb:1 }} />
+            </Box>
+          )}
+
           {hist?.map(h => (
             <Box key={h.id} mb={1.2} p={1.5} sx={{ borderBottom:'1px solid #eee' }}>
               <Typography variant="body2" fontWeight={700}>
@@ -361,7 +433,16 @@ export default function NldLightLevelsPage () {
               </Typography>
               <Stack direction="row" spacing={1} sx={{ flexWrap:'wrap' }}>
                 {h.event?.ticketId != null && (
-                  <Chip size="small" variant="outlined" label={`Ticket #${h.event.ticketId}`} />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    component="a"
+                    href={`https://frogfoot.zendesk.com/agent/tickets/${h.event.ticketId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    clickable
+                    label={`Ticket #${h.event.ticketId}`}
+                  />
                 )}
                 {h.event?.impactType && (
                   <Chip size="small" color="info" label={h.event.impactType} />
