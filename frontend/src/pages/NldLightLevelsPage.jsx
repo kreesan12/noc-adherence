@@ -24,7 +24,7 @@ export default function NldLightLevelsPage () {
   /* ── state ─────────────────────────────────────────── */
   const [rows, setRows] = useState([])
   const [edit, setEdit] = useState(null)   // { id, rxA, rxB, reason, changedAt }
-  const [hist, setHist] = useState(null)
+  const [hist, setHist] = useState(null)   // [{...levelHistory, event?:{ticketId,impactType,impactHours}}]
 
   /* ── initial fetch ────────────────────────────────── */
   useEffect(() => {
@@ -37,7 +37,15 @@ export default function NldLightLevelsPage () {
 
   async function openHist (id) {
     const { data } = await api.get(`/engineering/circuit/${id}`)
-    setHist(data.levelHistory)
+    // Join history with lightEvents by date (YYYY-MM-DD)
+    const byDate = Object.fromEntries(
+      (data.lightEvents || []).map(e => [dayjs(e.eventDate).format('YYYY-MM-DD'), e])
+    )
+    const enriched = (data.levelHistory || []).map(h => ({
+      ...h,
+      event: byDate[dayjs(h.changedAt).format('YYYY-MM-DD')]
+    }))
+    setHist(enriched)
   }
 
   function startEdit (r) {
@@ -80,41 +88,19 @@ export default function NldLightLevelsPage () {
     return { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
   }
 
-  const getInitialA = (r) =>
-    r.initRxSiteA ??
-    r.initial?.rxSiteA ??
-    null
+  // ---- null-safe initial + delta helpers
+  const getInitialA = (r = {}) => r.initRxSiteA ?? r.initial?.rxSiteA ?? null
+  const getInitialB = (r = {}) => r.initRxSiteB ?? r.initial?.rxSiteB ?? null
 
-  const getInitialB = (r) =>
-    r.initRxSiteB ??
-    r.initial?.rxSiteB ??
-    null
-
-  const getDeltaA = (r) => {
+  const getDeltaA = (r = {}) => {
     const init = getInitialA(r)
-    const curr = r.currentRxSiteA
+    const curr = r?.currentRxSiteA
     return (init == null || curr == null) ? null : (curr - init)
   }
-
-  const getDeltaB = (r) => {
+  const getDeltaB = (r = {}) => {
     const init = getInitialB(r)
-    const curr = r.currentRxSiteB
+    const curr = r?.currentRxSiteB
     return (init == null || curr == null) ? null : (curr - init)
-  }
-
-  const trendForRow = (r) => {
-    const da = getDeltaA(r)
-    const db = getDeltaB(r)
-    if (da == null && db == null) return { label:'—', color:'default', icon:<RemoveRoundedIcon fontSize="small" /> }
-
-    const sgn = (x) => (x > 0.05 ? 1 : x < -0.05 ? -1 : 0)
-    const score = sgn(da ?? 0) + sgn(db ?? 0)
-
-    if (score === 2) return { label:'Better', color:'success', icon:<ArrowUpwardRoundedIcon fontSize="small" /> }
-    if (score === -2) return { label:'Worse', color:'error', icon:<ArrowDownwardRoundedIcon fontSize="small" /> }
-    if (score > 0) return { label:'Mostly better', color:'success', icon:<ArrowUpwardRoundedIcon fontSize="small" /> }
-    if (score < 0) return { label:'Mostly worse', color:'error', icon:<ArrowDownwardRoundedIcon fontSize="small" /> }
-    return { label:'Mixed/Same', color:'default', icon:<RemoveRoundedIcon fontSize="small" /> }
   }
 
   /* ── datagrid columns (memoised) ───────────────────── */
@@ -190,24 +176,27 @@ export default function NldLightLevelsPage () {
       }
     },
 
-    // Overall quick trend
+    // Per-side trend
     {
-      field:'trend',
-      headerName:'Trend',
-      width:140,
+      field:'trendA',
+      headerName:'Trend A',
+      width:120,
       sortable:false,
-      valueGetter: (p) => (p?.row ? trendForRow(p.row).label : '—'),
-      renderCell:(p) => {
-        const t = trendForRow(p.row)
-        return (
-          <Chip
-            size="small"
-            color={t.color}
-            icon={t.icon}
-            label={t.label}
-            sx={{ fontWeight:600 }}
-          />
-        )
+      valueGetter:(p)=>getDeltaA(p?.row ?? {}),
+      renderCell:(p)=>{
+        const k = classifyDelta(p.value)
+        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
+      }
+    },
+    {
+      field:'trendB',
+      headerName:'Trend B',
+      width:120,
+      sortable:false,
+      valueGetter:(p)=>getDeltaB(p?.row ?? {}),
+      renderCell:(p)=>{
+        const k = classifyDelta(p.value)
+        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
 
@@ -340,20 +329,33 @@ export default function NldLightLevelsPage () {
         open={Boolean(hist)}
         onClose={() => setHist(null)}
         ModalProps={{ sx: { zIndex: 2400 } }}
-        slotProps={{ paper: { sx: { pt: 7, width: 360 } } }}
+        slotProps={{ paper: { sx: { pt: 7, width: 380 } } }}
       >
-        <Box p={3} width={360}>
+        <Box p={3} width={380}>
           <Typography variant="h6" gutterBottom>Level History</Typography>
           {hist?.map(h => (
-            <Box key={h.id} mb={1} p={1.5} sx={{ borderBottom:'1px solid #eee' }}>
-              <Typography variant="body2" fontWeight={600}>
+            <Box key={h.id} mb={1.2} p={1.5} sx={{ borderBottom:'1px solid #eee' }}>
+              <Typography variant="body2" fontWeight={700}>
                 {dayjs(h.changedAt).format('YYYY-MM-DD HH:mm')}
               </Typography>
-              <Typography variant="body2">
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
                 RxA:&nbsp;{h.rxSiteA ?? '—'}&nbsp;&nbsp;
                 RxB:&nbsp;{h.rxSiteB ?? '—'}
               </Typography>
-              <Typography variant="caption">{h.reason}</Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap:'wrap' }}>
+                {h.event?.ticketId != null && (
+                  <Chip size="small" variant="outlined" label={`Ticket #${h.event.ticketId}`} />
+                )}
+                {h.event?.impactType && (
+                  <Chip size="small" color="info" label={h.event.impactType} />
+                )}
+                {h.event?.impactHours != null && (
+                  <Chip size="small" label={`${h.event.impactHours} h`} />
+                )}
+              </Stack>
+              <Typography variant="caption" sx={{ display:'block', mt: 0.5, opacity: 0.8 }}>
+                {h.reason} — {h.source}
+              </Typography>
             </Box>
           ))}
         </Box>
