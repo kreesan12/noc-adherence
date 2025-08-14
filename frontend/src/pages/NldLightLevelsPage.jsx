@@ -131,14 +131,14 @@ export default function NldLightLevelsPage () {
       field:'initRxSiteA',
       headerName:'Init A',
       width:95,
-      valueGetter:(p) => getInitialA(p.row),
+      valueGetter: (p) => getInitialA(p?.row ?? {}),
       renderCell:(p) => <span>{p.value ?? '—'}</span>
     },
     {
       field:'initRxSiteB',
       headerName:'Init B',
       width:95,
-      valueGetter:(p) => getInitialB(p.row),
+      valueGetter: (p) => getInitialB(p?.row ?? {}),
       renderCell:(p) => <span>{p.value ?? '—'}</span>
     },
 
@@ -148,13 +148,12 @@ export default function NldLightLevelsPage () {
       headerName:'Δ A',
       width:110,
       sortable:true,
-      valueGetter:(p) => {
-        const d = getDeltaA(p.row)
+      valueGetter: (p) => {
+        const d = getDeltaA(p?.row ?? {})
         return d == null ? null : +d.toFixed(2)
       },
       renderCell:(p) => {
-        const d = p.value
-        const k = classifyDelta(d)
+        const k = p?.row ? trendForRow(p.row) : { label:'—', color:'default', icon:null }
         return (
           <Chip
             size="small"
@@ -171,8 +170,8 @@ export default function NldLightLevelsPage () {
       headerName:'Δ B',
       width:110,
       sortable:true,
-      valueGetter:(p) => {
-        const d = getDeltaB(p.row)
+      valueGetter: (p) => {
+        const d = getDeltaB(p?.row ?? {})
         return d == null ? null : +d.toFixed(2)
       },
       renderCell:(p) => {
@@ -196,7 +195,7 @@ export default function NldLightLevelsPage () {
       headerName:'Trend',
       width:140,
       sortable:false,
-      valueGetter:(p) => trendForRow(p.row).label,
+      valueGetter: (p) => (p?.row ? trendForRow(p.row).label : '—'),
       renderCell:(p) => {
         const t = trendForRow(p.row)
         return (
