@@ -156,7 +156,7 @@ export default function NldLightLevelsPage () {
       </Drawer>
 
       {/* ---------- History drawer ---------- */}
-      <Drawer anchor="right" open={Boolean(hist)} onClose={() => setHist(null)} PaperProps={{ sx: { zIndex: 2300 } }}>
+      <Drawer anchor="right" open={Boolean(hist)} onClose={() => setHist(null)} ModalProps={{ sx: { zIndex: 2400 } }} slotProps={{ paper: { sx: { pt: 7, width: 360 } } }}>
         <Box p={3} width={360}>
           <Typography variant="h6" gutterBottom>Level History</Typography>
           {hist?.map(h => (
