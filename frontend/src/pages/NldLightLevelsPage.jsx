@@ -75,8 +75,8 @@ export default function NldLightLevelsPage () {
     ? '—'
     : `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`
 
-  const classifyDelta = (d) => {
-    if (d === null || d === undefined || Number.isNaN(d)) {
+  const chipForDelta = (d) => {
+    if (d == null || Number.isNaN(d)) {
       return { label: '—', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
     }
     if (Math.abs(d) < 0.05) {
@@ -88,21 +88,6 @@ export default function NldLightLevelsPage () {
     return { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
   }
 
-  // ---- null-safe initial + delta helpers
-  const getInitialA = (r = {}) => r.initRxSiteA ?? r.initial?.rxSiteA ?? null
-  const getInitialB = (r = {}) => r.initRxSiteB ?? r.initial?.rxSiteB ?? null
-
-  const getDeltaA = (r = {}) => {
-    const init = getInitialA(r)
-    const curr = r?.currentRxSiteA
-    return (init == null || curr == null) ? null : (curr - init)
-  }
-  const getDeltaB = (r = {}) => {
-    const init = getInitialB(r)
-    const curr = r?.currentRxSiteB
-    return (init == null || curr == null) ? null : (curr - init)
-  }
-
   /* ── datagrid columns (memoised) ───────────────────── */
   const columns = useMemo(() => [
     { field:'circuitId', headerName:'Circuit', flex:1, minWidth:160 },
@@ -112,157 +97,137 @@ export default function NldLightLevelsPage () {
     { field:'currentRxSiteA', headerName:'Rx A (dBm)', width:110, type:'number' },
     { field:'currentRxSiteB', headerName:'Rx B (dBm)', width:110, type:'number' },
 
-    // Initial levels (render directly from the row so we can fallback)
+    // Init A/B — render directly from the row (no valueGetter → null-safe)
     {
-      field: 'initRxSiteA',
-      headerName: 'Init A',
-      width: 95,
-      sortable: false,
-      renderCell: (p) => {
-        const r = p.row ?? {}
+      field:'initRxSiteA',
+      headerName:'Init A',
+      width:95,
+      sortable:false,
+      renderCell:(p) => {
+        const r = p?.row ?? {}
         const v = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
         return <span>{v ?? '—'}</span>
       }
     },
     {
-      field: 'initRxSiteB',
-      headerName: 'Init B',
-      width: 95,
-      sortable: false,
-      renderCell: (p) => {
-        const r = p.row ?? {}
+      field:'initRxSiteB',
+      headerName:'Init B',
+      width:95,
+      sortable:false,
+      renderCell:(p) => {
+        const r = p?.row ?? {}
         const v = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
         return <span>{v ?? '—'}</span>
       }
     },
 
-    // Deltas since initial (null-safe)
+    // Δ A — compute and render inside renderCell, plus a safe sortComparator
     {
-      field: 'deltaA',
-      headerName: 'Δ A',
-      width: 110,
-      sortable: true,
-      valueGetter: (p) => {
-        const r = p.row ?? {}
+      field:'deltaA',
+      headerName:'Δ A',
+      width:110,
+      renderCell:(p) => {
+        const r = p?.row ?? {}
         const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
         const curr = r.currentRxSiteA
-        if (init == null || curr == null) return null
-        return +(curr - init).toFixed(2)
-      },
-      renderCell: (p) => {
-        const d = p.value
-        const k = (d == null)
-          ? { label: '—', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-          : (Math.abs(d) < 0.05
-              ? { label: 'Same', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-              : d > 0
-                ? { label: 'Better', color: 'success', icon: <ArrowUpwardRoundedIcon fontSize="small" /> }
-                : { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> })
+        const d = (init == null || curr == null) ? null : (curr - init)
+        const k = chipForDelta(d)
         return (
           <Chip
             size="small"
             color={k.color}
             icon={k.icon}
-            label={d == null ? '—' : `${d > 0 ? '+' : ''}${d.toFixed(1)} dB`}
-            sx={{ fontWeight: 600 }}
+            label={d == null ? '—' : fmtSigned(d)}
+            sx={{ fontWeight:600 }}
           />
         )
+      },
+      sortComparator: (_a, _b, p1, p2) => {
+        const r1 = p1?.row ?? {}, r2 = p2?.row ?? {}
+        const i1 = r1.initRxSiteA ?? r1.initial?.rxSiteA ?? null
+        const c1 = r1.currentRxSiteA
+        const d1 = (i1 == null || c1 == null) ? -Infinity : c1 - i1
+        const i2 = r2.initRxSiteA ?? r2.initial?.rxSiteA ?? null
+        const c2 = r2.currentRxSiteA
+        const d2 = (i2 == null || c2 == null) ? -Infinity : c2 - i2
+        return d1 - d2
       }
     },
+
+    // Δ B — same pattern
     {
-      field: 'deltaB',
-      headerName: 'Δ B',
-      width: 110,
-      sortable: true,
-      valueGetter: (p) => {
-        const r = p.row ?? {}
+      field:'deltaB',
+      headerName:'Δ B',
+      width:110,
+      renderCell:(p) => {
+        const r = p?.row ?? {}
         const init = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
         const curr = r.currentRxSiteB
-        if (init == null || curr == null) return null
-        return +(curr - init).toFixed(2)
-      },
-      renderCell: (p) => {
-        const d = p.value
-        const k = (d == null)
-          ? { label: '—', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-          : (Math.abs(d) < 0.05
-              ? { label: 'Same', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-              : d > 0
-                ? { label: 'Better', color: 'success', icon: <ArrowUpwardRoundedIcon fontSize="small" /> }
-                : { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> })
+        const d = (init == null || curr == null) ? null : (curr - init)
+        const k = chipForDelta(d)
         return (
           <Chip
             size="small"
             color={k.color}
             icon={k.icon}
-            label={d == null ? '—' : `${d > 0 ? '+' : ''}${d.toFixed(1)} dB`}
-            sx={{ fontWeight: 600 }}
+            label={d == null ? '—' : fmtSigned(d)}
+            sx={{ fontWeight:600 }}
           />
         )
+      },
+      sortComparator: (_a, _b, p1, p2) => {
+        const r1 = p1?.row ?? {}, r2 = p2?.row ?? {}
+        const i1 = r1.initRxSiteB ?? r1.initial?.rxSiteB ?? null
+        const c1 = r1.currentRxSiteB
+        const d1 = (i1 == null || c1 == null) ? -Infinity : c1 - i1
+        const i2 = r2.initRxSiteB ?? r2.initial?.rxSiteB ?? null
+        const c2 = r2.currentRxSiteB
+        const d2 = (i2 == null || c2 == null) ? -Infinity : c2 - i2
+        return d1 - d2
       }
     },
 
-    // Per-side trend chips (uses the same deltas)
+    // Trend A/B — per-side chips using the same delta logic
     {
-      field: 'trendA',
-      headerName: 'Trend A',
-      width: 120,
-      sortable: false,
-      valueGetter: (p) => {
-        const r = p.row ?? {}
+      field:'trendA',
+      headerName:'Trend A',
+      width:120,
+      sortable:false,
+      renderCell:(p)=>{
+        const r = p?.row ?? {}
         const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
         const curr = r.currentRxSiteA
-        if (init == null || curr == null) return null
-        return curr - init
-      },
-      renderCell: (p) => {
-        const d = p.value
-        const k = (d == null)
-          ? { label: '—', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-          : (Math.abs(d) < 0.05
-              ? { label: 'Same', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-              : d > 0
-                ? { label: 'Better', color: 'success', icon: <ArrowUpwardRoundedIcon fontSize="small" /> }
-                : { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> })
-        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight: 600 }} />
+        const d = (init == null || curr == null) ? null : (curr - init)
+        const k = chipForDelta(d)
+        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
     {
-      field: 'trendB',
-      headerName: 'Trend B',
-      width: 120,
-      sortable: false,
-      valueGetter: (p) => {
-        const r = p.row ?? {}
+      field:'trendB',
+      headerName:'Trend B',
+      width:120,
+      sortable:false,
+      renderCell:(p)=>{
+        const r = p?.row ?? {}
         const init = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
         const curr = r.currentRxSiteB
-        if (init == null || curr == null) return null
-        return curr - init
-      },
-      renderCell: (p) => {
-        const d = p.value
-        const k = (d == null)
-          ? { label: '—', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-          : (Math.abs(d) < 0.05
-              ? { label: 'Same', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
-              : d > 0
-                ? { label: 'Better', color: 'success', icon: <ArrowUpwardRoundedIcon fontSize="small" /> }
-                : { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> })
-        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight: 600 }} />
+        const d = (init == null || curr == null) ? null : (curr - init)
+        const k = chipForDelta(d)
+        return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
 
+    // Last Event (safe to use valueGetter on the direct field value)
     {
       field:'updatedAt',
       headerName:'Last Event',
       minWidth:170,
       type:'dateTime',
       valueGetter:({ value }) => value ? dayjs(value).toDate() : undefined,
-      valueFormatter: params =>
-        params && params.value
-          ? dayjs(params.value).format('YYYY-MM-DD HH:mm')
-          : ''
+      valueFormatter: (params) =>
+        params?.value ? dayjs(params.value).format('YYYY-MM-DD HH:mm') : ''
     },
+
     {
       field:'actions',
       headerName:'', width:130, sortable:false, filterable:false,
