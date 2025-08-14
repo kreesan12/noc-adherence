@@ -224,9 +224,9 @@ async function main (targetDate) {
       const reason = (diffA >= 0.1 || diffB >= 0.1) ? 'event importer' : 'event importer (no drift)'
       await cx.query(
         `INSERT INTO "CircuitLevelHistory"
-          (circuit_id, rx_site_a, rx_site_b, reason, source)
-        VALUES ($1,$2,$3,$4,'light-level csv ' || $5)`,
-        [c.id, currA, currB, reason, msg.id]
+          (circuit_id, rx_site_a, rx_site_b, reason, source, changed_at)
+        VALUES ($1,$2,$3,$4,'light-level csv ' || $5, $6::timestamptz)`,
+        [c.id, currA, currB, reason, msg.id, edate]
       )
 
       // set updated_at to event date (monotonic), and update levels only if drift

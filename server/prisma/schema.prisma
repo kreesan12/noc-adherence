@@ -262,7 +262,7 @@ model CircuitLevelHistory {
   reason      String
   source      String
   changedById Int?     @map("changed_by_id")
-  changedAt   DateTime @default(now()) @map("changed_at")
+  changedAt   DateTime @map("changed_at")
 }
 
 model LightLevelEvent {
