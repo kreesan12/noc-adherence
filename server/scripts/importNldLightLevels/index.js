@@ -216,15 +216,12 @@ async function main (targetDate) {
       }
       seenInBatch.add(tid)
 
-      // Only for new tickets: update live values/history if drift ≥ 0.1 dB
+      // diffs
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
       const diffB = Math.abs((currB ?? 0) - (c.current_rx_site_b ?? 0))
 
-      // Always record the event in history (even if no drift)
-      const reason = (diffA >= 0.1 || diffB >= 0.1)
-        ? 'event importer'
-        : 'event importer (no drift)'
-
+      // always write history (even with no drift)
+      const reason = (diffA >= 0.1 || diffB >= 0.1) ? 'event importer' : 'event importer (no drift)'
       await cx.query(
         `INSERT INTO "CircuitLevelHistory"
           (circuit_id, rx_site_a, rx_site_b, reason, source)
@@ -232,13 +229,22 @@ async function main (targetDate) {
         [c.id, currA, currB, reason, msg.id]
       )
 
-      // Only update live values if drift is meaningful
+      // set updated_at to event date (monotonic), and update levels only if drift
       if (diffA >= 0.1 || diffB >= 0.1) {
         await cx.query(
           `UPDATE "Circuit"
-            SET current_rx_site_a=$1, current_rx_site_b=$2
-          WHERE id=$3`,
-          [currA, currB, c.id]
+            SET current_rx_site_a = $1,
+                current_rx_site_b = $2,
+                updated_at        = GREATEST(COALESCE(updated_at,'epoch'::timestamptz), $3::timestamptz)
+          WHERE id = $4`,
+          [currA, currB, edate, c.id]
+        )
+      } else {
+        await cx.query(
+          `UPDATE "Circuit"
+            SET updated_at = GREATEST(COALESCE(updated_at,'epoch'::timestamptz), $1::timestamptz)
+          WHERE id = $2`,
+          [edate, c.id]
         )
       }
     }
