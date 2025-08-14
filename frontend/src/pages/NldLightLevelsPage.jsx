@@ -153,7 +153,8 @@ export default function NldLightLevelsPage () {
         return d == null ? null : +d.toFixed(2)
       },
       renderCell:(p) => {
-        const k = p?.row ? trendForRow(p.row) : { label:'—', color:'default', icon:null }
+        const d = p.value
+        const k = classifyDelta(d)
         return (
           <Chip
             size="small"
