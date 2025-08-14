@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Daily cron – fetch “NLD Tracking” e-mail (ZIP / CSV),
- * parse it, UPSERT events, auto-correct swapped sides, update live levels.
+ * parse it, INSERT-ONCE events, decide A/B swap using CURRENT levels only,
+ * then update live levels if needed.
  *
  * CLI : node … [YYYY-MM-DD]   ← optional back-fill; default = yesterday
  */
@@ -18,18 +19,69 @@ dayjs.tz.setDefault('Africa/Johannesburg')
 
 const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, DATABASE_URL } = process.env
 
-/* ───────── helper: detect swapped sides ───────── */
-function maybeSwap (aLive, bLive, prevA, prevB, currA, currB) {
-  const d = (x, y) => Math.abs((x ?? 0) - (y ?? 0))
-  const same      = d(currA,aLive) + d(currB,bLive)
-  const cross     = d(currA,bLive) + d(currB,aLive)
-  const samePrev  = d(prevA,aLive) + d(prevB,bLive)
-  const crossPrev = d(prevA,bLive) + d(prevB,aLive)
-
-  if ((cross+crossPrev) + 0.4 < (same+samePrev)) {
-    return { prevA:prevB, prevB:prevA, currA:currB, currB:currA, swapped:true }
+/* ───────── helpers ───────── */
+function toNum (v) {
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : null
+}
+function delta (a,b) {
+  const A = toNum(a), B = toNum(b)
+  return (A==null || B==null) ? null : (A - B)
+}
+function norm (s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+function pick (row, keys) {
+  for (const k of keys) {
+    if (row[k] != null && String(row[k]).trim() !== '') return row[k]
   }
-  return { prevA, prevB, currA, currB, swapped:false }
+  return undefined
+}
+
+/**
+ * Decide if currA/currB look swapped compared only to live levels.
+ * Optional soft bias from names.
+ */
+function maybeSwapCurrentOnly ({
+  liveA, liveB,
+  currA, currB,
+  csvAName, csvBName,
+  nodeAName, nodeBName
+}) {
+  // must have both live and both current to compare
+  if (liveA == null || liveB == null || currA == null || currB == null) {
+    return { currA, currB, swapped:false, reason:'insufficient data' }
+  }
+
+  const d = (x,y) => Math.abs((x ?? 0) - (y ?? 0))
+  let sameScore = d(currA, liveA) + d(currB, liveB)
+  let swapScore = d(currA, liveB) + d(currB, liveA)
+
+  // rough name hints
+  const aCsv = norm(csvAName)
+  const bCsv = norm(csvBName)
+  const aCir = norm(nodeAName)
+  const bCir = norm(nodeBName)
+
+  // if A name looks like B side and B name looks like A side, bias toward swap
+  const aLooksB = aCsv && (aCsv.includes(' b ') || aCsv.endsWith(' b') || aCsv.startsWith('b ') || (bCir && aCsv.includes(bCir)))
+  const bLooksA = bCsv && (bCsv.includes(' a ') || bCsv.endsWith(' a') || bCsv.startsWith('a ') || (aCir && bCsv.includes(aCir)))
+  // if A name looks like A and B like B, bias toward keeping
+  const aLooksA = aCsv && (aCsv.includes(' a ') || aCsv.endsWith(' a') || aCsv.startsWith('a ') || (aCir && aCsv.includes(aCir)))
+  const bLooksB = bCsv && (bCsv.includes(' b ') || bCsv.endsWith(' b') || bCsv.startsWith('b ') || (bCir && bCsv.includes(bCir)))
+
+  const NAME_BIAS = 0.2   // small bias, do not dominate
+  if (aLooksB && bLooksA) swapScore -= NAME_BIAS
+  if (aLooksA && bLooksB) sameScore -= NAME_BIAS
+
+  const MARGIN = 0.4      // need a clear win to swap
+  if (swapScore + MARGIN < sameScore) {
+    return { currA: currB, currB: currA, swapped:true, reason:`swap by current-only heuristic (swap=${swapScore.toFixed(2)} < same=${sameScore.toFixed(2)} - ${MARGIN})` }
+  }
+  return { currA, currB, swapped:false, reason:`keep by current-only heuristic (same=${sameScore.toFixed(2)} <= swap+${MARGIN})` }
 }
 
 /* ── Gmail helpers ─────────────────────────────────────── */
@@ -42,7 +94,6 @@ async function findMail (client, day) {
   const after  = day.format('YYYY/MM/DD')
   const before = day.add(1,'day').format('YYYY/MM/DD')
   const q = `subject:(NLD Tracking) after:${after} before:${before}`
-
   const { data:{ messages } } = await client.users.messages.list({
     userId:'me', q, maxResults:1
   })
@@ -59,15 +110,15 @@ async function fetchAttachment (client,msg,part) {
 
 /* ── Main import ───────────────────────────────────────── */
 async function main (targetDate) {
-  const cx = await new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: DATABASE_URL,
     ssl:{ rejectUnauthorized:false }
-  }).connect()
+  })
+  const cx = await pool.connect()
 
   const g   = await gmail()
   const msg = await findMail(g, targetDate)
 
-  /* gather CSV buffers */
   const csvBuffers=[]
   for (const p of msg.payload.parts ?? []) {
     if (!/\.csv$|\.zip$/i.test(p.filename)) continue
@@ -80,106 +131,132 @@ async function main (targetDate) {
   }
   if (!csvBuffers.length) throw new Error('No CSV attachment in mail')
 
-  await cx.query('BEGIN')
-
+  const allRows = []
   for (const buf of csvBuffers) {
-    const rows = parse(buf,{ columns:true, skip_empty_lines:true })
+    const parsed = parse(buf, { columns:true, skip_empty_lines:true })
+    allRows.push(...parsed)
+  }
 
-    for (const r of rows) {
-      /* ── normalise circuit-ID ───────────────────────── */
+  const seenInBatch = new Set()
+
+  await cx.query('BEGIN')
+  try {
+    for (const r of allRows) {
+      /* normalise circuitId */
       let circuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
       if (!circuitId) continue
       circuitId = circuitId.replace(/\|/g,'&').replace(/\s*&\s*/g,' & ')
 
-      /* parse numeric / text fields */
-      const tid   = r['Ticket ID']
-      const it    = r['Impact Type']
-      const edate = r['Date']
-      let prevA   = parseFloat(r['Side A previous level'])
-      let currA   = parseFloat(r['Side A current level'])
-      let prevB   = parseFloat(r['Side B previous level'])
-      let currB   = parseFloat(r['Side B current level'])
-      const hours = parseFloat(r['Impact Duration (hours)'])
+      const tid = String(r['Ticket ID'] ?? '').trim()
+      if (!tid) continue
+      if (seenInBatch.has(tid)) continue
 
-      /* look-up circuit first (needed for swap logic) */
+      const it    = r['Impact Type'] ?? null
+      const edate = r['Date'] ?? null
+
+      // CSV current and previous levels
+      let currA   = toNum(pick(r, ['Side A current level', 'Side A Current Level', 'A Current']))
+      let currB   = toNum(pick(r, ['Side B current level', 'Side B Current Level', 'B Current']))
+      let prevA   = toNum(pick(r, ['Side A previous level', 'Side A Previous Level', 'A Previous']))
+      let prevB   = toNum(pick(r, ['Side B previous level', 'Side B Previous Level', 'B Previous']))
+
+      // Optional names for soft bias
+      const csvAName = pick(r, ['Side A name','Side A Name','A Name','A Site','Side A'])
+      const csvBName = pick(r, ['Side B name','Side B Name','B Name','B Site','Side B'])
+
+      // circuit lookup with live levels and node names
       const { rows:cRows } = await cx.query(
-        `SELECT id,current_rx_site_a,current_rx_site_b
+        `SELECT id, node_a, node_b, current_rx_site_a, current_rx_site_b
            FROM "Circuit" WHERE circuit_id=$1`, [circuitId])
       if (!cRows.length) { console.warn('⚠︎ unknown circuit', circuitId); continue }
       const c = cRows[0]
 
-      /* auto-fix swapped sides */
-      const fixed = maybeSwap(
-        c.current_rx_site_a, c.current_rx_site_b,
-        prevA, prevB, currA, currB
-      )
-      prevA = fixed.prevA
-      prevB = fixed.prevB
-      currA = fixed.currA
-      currB = fixed.currB
-      if (fixed.swapped) {
-        console.log(`↻ swapped sides for ticket ${tid} (${circuitId})`)
+      // decide swap using CURRENT only
+      const decision = maybeSwapCurrentOnly({
+        liveA: c.current_rx_site_a,
+        liveB: c.current_rx_site_b,
+        currA, currB,
+        csvAName, csvBName,
+        nodeAName: c.node_a,
+        nodeBName: c.node_b
+      })
+
+      if (decision.swapped) {
+        console.log(`↻ swapped sides for ticket ${tid} (${circuitId}) → ${decision.reason}`)
+        // swap both current and previous so event is consistent
+        ;[currA, currB] = [decision.currA, decision.currB]
+        ;[prevA, prevB] = [prevB, prevA]
       }
 
-      /* UPSERT event */
-      await cx.query(
-        `INSERT INTO "LightLevelEvent"
-           (circuit_id,ticket_id,impact_type,event_date,
-            side_a_prev,side_a_curr,side_b_prev,side_b_curr,
-            side_a_delta,side_b_delta,impact_hours,source_email_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         ON CONFLICT (ticket_id) DO UPDATE SET
-           impact_type     = EXCLUDED.impact_type,
-           event_date      = EXCLUDED.event_date,
-           side_a_prev     = EXCLUDED.side_a_prev,
-           side_a_curr     = EXCLUDED.side_a_curr,
-           side_b_prev     = EXCLUDED.side_b_prev,
-           side_b_curr     = EXCLUDED.side_b_curr,
-           side_a_delta    = EXCLUDED.side_a_delta,
-           side_b_delta    = EXCLUDED.side_b_delta,
-           impact_hours    = EXCLUDED.impact_hours,
-           source_email_id = EXCLUDED.source_email_id`,
-        [
-          c.id, tid, it, edate,
-          prevA, currA, prevB, currB,
-          currA - prevA, currB - prevB,
-          hours, msg.id
-        ])
+      const saDelta = delta(currA, prevA)
+      const sbDelta = delta(currB, prevB)
 
-      /* always record the ticket; only update live levels if drift ≥0.1 dB */
+      // INSERT ONCE for this ticket
+      const insertSql = `
+        INSERT INTO "LightLevelEvent"
+          (circuit_id, ticket_id, impact_type, event_date,
+           side_a_prev, side_a_curr, side_b_prev, side_b_curr,
+           side_a_delta, side_b_delta, impact_hours, source_email_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT (ticket_id) DO NOTHING
+        RETURNING id
+      `
+      const hours = toNum(r['Impact Duration (hours)'])
+      const { rows: ins } = await cx.query(insertSql, [
+        c.id, tid, it, edate,
+        prevA, currA, prevB, currB,
+        saDelta, sbDelta,
+        hours, msg.id
+      ])
+
+      if (ins.length === 0) {
+        seenInBatch.add(tid)
+        console.log(`⤳ skip duplicate ticket ${tid} (already recorded)`)
+        continue
+      }
+      seenInBatch.add(tid)
+
+      // Only for new tickets: update live values/history if drift ≥ 0.1 dB
       const diffA = Math.abs((currA ?? 0) - (c.current_rx_site_a ?? 0))
       const diffB = Math.abs((currB ?? 0) - (c.current_rx_site_b ?? 0))
 
+      // Always record the event in history (even if no drift)
+      const reason = (diffA >= 0.1 || diffB >= 0.1)
+        ? 'event importer'
+        : 'event importer (no drift)'
+
+      await cx.query(
+        `INSERT INTO "CircuitLevelHistory"
+          (circuit_id, rx_site_a, rx_site_b, reason, source)
+        VALUES ($1,$2,$3,$4,'light-level csv ' || $5)`,
+        [c.id, currA, currB, reason, msg.id]
+      )
+
+      // Only update live values if drift is meaningful
       if (diffA >= 0.1 || diffB >= 0.1) {
-        /* levels changed → update live values */
         await cx.query(
           `UPDATE "Circuit"
-             SET current_rx_site_a=$1,current_rx_site_b=$2
-           WHERE id=$3`,
-          [currA,currB,c.id])
-        await cx.query(
-          `INSERT INTO "CircuitLevelHistory"
-             (circuit_id,rx_site_a,rx_site_b,reason,source)
-           VALUES ($1,$2,$3,'event importer',$4)`,
-          [c.id,currA,currB,'light-level csv '+msg.id])
-      } else {
-        /* no drift → still write history so UI can show the event */
-        await cx.query(
-          `INSERT INTO "CircuitLevelHistory"
-             (circuit_id,rx_site_a,rx_site_b,reason,source)
-           VALUES ($1,$2,$3,'event importer (no drift)',$4)`,
-          [c.id,currA,currB,'light-level csv '+msg.id])
+            SET current_rx_site_a=$1, current_rx_site_b=$2
+          WHERE id=$3`,
+          [currA, currB, c.id]
+        )
       }
     }
-  }
 
-  await cx.query('COMMIT')
-  cx.release()
-  console.log('Imported light levels for', targetDate.format('YYYY-MM-DD'))
+    await cx.query('COMMIT')
+    console.log('Imported light levels for', targetDate.format('YYYY-MM-DD'))
+  } catch (e) {
+    await cx.query('ROLLBACK')
+    console.error('Import failed:', e)
+    process.exitCode = 1
+  } finally {
+    cx.release()
+    await pool.end()
+  }
 }
 
 /* ── Runner ───────────────────────────────────────────── */
-(async () => {
+;(async () => {
   const target = process.argv[2]
     ? dayjs.tz(process.argv[2],'YYYY-MM-DD','Africa/Johannesburg')
     : dayjs().subtract(1,'day')
