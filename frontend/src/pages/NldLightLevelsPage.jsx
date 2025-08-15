@@ -264,21 +264,21 @@ export default function NldLightLevelsPage () {
 
     // ── Last event + actions ────────────────────
     {
-      field:'lastEventAt',
-      headerName:'Last Event',
-      minWidth:170,
-      type:'dateTime',
-      valueGetter:(p) => {
-        const r = p?.row ?? {}
-        const last = r.lastEventAt
-        if (!last) return undefined
-        // if you have initial.changedAt in the row, blank out when not strictly after
-        const initialAt = r.initial?.changedAt
-        if (initialAt && dayjs(last).isSameOrBefore(dayjs(initialAt))) return undefined
-        return dayjs(last).toDate()
+      field: 'lastEventAt',
+      headerName: 'Last Event',
+      minWidth: 170,
+      align: 'center',
+      headerAlign: 'center',
+      sortable: true,
+      renderCell: (p) => {
+        const v = p?.row?.lastEventAt
+        return v ? dayjs(v).format('YYYY-MM-DD HH:mm') : ''
       },
-      valueFormatter: (params) =>
-        params?.value ? dayjs(params.value).format('YYYY-MM-DD HH:mm') : ''
+      sortComparator: (_a, _b, p1, p2) => {
+        const t1 = p1?.row?.lastEventAt ? dayjs(p1.row.lastEventAt).valueOf() : -Infinity
+        const t2 = p2?.row?.lastEventAt ? dayjs(p2.row.lastEventAt).valueOf() : -Infinity
+        return t1 - t2
+      },
     },
     {
       field:'actions',
