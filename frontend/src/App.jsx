@@ -31,6 +31,7 @@ import EventBusyIcon          from '@mui/icons-material/EventBusy';
 import PeopleIcon             from '@mui/icons-material/People';
 import LanOutlinedIcon        from '@mui/icons-material/LanOutlined';
 import MapIcon                from '@mui/icons-material/Map'
+import AvTimerIcon            from '@mui/icons-material/AvTimer'
 
 
 /* ── pages ──────────────────────────────────────────────── */
