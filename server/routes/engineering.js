@@ -34,31 +34,52 @@ r.get('/circuits', async (_, res) => {
         }
       },
 
-      // NEW: fetch the very first "initial import" record for deltas
+      // Initial import record (baseline for deltas)
       levelHistory: {
         where: { reason: 'initial import' },
         orderBy: { changedAt: 'asc' },
         take: 1,
         select: { rxSiteA: true, rxSiteB: true, changedAt: true }
+      },
+
+      // NEW: latest light-level event date
+      lightEvents: {
+        select: { eventDate: true },
+        orderBy: { eventDate: 'desc' },
+        take: 1
       }
     },
     orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }]
   })
 
-  // Flatten initial import info for the frontend (initRxSiteA/B + initial)
+  // Flatten initial import info and compute lastEventAt
   const shaped = circuits.map(c => {
-    const { levelHistory: initArr, ...rest } = c
-    const init = initArr?.[0] ?? null
+    const init = c.levelHistory?.[0] ?? null
+    const latestEventAt = c.lightEvents?.[0]?.eventDate ?? null
+
+    // Only show lastEventAt if it is strictly AFTER the initial import
+    let lastEventAt = latestEventAt
+    if (init?.changedAt && latestEventAt) {
+      const initTs = new Date(init.changedAt).getTime()
+      const eventTs = new Date(latestEventAt).getTime()
+      if (!(eventTs > initTs)) lastEventAt = null
+    }
+
+    // Drop the arrays from the payload to keep it clean
+    const { levelHistory, lightEvents, ...rest } = c
+
     return {
       ...rest,
       initRxSiteA: init?.rxSiteA ?? null,
       initRxSiteB: init?.rxSiteB ?? null,
-      initial: init
+      initial: init,          // { rxSiteA, rxSiteB, changedAt } or null
+      lastEventAt             // Date | null
     }
   })
 
   res.json(shaped)
 })
+
 
 r.get('/circuit/:id', async (req, res) => {
   const id = +req.params.id

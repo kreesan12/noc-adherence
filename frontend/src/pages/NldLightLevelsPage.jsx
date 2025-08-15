@@ -264,11 +264,19 @@ export default function NldLightLevelsPage () {
 
     // ── Last event + actions ────────────────────
     {
-      field:'updatedAt',
+      field:'lastEventAt',
       headerName:'Last Event',
       minWidth:170,
       type:'dateTime',
-      valueGetter:({ value }) => value ? dayjs(value).toDate() : undefined,
+      valueGetter:(p) => {
+        const r = p?.row ?? {}
+        const last = r.lastEventAt
+        if (!last) return undefined
+        // if you have initial.changedAt in the row, blank out when not strictly after
+        const initialAt = r.initial?.changedAt
+        if (initialAt && dayjs(last).isSameOrBefore(dayjs(initialAt))) return undefined
+        return dayjs(last).toDate()
+      },
       valueFormatter: (params) =>
         params?.value ? dayjs(params.value).format('YYYY-MM-DD HH:mm') : ''
     },
