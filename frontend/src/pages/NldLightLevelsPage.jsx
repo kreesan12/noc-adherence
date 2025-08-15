@@ -139,7 +139,7 @@ export default function NldLightLevelsPage () {
     // ── Side A group ─────────────────────────────
     {
       field:'currentRxSiteA',
-      headerName:'Rx A (dBm)',
+      headerName:'Current Rx A (dBm)',
       width:112,
       type:'number',
       headerClassName:'groupAStart',
@@ -147,7 +147,7 @@ export default function NldLightLevelsPage () {
     },
     {
       field:'initRxSiteA',
-      headerName:'Init A',
+      headerName:'Initial Rx A (dBm)',
       width:95,
       sortable:false,
       renderCell:(p) => {
@@ -197,7 +197,7 @@ export default function NldLightLevelsPage () {
     // ── Side B group ─────────────────────────────
     {
       field:'currentRxSiteB',
-      headerName:'Rx B (dBm)',
+      headerName:'Current Rx B (dBm)',
       width:112,
       type:'number',
       headerClassName:'groupBStart',
@@ -205,7 +205,7 @@ export default function NldLightLevelsPage () {
     },
     {
       field:'initRxSiteB',
-      headerName:'Init B',
+      headerName:'Initial Rx B (dBm)',
       width:95,
       sortable:false,
       renderCell:(p) => {
