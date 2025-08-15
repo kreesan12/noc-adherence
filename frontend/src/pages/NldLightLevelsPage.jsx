@@ -142,6 +142,8 @@ export default function NldLightLevelsPage () {
       headerName:'Current Rx A (dBm)',
       width:150,
       type:'number',
+      align: 'center',        // ← centers cell content
+      headerAlign: 'center',  // ← centers header text
       headerClassName:'groupAStart',
       cellClassName:'groupAStart'
     },
@@ -150,6 +152,8 @@ export default function NldLightLevelsPage () {
       headerName:'Initial Rx A (dBm)',
       width:130,
       type:'number',
+      align: 'center',        // ← centers cell content
+      headerAlign: 'center',  // ← centers header text
       sortable:false,
       renderCell:(p) => {
         const r = p?.row ?? {}
@@ -201,6 +205,8 @@ export default function NldLightLevelsPage () {
       headerName:'Current Rx B (dBm)',
       width:150,
       type:'number',
+      align: 'center',        // ← centers cell content
+      headerAlign: 'center',  // ← centers header text
       headerClassName:'groupBStart',
       cellClassName:'groupBStart'
     },
@@ -209,6 +215,8 @@ export default function NldLightLevelsPage () {
       headerName:'Initial Rx B (dBm)',
       width:130,
       type:'number',
+      align: 'center',        // ← centers cell content
+      headerAlign: 'center',  // ← centers header text
       sortable:false,
       renderCell:(p) => {
         const r = p?.row ?? {}
