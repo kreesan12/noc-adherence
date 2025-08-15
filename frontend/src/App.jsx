@@ -48,6 +48,7 @@ import NldLightLevelsPage  from './pages/NldLightLevelsPage'
 import NldMappingPage     from './pages/NldMappingPage'
 import ManagersPage       from './pages/ManagersPage'
 import NldMapPage from './pages/NldMapPage'
+import NldUptimePage from './pages/NldUptimePage'
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -91,9 +92,9 @@ function SideNav() {
     {
       title: 'DAILY OPERATIONS',
       items: [
-        { label:'Adherence Tracking', path:'/',          icon:<DashboardIcon/> },
-        { label:'Weekly Schedule',    path:'/schedule',  icon:<CalendarTodayIcon/> },
-        { label:'Leave Planner',      path:'/leave-planner',   icon:<EventBusyIcon/> },
+        { label:'Adherence Tracking', path:'/',                 icon:<DashboardIcon/> },
+        { label:'Weekly Schedule',    path:'/schedule',         icon:<CalendarTodayIcon/> },
+        { label:'Leave Planner',      path:'/leave-planner',    icon:<EventBusyIcon/> },
       ],
     },
     {
@@ -126,8 +127,9 @@ function SideNav() {
       title: 'ENGINEERING',
       items: [
         { label:'NLD Light Levels', path:'/engineering/nlds', icon:<LanOutlinedIcon/> },
-        { label:'NLD Mapping',    path:'/nld-mapping',      icon:<MapIcon/> },
-        { label:'NLD Map',    path:'/nld-map',      icon:<MapIcon/> },
+        { label:'NLD Uptime',       path:'/nld-uptime',       icon:<AvTimerIcon/> },
+        { label:'NLD Mapping',      path:'/nld-mapping',      icon:<MapIcon/> },
+        { label:'NLD Map',          path:'/nld-map',          icon:<MapIcon/> },
       ],
     },
   ]
@@ -223,19 +225,20 @@ export default function App() {
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>
-                <Route path="/"         element={<AdherencePage/>}/>
-                <Route path="/schedule" element={<SchedulePage/>}/>
-                <Route path="/volume"   element={<VolumePage/>}/>
-                <Route path="/roster"   element={<RosterUpload/>}/>
-                <Route path="/agents"   element={<AgentsPage/>}/>
-                <Route path="/staffing" element={<StaffingPage/>}/>
-                <Route path="/shifts"   element={<ShiftManager/>}/>
-                <Route path='/leave-planner'   element={<LeavePlannerPage />} />
-                <Route path="/workforce" element={<WorkforcePage />} />
+                <Route path="/"                 element={<AdherencePage/>}/>
+                <Route path="/schedule"         element={<SchedulePage/>}/>
+                <Route path="/volume"           element={<VolumePage/>}/>
+                <Route path="/roster"           element={<RosterUpload/>}/>
+                <Route path="/agents"           element={<AgentsPage/>}/>
+                <Route path="/staffing"         element={<StaffingPage/>}/>
+                <Route path="/shifts"           element={<ShiftManager/>}/>
+                <Route path='/leave-planner'    element={<LeavePlannerPage />} />
+                <Route path="/workforce"        element={<WorkforcePage />} />
                 <Route path="/managers"         element={<ManagersPage />} />
                 <Route path="/engineering/nlds" element={<NldLightLevelsPage/>} />
-                <Route path="/nld-mapping" element={<NldMappingPage/>}/>
-                <Route path="/nld-map" element={<NldMapPage/>}/>
+                <Route path="/nld-mapping"      element={<NldMappingPage/>}/>
+                <Route path="/nld-map"          element={<NldMapPage/>}/>
+                <Route path="/nld-uptime"       element={<NldUptimePage/>}/>
               </Route>
 
               {/* Fallback */}
