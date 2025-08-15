@@ -140,7 +140,7 @@ export default function NldLightLevelsPage () {
     {
       field:'currentRxSiteA',
       headerName:'Current Rx A (dBm)',
-      width:130,
+      width:150,
       type:'number',
       headerClassName:'groupAStart',
       cellClassName:'groupAStart'
@@ -149,6 +149,7 @@ export default function NldLightLevelsPage () {
       field:'initRxSiteA',
       headerName:'Initial Rx A (dBm)',
       width:130,
+      type:'number',
       sortable:false,
       renderCell:(p) => {
         const r = p?.row ?? {}
@@ -198,7 +199,7 @@ export default function NldLightLevelsPage () {
     {
       field:'currentRxSiteB',
       headerName:'Current Rx B (dBm)',
-      width:130,
+      width:150,
       type:'number',
       headerClassName:'groupBStart',
       cellClassName:'groupBStart'
@@ -207,6 +208,7 @@ export default function NldLightLevelsPage () {
       field:'initRxSiteB',
       headerName:'Initial Rx B (dBm)',
       width:130,
+      type:'number',
       sortable:false,
       renderCell:(p) => {
         const r = p?.row ?? {}
