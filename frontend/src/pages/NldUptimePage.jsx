@@ -125,7 +125,7 @@ export default function NldUptimePage() {
       return {
         field: `m_${key}`,
         headerName: label,
-        width: 140,
+        width: 300,
         align: 'center',
         headerAlign: 'center',
         sortable: true,
