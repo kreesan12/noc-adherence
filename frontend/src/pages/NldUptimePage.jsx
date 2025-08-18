@@ -122,36 +122,41 @@ export default function NldUptimePage() {
     const monthCols = months.map(m => {
       const key = monthKey(m)
       const label = monthLabel(m)
-      return {
-        field: `m_${key}`,
-        headerName: label,
-        width: 300,
-        align: 'center',
-        headerAlign: 'center',
-        sortable: true,
-        renderCell: (p) => {
-          const u = p?.row?.uptime?.[key]
-          const pct = u?.pct
-          const chip = pctChipForValue(pct)
-          const hours = u?.downHrs ?? 0
-          const tip = pct == null
-            ? 'No data'
-            : `Uptime: ${pct.toFixed(2)}%\nDowntime: ${hours.toFixed(2)} h\nTotal: ${u.totalHrs.toFixed(1)} h`
-          return (
-            <Stack sx={{ width:'100%' }} alignItems="center" spacing={0.5}>
-              <Chip size="small" color={chip.color} label={chip.label} title={tip} sx={{ fontWeight: 600 }} />
-              <Typography variant="caption" sx={{ opacity: 0.75 }}>
-                ↓ {hours.toFixed(2)}h
-              </Typography>
-            </Stack>
-          )
-        },
-        sortComparator: (_a, _b, p1, p2) => {
-          const u1 = p1?.row?.uptime?.[key]?.pct ?? -Infinity
-          const u2 = p2?.row?.uptime?.[key]?.pct ?? -Infinity
-          return u1 - u2
-        }
+    return {
+      field: `m_${key}`,
+      headerName: label,
+      width: 140,
+      align: 'center',
+      headerAlign: 'center',
+      sortable: true,
+      cellClassName: 'uptimeCell',            // <-- target via sx
+      renderCell: (p) => {
+        const u = p?.row?.uptime?.[key]
+        const pct = u?.pct
+        const chip = pctChipForValue(pct)
+        const hours = u?.downHrs ?? 0
+        const tip = pct == null
+          ? 'No data'
+          : `Uptime: ${pct.toFixed(2)}%\nDowntime: ${hours.toFixed(2)} h\nTotal: ${u.totalHrs.toFixed(1)} h`
+        return (
+          <Stack
+            sx={{ width:'100%', lineHeight: 1.2 }}   // compact text
+            alignItems="center"
+            spacing={0.25}                           // tighter vertical gap
+          >
+            <Chip size="small" color={chip.color} label={chip.label} title={tip} sx={{ fontWeight: 600 }} />
+            <Typography variant="caption" sx={{ opacity: 0.75 }}>
+              ↓ {hours.toFixed(2)}h
+            </Typography>
+          </Stack>
+        )
+      },
+      sortComparator: (_a, _b, p1, p2) => {
+        const u1 = p1?.row?.uptime?.[key]?.pct ?? -Infinity
+        const u2 = p2?.row?.uptime?.[key]?.pct ?? -Infinity
+        return u1 - u2
       }
+    }
     })
 
     return [...circuitCols, ...monthCols]
@@ -184,16 +189,24 @@ export default function NldUptimePage() {
                 rows={list}
                 columns={columns}
                 getRowId={(r) => r.id}
-                autoHeight
-                density="compact"
+                rowHeight={64}
+                columnHeaderHeight={44}
+                density="standard"
                 pageSizeOptions={[25,50,100]}
                 initialState={{ pagination:{ paginationModel:{ pageSize:25 } } }}
                 slots={{ toolbar: GridToolbar }}
                 slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } } }}
-                sx={{
+                sx={(theme) => ({
                   border: 0,
                   '.MuiDataGrid-cell:hover': { bgcolor:'rgba(0,0,0,0.04)' },
-                }}
+
+                  // center content vertically in our month cells + add a bit of padding
+                  '& .uptimeCell': {
+                    display: 'flex',
+                    alignItems: 'center',
+                    py: 0.5,
+                  },
+                })}
               />
             </Paper>
           </AccordionDetails>
