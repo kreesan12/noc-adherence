@@ -25,6 +25,11 @@ r.get('/circuits', async (_, res) => {
       updatedAt: true,
       nldGroup: true,
 
+        nodeALat: true,
+        nodeALon: true,
+        nodeBLat: true,
+        nodeBLon: true,
+
       // Count of history excluding the initial import (unchanged)
       _count: {
         select: {
@@ -191,5 +196,52 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
+
+
+// NEW: create a circuit
+r.post('/circuits', verifyToken, requireEngineering, async (req, res) => {
+  const {
+    circuitId, nodeA, nodeB, techType = '', nldGroup = '',
+    currentRxSiteA = null, currentRxSiteB = null,
+    nodeALat = null, nodeALon = null, nodeBLat = null, nodeBLon = null,
+  } = req.body || {}
+
+  // basic validation
+  if (!circuitId?.trim() || !nodeA?.trim() || !nodeB?.trim()) {
+    return res.status(400).json({ error: 'circuitId, nodeA, nodeB are required' })
+  }
+
+  // bounds checks if provided
+  const inRange = (n, min, max) => n === null || n === undefined || (Number.isFinite(Number(n)) && Number(n) >= min && Number(n) <= max)
+  if (!inRange(nodeALat, -90, 90) || !inRange(nodeBLat, -90, 90)) {
+    return res.status(400).json({ error: 'Latitudes must be between -90 and 90' })
+  }
+  if (!inRange(nodeALon, -180, 180) || !inRange(nodeBLon, -180, 180)) {
+    return res.status(400).json({ error: 'Longitudes must be between -180 and 180' })
+  }
+
+  try {
+    const created = await prisma.circuit.create({
+      data: {
+        circuitId, nodeA, nodeB, techType, nldGroup,
+        currentRxSiteA, currentRxSiteB,
+        nodeALat, nodeALon, nodeBLat, nodeBLon,
+      },
+      select: {
+        id: true, circuitId: true, nodeA: true, nodeB: true, techType: true, nldGroup: true,
+        currentRxSiteA: true, currentRxSiteB: true, updatedAt: true,
+        nodeALat: true, nodeALon: true, nodeBLat: true, nodeBLon: true,
+      }
+    })
+    res.status(201).json(created)
+  } catch (e) {
+    if (e?.code === 'P2002') {
+      return res.status(409).json({ error: 'Circuit ID must be unique' })
+    }
+    console.error(e)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 
 export default r
