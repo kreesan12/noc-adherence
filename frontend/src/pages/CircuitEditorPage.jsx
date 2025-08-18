@@ -186,14 +186,6 @@ export default function CircuitEditorPage() {
     { field: 'nodeB', headerName: 'Node B', minWidth: 160, flex: 0.8, editable: true },
     { field: 'techType', headerName: 'Tech Type', minWidth: 130, flex: 0.6, editable: true },
     { field: 'nldGroup', headerName: 'NLD Group', minWidth: 120, flex: 0.5, editable: true },
-    {
-      field: 'currentRxSiteA', headerName: 'Rx A (dBm)', type: 'number',
-      minWidth: 120, editable: true, valueParser: toNumberOrNull,
-    },
-    {
-      field: 'currentRxSiteB', headerName: 'Rx B (dBm)', type: 'number',
-      minWidth: 120, editable: true, valueParser: toNumberOrNull,
-    },
     { field: 'nodeALat', headerName: 'Node A Lat', type: 'number', minWidth: 130, editable: true, valueParser: toNumberOrNull },
     { field: 'nodeALon', headerName: 'Node A Lon', type: 'number', minWidth: 130, editable: true, valueParser: toNumberOrNull },
     { field: 'nodeBLat', headerName: 'Node B Lat', type: 'number', minWidth: 130, editable: true, valueParser: toNumberOrNull },
