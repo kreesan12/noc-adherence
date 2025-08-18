@@ -231,25 +231,6 @@ export default function CircuitEditorPage() {
         }}
         pageSizeOptions={[10, 25, 50, 100]}
       />
-    </Paper>
-
-      <Paper sx={{ height: '100%', p: 1 }}>
-        <DataGrid
-          rows={rows}
-          columns={columns}
-          loading={loading}
-          disableRowSelectionOnClick
-          processRowUpdate={processRowUpdate}
-          onProcessRowUpdateError={handleProcessError}
-          editMode="row"
-          experimentalFeatures={{ newEditingApi: true }}
-          slots={{ toolbar: CircuitsToolbar }}
-          slotProps={{ toolbar: { onAdd: handleAdd } }}
-          initialState={{
-            pagination: { paginationModel: { pageSize: 25, page: 0 } },
-          }}
-          pageSizeOptions={[10, 25, 50, 100]}
-        />
       </Paper>
 
       <Snackbar
