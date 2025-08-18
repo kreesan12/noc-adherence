@@ -120,7 +120,7 @@ export default function CircuitEditorPage() {
   const fetchRows = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.get('/circuits')
+      const res = await api.get('engineering/circuits')
       const data = Array.isArray(res.data) ? res.data.map(fromApi) : []
       setRows(data)
     } catch (e) {
@@ -184,13 +184,13 @@ export default function CircuitEditorPage() {
     // Save
     try {
       if (normalized._isNew || normalized.id < 0) {
-        const res = await api.post('/circuits', toApi(normalized))
+        const res = await api.post('engineering/circuits', toApi(normalized))
         const created = fromApi(res.data)
         setSnack({ open: true, severity: 'success', msg: `Created ${created.circuitId}` })
         return created
       }
       // Update existing
-      const res = await api.put(`/circuits/${normalized.id}`, toApi(normalized))
+      const res = await api.put(`engineering/circuits/${normalized.id}`, toApi(normalized))
       const updated = fromApi(res.data)
       setSnack({ open: true, severity: 'success', msg: `Updated ${updated.circuitId}` })
       return updated
