@@ -74,21 +74,41 @@ export default function NldLightLevelsPage () {
   // Per-side source chip
   const sourceChipSide = (source) => {
     if (!source) return null
-    const map = {
-      daily:    { label: 'Daily',          color: 'primary' },
-      event:    { label: 'Event',          color: 'warning' },
-      initial:  { label: 'Initial Import', color: 'info' }
+
+    if (source === 'initial') {
+      return (
+        <Chip
+          size="small"
+          variant="outlined"
+          label="Initial Import"
+          sx={{ ml: 0.75, bgcolor: '#FFF59D', color: '#000' }} // hardcoded yellow
+        />
+      )
     }
-    const k = map[source] ?? map.initial
-    return (
-      <Chip
-        size="small"
-        variant="outlined"
-        color={k.color}
-        label={k.label}
-        sx={{ ml: 0.75 }}
-      />
-    )
+
+    if (source === 'event') {
+      return (
+        <Chip
+          size="small"
+          variant="outlined"
+          label="Event"
+          sx={{ ml: 0.75, bgcolor: '#f44336', color: '#fff' }} // hardcoded red
+        />
+      )
+    }
+
+    if (source === 'daily') {
+      return (
+        <Chip
+          size="small"
+          variant="outlined"
+          label="Daily"
+          sx={{ ml: 0.75, bgcolor: '#2196f3', color: '#fff' }} // hardcoded blue
+        />
+      )
+    }
+
+    return null
   }
 
   // Choose display values per circuit:
