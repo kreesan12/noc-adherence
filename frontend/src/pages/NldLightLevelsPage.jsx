@@ -71,19 +71,33 @@ export default function NldLightLevelsPage () {
   const groupBy = (arr, key) =>
     arr.reduce((m, r) => ((m[r[key] ?? '—'] ??= []).push(r), m), {})
 
-  // Choose display values per circuit based on recency:
-  // - latestDailyAt: max sampleTime in dailyLevels (any side present)
-  // - If lastEventAt > latestDailyAt → use event/currentRx*
-  // - Else → use daily per side (fall back to current for missing side)
+  // Per-side source chip
+  const sourceChipSide = (source) => {
+    if (!source) return null
+    const isDaily = source === 'daily'
+    return (
+      <Chip
+        size="small"
+        variant="outlined"
+        color={isDaily ? 'primary' : 'warning'}
+        label={isDaily ? 'Daily' : 'Event'}
+        sx={{ ml: 0.75 }}
+      />
+    )
+  }
+
+  // Choose display values per circuit:
+  // - For each side, use Daily iff that side has a daily sample newer than lastEventAt
+  // - As-of ALWAYS shows latest daily sampleTime (if any)
   function deriveRow(r) {
     const dailies = Array.isArray(r.dailyLevels) ? r.dailyLevels : []
 
-    // latest sampleTime across ALL daily entries (any side)
+    // latest overall daily (for the "As of" column)
     const latestDailyAt = dailies.length
       ? dailies.map(d => dayjs(d.sampleTime)).sort((a,b)=>b.valueOf()-a.valueOf())[0]
       : null
 
-    // most recent per side
+    // per-side most recent daily
     const latestA = dailies
       .filter(d => (d.side || '').toUpperCase() === 'A')
       .sort((a,b)=>dayjs(b.sampleTime).valueOf() - dayjs(a.sampleTime).valueOf())[0] || null
@@ -92,28 +106,28 @@ export default function NldLightLevelsPage () {
       .sort((a,b)=>dayjs(b.sampleTime).valueOf() - dayjs(a.sampleTime).valueOf())[0] || null
 
     const lastEventAt = r.lastEventAt ? dayjs(r.lastEventAt) : null
-    const hasDaily = Boolean(latestDailyAt)
+    const sideNewerThanEvent = (sideDaily) =>
+      sideDaily && (!lastEventAt || dayjs(sideDaily.sampleTime).isAfter(lastEventAt))
 
-    // Levels: keep the “freshest wins” rule (Event vs Daily)
-    const dailyIsNewer = hasDaily && (!lastEventAt || latestDailyAt.isAfter(lastEventAt))
-    let displayRxA = null
-    let displayRxB = null
+    const useDailyA = sideNewerThanEvent(latestA)
+    const useDailyB = sideNewerThanEvent(latestB)
 
-    if (dailyIsNewer) {
-      displayRxA = (latestA?.rx ?? null) ?? r.currentRxSiteA ?? null
-      displayRxB = (latestB?.rx ?? null) ?? r.currentRxSiteB ?? null
-    } else if (lastEventAt) {
-      displayRxA = r.currentRxSiteA ?? null
-      displayRxB = r.currentRxSiteB ?? null
-    } else {
-      displayRxA = r.currentRxSiteA ?? null
-      displayRxB = r.currentRxSiteB ?? null
-    }
+    const displayRxA = useDailyA ? (latestA?.rx ?? r.currentRxSiteA ?? null)
+                                 : (r.currentRxSiteA ?? null)
+    const displayRxB = useDailyB ? (latestB?.rx ?? r.currentRxSiteB ?? null)
+                                 : (r.currentRxSiteB ?? null)
 
-    // As-of: ALWAYS the latest daily snapshot time (if any), else null
+    // As-of: ALWAYS latest daily snapshot (if any)
     const displayAsOf = latestDailyAt ? latestDailyAt.toISOString() : null
 
-    return { ...r, displayRxA, displayRxB, displayAsOf }
+    return {
+      ...r,
+      displayRxA,
+      displayRxB,
+      displayAsOf,
+      displaySourceA: useDailyA ? 'daily' : 'event',
+      displaySourceB: useDailyB ? 'daily' : 'event',
+    }
   }
 
   const deriveRows = (list) => list.map(deriveRow)
@@ -180,22 +194,6 @@ export default function NldLightLevelsPage () {
     return { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
   }
 
-  const sourceChip = (row) => {
-    const asOf = row?.displayAsOf ? dayjs(row.displayAsOf) : null
-    const evAt = row?.lastEventAt ? dayjs(row.lastEventAt) : null
-    const sameMinute = asOf && evAt && asOf.format('YYYY-MM-DD HH:mm') === evAt.format('YYYY-MM-DD HH:mm')
-    if (!asOf) return null
-    return (
-      <Chip
-        size="small"
-        variant="outlined"
-        color={sameMinute ? 'warning' : 'primary'}
-        label={sameMinute ? 'Event' : 'Daily'}
-        sx={{ ml: 1 }}
-      />
-    )
-  }
-
   /* ── datagrid columns (memoised) ───────────────────── */
   const columns = useMemo(() => [
     { field:'circuitId', headerName:'Circuit', flex:1, minWidth:160 },
@@ -207,7 +205,7 @@ export default function NldLightLevelsPage () {
     {
       field:'displayRxA',
       headerName:'Current Rx A (dBm)',
-      width:160,
+      width:180,
       type:'number',
       align: 'center',
       headerAlign: 'center',
@@ -216,7 +214,12 @@ export default function NldLightLevelsPage () {
       valueGetter: (p) => p?.row?.displayRxA ?? p?.row?.currentRxSiteA ?? null,
       renderCell: (p) => {
         const v = p?.row?.displayRxA ?? p?.row?.currentRxSiteA
-        return <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
+        return (
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5} sx={{ width:'100%' }}>
+            <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
+            {sourceChipSide(p?.row?.displaySourceA)}
+          </Stack>
+        )
       }
     },
     {
@@ -275,7 +278,7 @@ export default function NldLightLevelsPage () {
     {
       field:'displayRxB',
       headerName:'Current Rx B (dBm)',
-      width:160,
+      width:180,
       type:'number',
       align: 'center',
       headerAlign: 'center',
@@ -284,7 +287,12 @@ export default function NldLightLevelsPage () {
       valueGetter: (p) => p?.row?.displayRxB ?? p?.row?.currentRxSiteB ?? null,
       renderCell: (p) => {
         const v = p?.row?.displayRxB ?? p?.row?.currentRxSiteB
-        return <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
+        return (
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5} sx={{ width:'100%' }}>
+            <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
+            {sourceChipSide(p?.row?.displaySourceB)}
+          </Stack>
+        )
       }
     },
     {
@@ -349,12 +357,7 @@ export default function NldLightLevelsPage () {
       sortable: true,
       renderCell: (p) => {
         const v = p?.row?.displayAsOf
-        return (
-          <Stack direction="row" alignItems="center" spacing={0.5}>
-            <span>{v ? dayjs(v).format('YYYY-MM-DD HH:mm') : ''}</span>
-            {sourceChip(p?.row)}
-          </Stack>
-        )
+        return v ? dayjs(v).format('YYYY-MM-DD HH:mm') : ''
       },
       sortComparator: (_a, _b, p1, p2) => {
         const t1 = p1?.row?.displayAsOf ? dayjs(p1.row.displayAsOf).valueOf() : -Infinity
@@ -416,7 +419,9 @@ export default function NldLightLevelsPage () {
         NLD Light-Level Dashboard
       </Typography>
       <Typography variant="body2" sx={{ mb: 2, opacity: 0.8 }}>
-        “Current” values pick the freshest of <strong>Event</strong> vs <strong>Daily</strong> snapshot. Deltas compare against the <strong>initial import</strong>. Higher (less negative) dBm is better.
+        “Current” values pick the freshest of <strong>Event</strong> vs <strong>Daily</strong> snapshot <em>per side</em>.
+        <br/> <strong>As of</strong> shows the timestamp of the latest <strong>Daily</strong> snapshot available.
+        Deltas compare against the <strong>initial import</strong>. Higher (less negative) dBm is better.
       </Typography>
 
       {Object.entries(groupBy(rows, 'nldGroup')).map(([grp, list]) => (
