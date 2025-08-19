@@ -74,13 +74,18 @@ export default function NldLightLevelsPage () {
   // Per-side source chip
   const sourceChipSide = (source) => {
     if (!source) return null
-    const isDaily = source === 'daily'
+    const map = {
+      daily:    { label: 'Daily',          color: 'primary' },
+      event:    { label: 'Event',          color: 'warning' },
+      initial:  { label: 'Initial Import', color: 'info' }
+    }
+    const k = map[source] ?? map.initial
     return (
       <Chip
         size="small"
         variant="outlined"
-        color={isDaily ? 'primary' : 'warning'}
-        label={isDaily ? 'Daily' : 'Event'}
+        color={k.color}
+        label={k.label}
         sx={{ ml: 0.75 }}
       />
     )
@@ -120,13 +125,17 @@ export default function NldLightLevelsPage () {
     // As-of: ALWAYS latest daily snapshot (if any)
     const displayAsOf = latestDailyAt ? latestDailyAt.toISOString() : null
 
+    // Source per side: if not using Daily, call it Event only when an event exists; else Initial
+    const displaySourceA = useDailyA ? 'daily' : (lastEventAt ? 'event' : 'initial')
+    const displaySourceB = useDailyB ? 'daily' : (lastEventAt ? 'event' : 'initial')
+
     return {
       ...r,
       displayRxA,
       displayRxB,
       displayAsOf,
-      displaySourceA: useDailyA ? 'daily' : 'event',
-      displaySourceB: useDailyB ? 'daily' : 'event',
+      displaySourceA,
+      displaySourceB,
     }
   }
 
