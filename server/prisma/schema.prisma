@@ -251,6 +251,7 @@ model Circuit {
 
   levelHistory     CircuitLevelHistory[]
   lightEvents      LightLevelEvent[]
+  dailyLevels      DailyLightLevel[]
 }
 
 model CircuitLevelHistory {
@@ -298,6 +299,7 @@ model DailyLightLevel {
 
   @@unique([circuitId, side, sampleTime], map: "uq_daily_circuit_side_time")
   @@index([parsedCode])
+  @@map("daily_light_level") 
 }
 
 // NEW ENUM
