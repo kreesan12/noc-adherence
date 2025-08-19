@@ -67,14 +67,64 @@ export default function NldLightLevelsPage () {
   const [edit, setEdit] = useState(null)   // { id, rxA, rxB, reason, changedAt }
   const [hist, setHist] = useState(null)   // [{...levelHistory, event?:{ticketId,impactType,impactHours}}]
 
-  /* ── initial fetch ────────────────────────────────── */
-  useEffect(() => {
-    api.get('/engineering/circuits').then(r => setRows(r.data))
-  }, [])
-
   /* ── helpers ──────────────────────────────────────── */
   const groupBy = (arr, key) =>
     arr.reduce((m, r) => ((m[r[key] ?? '—'] ??= []).push(r), m), {})
+
+  // Choose display values per circuit based on recency:
+  // - latestDailyAt: max sampleTime in dailyLevels (any side present)
+  // - If lastEventAt > latestDailyAt → use event/currentRx*
+  // - Else → use daily per side (fall back to current for missing side)
+  function deriveRow(r) {
+    const dailies = Array.isArray(r.dailyLevels) ? r.dailyLevels : []
+
+    // latest sampleTime across ALL daily entries (any side)
+    const latestDailyAt = dailies.length
+      ? dailies.map(d => dayjs(d.sampleTime)).sort((a,b)=>b.valueOf()-a.valueOf())[0]
+      : null
+
+    // most recent per side
+    const latestA = dailies
+      .filter(d => (d.side || '').toUpperCase() === 'A')
+      .sort((a,b)=>dayjs(b.sampleTime).valueOf() - dayjs(a.sampleTime).valueOf())[0] || null
+    const latestB = dailies
+      .filter(d => (d.side || '').toUpperCase() === 'B')
+      .sort((a,b)=>dayjs(b.sampleTime).valueOf() - dayjs(a.sampleTime).valueOf())[0] || null
+
+    const lastEventAt = r.lastEventAt ? dayjs(r.lastEventAt) : null
+    const hasDaily = Boolean(latestDailyAt)
+
+    // Levels: keep the “freshest wins” rule (Event vs Daily)
+    const dailyIsNewer = hasDaily && (!lastEventAt || latestDailyAt.isAfter(lastEventAt))
+    let displayRxA = null
+    let displayRxB = null
+
+    if (dailyIsNewer) {
+      displayRxA = (latestA?.rx ?? null) ?? r.currentRxSiteA ?? null
+      displayRxB = (latestB?.rx ?? null) ?? r.currentRxSiteB ?? null
+    } else if (lastEventAt) {
+      displayRxA = r.currentRxSiteA ?? null
+      displayRxB = r.currentRxSiteB ?? null
+    } else {
+      displayRxA = r.currentRxSiteA ?? null
+      displayRxB = r.currentRxSiteB ?? null
+    }
+
+    // As-of: ALWAYS the latest daily snapshot time (if any), else null
+    const displayAsOf = latestDailyAt ? latestDailyAt.toISOString() : null
+
+    return { ...r, displayRxA, displayRxB, displayAsOf }
+  }
+
+  const deriveRows = (list) => list.map(deriveRow)
+
+  /* ── initial fetch ────────────────────────────────── */
+  useEffect(() => {
+    (async () => {
+      const { data } = await api.get('/engineering/circuits')
+      setRows(deriveRows(data))
+    })()
+  }, [])
 
   async function openHist (id) {
     const { data } = await api.get(`/engineering/circuit/${id}`)
@@ -90,14 +140,12 @@ export default function NldLightLevelsPage () {
   }
 
   function startEdit (r) {
-    // When manually editing, seed with currently displayed values,
-    // but write via POST /engineering/circuit/:id to LevelHistory + Circuit.currentRx*
     setEdit({
       id: r.id,
       rxA: r.displayRxA ?? r.currentRxSiteA ?? '',
       rxB: r.displayRxB ?? r.currentRxSiteB ?? '',
       reason: '',
-      changedAt: dayjs()   // default to now; can be overridden
+      changedAt: dayjs()
     })
   }
 
@@ -110,7 +158,8 @@ export default function NldLightLevelsPage () {
       reason: edit.reason || 'manual edit',
       changedAt: edit.changedAt ? dayjs(edit.changedAt).toISOString() : undefined
     })
-    setRows((await api.get('/engineering/circuits')).data)
+    const { data } = await api.get('/engineering/circuits')
+    setRows(deriveRows(data))
     setEdit(null)
   }
 
@@ -132,7 +181,6 @@ export default function NldLightLevelsPage () {
   }
 
   const sourceChip = (row) => {
-    // Heuristic: if displayAsOf === lastEventAt (by minute), call it Event; otherwise Daily
     const asOf = row?.displayAsOf ? dayjs(row.displayAsOf) : null
     const evAt = row?.lastEventAt ? dayjs(row.lastEventAt) : null
     const sameMinute = asOf && evAt && asOf.format('YYYY-MM-DD HH:mm') === evAt.format('YYYY-MM-DD HH:mm')
@@ -155,7 +203,7 @@ export default function NldLightLevelsPage () {
     { field:'nodeB',     headerName:'Node B',  flex:1, minWidth:120 },
     { field:'techType',  headerName:'Tech',    width:80 },
 
-    // ── Side A group (uses freshest display value) ─────
+    // ── Side A group ─────────────────────────────
     {
       field:'displayRxA',
       headerName:'Current Rx A (dBm)',
@@ -223,7 +271,7 @@ export default function NldLightLevelsPage () {
       }
     },
 
-    // ── Side B group (uses freshest display value) ─────
+    // ── Side B group ─────────────────────────────
     {
       field:'displayRxB',
       headerName:'Current Rx B (dBm)',
