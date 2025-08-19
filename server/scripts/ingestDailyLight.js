@@ -1,15 +1,16 @@
+#!/usr/bin/env node
 // scripts/ingestDailyLight.js
 // Pull latest ADVA Rx Levels CSV from Gmail (or CSV_FILE), parse, map to circuits,
-// and POST rows to /engineering/circuits/daily-light.
+// and UPSERT rows into public.daily_light_level (no API_URL/API_TOKEN needed).
 
 import { google } from 'googleapis'
 import { parse as parseCsv } from 'csv-parse/sync'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
 import timezone from 'dayjs/plugin/timezone.js'
-import fetch from 'node-fetch'
 import path from 'path'
 import fs from 'fs/promises'
+import pg from 'pg'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -19,24 +20,19 @@ const {
   CLIENT_ID,
   CLIENT_SECRET,
   REFRESH_TOKEN,
-  API_URL,
-  API_TOKEN,
-  // subject provided by you
+  DATABASE_URL,
   GMAIL_SUBJECT = 'Fw: Iris Automated Report: ADVA Rx Levels',
   GMAIL_SENDER = '',
   CSV_FILE // optional: read local CSV instead of Gmail
 } = process.env
 
-if (!API_URL || !API_TOKEN) {
-  throw new Error('Missing API_URL or API_TOKEN in env')
+if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN || !DATABASE_URL) {
+  throw new Error('Missing one of CLIENT_ID/CLIENT_SECRET/REFRESH_TOKEN/DATABASE_URL')
 }
 
-// ─── Gmail auth (same style you use elsewhere) ──────────────────────────────
+// ─── Gmail auth ─────────────────────────────────────────────────────────────
 async function gmailClient () {
-  if (CSV_FILE) return null // not needed in local-file mode
-  if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
-    throw new Error('Missing CLIENT_ID/CLIENT_SECRET/REFRESH_TOKEN for Gmail OAuth')
-  }
+  if (CSV_FILE) return null
   const auth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET)
   auth.setCredentials({ refresh_token: REFRESH_TOKEN })
   return google.gmail({ version: 'v1', auth })
@@ -58,15 +54,11 @@ async function getCsvBufferAndMeta (gmail) {
 
   const { data: { messages } } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 5 })
   if (!messages?.length) throw new Error('Daily email not found')
-
-  // Pick the newest result
   const msgId = messages[0].id
   const { data: msg } = await gmail.users.messages.get({ userId: 'me', id: msgId })
 
   const walk = (parts=[]) => parts.flatMap(p => p.parts ? walk(p.parts) : [p])
   const parts = walk(msg.payload?.parts || [])
-
-  // Choose the largest .csv attachment (some mails carry small inline CSVs)
   const csvParts = parts.filter(p => (p.filename || '').toLowerCase().endsWith('.csv'))
   if (!csvParts.length) throw new Error('CSV attachment not found')
   const attach = csvParts
@@ -110,9 +102,7 @@ function decideSide(nodeA, nodeB, mnemonic, router) {
   return aScore >= bScore ? 'A' : 'B'
 }
 
-// Snapshot time:
-// - If filename has "..._19-Aug-2025-01-00.csv" style, parse that as SAST
-// - Else default to TODAY at **01:00 SAST** (mail lands ~01:00 SAST; scheduler ~03:00 SAST)
+// Snapshot time from filename like "..._19-Aug-2025-01-00.csv", else 01:00 SAST today
 function computeSampleTimeIso(filename) {
   const m = filename?.match(/_(\d{1,2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{4})-(\d{2})-(\d{2})/i)
   if (m) {
@@ -149,58 +139,70 @@ async function run() {
   const ROUTER   = resolveCol(records, 'Router')
   const OPR      = resolveCol(records, 'OPR')
 
-  // Pull circuits to map by circuitId
-  const circuits = await fetch(`${API_URL}/engineering/circuits`).then(r => r.json())
-  const byCode = new Map(circuits.map(c => [String(c.circuitId).trim(), c]))
-
-  const rows = []
-  const sampleTime = computeSampleTimeIso(filename)
-
-  for (const r of records) {
-    const mnemonic = r[MNEMONIC] ?? ''
-    const router = r[ROUTER] ?? ''
-    const rawRx = r[OPR]
-    const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
-    if (rx == null || Number.isNaN(rx)) continue
-
-    const code = (String(mnemonic).match(codeRegex) || [])[0] || null
-    if (!code) continue
-    const circuit = byCode.get(code)
-    if (!circuit) continue
-
-    const side = decideSide(circuit.nodeA, circuit.nodeB, mnemonic, router)
-    if (!side) continue
-
-    rows.push({
-      circuitId: circuit.id,
-      side,
-      rx,
-      mnemonic,
-      routerName: router,
-      parsedCode: code,
-      sourceEmailId: emailId,
-      sampleTime,
-    })
-  }
-
-  if (!rows.length) {
-    console.log(`No rows to upsert from ${filename}.`)
-    return
-  }
-
-  const res = await fetch(`${API_URL}/engineering/circuits/daily-light`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'authorization': `Bearer ${API_TOKEN}`,
-    },
-    body: JSON.stringify({ rows })
+  // DB connect
+  const pool = new pg.Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
   })
-  if (!res.ok) {
-    const t = await res.text()
-    throw new Error(`Ingest failed: ${res.status} ${t}`)
+  const cx = await pool.connect()
+
+  try {
+    // Load all circuits once (map by exact circuit_id string)
+    const { rows: circuits } = await cx.query(
+      'SELECT id, circuit_id, node_a, node_b FROM "Circuit"'
+    )
+    const byCode = new Map(circuits.map(c => [String(c.circuit_id).trim(), c]))
+
+    const sampleTime = computeSampleTimeIso(filename)
+
+    // Prepare UPSERT
+    const upsertSql = `
+      INSERT INTO public.daily_light_level
+        (circuit_id, side, rx, mnemonic, router_name, parsed_code, source_email_id, sample_time)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT (circuit_id, side, sample_time)
+      DO UPDATE SET
+        rx              = EXCLUDED.rx,
+        mnemonic        = EXCLUDED.mnemonic,
+        router_name     = EXCLUDED.router_name,
+        parsed_code     = EXCLUDED.parsed_code,
+        source_email_id = EXCLUDED.source_email_id
+    `
+
+    await cx.query('BEGIN')
+
+    let inserted = 0
+    for (const r of records) {
+      const mnemonic = r[MNEMONIC] ?? ''
+      const router = r[ROUTER] ?? ''
+      const rawRx = r[OPR]
+      const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
+      if (rx == null || Number.isNaN(rx)) continue
+
+      const code = (String(mnemonic).match(codeRegex) || [])[0] || null
+      if (!code) continue
+
+      const circuit = byCode.get(code)
+      if (!circuit) continue
+
+      const side = decideSide(circuit.node_a, circuit.node_b, mnemonic, router)
+      if (!side) continue
+
+      await cx.query(upsertSql, [
+        circuit.id, side, rx, mnemonic, router, code, emailId, sampleTime
+      ])
+      inserted++
+    }
+
+    await cx.query('COMMIT')
+    console.log(`Upserted ${inserted} rows from ${filename}.`)
+  } catch (err) {
+    await cx.query('ROLLBACK')
+    throw err
+  } finally {
+    cx.release()
+    await pool.end()
   }
-  console.log(`Upserted ${rows.length} rows from ${filename}.`)
 }
 
 run().catch(err => {
