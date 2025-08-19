@@ -90,10 +90,12 @@ export default function NldLightLevelsPage () {
   }
 
   function startEdit (r) {
+    // When manually editing, seed with currently displayed values,
+    // but write via POST /engineering/circuit/:id to LevelHistory + Circuit.currentRx*
     setEdit({
       id: r.id,
-      rxA: r.currentRxSiteA ?? '',
-      rxB: r.currentRxSiteB ?? '',
+      rxA: r.displayRxA ?? r.currentRxSiteA ?? '',
+      rxB: r.displayRxB ?? r.currentRxSiteB ?? '',
       reason: '',
       changedAt: dayjs()   // default to now; can be overridden
     })
@@ -114,7 +116,7 @@ export default function NldLightLevelsPage () {
 
   const fmtSigned = (v) => (v === null || v === undefined || Number.isNaN(v))
     ? '—'
-    : `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`
+    : `${v > 0 ? '+' : ''}${Number(v).toFixed(1)} dB`
 
   const chipForDelta = (d) => {
     if (d == null || Number.isNaN(d)) {
@@ -129,6 +131,23 @@ export default function NldLightLevelsPage () {
     return { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
   }
 
+  const sourceChip = (row) => {
+    // Heuristic: if displayAsOf === lastEventAt (by minute), call it Event; otherwise Daily
+    const asOf = row?.displayAsOf ? dayjs(row.displayAsOf) : null
+    const evAt = row?.lastEventAt ? dayjs(row.lastEventAt) : null
+    const sameMinute = asOf && evAt && asOf.format('YYYY-MM-DD HH:mm') === evAt.format('YYYY-MM-DD HH:mm')
+    if (!asOf) return null
+    return (
+      <Chip
+        size="small"
+        variant="outlined"
+        color={sameMinute ? 'warning' : 'primary'}
+        label={sameMinute ? 'Event' : 'Daily'}
+        sx={{ ml: 1 }}
+      />
+    )
+  }
+
   /* ── datagrid columns (memoised) ───────────────────── */
   const columns = useMemo(() => [
     { field:'circuitId', headerName:'Circuit', flex:1, minWidth:160 },
@@ -136,29 +155,34 @@ export default function NldLightLevelsPage () {
     { field:'nodeB',     headerName:'Node B',  flex:1, minWidth:120 },
     { field:'techType',  headerName:'Tech',    width:80 },
 
-    // ── Side A group ─────────────────────────────
+    // ── Side A group (uses freshest display value) ─────
     {
-      field:'currentRxSiteA',
+      field:'displayRxA',
       headerName:'Current Rx A (dBm)',
-      width:150,
+      width:160,
       type:'number',
-      align: 'center',        // ← centers cell content
-      headerAlign: 'center',  // ← centers header text
+      align: 'center',
+      headerAlign: 'center',
       headerClassName:'groupAStart',
-      cellClassName:'groupAStart'
+      cellClassName:'groupAStart',
+      valueGetter: (p) => p?.row?.displayRxA ?? p?.row?.currentRxSiteA ?? null,
+      renderCell: (p) => {
+        const v = p?.row?.displayRxA ?? p?.row?.currentRxSiteA
+        return <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
+      }
     },
     {
       field:'initRxSiteA',
       headerName:'Initial Rx A (dBm)',
-      width:130,
+      width:140,
       type:'number',
-      align: 'center',        // ← centers cell content
-      headerAlign: 'center',  // ← centers header text
+      align: 'center',
+      headerAlign: 'center',
       sortable:false,
       renderCell:(p) => {
         const r = p?.row ?? {}
         const v = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
-        return <span>{v ?? '—'}</span>
+        return <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
       }
     },
     {
@@ -168,8 +192,8 @@ export default function NldLightLevelsPage () {
       renderCell:(p) => {
         const r = p?.row ?? {}
         const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
-        const curr = r.currentRxSiteA
-        const d = (init == null || curr == null) ? null : (curr - init)
+        const curr = r.displayRxA ?? r.currentRxSiteA
+        const d = (init == null || curr == null) ? null : (Number(curr) - Number(init))
         const k = chipForDelta(d)
         return (
           <Chip
@@ -192,36 +216,41 @@ export default function NldLightLevelsPage () {
       renderCell:(p)=>{
         const r = p?.row ?? {}
         const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
-        const curr = r.currentRxSiteA
-        const d = (init == null || curr == null) ? null : (curr - init)
+        const curr = r.displayRxA ?? r.currentRxSiteA
+        const d = (init == null || curr == null) ? null : (Number(curr) - Number(init))
         const k = chipForDelta(d)
         return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
 
-    // ── Side B group ─────────────────────────────
+    // ── Side B group (uses freshest display value) ─────
     {
-      field:'currentRxSiteB',
+      field:'displayRxB',
       headerName:'Current Rx B (dBm)',
-      width:150,
+      width:160,
       type:'number',
-      align: 'center',        // ← centers cell content
-      headerAlign: 'center',  // ← centers header text
+      align: 'center',
+      headerAlign: 'center',
       headerClassName:'groupBStart',
-      cellClassName:'groupBStart'
+      cellClassName:'groupBStart',
+      valueGetter: (p) => p?.row?.displayRxB ?? p?.row?.currentRxSiteB ?? null,
+      renderCell: (p) => {
+        const v = p?.row?.displayRxB ?? p?.row?.currentRxSiteB
+        return <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
+      }
     },
     {
       field:'initRxSiteB',
       headerName:'Initial Rx B (dBm)',
-      width:130,
+      width:140,
       type:'number',
-      align: 'center',        // ← centers cell content
-      headerAlign: 'center',  // ← centers header text
+      align: 'center',
+      headerAlign: 'center',
       sortable:false,
       renderCell:(p) => {
         const r = p?.row ?? {}
         const v = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
-        return <span>{v ?? '—'}</span>
+        return <span>{v == null ? '—' : Number(v).toFixed(1)}</span>
       }
     },
     {
@@ -231,8 +260,8 @@ export default function NldLightLevelsPage () {
       renderCell:(p) => {
         const r = p?.row ?? {}
         const init = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
-        const curr = r.currentRxSiteB
-        const d = (init == null || curr == null) ? null : (curr - init)
+        const curr = r.displayRxB ?? r.currentRxSiteB
+        const d = (init == null || curr == null) ? null : (Number(curr) - Number(init))
         const k = chipForDelta(d)
         return (
           <Chip
@@ -255,14 +284,36 @@ export default function NldLightLevelsPage () {
       renderCell:(p)=>{
         const r = p?.row ?? {}
         const init = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
-        const curr = r.currentRxSiteB
-        const d = (init == null || curr == null) ? null : (curr - init)
+        const curr = r.displayRxB ?? r.currentRxSiteB
+        const d = (init == null || curr == null) ? null : (Number(curr) - Number(init))
         const k = chipForDelta(d)
         return <Chip size="small" color={k.color} icon={k.icon} label={k.label} sx={{ fontWeight:600 }} />
       }
     },
 
-    // ── Last event + actions ────────────────────
+    // ── Freshness + last event + actions ───────────────
+    {
+      field: 'displayAsOf',
+      headerName: 'As of',
+      minWidth: 170,
+      align: 'center',
+      headerAlign: 'center',
+      sortable: true,
+      renderCell: (p) => {
+        const v = p?.row?.displayAsOf
+        return (
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <span>{v ? dayjs(v).format('YYYY-MM-DD HH:mm') : ''}</span>
+            {sourceChip(p?.row)}
+          </Stack>
+        )
+      },
+      sortComparator: (_a, _b, p1, p2) => {
+        const t1 = p1?.row?.displayAsOf ? dayjs(p1.row.displayAsOf).valueOf() : -Infinity
+        const t2 = p2?.row?.displayAsOf ? dayjs(p2.row.displayAsOf).valueOf() : -Infinity
+        return t1 - t2
+      },
+    },
     {
       field: 'lastEventAt',
       headerName: 'Last Event',
@@ -317,7 +368,7 @@ export default function NldLightLevelsPage () {
         NLD Light-Level Dashboard
       </Typography>
       <Typography variant="body2" sx={{ mb: 2, opacity: 0.8 }}>
-        Deltas compare <strong>current</strong> to the <strong>initial import</strong>. Higher (less negative) dBm is better.
+        “Current” values pick the freshest of <strong>Event</strong> vs <strong>Daily</strong> snapshot. Deltas compare against the <strong>initial import</strong>. Higher (less negative) dBm is better.
       </Typography>
 
       {Object.entries(groupBy(rows, 'nldGroup')).map(([grp, list]) => (

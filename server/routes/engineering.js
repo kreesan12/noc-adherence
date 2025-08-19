@@ -52,7 +52,13 @@ r.get('/circuits', async (_, res) => {
         select: { eventDate: true },
         orderBy: { eventDate: 'desc' },
         take: 1
-      }
+      },
+
+      dailyLevels: {
+      select: { sampleTime: true, side: true, rx: true },
+      orderBy: { sampleTime: 'desc' },
+      take: 2  // we only need A and B latest
+    }
     },
     orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }]
   })
@@ -240,6 +246,53 @@ r.post('/circuits', verifyToken, requireEngineering, async (req, res) => {
     }
     console.error(e)
     res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+r.post('/circuits/daily-light', verifyToken, requireEngineering, async (req, res) => {
+  // body: { rows: [{ circuitId, side:'A'|'B', rx, mnemonic, routerName, parsedCode, sourceEmailId, sampleTime }...] }
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : []
+  if (!rows.length) return res.status(400).json({ error: 'No rows' })
+
+  try {
+    // Upsert one by one (daily files are small). If you need speed, do a findMany + batch split by new vs existing.
+    for (const r of rows) {
+      const circuit = await prisma.circuit.findFirst({
+        where: { id: r.circuitId }
+      })
+      if (!circuit) continue
+
+      await prisma.dailyLightLevel.upsert({
+        where: {
+          circuitId_side_sampleTime: {
+            circuitId: r.circuitId,
+            side: r.side,
+            sampleTime: new Date(r.sampleTime)
+          }
+        },
+        update: {
+          rx: r.rx,
+          mnemonic: r.mnemonic ?? null,
+          routerName: r.routerName ?? null,
+          parsedCode: r.parsedCode ?? null,
+          sourceEmailId: r.sourceEmailId ?? null,
+        },
+        create: {
+          circuitId: r.circuitId,
+          side: r.side,
+          rx: r.rx,
+          mnemonic: r.mnemonic ?? null,
+          routerName: r.routerName ?? null,
+          parsedCode: r.parsedCode ?? null,
+          sourceEmailId: r.sourceEmailId ?? null,
+          sampleTime: new Date(r.sampleTime)
+        }
+      })
+    }
+    res.sendStatus(204)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Daily ingest failed' })
   }
 })
 

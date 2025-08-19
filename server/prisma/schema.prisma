@@ -283,6 +283,23 @@ model LightLevelEvent {
   createdAt     DateTime @default(now()) @map("created_at")
 }
 
+model DailyLightLevel {
+  id            Int      @id @default(autoincrement())
+  circuit       Circuit  @relation(fields: [circuitId], references: [id])
+  circuitId     Int      @map("circuit_id")
+  side          String   @map("side") // 'A' or 'B'
+  rx            Float?   @map("rx")
+  mnemonic      String?  @map("mnemonic")
+  routerName    String?  @map("router_name")
+  parsedCode    String?  @map("parsed_code") // the 027... code we extract
+  sourceEmailId String?  @map("source_email_id")
+  sampleTime    DateTime @map("sample_time")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([circuitId, side, sampleTime], map: "uq_daily_circuit_side_time")
+  @@index([parsedCode])
+}
+
 // NEW ENUM
 enum ManagerRole {
   manager
