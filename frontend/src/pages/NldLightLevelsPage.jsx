@@ -78,7 +78,7 @@ export default function NldLightLevelsPage () {
     const map = {
       daily:   { label: 'Daily',          border: '#2196f3', text: '#2196f3' }, // blue
       event:   { label: 'Event',          border: '#f44336', text: '#f44336' }, // red
-      initial: { label: 'Initial Import', border: '#fbc02d', text: '#fbc02d' }  // yellow
+      initial: { label: 'Initial',        border: '#fbc02d', text: '#fbc02d' }  // yellow
     }
 
     const k = map[source] ?? map.initial
