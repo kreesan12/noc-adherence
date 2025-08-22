@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // scripts/ingestDailyLight.js
 // Pull latest ADVA Rx Levels CSV from Gmail (or CSV_FILE), parse, map to circuits,
-// and UPSERT rows into public.daily_light_level (no API_URL/API_TOKEN needed).
+// and UPSERT rows into public.daily_light_level.
 
 import { google } from 'googleapis'
 import { parse as parseCsv } from 'csv-parse/sync'
@@ -57,13 +57,13 @@ async function getCsvBufferAndMeta (gmail) {
   const msgId = messages[0].id
   const { data: msg } = await gmail.users.messages.get({ userId: 'me', id: msgId })
 
-  const walk = (parts=[]) => parts.flatMap(p => p.parts ? walk(p.parts) : [p])
+  const walk = (parts = []) => parts.flatMap(p => p?.parts ? walk(p.parts) : [p]).filter(Boolean)
   const parts = walk(msg.payload?.parts || [])
   const csvParts = parts.filter(p => (p.filename || '').toLowerCase().endsWith('.csv'))
   if (!csvParts.length) throw new Error('CSV attachment not found')
   const attach = csvParts
     .map(p => ({ ...p, size: Number(p.body?.size || 0) }))
-    .sort((a,b) => b.size - a.size)[0]
+    .sort((a, b) => b.size - a.size)[0]
 
   const { data: { data: b64 } } = await gmail.users.messages.attachments.get({
     userId: 'me', messageId: msgId, id: attach.body.attachmentId
@@ -73,44 +73,57 @@ async function getCsvBufferAndMeta (gmail) {
 }
 
 // ─── Helpers: mapping & side detection ───────────────────────────────────────
-const codeRegex = /027[A-Z]{4}\d+/ // matches e.g. 027CAPE292014216096
+// Single code, e.g. 027CAPE292014216096
+const codeRegex = /027[A-Z]{4}\d+/g
 
 const norm = (s) => (s || '')
   .toLowerCase()
   .replace(/^adva-/, '')
-  .replace(/\(.*?\)/g, '') // strip (MED)/(HIGH) etc
+  .replace(/\(.*?\)/g, '')          // strip (MED)/(HIGH) etc
   .replace(/[^a-z0-9]+/g, ' ')
   .trim()
 
+function tokenScore(a, b) {
+  const A = new Set((a || '').split(' ').filter(Boolean))
+  const B = new Set((b || '').split(' ').filter(Boolean))
+  let s = 0
+  for (const t of A) if (B.has(t)) s++
+  return s
+}
+
+/**
+ * Decide side using mnemonic (left of '|') first, router second.
+ * No “default to A” when tied—return null if ambiguous.
+ */
 function decideSide(nodeA, nodeB, mnemonic, router) {
   const leftMnemonic = (mnemonic || '').split('|')[0] || ''
   const nA = norm(nodeA), nB = norm(nodeB)
   const mn = norm(leftMnemonic)
   const rt = norm(router)
 
-  const score = (x, y) => {
-    const a = new Set(x.split(' ').filter(Boolean))
-    const b = new Set(y.split(' ').filter(Boolean))
-    let s = 0
-    for (const t of a) if (b.has(t)) s++
-    return s
-  }
+  const aMn = tokenScore(nA, mn)
+  const bMn = tokenScore(nB, mn)
+  if (aMn !== bMn) return aMn > bMn ? 'A' : 'B'
 
-  const aScore = Math.max(score(nA, mn), score(nA, rt))
-  const bScore = Math.max(score(nB, mn), score(nB, rt))
-  if (aScore === 0 && bScore === 0) return null
-  return aScore >= bScore ? 'A' : 'B'
+  const aRt = tokenScore(nA, rt)
+  const bRt = tokenScore(nB, rt)
+  if (aRt !== bRt) return aRt > bRt ? 'A' : 'B'
+
+  // extra tiny heuristic: exact-includes on mnemonic
+  if (mn && nA.includes(mn) && !nB.includes(mn)) return 'A'
+  if (mn && nB.includes(mn) && !nA.includes(mn)) return 'B'
+
+  return null
 }
 
 // Snapshot time from filename like "..._19-Aug-2025-01-00.csv", else 01:00 SAST today
 function computeSampleTimeIso(filename) {
   const m = filename?.match(/_(\d{1,2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{4})-(\d{2})-(\d{2})/i)
   if (m) {
-    const [ , d, mon, y, hh, mm ] = m
+    const [, d, mon, y, hh, mm] = m
     const str = `${d}-${mon}-${y} ${hh}:${mm}`
     return dayjs.tz(str, 'D-MMM-YYYY HH:mm', 'Africa/Johannesburg').utc().toISOString()
   }
-  // fallback: today at 01:00 SAST
   return dayjs.tz('Africa/Johannesburg').startOf('day').add(1, 'hour').utc().toISOString()
 }
 
@@ -122,6 +135,19 @@ function resolveCol(records, wanted) {
   if (k) return k
   k = keys.find(k => k.toLowerCase().includes(w))
   return k || wanted
+}
+
+// Build lookup map for circuits by both full circuit_id and any embedded codes
+function buildCircuitLookup(circuits) {
+  const map = new Map()
+  for (const c of circuits) {
+    const cid = String(c.circuit_id || '').trim()
+    if (cid) map.set(cid, c)
+    // also index every 027CODE… found in circuit_id (handles "&" cases)
+    const codes = cid.match(codeRegex) || []
+    for (const code of codes) map.set(code, c)
+  }
+  return map
 }
 
 // ─── Core ingest ─────────────────────────────────────────────────────────────
@@ -147,11 +173,11 @@ async function run() {
   const cx = await pool.connect()
 
   try {
-    // Load all circuits once (map by exact circuit_id string)
+    // Load all circuits once
     const { rows: circuits } = await cx.query(
       'SELECT id, circuit_id, node_a, node_b FROM "Circuit"'
     )
-    const byCode = new Map(circuits.map(c => [String(c.circuit_id).trim(), c]))
+    const byIdOrCode = buildCircuitLookup(circuits)
 
     const sampleTime = computeSampleTimeIso(filename)
 
@@ -172,21 +198,28 @@ async function run() {
     await cx.query('BEGIN')
 
     let inserted = 0
+    let skippedBlank = 0
+    let skippedNoCode = 0
+    let skippedNoCircuit = 0
+    let skippedAmbiguous = 0
+
     for (const r of records) {
       const mnemonic = r[MNEMONIC] ?? ''
       const router = r[ROUTER] ?? ''
       const rawRx = r[OPR]
       const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
-      if (rx == null || Number.isNaN(rx)) continue
+      if (rx == null || Number.isNaN(rx)) { skippedBlank++; continue }
 
-      const code = (String(mnemonic).match(codeRegex) || [])[0] || null
-      if (!code) continue
+      // pull the FIRST code in the row's mnemonic (rows only refer to one side)
+      const rowCodes = String(mnemonic).match(codeRegex) || []
+      const code = rowCodes[0] || null
+      if (!code) { skippedNoCode++; continue }
 
-      const circuit = byCode.get(code)
-      if (!circuit) continue
+      const circuit = byIdOrCode.get(code) || byIdOrCode.get(String(code).trim())
+      if (!circuit) { skippedNoCircuit++; continue }
 
       const side = decideSide(circuit.node_a, circuit.node_b, mnemonic, router)
-      if (!side) continue
+      if (!side) { skippedAmbiguous++; continue }
 
       await cx.query(upsertSql, [
         circuit.id, side, rx, mnemonic, router, code, emailId, sampleTime
@@ -196,6 +229,7 @@ async function run() {
 
     await cx.query('COMMIT')
     console.log(`Upserted ${inserted} rows from ${filename}.`)
+    console.log(`Skipped: blank_rx=${skippedBlank}, no_code=${skippedNoCode}, no_circuit=${skippedNoCircuit}, ambiguous_side=${skippedAmbiguous}`)
   } catch (err) {
     await cx.query('ROLLBACK')
     throw err
