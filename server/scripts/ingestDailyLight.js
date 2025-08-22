@@ -15,6 +15,8 @@ import pg from 'pg'
 dayjs.extend(utc)
 dayjs.extend(timezone)
 
+const DEBUG = process.env.DEBUG_LIGHT === '1'
+
 // ─── env ────────────────────────────────────────────────────────────────────
 const {
   CLIENT_ID,
@@ -73,7 +75,6 @@ async function getCsvBufferAndMeta (gmail) {
 }
 
 // ─── Helpers: mapping & side detection ───────────────────────────────────────
-// Single code, e.g. 027CAPE292014216096
 const codeRegex = /027[A-Z]{4}\d+/g
 
 const norm = (s) => (s || '')
@@ -90,72 +91,95 @@ function tokenScore(a, b) {
   return s
 }
 
+// Dice coefficient on bigrams, for loose fuzzy matching
+function dice(a, b) {
+  a = (a || '').toLowerCase()
+  b = (b || '').toLowerCase()
+  if (a === b) return 1
+  const bigrams = str => {
+    const s = str.replace(/[^a-z0-9]+/g, ' ').trim().replace(/ /g, '')
+    if (s.length < 2) return []
+    const arr = []
+    for (let i=0; i<s.length-1; i++) arr.push(s.slice(i, i+2))
+    return arr
+  }
+  const A = bigrams(a), B = bigrams(b)
+  if (!A.length || !B.length) return 0
+  const m = new Map()
+  for (const g of A) m.set(g, (m.get(g) || 0) + 1)
+  let inter = 0
+  for (const g of B) {
+    const c = m.get(g) || 0
+    if (c) { inter++; m.set(g, c - 1) }
+  }
+  return (2 * inter) / (A.length + B.length)
+}
+
 // Common vendor/tech tokens to ignore in Router names
-const VENDOR_TOKENS = new Set([
+const STOP = new Set([
   'adva','liquid','frogfoot','dfa','openserve','seacom','vodacom','mtn','telkom',
-  'metrofibre','dark','darkfiber','dfn','juniper','calix','smart','olt','switch',
-  'iris','solid','router','edge','core','metro','access','backhaul'
+  'metrofibre','dark','darkfiber','darkfibre','dfn','juniper','calix','smart','iris','solid',
+  'olt','switch','router','edge','core','backbone','ring','agg','aggregation',
+  'metro','access','backhaul','nld','nwd','east','west','north','south'
 ])
 
-/**
- * Extract candidate site names from Router by splitting on '-' and '|',
- * removing vendor/tech tokens, returning remaining normalized tokens (in order).
- * e.g. "ADVA-Liquid-Yzerfontein" -> ["yzerfontein"]
- */
-function extractRouterSiteCandidates(router) {
-  const parts = String(router || '')
-    .split(/[-|]/)
-    .map(x => norm(x))
-    .filter(Boolean)
+function splitTokens(str) {
+  return String(str || '').split(/[-|]/).map(norm).filter(Boolean)
+}
 
-  const kept = parts.filter(p => !VENDOR_TOKENS.has(p))
-  // If everything was filtered (e.g., "ADVA-Liquid"), fallback to last part anyway
-  if (kept.length === 0 && parts.length) {
-    return [parts[parts.length - 1]]
+/** e.g. "ADVA-Liquid-Yzerfontein" -> ["yzerfontein"] */
+function extractRouterSiteCandidates(router) {
+  const parts = splitTokens(router)
+  const kept = parts.filter(p => !STOP.has(p))
+  if (kept.length) return kept
+  // fallback: last part even if it's a stopword
+  return parts.slice(-1)
+}
+
+function looseContains(nodeNorm, candNorm) {
+  if (!nodeNorm || !candNorm) return false
+  if (nodeNorm.includes(candNorm)) return true
+  // starts-with on tokens (>=4 chars)
+  const nodeTokens = nodeNorm.split(' ').filter(Boolean)
+  const c = candNorm
+  if (c.length >= 4) {
+    if (nodeTokens.some(t => t.startsWith(c) || c.startsWith(t) && t.length >= 4)) return true
   }
-  return kept
+  // fuzzy bigram similarity
+  return dice(nodeNorm, candNorm) >= 0.6
 }
 
 /**
- * Decide side using the Router-derived site candidates only.
- * - Prefer exact-inclusion of candidate in node name.
- * - Then token similarity to candidate.
- * - Then token similarity to full router (normalized).
- * No “default A” on ties —— return null if ambiguous.
+ * Decide side using Router-derived site candidates only.
+ * Final fallback: if mnemonic-left looks like nodeA, pick B (and vice versa).
  */
-function decideSide(nodeA, nodeB, router) {
+function decideSide(nodeA, nodeB, mnemonic, router) {
   const nA = norm(nodeA)
   const nB = norm(nodeB)
-  const candidates = extractRouterSiteCandidates(router) // e.g., ["yzerfontein"]
+  const candidates = extractRouterSiteCandidates(router)
 
-  if (!candidates.length) return null
-
-  // 1) Exact-inclusion pass
+  // 1) Inclusion / starts-with / fuzzy vs candidates
+  let votesA = 0, votesB = 0
   for (const c of candidates) {
-    const aIncl = c && nA.includes(c)
-    const bIncl = c && nB.includes(c)
-    if (aIncl !== bIncl) return aIncl ? 'A' : 'B'
+    if (looseContains(nA, c)) votesA++
+    if (looseContains(nB, c)) votesB++
   }
+  if (votesA !== votesB) return votesA > votesB ? 'A' : 'B'
 
-  // 2) Token similarity vs each candidate (take best candidate)
-  let best = { side: null, delta: 0 }
-  for (const c of candidates) {
-    const aScore = tokenScore(nA, c)
-    const bScore = tokenScore(nB, c)
-    if (aScore !== bScore) {
-      const delta = Math.abs(aScore - bScore)
-      if (delta > best.delta) {
-        best = { side: aScore > bScore ? 'A' : 'B', delta }
-      }
-    }
-  }
-  if (best.side) return best.side
-
-  // 3) Final fallback vs full router string
-  const rtFull = norm(router)
-  const aFull = tokenScore(nA, rtFull)
-  const bFull = tokenScore(nB, rtFull)
+  // 2) Full-router similarity tiebreak
+  const rt = norm(router)
+  const aFull = tokenScore(nA, rt) + dice(nA, rt)
+  const bFull = tokenScore(nB, rt) + dice(nB, rt)
   if (aFull !== bFull) return aFull > bFull ? 'A' : 'B'
+
+  // 3) LAST RESORT (you asked to ignore this, so we only use it if still tied):
+  // If mnemonic-left clearly names nodeA, choose B (opposite end), and vice versa.
+  const leftMnemonic = (mnemonic || '').split('|')[0] || ''
+  const mn = norm(leftMnemonic)
+  const matchA = looseContains(nA, mn)
+  const matchB = looseContains(nB, mn)
+  if (matchA && !matchB) return 'B'
+  if (!matchA && matchB) return 'A'
 
   return null
 }
@@ -187,7 +211,6 @@ function buildCircuitLookup(circuits) {
   for (const c of circuits) {
     const cid = String(c.circuit_id || '').trim()
     if (cid) map.set(cid, c)
-    // also index every 027CODE… found in circuit_id (handles "&" cases)
     const codes = cid.match(codeRegex) || []
     for (const code of codes) map.set(code, c)
   }
@@ -225,7 +248,6 @@ async function run() {
 
     const sampleTime = computeSampleTimeIso(filename)
 
-    // Prepare UPSERT
     const upsertSql = `
       INSERT INTO public.daily_light_level
         (circuit_id, side, rx, mnemonic, router_name, parsed_code, source_email_id, sample_time)
@@ -246,6 +268,7 @@ async function run() {
     let skippedNoCode = 0
     let skippedNoCircuit = 0
     let skippedAmbiguous = 0
+    let debugPrinted = 0
 
     for (const r of records) {
       const mnemonic = r[MNEMONIC] ?? ''
@@ -254,7 +277,6 @@ async function run() {
       const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
       if (rx == null || Number.isNaN(rx)) { skippedBlank++; continue }
 
-      // Pull the FIRST code in the row's mnemonic (rows refer to one side)
       const rowCodes = String(mnemonic).match(codeRegex) || []
       const code = rowCodes[0] || null
       if (!code) { skippedNoCode++; continue }
@@ -262,8 +284,22 @@ async function run() {
       const circuit = byIdOrCode.get(code) || byIdOrCode.get(String(code).trim())
       if (!circuit) { skippedNoCircuit++; continue }
 
-      const side = decideSide(circuit.node_a, circuit.node_b, /*mnemonic*/'', router)
-      if (!side) { skippedAmbiguous++; continue }
+      const side = decideSide(circuit.node_a, circuit.node_b, mnemonic, router)
+      if (!side) {
+        skippedAmbiguous++
+        if (DEBUG && debugPrinted < 15) {
+          const candidates = extractRouterSiteCandidates(router)
+          console.warn('[AMBIGUOUS]', {
+            node_a: circuit.node_a,
+            node_b: circuit.node_b,
+            router,
+            candidates,
+            mnemonic
+          })
+          debugPrinted++
+        }
+        continue
+      }
 
       await cx.query(upsertSql, [
         circuit.id, side, rx, mnemonic, router, code, emailId, sampleTime
