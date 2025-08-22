@@ -268,7 +268,7 @@ export default function NldLightLevelsPage () {
     {
       field:'deltaA',
       headerName:'Δ A',
-      width:110,
+      width:130,
       renderCell:(p) => {
         const r = p?.row ?? {}
         const init = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
@@ -289,7 +289,7 @@ export default function NldLightLevelsPage () {
     {
       field:'trendA',
       headerName:'Trend A',
-      width:118,
+      width:110,
       headerClassName:'groupAEnd',
       cellClassName:'groupAEnd',
       sortable:false,
@@ -341,7 +341,7 @@ export default function NldLightLevelsPage () {
     {
       field:'deltaB',
       headerName:'Δ B',
-      width:110,
+      width:130,
       renderCell:(p) => {
         const r = p?.row ?? {}
         const init = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
@@ -362,7 +362,7 @@ export default function NldLightLevelsPage () {
     {
       field:'trendB',
       headerName:'Trend B',
-      width:118,
+      width:110,
       headerClassName:'groupBEnd',
       cellClassName:'groupBEnd',
       sortable:false,
@@ -380,7 +380,7 @@ export default function NldLightLevelsPage () {
     {
       field: 'displayAsOf',
       headerName: 'As of',
-      minWidth: 120,
+      minWidth: 110,
       align: 'center',
       headerAlign: 'center',
       sortable: true,
@@ -397,7 +397,7 @@ export default function NldLightLevelsPage () {
     {
       field: 'lastEventAt',
       headerName: 'Last Event',
-      minWidth: 120,
+      minWidth: 110,
       align: 'center',
       headerAlign: 'center',
       sortable: true,
