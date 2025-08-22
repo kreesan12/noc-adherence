@@ -210,7 +210,7 @@ async function run() {
       const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
       if (rx == null || Number.isNaN(rx)) { skippedBlank++; continue }
 
-      // pull the FIRST code in the row's mnemonic (rows only refer to one side)
+      // -pull the FIRST code in the row's mnemonic (rows only refer to one side)
       const rowCodes = String(mnemonic).match(codeRegex) || []
       const code = rowCodes[0] || null
       if (!code) { skippedNoCode++; continue }
