@@ -75,11 +75,43 @@ async function getCsvBufferAndMeta (gmail) {
 }
 
 // ─── Helpers: mapping & side detection ───────────────────────────────────────
-const codeRegex = /027[A-Z]{4}\d+/g
+// Known code patterns:
+//  - FNO "027" style: 027 + 4 letters + digits (e.g., 027CAPE292014216096)
+//  - DFA style: DFA##-####### (e.g., DFA21-0025521)
+//  - DFX style: DFX##_####### (e.g., DFX21_0000065)
+//  - FRG style: liberal catch for FRG-prefixed ids (letters/digits/_/-)
+const RX_PATTERNS = [
+  /027[A-Z]{4}\d+/g,        // 027CAPE292014216096
+  /DFA\d{2}-\d+/g,          // DFA21-0025521
+  /DFX\d{2}_\d+/g,          // DFX21_0000065
+  /FRG[A-Z0-9_-]+/gi        // FRG... (loose)
+]
+
+function extractCodesFromText(text) {
+  const s = String(text || '')
+    // remove parenthetical suffixes like (Pair2)
+    .replace(/\(.*?\)/g, ' ')
+  const found = new Set()
+  for (const re of RX_PATTERNS) {
+    const rx = new RegExp(re) // clone, because /g/ stateful
+    let m
+    while ((m = rx.exec(s)) !== null) {
+      found.add(m[0].toUpperCase().trim())
+    }
+  }
+  // also pick up tokens between pipes if they look like codes (letters/digits/_/- and contain a digit)
+  const pipeParts = s.split('|').map(x => x.trim()).filter(Boolean)
+  for (const p of pipeParts) {
+    if (/^[A-Z0-9_-]+$/i.test(p) && /\d/.test(p) && p.length >= 6) {
+      found.add(p.toUpperCase())
+    }
+  }
+  return Array.from(found)
+}
 
 const norm = (s) => (s || '')
   .toLowerCase()
-  .replace(/\(.*?\)/g, '')          // strip (MED)/(HIGH) etc
+  .replace(/\(.*?\)/g, '')
   .replace(/[^a-z0-9]+/g, ' ')
   .trim()
 
@@ -115,7 +147,7 @@ function dice(a, b) {
   return (2 * inter) / (A.length + B.length)
 }
 
-// Common vendor/tech tokens to ignore in Router names
+// Router vendor/tech tokens to ignore
 const STOP = new Set([
   'adva','liquid','frogfoot','dfa','openserve','seacom','vodacom','mtn','telkom',
   'metrofibre','dark','darkfiber','darkfibre','dfn','juniper','calix','smart','iris','solid',
@@ -132,33 +164,26 @@ function extractRouterSiteCandidates(router) {
   const parts = splitTokens(router)
   const kept = parts.filter(p => !STOP.has(p))
   if (kept.length) return kept
-  // fallback: last part even if it's a stopword
   return parts.slice(-1)
 }
 
 function looseContains(nodeNorm, candNorm) {
   if (!nodeNorm || !candNorm) return false
   if (nodeNorm.includes(candNorm)) return true
-  // starts-with on tokens (>=4 chars)
   const nodeTokens = nodeNorm.split(' ').filter(Boolean)
   const c = candNorm
   if (c.length >= 4) {
-    if (nodeTokens.some(t => t.startsWith(c) || c.startsWith(t) && t.length >= 4)) return true
+    if (nodeTokens.some(t => (t.startsWith(c) || c.startsWith(t)) && t.length >= 4)) return true
   }
-  // fuzzy bigram similarity
   return dice(nodeNorm, candNorm) >= 0.6
 }
 
-/**
- * Decide side using Router-derived site candidates only.
- * Final fallback: if mnemonic-left looks like nodeA, pick B (and vice versa).
- */
+/** Decide side using Router-derived site candidates only. */
 function decideSide(nodeA, nodeB, mnemonic, router) {
   const nA = norm(nodeA)
   const nB = norm(nodeB)
   const candidates = extractRouterSiteCandidates(router)
 
-  // 1) Inclusion / starts-with / fuzzy vs candidates
   let votesA = 0, votesB = 0
   for (const c of candidates) {
     if (looseContains(nA, c)) votesA++
@@ -166,14 +191,12 @@ function decideSide(nodeA, nodeB, mnemonic, router) {
   }
   if (votesA !== votesB) return votesA > votesB ? 'A' : 'B'
 
-  // 2) Full-router similarity tiebreak
   const rt = norm(router)
   const aFull = tokenScore(nA, rt) + dice(nA, rt)
   const bFull = tokenScore(nB, rt) + dice(nB, rt)
   if (aFull !== bFull) return aFull > bFull ? 'A' : 'B'
 
-  // 3) LAST RESORT (you asked to ignore this, so we only use it if still tied):
-  // If mnemonic-left clearly names nodeA, choose B (opposite end), and vice versa.
+  // Last resort: mnemonic-left names opposite end
   const leftMnemonic = (mnemonic || '').split('|')[0] || ''
   const mn = norm(leftMnemonic)
   const matchA = looseContains(nA, mn)
@@ -205,13 +228,13 @@ function resolveCol(records, wanted) {
   return k || wanted
 }
 
-// Build lookup map for circuits by both full circuit_id and any embedded codes
+// Build lookup map for circuits by both full circuit_id and ANY embedded codes (027/DFA/DFX/FRG)
 function buildCircuitLookup(circuits) {
   const map = new Map()
   for (const c of circuits) {
     const cid = String(c.circuit_id || '').trim()
-    if (cid) map.set(cid, c)
-    const codes = cid.match(codeRegex) || []
+    if (cid) map.set(cid.toUpperCase(), c)
+    const codes = extractCodesFromText(cid)
     for (const code of codes) map.set(code, c)
   }
   return map
@@ -277,11 +300,16 @@ async function run() {
       const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
       if (rx == null || Number.isNaN(rx)) { skippedBlank++; continue }
 
-      const rowCodes = String(mnemonic).match(codeRegex) || []
-      const code = rowCodes[0] || null
-      if (!code) { skippedNoCode++; continue }
+      // Extract ALL plausible codes from the mnemonic (supports 027 / DFA / DFX / FRG)
+      const rowCodes = extractCodesFromText(mnemonic)
+      if (!rowCodes.length) { skippedNoCode++; continue }
 
-      const circuit = byIdOrCode.get(code) || byIdOrCode.get(String(code).trim())
+      // Find first code that maps to a circuit
+      let circuit = null, matchedCode = null
+      for (const code of rowCodes) {
+        const c = byIdOrCode.get(code) || byIdOrCode.get(String(code).toUpperCase())
+        if (c) { circuit = c; matchedCode = code; break }
+      }
       if (!circuit) { skippedNoCircuit++; continue }
 
       const side = decideSide(circuit.node_a, circuit.node_b, mnemonic, router)
@@ -294,7 +322,9 @@ async function run() {
             node_b: circuit.node_b,
             router,
             candidates,
-            mnemonic
+            mnemonic,
+            codes_in_row: rowCodes,
+            matched_code: matchedCode
           })
           debugPrinted++
         }
@@ -302,7 +332,7 @@ async function run() {
       }
 
       await cx.query(upsertSql, [
-        circuit.id, side, rx, mnemonic, router, code, emailId, sampleTime
+        circuit.id, side, rx, mnemonic, router, matchedCode, emailId, sampleTime
       ])
       inserted++
     }
