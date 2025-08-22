@@ -196,18 +196,30 @@ export default function NldLightLevelsPage () {
 
   const fmtSigned = (v) => (v === null || v === undefined || Number.isNaN(v))
     ? '—'
-    : `${v > 0 ? '+' : ''}${Number(v).toFixed(1)} dB`
+    : `${v > 0 ? '+' : ''}${Number(v).toFixed(1)} dBm`
 
   const chipForDelta = (d) => {
     if (d == null || Number.isNaN(d)) {
       return { label: '—', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
     }
+
+    // Treat ~0 as "Same"
     if (Math.abs(d) < 0.05) {
       return { label: 'Same', color: 'default', icon: <RemoveRoundedIcon fontSize="small" /> }
     }
+
     if (d > 0) {
+      // Better (less negative / more positive) -> green
       return { label: 'Better', color: 'success', icon: <ArrowUpwardRoundedIcon fontSize="small" /> }
     }
+
+    // d < 0: worse — threshold logic
+    if (d >= -2.0) {
+      // within -2.0 dBm → orange
+      return { label: 'Worse', color: 'warning', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
+    }
+
+    // more than -2.0 dBm drop (e.g. -2.1 and lower) → red
     return { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
   }
 
