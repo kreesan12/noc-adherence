@@ -20,7 +20,7 @@ function roleChipProps(roleRaw) {
   if (role === 'admin')       return { color: 'warning', label: 'admin' }
   if (role === 'manager')     return { color: 'info',    label: 'manager' }
   if (role === 'supervisor')  return { color: 'info',    label: 'supervisor' }
-  return { color: 'default',   label: roleRaw || 'user' }
+  return { color: 'default',  label: roleRaw || 'user' }
 }
 
 export default function UserStatus() {
@@ -29,17 +29,31 @@ export default function UserStatus() {
   const [fallbackUser, setFallbackUser] = useState(null)
   const open = Boolean(anchorEl)
 
+  // Only rebuild fallback from JWT if ctxUser is missing AND a token exists.
   useEffect(() => {
-    if (!ctxUser) {
-      const t = localStorage.getItem('token')
-      if (t) {
-        try {
-          const payload = JSON.parse(atob(t.split('.')[1]))
-          setFallbackUser({ name: payload.name, role: payload.role })
-        } catch { /* ignore */ }
+    const t = localStorage.getItem('token')
+    if (!ctxUser && t) {
+      try {
+        const payload = JSON.parse(atob((t.split('.')[1] || '').replace(/-/g, '+').replace(/_/g, '/')))
+        setFallbackUser({ name: payload.name, role: payload.role })
+      } catch {
+        setFallbackUser(null)
       }
+    } else {
+      setFallbackUser(null)
     }
   }, [ctxUser])
+
+  // Cross-tab logout awareness
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'token' && e.newValue == null) {
+        setFallbackUser(null)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const user = ctxUser ?? fallbackUser
 
@@ -49,13 +63,15 @@ export default function UserStatus() {
   const handleOpen = (e) => setAnchorEl(e.currentTarget)
   const handleClose = () => setAnchorEl(null)
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     handleClose()
-    if (typeof ctxLogout === 'function') {
-      ctxLogout()
-    } else {
+    try {
+      if (typeof ctxLogout === 'function') await ctxLogout()
+    } finally {
+      // hard clear locally in case ctxLogout is a no-op
       localStorage.removeItem('token')
-      window.location.href = '/noc-adherence/login'
+      setFallbackUser(null)
+      window.location.replace('/noc-adherence/login')
     }
   }
 
@@ -66,8 +82,7 @@ export default function UserStatus() {
         sx={{
           px: 1.25, py: 0.75, borderRadius: 999,
           display: 'flex', alignItems: 'center', gap: 1,
-          border: '1px solid',
-          borderColor: 'divider',
+          border: '1px solid', borderColor: 'divider',
           bgcolor: 'background.paper'
         }}
       >
