@@ -380,7 +380,7 @@ export default function NldLightLevelsPage () {
     {
       field: 'displayAsOf',
       headerName: 'As of',
-      minWidth: 170,
+      minWidth: 120,
       align: 'center',
       headerAlign: 'center',
       sortable: true,
@@ -397,7 +397,7 @@ export default function NldLightLevelsPage () {
     {
       field: 'lastEventAt',
       headerName: 'Last Event',
-      minWidth: 170,
+      minWidth: 120,
       align: 'center',
       headerAlign: 'center',
       sortable: true,
