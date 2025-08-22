@@ -102,7 +102,7 @@ function extractRouterTailName(router) {
  * We ignore the mnemonic's left-of-'|' portion for side mapping.
  * No “default to A” when tied—return null if ambiguous.
  */
-function decideSide(nodeA, nodeB, /* mnemonic unused */, router) {
+function decideSide(nodeA, nodeB, router) {
   const nA = norm(nodeA)
   const nB = norm(nodeB)
   const rtSite = extractRouterTailName(router)   // e.g., "yzerfontein"
