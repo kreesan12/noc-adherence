@@ -59,6 +59,78 @@ function Sparkline ({ values = [], width = 160, height = 44, stroke = '#1976d2',
   )
 }
 
+/* ── chain ordering helper ───────────────────────────── */
+const _key = (s) => String(s ?? '').trim().toLowerCase()
+
+/**
+ * Order circuits into a path by chaining nodeA -> nodeB per NLD group.
+ * - start = a nodeA that no one uses as nodeB (if none, pick smallest nodeA)
+ * - follow next where next.nodeA === prev.nodeB
+ * - deterministic within branches; append leftovers at end
+ */
+function orderCircuitsChain(list) {
+  const items = [...list]
+
+  // index by nodeA (stable sorted)
+  const byA = new Map()
+  for (const r of items) {
+    const k = _key(r.nodeA)
+    const arr = byA.get(k) ?? []
+    arr.push(r)
+    byA.set(k, arr)
+  }
+  for (const [k, arr] of byA) {
+    arr.sort((a, b) => {
+      const nb = String(a.nodeB ?? '').localeCompare(String(b.nodeB ?? ''))
+      return nb !== 0 ? nb : String(a.circuitId ?? a.id).localeCompare(String(b.circuitId ?? b.id))
+    })
+  }
+
+  // find starts (nodeA not present as any nodeB)
+  const setA = new Set(items.map(r => _key(r.nodeA)))
+  const setB = new Set(items.map(r => _key(r.nodeB)))
+  const starts = [...setA].filter(a => !setB.has(a))
+
+  const result = []
+  const used = new Set()
+
+  const walkFrom = (startKey) => {
+    let cur = startKey
+    while (true) {
+      const arr = byA.get(cur)
+      if (!arr || arr.length === 0) break
+      const next = arr.find(r => !used.has(r.id))
+      if (!next) break
+      used.add(next.id)
+      result.push(next)
+      cur = _key(next.nodeB)
+    }
+  }
+
+  if (starts.length) {
+    for (const s of starts.sort()) walkFrom(s)
+  } else {
+    const anyStart = [...setA].sort()[0]
+    if (anyStart) walkFrom(anyStart)
+  }
+
+  if (used.size < items.length) {
+    const leftovers = items
+      .filter(r => !used.has(r.id))
+      .sort((a, b) => String(a.nodeA ?? '').localeCompare(String(b.nodeA ?? '')))
+    for (const r of leftovers) {
+      if (used.has(r.id)) continue
+      walkFrom(_key(r.nodeA))
+      if (!used.has(r.id)) {
+        used.add(r.id)
+        result.push(r)
+      }
+    }
+  }
+
+  return result
+}
+
 export default function NldLightLevelsPage () {
   const { user } = useAuth()
 
@@ -453,52 +525,55 @@ export default function NldLightLevelsPage () {
         Deltas compare against the <strong>initial import</strong>. Higher (less negative) dBm is better.
       </Typography>
 
-      {Object.entries(groupBy(rows, 'nldGroup')).map(([grp, list]) => (
-        <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography variant="subtitle1" fontWeight={600}>
-              {grp}&nbsp;
-              <Chip label={list.length} size="small" sx={{ ml:1 }} />
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ p:0 }}>
-            <Paper elevation={0}>
-              <DataGrid
-                rows={list}
-                columns={columns}
-                autoHeight
-                density="compact"
-                getRowId={(r) => r.id}
-                pageSizeOptions={[25,50,100]}
-                initialState={{
-                  pagination:{ paginationModel:{ pageSize:25 } },
-                }}
-                slots={{ toolbar: GridToolbar }}
-                slotProps={{
-                  toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } }
-                }}
-                sx={(theme) => ({
-                  '.MuiDataGrid-cell:hover':{ bgcolor:'rgba(0,0,0,0.04)' },
-                  border:0,
-                  // group borders
-                  '& .MuiDataGrid-columnHeader.groupAStart, & .groupAStart': {
-                    borderLeft: `1px solid ${theme.palette.divider}`,
-                  },
-                  '& .MuiDataGrid-columnHeader.groupAEnd, & .groupAEnd': {
-                    borderRight: `1px solid ${theme.palette.divider}`,
-                  },
-                  '& .MuiDataGrid-columnHeader.groupBStart, & .groupBStart': {
-                    borderLeft: `1px solid ${theme.palette.divider}`,
-                  },
-                  '& .MuiDataGrid-columnHeader.groupBEnd, & .groupBEnd': {
-                    borderRight: `1px solid ${theme.palette.divider}`,
-                  },
-                })}
-              />
-            </Paper>
-          </AccordionDetails>
-        </Accordion>
-      ))}
+      {Object.entries(groupBy(rows, 'nldGroup')).map(([grp, list]) => {
+        const ordered = orderCircuitsChain(list)
+        return (
+          <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                {grp}&nbsp;
+                <Chip label={list.length} size="small" sx={{ ml:1 }} />
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ p:0 }}>
+              <Paper elevation={0}>
+                <DataGrid
+                  rows={ordered}
+                  columns={columns}
+                  autoHeight
+                  density="compact"
+                  getRowId={(r) => r.id}
+                  pageSizeOptions={[25,50,100]}
+                  initialState={{
+                    pagination:{ paginationModel:{ pageSize:25 } },
+                  }}
+                  slots={{ toolbar: GridToolbar }}
+                  slotProps={{
+                    toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } }
+                  }}
+                  sx={(theme) => ({
+                    '.MuiDataGrid-cell:hover':{ bgcolor:'rgba(0,0,0,0.04)' },
+                    border:0,
+                    // group borders
+                    '& .MuiDataGrid-columnHeader.groupAStart, & .groupAStart': {
+                      borderLeft: `1px solid ${theme.palette.divider}`,
+                    },
+                    '& .MuiDataGrid-columnHeader.groupAEnd, & .groupAEnd': {
+                      borderRight: `1px solid ${theme.palette.divider}`,
+                    },
+                    '& .MuiDataGrid-columnHeader.groupBStart, & .groupBStart': {
+                      borderLeft: `1px solid ${theme.palette.divider}`,
+                    },
+                    '& .MuiDataGrid-columnHeader.groupBEnd, & .groupBEnd': {
+                      borderRight: `1px solid ${theme.palette.divider}`,
+                    },
+                  })}
+                />
+              </Paper>
+            </AccordionDetails>
+          </Accordion>
+        )
+      })}
 
       {/* ---------- Edit drawer ---------- */}
       <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)}>
