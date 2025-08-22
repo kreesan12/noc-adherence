@@ -91,27 +91,39 @@ function tokenScore(a, b) {
   return s
 }
 
+/** Extract the trailing site name from the router, e.g. "ADVA-Liquid-Yzerfontein" -> "yzerfontein" */
+function extractRouterTailName(router) {
+  const raw = (router || '').split(/[-|]/).pop() || ''
+  return norm(raw)
+}
+
 /**
- * Decide side using mnemonic (left of '|') first, router second.
+ * Decide side using the router's trailing site name.
+ * We ignore the mnemonic's left-of-'|' portion for side mapping.
  * No “default to A” when tied—return null if ambiguous.
  */
-function decideSide(nodeA, nodeB, mnemonic, router) {
-  const leftMnemonic = (mnemonic || '').split('|')[0] || ''
-  const nA = norm(nodeA), nB = norm(nodeB)
-  const mn = norm(leftMnemonic)
-  const rt = norm(router)
+function decideSide(nodeA, nodeB, /* mnemonic unused */, router) {
+  const nA = norm(nodeA)
+  const nB = norm(nodeB)
+  const rtSite = extractRouterTailName(router)   // e.g., "yzerfontein"
 
-  const aMn = tokenScore(nA, mn)
-  const bMn = tokenScore(nB, mn)
-  if (aMn !== bMn) return aMn > bMn ? 'A' : 'B'
+  if (!rtSite) return null
 
-  const aRt = tokenScore(nA, rt)
-  const bRt = tokenScore(nB, rt)
-  if (aRt !== bRt) return aRt > bRt ? 'A' : 'B'
+  // First try exact-inclusion (strong signal)
+  const aIncl = nA.includes(rtSite)
+  const bIncl = nB.includes(rtSite)
+  if (aIncl !== bIncl) return aIncl ? 'A' : 'B'
 
-  // extra tiny heuristic: exact-includes on mnemonic
-  if (mn && nA.includes(mn) && !nB.includes(mn)) return 'A'
-  if (mn && nB.includes(mn) && !nA.includes(mn)) return 'B'
+  // Then fall back to token similarity against the tail name
+  const aScore = tokenScore(nA, rtSite)
+  const bScore = tokenScore(nB, rtSite)
+  if (aScore !== bScore) return aScore > bScore ? 'A' : 'B'
+
+  // Final soft fallback: compare against full router string (normalized)
+  const rtFull = norm(router)
+  const aScoreFull = tokenScore(nA, rtFull)
+  const bScoreFull = tokenScore(nB, rtFull)
+  if (aScoreFull !== bScoreFull) return aScoreFull > bScoreFull ? 'A' : 'B'
 
   return null
 }
@@ -210,7 +222,7 @@ async function run() {
       const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
       if (rx == null || Number.isNaN(rx)) { skippedBlank++; continue }
 
-      // -pull the FIRST code in the row's mnemonic (rows only refer to one side)
+      // Pull the FIRST code in the row's mnemonic (rows refer to one side)
       const rowCodes = String(mnemonic).match(codeRegex) || []
       const code = rowCodes[0] || null
       if (!code) { skippedNoCode++; continue }
@@ -218,7 +230,7 @@ async function run() {
       const circuit = byIdOrCode.get(code) || byIdOrCode.get(String(code).trim())
       if (!circuit) { skippedNoCircuit++; continue }
 
-      const side = decideSide(circuit.node_a, circuit.node_b, mnemonic, router)
+      const side = decideSide(circuit.node_a, circuit.node_b, /*mnemonic*/'', router)
       if (!side) { skippedAmbiguous++; continue }
 
       await cx.query(upsertSql, [
