@@ -78,7 +78,6 @@ const codeRegex = /027[A-Z]{4}\d+/g
 
 const norm = (s) => (s || '')
   .toLowerCase()
-  .replace(/^adva-/, '')
   .replace(/\(.*?\)/g, '')          // strip (MED)/(HIGH) etc
   .replace(/[^a-z0-9]+/g, ' ')
   .trim()
@@ -91,39 +90,72 @@ function tokenScore(a, b) {
   return s
 }
 
-/** Extract the trailing site name from the router, e.g. "ADVA-Liquid-Yzerfontein" -> "yzerfontein" */
-function extractRouterTailName(router) {
-  const raw = (router || '').split(/[-|]/).pop() || ''
-  return norm(raw)
+// Common vendor/tech tokens to ignore in Router names
+const VENDOR_TOKENS = new Set([
+  'adva','liquid','frogfoot','dfa','openserve','seacom','vodacom','mtn','telkom',
+  'metrofibre','dark','darkfiber','dfn','juniper','calix','smart','olt','switch',
+  'iris','solid','router','edge','core','metro','access','backhaul'
+])
+
+/**
+ * Extract candidate site names from Router by splitting on '-' and '|',
+ * removing vendor/tech tokens, returning remaining normalized tokens (in order).
+ * e.g. "ADVA-Liquid-Yzerfontein" -> ["yzerfontein"]
+ */
+function extractRouterSiteCandidates(router) {
+  const parts = String(router || '')
+    .split(/[-|]/)
+    .map(x => norm(x))
+    .filter(Boolean)
+
+  const kept = parts.filter(p => !VENDOR_TOKENS.has(p))
+  // If everything was filtered (e.g., "ADVA-Liquid"), fallback to last part anyway
+  if (kept.length === 0 && parts.length) {
+    return [parts[parts.length - 1]]
+  }
+  return kept
 }
 
 /**
- * Decide side using the router's trailing site name.
- * We ignore the mnemonic's left-of-'|' portion for side mapping.
- * No “default to A” when tied—return null if ambiguous.
+ * Decide side using the Router-derived site candidates only.
+ * - Prefer exact-inclusion of candidate in node name.
+ * - Then token similarity to candidate.
+ * - Then token similarity to full router (normalized).
+ * No “default A” on ties —— return null if ambiguous.
  */
 function decideSide(nodeA, nodeB, router) {
   const nA = norm(nodeA)
   const nB = norm(nodeB)
-  const rtSite = extractRouterTailName(router)   // e.g., "yzerfontein"
+  const candidates = extractRouterSiteCandidates(router) // e.g., ["yzerfontein"]
 
-  if (!rtSite) return null
+  if (!candidates.length) return null
 
-  // First try exact-inclusion (strong signal)
-  const aIncl = nA.includes(rtSite)
-  const bIncl = nB.includes(rtSite)
-  if (aIncl !== bIncl) return aIncl ? 'A' : 'B'
+  // 1) Exact-inclusion pass
+  for (const c of candidates) {
+    const aIncl = c && nA.includes(c)
+    const bIncl = c && nB.includes(c)
+    if (aIncl !== bIncl) return aIncl ? 'A' : 'B'
+  }
 
-  // Then fall back to token similarity against the tail name
-  const aScore = tokenScore(nA, rtSite)
-  const bScore = tokenScore(nB, rtSite)
-  if (aScore !== bScore) return aScore > bScore ? 'A' : 'B'
+  // 2) Token similarity vs each candidate (take best candidate)
+  let best = { side: null, delta: 0 }
+  for (const c of candidates) {
+    const aScore = tokenScore(nA, c)
+    const bScore = tokenScore(nB, c)
+    if (aScore !== bScore) {
+      const delta = Math.abs(aScore - bScore)
+      if (delta > best.delta) {
+        best = { side: aScore > bScore ? 'A' : 'B', delta }
+      }
+    }
+  }
+  if (best.side) return best.side
 
-  // Final soft fallback: compare against full router string (normalized)
+  // 3) Final fallback vs full router string
   const rtFull = norm(router)
-  const aScoreFull = tokenScore(nA, rtFull)
-  const bScoreFull = tokenScore(nB, rtFull)
-  if (aScoreFull !== bScoreFull) return aScoreFull > bScoreFull ? 'A' : 'B'
+  const aFull = tokenScore(nA, rtFull)
+  const bFull = tokenScore(nB, rtFull)
+  if (aFull !== bFull) return aFull > bFull ? 'A' : 'B'
 
   return null
 }
