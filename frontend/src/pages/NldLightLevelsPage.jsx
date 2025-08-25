@@ -576,7 +576,7 @@ export default function NldLightLevelsPage () {
       })}
 
       {/* ---------- Edit drawer ---------- */}
-      <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)}>
+      <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)} ModalProps={{ sx: { zIndex: 2400 } }}>
         <Box p={3} width={320}>
           <Typography variant="h6" mb={2}>Edit Levels</Typography>
           <Stack spacing={2}>
