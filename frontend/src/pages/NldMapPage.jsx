@@ -14,21 +14,36 @@ import api from '../api'
 
 const { BaseLayer } = LayersControl
 
+/* --------- geo helpers --------- */
+function haversineKm(a, b) {
+  const toRad = d => (d * Math.PI) / 180
+  const R = 6371
+  const dLat = toRad(b[0] - a[0])
+  const dLon = toRad(b[1] - a[1])
+  const lat1 = toRad(a[0])
+  const lat2 = toRad(b[0])
+  const sinDLat = Math.sin(dLat / 2)
+  const sinDLon = Math.sin(dLon / 2)
+  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+  return R * c
+}
+
 export default function NldMapPage () {
   /* ---------------- state + refs ---------------- */
-  const [spans, setSpans] = useState([])               // API results (each: circuitId, nldGroup, nodeA, nodeB)
+  const [spans, setSpans] = useState([])               // { circuitId, nldGroup, nodeA:{name,lat,lon}, nodeB:{...}, stats? }
   const [query, setQuery] = useState('')               // search box
   const [showMarkers, setShowMarkers] = useState(true) // marker toggle
   const [selectedCircuitId, setSelectedCircuitId] = useState(null)
   const [activeGroups, setActiveGroups] = useState(new Set())  // which NLD groups are visible (empty = all)
   const mapRef = useRef(null)
+  const [mapReady, setMapReady] = useState(false)
+  const fitQueueRef = useRef(null) // queue a fit action until map is ready
 
   /* ---------------- fetch once ------------------ */
   useEffect(() => {
     api.get('/nlds.json')
-      .then(r => {
-        setSpans(r.data ?? [])
-      })
+      .then(r => setSpans(r.data ?? []))
       .catch(console.error)
   }, [])
 
@@ -43,7 +58,6 @@ export default function NldMapPage () {
     const digits = str.replace(/\D/g, '')
     const num = parseInt(digits, 10)
     if (Number.isFinite(num) && num > 0) return palette[(num - 1) % palette.length]
-    // stable hash for non-numeric groups
     let hash = 0
     for (let i = 0; i < str.length; i += 1) hash = ((hash << 5) - hash) + str.charCodeAt(i)
     const idx = Math.abs(hash) % palette.length
@@ -65,11 +79,8 @@ export default function NldMapPage () {
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
-    if (selectedCircuitId) {
-      p.set('circuit', selectedCircuitId)
-    } else {
-      p.delete('circuit')
-    }
+    if (selectedCircuitId) p.set('circuit', selectedCircuitId)
+    else p.delete('circuit')
     const newUrl = `${window.location.pathname}?${p.toString()}${window.location.hash}`
     window.history.replaceState({}, '', newUrl)
   }, [selectedCircuitId])
@@ -81,7 +92,6 @@ export default function NldMapPage () {
     return Array.from(s).sort()
   }, [spans])
 
-  // active groups: empty Set => treat as "all on"
   const isGroupActive = (g) => activeGroups.size === 0 || activeGroups.has(g)
 
   const filteredSpans = useMemo(() => {
@@ -131,7 +141,6 @@ export default function NldMapPage () {
       }
     })
     if (!pts.length) return null
-    // compute min/max
     let minLat = pts[0][0], maxLat = pts[0][0], minLon = pts[0][1], maxLon = pts[0][1]
     for (const [lat, lon] of pts) {
       if (lat < minLat) minLat = lat
@@ -142,39 +151,52 @@ export default function NldMapPage () {
     return [[minLat, minLon], [maxLat, maxLon]]
   }
 
+  const runFit = (fn) => {
+    const map = mapRef.current
+    if (map && mapReady) {
+      fn(map)
+    } else {
+      // queue it until map is ready
+      fitQueueRef.current = fn
+    }
+  }
+
   const fitSpan = (span) => {
     const b = boundsForSpan(span)
     if (!b) return
-    mapRef.current?.fitBounds(b, { padding: [40, 40] })
+    runFit((map) => map.flyToBounds(b, { padding: [50, 50] }))
   }
   const fitAll = () => {
     const b = boundsForSpans(filteredSpans)
     if (!b) return
-    mapRef.current?.fitBounds(b, { padding: [40, 40] })
+    runFit((map) => map.flyToBounds(b, { padding: [60, 60] }))
   }
   const fitGroup = (groupKey) => {
     const b = boundsForSpans(groups[groupKey] ?? [])
     if (!b) return
-    mapRef.current?.fitBounds(b, { padding: [40, 40] })
+    runFit((map) => map.flyToBounds(b, { padding: [50, 50] }))
   }
 
-  // auto-fit when data/filters change (but preserve user manual zoom if a circuit is selected)
+  // when map becomes ready, run any queued fit
+  useEffect(() => {
+    if (mapReady && fitQueueRef.current && mapRef.current) {
+      try { fitQueueRef.current(mapRef.current) } finally { fitQueueRef.current = null }
+    }
+  }, [mapReady])
+
+  // auto-fit when data/filters change (preserve manual if a circuit is selected)
   useEffect(() => {
     if (!selectedCircuitId) fitAll()
-  }, [filteredSpans]) // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredSpans])
 
   /* ---------------- UI actions ------------------ */
   const toggleGroup = (g) => {
     setSelectedCircuitId(null)
     setActiveGroups(prev => {
       const next = new Set(prev)
-      if (next.has(g)) {
-        next.delete(g)
-      } else {
-        next.add(g)
-      }
-      // if all groups become active, collapse to empty Set (means "all on")
-      if (next.size === allGroups.length) return new Set()
+      if (next.has(g)) { next.delete(g) } else { next.add(g) }
+      if (next.size === allGroups.length) return new Set() // treat as "all on"
       return next
     })
   }
@@ -183,6 +205,7 @@ export default function NldMapPage () {
     setQuery('')
     setActiveGroups(new Set())
     setSelectedCircuitId(null)
+    fitAll()
   }
 
   /* ---------------- render ---------------------- */
@@ -213,9 +236,7 @@ export default function NldMapPage () {
         </Stack>
 
         <FormControlLabel
-          control={
-            <Switch checked={showMarkers} onChange={(_, v) => setShowMarkers(v)} />
-          }
+          control={<Switch checked={showMarkers} onChange={(_, v) => setShowMarkers(v)} />}
           label="Show node markers"
           sx={{ mb: 1 }}
         />
@@ -231,7 +252,6 @@ export default function NldMapPage () {
                 label={g}
                 clickable
                 onClick={() => toggleGroup(g)}
-                onDelete={() => { /* noop to show x only when filtered off */ }}
                 variant={on ? 'filled' : 'outlined'}
                 sx={{
                   borderColor: colour(g),
@@ -259,7 +279,7 @@ export default function NldMapPage () {
 
               <List dense disablePadding>
                 {list
-                  .slice() // copy
+                  .slice()
                   .sort((a,b) => String(a.circuitId).localeCompare(String(b.circuitId)))
                   .map(s => {
                     const isSel = s.circuitId === selectedCircuitId
@@ -285,109 +305,163 @@ export default function NldMapPage () {
         </Stack>
       </Paper>
 
-      {/* ---------- map ---------- */}
-      <MapContainer
-        center={[-29, 24]} zoom={6} minZoom={4} style={{ flex: 1 }}
-        whenCreated={(m) => { mapRef.current = m }}
-        zoomControl
-      >
-        <LayersControl position="topright">
-          <BaseLayer checked name="OpenStreetMap">
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution="© OpenStreetMap contributors"
-            />
-          </BaseLayer>
-          <BaseLayer name="Carto Light">
-            <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-              attribution="© OpenStreetMap, © Carto"
-            />
-          </BaseLayer>
-          <BaseLayer name="Carto Dark">
-            <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              attribution="© OpenStreetMap, © Carto"
-            />
-          </BaseLayer>
-        </LayersControl>
+      {/* ---------- map + right info panel ---------- */}
+      <Box sx={{ display: 'flex', flex: 1 }}>
+        <MapContainer
+          center={[-29, 24]} zoom={6} minZoom={4} style={{ flex: 1 }}
+          whenCreated={(m) => { mapRef.current = m; setMapReady(true) }}
+          zoomControl
+        >
+          <LayersControl position="topright">
+            <BaseLayer checked name="OpenStreetMap">
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution="© OpenStreetMap contributors"
+              />
+            </BaseLayer>
+            <BaseLayer name="Carto Light">
+              <TileLayer
+                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                attribution="© OpenStreetMap, © Carto"
+              />
+            </BaseLayer>
+            <BaseLayer name="Carto Dark">
+              <TileLayer
+                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                attribution="© OpenStreetMap, © Carto"
+              />
+            </BaseLayer>
+          </LayersControl>
 
-        {/* polylines */}
-        {filteredSpans.map(s => {
-          const isSel = s.circuitId === selectedCircuitId
-          const weight = isSel ? 6 : 4
-          const color = colour(s?.nldGroup)
-          const positions = [
-            [Number(s.nodeA.lat), Number(s.nodeA.lon)],
-            [Number(s.nodeB.lat), Number(s.nodeB.lon)],
-          ]
-          return (
-            <Polyline
-              key={s.circuitId}
-              positions={positions}
-              pathOptions={{
-                color,
-                weight,
-                opacity: isSel ? 0.95 : 0.75
-              }}
-              eventHandlers={{
-                click: () => { setSelectedCircuitId(s.circuitId); fitSpan(s) },
-                mouseover: (e) => e.target.setStyle({ weight: isSel ? 7 : 6, opacity: 1 }),
-                mouseout:  (e) => e.target.setStyle({ weight, opacity: isSel ? 0.95 : 0.75 }),
-              }}
-            >
-              <Tooltip sticky>
-                <Stack spacing={0.5}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color }}>{s.circuitId}</Typography>
-                  <Typography variant="caption">{s?.nldGroup ?? 'Unassigned'}</Typography>
-                  <Typography variant="caption">{s?.nodeA?.name ?? 'Unknown'} ↔ {s?.nodeB?.name ?? 'Unknown'}</Typography>
-                </Stack>
-              </Tooltip>
-            </Polyline>
-          )
-        })}
+          {/* polylines */}
+          {filteredSpans.map(s => {
+            const isSel = s.circuitId === selectedCircuitId
+            const color = colour(s?.nldGroup)
+            const positions = [
+              [Number(s.nodeA.lat), Number(s.nodeA.lon)],
+              [Number(s.nodeB.lat), Number(s.nodeB.lon)],
+            ]
+            const distanceKm = haversineKm(positions[0], positions[1])
+            const nldPerf = s?.stats?.nld?.uptimePct
+            const circPerf = s?.stats?.circuit?.uptimePct
+            const levels = s?.levels // e.g. { aRx: -25.4, bRx: -24.8 } if you add this to API
 
-        {/* markers (optional) */}
-        {showMarkers && filteredSpans.flatMap(s => ([
-          { ...s.nodeA, circuitId: s.circuitId, nldGroup: s.nldGroup },
-          { ...s.nodeB, circuitId: s.circuitId, nldGroup: s.nldGroup },
-        ])).map(n => {
-          const lat = Number(n.lat), lon = Number(n.lon)
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
-          const color = '#333'
-          return (
-            <CircleMarker
-              key={`${n?.name ?? 'Unknown'}-${n?.circuitId ?? 'na'}`}
-              center={[lat, lon]}
-              radius={4}
-              pathOptions={{ color, weight: 1, fillColor: '#fff', fillOpacity: 1 }}
-              eventHandlers={{
-                click: () => {
-                  setSelectedCircuitId(n.circuitId)
-                  const span = filteredSpans.find(s => s.circuitId === n.circuitId)
-                  if (span) fitSpan(span)
-                }
-              }}
-            >
-              <Tooltip permanent direction="top" offset={[0, -8]}>
-                <a
-                  href={`/noc-adherence/#/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
-                  style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600 }}
-                  onClick={(e) => {
-                    // keep SPA feel by preventing full nav; still update URL param and fit
-                    e.preventDefault()
+            return (
+              <Polyline
+                key={s.circuitId}
+                positions={positions}
+                pathOptions={{
+                  color,
+                  weight: isSel ? 6 : 4,
+                  opacity: isSel ? 0.95 : 0.75
+                }}
+                eventHandlers={{
+                  click: () => { setSelectedCircuitId(s.circuitId); fitSpan(s) },
+                  mouseover: (e) => e.target.setStyle({ weight: isSel ? 7 : 6, opacity: 1 }),
+                  mouseout:  (e) => e.target.setStyle({ weight: isSel ? 6 : 4, opacity: isSel ? 0.95 : 0.75 }),
+                }}
+              >
+                <Tooltip sticky>
+                  <Stack spacing={0.5}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color }}>{s.circuitId}</Typography>
+                    <Typography variant="caption">{s?.nodeA?.name ?? 'Unknown'} ↔ {s?.nodeB?.name ?? 'Unknown'}</Typography>
+                    <Typography variant="caption">NLD: {s?.nldGroup ?? 'Unassigned'} • ~{distanceKm.toFixed(1)} km</Typography>
+                    {typeof nldPerf === 'number' && (
+                      <Typography variant="caption">NLD uptime: {nldPerf.toFixed(3)}%</Typography>
+                    )}
+                    {typeof circPerf === 'number' && (
+                      <Typography variant="caption">Circuit uptime: {circPerf.toFixed(3)}%</Typography>
+                    )}
+                    {levels && (typeof levels.aRx === 'number' || typeof levels.bRx === 'number') && (
+                      <Typography variant="caption">Rx A/B: {levels.aRx ?? '—'} / {levels.bRx ?? '—'} dBm</Typography>
+                    )}
+                  </Stack>
+                </Tooltip>
+              </Polyline>
+            )
+          })}
+
+          {/* markers (optional) */}
+          {showMarkers && filteredSpans.flatMap(s => ([
+            { ...s.nodeA, circuitId: s.circuitId, nldGroup: s.nldGroup },
+            { ...s.nodeB, circuitId: s.circuitId, nldGroup: s.nldGroup },
+          ])).map(n => {
+            const lat = Number(n.lat), lon = Number(n.lon)
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+            return (
+              <CircleMarker
+                key={`${n?.name ?? 'Unknown'}-${n?.circuitId ?? 'na'}`}
+                center={[lat, lon]}
+                radius={4}
+                pathOptions={{ color: '#333', weight: 1, fillColor: '#fff', fillOpacity: 1 }}
+                eventHandlers={{
+                  click: () => {
                     setSelectedCircuitId(n.circuitId)
                     const span = filteredSpans.find(s => s.circuitId === n.circuitId)
                     if (span) fitSpan(span)
-                  }}
-                >
-                  {n?.name ?? 'Unknown'}
-                </a>
-              </Tooltip>
-            </CircleMarker>
-          )
-        })}
-      </MapContainer>
+                  }
+                }}
+              >
+                <Tooltip permanent direction="top" offset={[0, -8]}>
+                  <a
+                    href={`/noc-adherence/#/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
+                    style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600 }}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setSelectedCircuitId(n.circuitId)
+                      const span = filteredSpans.find(s => s.circuitId === n.circuitId)
+                      if (span) fitSpan(span)
+                    }}
+                  >
+                    {n?.name ?? 'Unknown'}
+                  </a>
+                </Tooltip>
+              </CircleMarker>
+            )
+          })}
+        </MapContainer>
+
+        {/* right info panel */}
+        <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>Details</Typography>
+          {!selectedSpan ? (
+            <Typography variant="body2" color="text.secondary">
+              Select a circuit to see stats and actions.
+            </Typography>
+          ) : (
+            <Stack spacing={1.2}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colour(selectedSpan.nldGroup) }}>
+                {selectedSpan.circuitId}
+              </Typography>
+              <Typography variant="body2">NLD: {selectedSpan.nldGroup ?? 'Unassigned'}</Typography>
+              <Typography variant="body2">A: {selectedSpan.nodeA?.name} ({Number(selectedSpan.nodeA.lat).toFixed(4)}, {Number(selectedSpan.nodeA.lon).toFixed(4)})</Typography>
+              <Typography variant="body2">B: {selectedSpan.nodeB?.name} ({Number(selectedSpan.nodeB.lat).toFixed(4)}, {Number(selectedSpan.nodeB.lon).toFixed(4)})</Typography>
+              {(() => {
+                const a = [Number(selectedSpan.nodeA.lat), Number(selectedSpan.nodeA.lon)]
+                const b = [Number(selectedSpan.nodeB.lat), Number(selectedSpan.nodeB.lon)]
+                const km = haversineKm(a, b)
+                return <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
+              })()}
+              {typeof selectedSpan?.stats?.nld?.uptimePct === 'number' && (
+                <Typography variant="body2">NLD uptime: {selectedSpan.stats.nld.uptimePct.toFixed(3)}%</Typography>
+              )}
+              {typeof selectedSpan?.stats?.circuit?.uptimePct === 'number' && (
+                <Typography variant="body2">Circuit uptime: {selectedSpan.stats.circuit.uptimePct.toFixed(3)}%</Typography>
+              )}
+              {selectedSpan?.levels && (typeof selectedSpan.levels.aRx === 'number' || typeof selectedSpan.levels.bRx === 'number') && (
+                <Typography variant="body2">Rx A/B: {selectedSpan.levels.aRx ?? '—'} / {selectedSpan.levels.bRx ?? '—'} dBm</Typography>
+              )}
+              <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+                <Button size="small" variant="outlined" onClick={() => fitSpan(selectedSpan)}>Fit circuit</Button>
+                <Button size="small" onClick={() => {
+                  const key = selectedSpan.nldGroup ?? 'Unassigned'
+                  fitGroup(key)
+                }}>Fit NLD</Button>
+              </Stack>
+            </Stack>
+          )}
+        </Paper>
+      </Box>
     </Box>
   )
 }
