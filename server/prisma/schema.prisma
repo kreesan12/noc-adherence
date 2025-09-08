@@ -254,6 +254,16 @@ model Circuit {
   dailyLevels      DailyLightLevel[]
 }
 
+model Node {
+  code     String  @id            @map("code")        // e.g. RIV, NEWG, CATO
+  name     String                  @map("name")       // human name e.g. Riverhorse
+  nldGroup String?                 @map("nld_group")  // e.g. NLD1
+  lat      Float                   @map("lat")
+  lon      Float                   @map("lon")
+
+  @@map("Node")
+}
+
 model CircuitLevelHistory {
   id          Int      @id @default(autoincrement())
   circuit     Circuit  @relation(fields: [circuitId], references: [id])
