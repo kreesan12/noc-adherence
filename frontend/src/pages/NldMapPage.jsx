@@ -15,7 +15,7 @@ import api from '../api'
 
 const { BaseLayer } = LayersControl
 
-/* --------- geo helpers --------- */
+/* ---------------- geo helpers ---------------- */
 function haversineKm(a, b) {
   const toRad = d => (d * Math.PI) / 180
   const R = 6371
@@ -23,17 +23,15 @@ function haversineKm(a, b) {
   const dLon = toRad(b[1] - a[1])
   const lat1 = toRad(a[0])
   const lat2 = toRad(b[0])
-  const sinDLat = Math.sin(dLat / 2)
-  const sinDLon = Math.sin(dLon / 2)
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon
-  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
-  return R * c
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
-/* --------- run fits inside the map tree --------- */
+/* --------- controller that runs fits inside the map tree --------- */
 function MapController({ fitBoundsCmd }) {
   const map = useMap()
 
+  // make sure Leaflet knows its size
   useEffect(() => {
     const onResize = () => map.invalidateSize()
     map.whenReady(() => map.invalidateSize())
@@ -47,6 +45,7 @@ function MapController({ fitBoundsCmd }) {
     if (!bounds) return
     const latLngBounds = Array.isArray(bounds[0]) ? L.latLngBounds(bounds) : bounds
     if (!latLngBounds.isValid()) {
+      // eslint-disable-next-line no-console
       console.warn('MapController: invalid bounds', bounds)
       return
     }
@@ -64,7 +63,7 @@ export default function NldMapPage () {
   const [showMarkers, setShowMarkers] = useState(true)
   const [selectedCircuitId, setSelectedCircuitId] = useState(null)
   const [activeGroups, setActiveGroups] = useState(new Set())
-  const [fitBoundsCmd, setFitBoundsCmd] = useState(null) // {bounds, options, method:'fit'|'fly'}
+  const [fitBoundsCmd, setFitBoundsCmd] = useState(null) // {bounds, method:'fit'|'fly', options}
 
   /* ---------------- fetch once ------------------ */
   useEffect(() => {
@@ -74,10 +73,8 @@ export default function NldMapPage () {
   }, [])
 
   /* ---------------- palette & helpers ----------- */
-  const palette = [
-    '#1976d2', '#009688', '#ef6c00', '#8e24aa',
-    '#d81b60', '#43a047', '#f9a825', '#5c6bc0',
-  ]
+  const palette = ['#1976d2','#009688','#ef6c00','#8e24aa','#d81b60','#43a047','#f9a825','#5c6bc0']
+
   const colour = (nldLike) => {
     const str = String(nldLike ?? 'Unassigned')
     const digits = str.replace(/\D/g, '')
@@ -85,13 +82,10 @@ export default function NldMapPage () {
     if (Number.isFinite(num) && num > 0) return palette[(num - 1) % palette.length]
     let hash = 0
     for (let i = 0; i < str.length; i += 1) hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    const idx = Math.abs(hash) % palette.length
-    return palette[idx]
+    return palette[Math.abs(hash) % palette.length]
   }
-  const validLatLon = node => {
-    const lat = Number(node?.lat), lon = Number(node?.lon)
-    return Number.isFinite(lat) && Number.isFinite(lon)
-  }
+
+  const validLatLon = node => Number.isFinite(Number(node?.lat)) && Number.isFinite(Number(node?.lon))
   const hasBothEnds = span => validLatLon(span?.nodeA) && validLatLon(span?.nodeB)
 
   /* ---------------- URL sync for ?circuit= ------ */
@@ -102,8 +96,7 @@ export default function NldMapPage () {
   }, [])
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
-    if (selectedCircuitId) p.set('circuit', selectedCircuitId)
-    else p.delete('circuit')
+    selectedCircuitId ? p.set('circuit', selectedCircuitId) : p.delete('circuit')
     const newUrl = `${window.location.pathname}?${p.toString()}${window.location.hash}`
     window.history.replaceState({}, '', newUrl)
   }, [selectedCircuitId])
@@ -147,23 +140,22 @@ export default function NldMapPage () {
   )
 
   /* ---------------- bounds helpers -------------- */
-  const boundsForSpan = (span) => {
-    if (!hasBothEnds(span)) return null
-    return [
-      [Number(span.nodeA.lat), Number(span.nodeA.lon)],
-      [Number(span.nodeB.lat), Number(span.nodeB.lon)],
-    ]
-  }
+  const boundsForSpan = (span) => [
+    [Number(span.nodeA.lat), Number(span.nodeA.lon)],
+    [Number(span.nodeB.lat), Number(span.nodeB.lon)],
+  ]
+
   const boundsForSpans = (items) => {
     const pts = []
-    items.forEach(s => {
+    for (const s of items) {
       if (hasBothEnds(s)) {
         pts.push([Number(s.nodeA.lat), Number(s.nodeA.lon)])
         pts.push([Number(s.nodeB.lat), Number(s.nodeB.lon)])
       }
-    })
+    }
     if (!pts.length) return null
-    let minLat = pts[0][0], maxLat = pts[0][0], minLon = pts[0][1], maxLon = pts[0][1]
+    let [minLat, minLon] = pts[0]
+    let [maxLat, maxLon] = pts[0]
     for (const [lat, lon] of pts) {
       if (lat < minLat) minLat = lat
       if (lat > maxLat) maxLat = lat
@@ -176,27 +168,20 @@ export default function NldMapPage () {
   /* ---------------- fit commands ---------------- */
   const setFitSpan = (span) => {
     const b = boundsForSpan(span)
-    if (!b) return
     setFitBoundsCmd({ bounds: b, method: 'fly', options: { padding: [60, 60] } })
   }
   const fitAll = () => {
     const b = boundsForSpans(filteredSpans)
-    if (!b) {
-      console.warn('fitAll: no bounds (no spans after filters?)')
-      return
-    }
+    if (!b) return
     setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [70, 70] } })
   }
   const fitGroup = (groupKey) => {
     const b = boundsForSpans(groups[groupKey] ?? [])
-    if (!b) {
-      console.warn('fitGroup: no bounds for', groupKey)
-      return
-    }
+    if (!b) return
     setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [60, 60] } })
   }
 
-  // auto-fit when data or filters change and nothing is selected
+  // auto-fit when data or filters change (and nothing selected)
   useEffect(() => {
     if (!selectedCircuitId && filteredSpans.length) fitAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -204,12 +189,21 @@ export default function NldMapPage () {
 
   /* ---------------- render ---------------------- */
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
-      {/* ---------- left panel ---------- */}
-      <Paper elevation={1} sx={{ width: 360, overflow: 'auto', p: 2, borderRight: theme => `1px solid ${theme.palette.divider}` }}>
+    <Box sx={{ display: 'flex', width: '100%', height: '100vh' /* full viewport height */ }}>
+      {/* LEFT PANEL */}
+      <Paper
+        elevation={1}
+        sx={{
+          width: 360,
+          height: '100vh',
+          overflow: 'auto',
+          p: 2,
+          borderRight: theme => `1px solid ${theme.palette.divider}`,
+        }}
+      >
         <Typography variant="h6" sx={{ mb: 1 }}>NLD Explorer</Typography>
 
-        {/* Search + controls */}
+        {/* Search + top controls */}
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
           <TextField
             value={query}
@@ -221,9 +215,11 @@ export default function NldMapPage () {
           <IconButton aria-label="fit all" onClick={fitAll} title="Fit all">
             <CenterFocusStrongIcon />
           </IconButton>
-          <IconButton aria-label="clear filters" onClick={() => {
-            setQuery(''); setActiveGroups(new Set()); setSelectedCircuitId(null); setTimeout(fitAll, 0)
-          }} title="Clear filters">
+          <IconButton
+            aria-label="clear filters"
+            onClick={() => { setQuery(''); setActiveGroups(new Set()); setSelectedCircuitId(null); setTimeout(fitAll, 0) }}
+            title="Clear filters"
+          >
             <FilterAltOffIcon />
           </IconButton>
           <IconButton aria-label="reset view" onClick={() => { setSelectedCircuitId(null); fitAll() }} title="Reset view">
@@ -237,11 +233,11 @@ export default function NldMapPage () {
           sx={{ mb: 1 }}
         />
 
-        {/* Group chips */}
+        {/* Group chips (legend + filter) */}
         <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>NLD Groups</Typography>
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
           {allGroups.map(g => {
-            const on = activeGroups.size === 0 || activeGroups.has(g)
+            const on = isGroupActive(g)
             return (
               <Chip
                 key={g}
@@ -251,7 +247,7 @@ export default function NldMapPage () {
                   setSelectedCircuitId(null)
                   setActiveGroups(prev => {
                     const next = new Set(prev)
-                    if (next.has(g)) { next.delete(g) } else { next.add(g) }
+                    if (next.has(g)) next.delete(g); else next.add(g)
                     if (next.size === allGroups.length) return new Set() // treat as "all on"
                     return next
                   })
@@ -309,118 +305,130 @@ export default function NldMapPage () {
         </Stack>
       </Paper>
 
-      {/* ---------- map + right info panel ---------- */}
-      <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <MapContainer
-          center={[-29, 24]} zoom={6} minZoom={4}
-          style={{ flex: 1, height: '100%' }}
-          zoomControl
-        >
-          {/* execute fits reliably inside map */}
-          <MapController fitBoundsCmd={fitBoundsCmd} />
+      {/* RIGHT SIDE: GRID with MAP + DETAILS */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 340px',
+          width: '100%',
+          height: '100vh', // give the grid a real height (full viewport)
+        }}
+      >
+        {/* MAP cell */}
+        <Box sx={{ position: 'relative' }}>
+          <MapContainer
+            center={[-29, 24]}
+            zoom={6}
+            minZoom={4}
+            style={{ position: 'absolute', inset: 0 }} // fill the grid cell
+            zoomControl
+          >
+            {/* Execute fits reliably inside the map */}
+            <MapController fitBoundsCmd={fitBoundsCmd} />
 
-          <LayersControl position="topright">
-            <BaseLayer checked name="OpenStreetMap">
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="© OpenStreetMap contributors"
-              />
-            </BaseLayer>
-            <BaseLayer name="Carto Light">
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                attribution="© OpenStreetMap, © Carto"
-              />
-            </BaseLayer>
-            <BaseLayer name="Carto Dark">
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                attribution="© OpenStreetMap, © Carto"
-              />
-            </BaseLayer>
-          </LayersControl>
+            <LayersControl position="topright">
+              <BaseLayer checked name="OpenStreetMap">
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="© OpenStreetMap contributors"
+                />
+              </BaseLayer>
+              <BaseLayer name="Carto Light">
+                <TileLayer
+                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                  attribution="© OpenStreetMap, © Carto"
+                />
+              </BaseLayer>
+              <BaseLayer name="Carto Dark">
+                <TileLayer
+                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                  attribution="© OpenStreetMap, © Carto"
+                />
+              </BaseLayer>
+            </LayersControl>
 
-          {/* polylines */}
-          {filteredSpans.map(s => {
-            const isSel = s.circuitId === selectedCircuitId
-            const color = colour(s?.nldGroup)
-            const positions = [
-              [Number(s.nodeA.lat), Number(s.nodeA.lon)],
-              [Number(s.nodeB.lat), Number(s.nodeB.lon)],
-            ]
-            const distanceKm = haversineKm(positions[0], positions[1])
-            const levels = s?.levels
+            {/* lines */}
+            {filteredSpans.map(s => {
+              const isSel = s.circuitId === selectedCircuitId
+              const positions = [
+                [Number(s.nodeA.lat), Number(s.nodeA.lon)],
+                [Number(s.nodeB.lat), Number(s.nodeB.lon)],
+              ]
+              const distanceKm = haversineKm(positions[0], positions[1])
+              const color = colour(s?.nldGroup)
+              const levels = s?.levels
 
-            return (
-              <Polyline
-                key={s.circuitId}
-                positions={positions}
-                pathOptions={{
-                  color,
-                  weight: isSel ? 6 : 4,
-                  opacity: isSel ? 0.95 : 0.75
-                }}
-                eventHandlers={{
-                  click: () => { setSelectedCircuitId(s.circuitId); setFitSpan(s) },
-                  mouseover: (e) => e.target.setStyle({ weight: isSel ? 7 : 6, opacity: 1 }),
-                  mouseout:  (e) => e.target.setStyle({ weight: isSel ? 6 : 4, opacity: isSel ? 0.95 : 0.75 }),
-                }}
-              >
-                <Tooltip sticky>
-                  <Stack spacing={0.5}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color }}>{s.circuitId}</Typography>
-                    <Typography variant="caption">{s?.nodeA?.name ?? 'Unknown'} ↔ {s?.nodeB?.name ?? 'Unknown'}</Typography>
-                    <Typography variant="caption">NLD: {s?.nldGroup ?? 'Unassigned'} • ~{distanceKm.toFixed(1)} km</Typography>
-                    {levels && (typeof levels.aRx === 'number' || typeof levels.bRx === 'number') && (
-                      <Typography variant="caption">Rx A/B: {levels.aRx ?? '—'} / {levels.bRx ?? '—'} dBm</Typography>
-                    )}
-                  </Stack>
-                </Tooltip>
-              </Polyline>
-            )
-          })}
+              return (
+                <Polyline
+                  key={s.circuitId}
+                  positions={positions}
+                  pathOptions={{
+                    color,
+                    weight: isSel ? 6 : 4,
+                    opacity: isSel ? 0.95 : 0.75
+                  }}
+                  eventHandlers={{
+                    click: () => { setSelectedCircuitId(s.circuitId); setFitSpan(s) },
+                    mouseover: (e) => e.target.setStyle({ weight: isSel ? 7 : 6, opacity: 1 }),
+                    mouseout:  (e) => e.target.setStyle({ weight: isSel ? 6 : 4, opacity: isSel ? 0.95 : 0.75 }),
+                  }}
+                >
+                  <Tooltip sticky>
+                    <Stack spacing={0.5}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, color }}>{s.circuitId}</Typography>
+                      <Typography variant="caption">{s?.nodeA?.name ?? 'Unknown'} ↔ {s?.nodeB?.name ?? 'Unknown'}</Typography>
+                      <Typography variant="caption">NLD: {s?.nldGroup ?? 'Unassigned'} • ~{distanceKm.toFixed(1)} km</Typography>
+                      {levels && (typeof levels.aRx === 'number' || typeof levels.bRx === 'number') && (
+                        <Typography variant="caption">Rx A/B: {levels.aRx ?? '—'} / {levels.bRx ?? '—'} dBm</Typography>
+                      )}
+                    </Stack>
+                  </Tooltip>
+                </Polyline>
+              )
+            })}
 
-          {/* markers */}
-          {showMarkers && filteredSpans.flatMap(s => ([
-            { ...s.nodeA, circuitId: s.circuitId, nldGroup: s.nldGroup },
-            { ...s.nodeB, circuitId: s.circuitId, nldGroup: s.nldGroup },
-          ])).map(n => {
-            const lat = Number(n.lat), lon = Number(n.lon)
-            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
-            return (
-              <CircleMarker
-                key={`${n?.name ?? 'Unknown'}-${n?.circuitId ?? 'na'}`}
-                center={[lat, lon]}
-                radius={4}
-                pathOptions={{ color: '#333', weight: 1, fillColor: '#fff', fillOpacity: 1 }}
-                eventHandlers={{
-                  click: () => {
-                    setSelectedCircuitId(n.circuitId)
-                    const span = filteredSpans.find(s => s.circuitId === n.circuitId)
-                    if (span) setFitSpan(span)
-                  }
-                }}
-              >
-                <Tooltip permanent direction="top" offset={[0, -8]}>
-                  <a
-                    href={`/noc-adherence/#/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
-                    style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600 }}
-                    onClick={(e) => {
-                      e.preventDefault()
+            {/* markers */}
+            {showMarkers && filteredSpans.flatMap(s => ([
+              { ...s.nodeA, circuitId: s.circuitId, nldGroup: s.nldGroup },
+              { ...s.nodeB, circuitId: s.circuitId, nldGroup: s.nldGroup },
+            ])).map(n => {
+              const lat = Number(n.lat), lon = Number(n.lon)
+              if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+              return (
+                <CircleMarker
+                  key={`${n?.name ?? 'Unknown'}-${n?.circuitId ?? 'na'}`}
+                  center={[lat, lon]}
+                  radius={4}
+                  pathOptions={{ color: '#333', weight: 1, fillColor: '#fff', fillOpacity: 1 }}
+                  eventHandlers={{
+                    click: () => {
                       setSelectedCircuitId(n.circuitId)
                       const span = filteredSpans.find(s => s.circuitId === n.circuitId)
                       if (span) setFitSpan(span)
-                    }}
-                  >
-                    {n?.name ?? 'Unknown'}
-                  </a>
-                </Tooltip>
-              </CircleMarker>
-            )
-          })}
-        </MapContainer>
+                    }
+                  }}
+                >
+                  <Tooltip permanent direction="top" offset={[0, -8]}>
+                    <a
+                      href={`/noc-adherence/#/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
+                      style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600 }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setSelectedCircuitId(n.circuitId)
+                        const span = filteredSpans.find(s => s.circuitId === n.circuitId)
+                        if (span) setFitSpan(span)
+                      }}
+                    >
+                      {n?.name ?? 'Unknown'}
+                    </a>
+                  </Tooltip>
+                </CircleMarker>
+              )
+            })}
+          </MapContainer>
+        </Box>
 
-        {/* right details panel */}
+        {/* DETAILS cell */}
         <RightPanel
           span={selectedSpan}
           colour={colour}
@@ -432,24 +440,21 @@ export default function NldMapPage () {
   )
 }
 
+/* ---------------- right panel ---------------- */
 function RightPanel({ span, colour, onFit, onFitGroup }) {
   if (!span) {
     return (
-      <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
+      <Paper elevation={0} sx={{ p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
         <Typography variant="h6" sx={{ mb: 1 }}>Details</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Select a circuit to see info and actions.
-        </Typography>
+        <Typography variant="body2" color="text.secondary">Select a circuit to see info and actions.</Typography>
       </Paper>
     )
   }
-
   const a = [Number(span.nodeA.lat), Number(span.nodeA.lon)]
   const b = [Number(span.nodeB.lat), Number(span.nodeB.lon)]
   const km = haversineKm(a, b)
-
   return (
-    <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
+    <Paper elevation={0} sx={{ p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
       <Stack spacing={1.2}>
         <Typography variant="h6" sx={{ fontWeight: 700, color: colour(span.nldGroup) }}>
           {span.circuitId}
