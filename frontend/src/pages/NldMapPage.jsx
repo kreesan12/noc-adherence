@@ -1,5 +1,5 @@
 // frontend/src/pages/NldMapPage.jsx
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, LayersControl, useMap
 } from 'react-leaflet'
@@ -33,7 +33,6 @@ function haversineKm(a, b) {
 /* --------- controller that runs fits inside the map tree --------- */
 function MapController({ fitBoundsCmd }) {
   const map = useMap()
-  // ensure map sizes correctly
   useEffect(() => {
     const onResize = () => map.invalidateSize()
     map.whenReady(() => map.invalidateSize())
@@ -47,7 +46,7 @@ function MapController({ fitBoundsCmd }) {
     if (!bounds) return
     const latLngBounds = Array.isArray(bounds[0])
       ? L.latLngBounds(bounds)
-      : bounds // allow passing an actual LatLngBounds too
+      : bounds
     if (!latLngBounds.isValid()) {
       console.warn('MapController: invalid bounds', bounds)
       return
@@ -178,8 +177,8 @@ export default function NldMapPage () {
     return [[minLat, minLon], [maxLat, maxLon]]
   }
 
-  /* ---------------- fit functions (set command) - */
-  const fitSpan = (span) => {
+  /* ---------------- fit commands ---------------- */
+  const setFitSpan = (span) => {
     const b = boundsForSpan(span)
     if (!b) return
     setFitBoundsCmd({ bounds: b, method: 'fly', options: { padding: [60, 60] } })
@@ -201,7 +200,7 @@ export default function NldMapPage () {
     setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [60, 60] } })
   }
 
-  // auto-fit when data/filters change (avoid stealing focus if a circuit is selected)
+  // auto-fit when data or filters change and nothing is selected
   useEffect(() => {
     if (!selectedCircuitId && filteredSpans.length) fitAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,7 +212,7 @@ export default function NldMapPage () {
     setActiveGroups(prev => {
       const next = new Set(prev)
       if (next.has(g)) { next.delete(g) } else { next.add(g) }
-      if (next.size === allGroups.length) return new Set()
+      if (next.size === allGroups.length) return new Set() // treat as "all on"
       return next
     })
   }
@@ -226,7 +225,7 @@ export default function NldMapPage () {
 
   /* ---------------- render ---------------------- */
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
+    <Box sx={{ display: 'flex,', height: 'calc(100vh - 64px)' }}>
       {/* ---------- left panel ---------- */}
       <Paper elevation={1} sx={{ width: 360, overflow: 'auto', p: 2, borderRight: theme => `1px solid ${theme.palette.divider}` }}>
         <Typography variant="h6" sx={{ mb: 1 }}>NLD Explorer</Typography>
@@ -302,7 +301,7 @@ export default function NldMapPage () {
                     return (
                       <ListItemButton
                         key={s.circuitId}
-                        onClick={() => { setSelectedCircuitId(s.circuitId); fitSpan(s) }}
+                        onClick={() => { setSelectedCircuitId(s.circuitId); setFitSpan(s) }}
                         selected={isSel}
                         sx={{ borderLeft: `3px solid ${isSel ? colour(nld) : 'transparent'}` }}
                       >
@@ -327,7 +326,7 @@ export default function NldMapPage () {
           center={[-29, 24]} zoom={6} minZoom={4} style={{ flex: 1 }}
           zoomControl
         >
-          {/* the controller executes fits reliably */}
+          {/* execute fits reliably inside map */}
           <MapController fitBoundsCmd={fitBoundsCmd} />
 
           <LayersControl position="topright">
@@ -374,7 +373,7 @@ export default function NldMapPage () {
                   opacity: isSel ? 0.95 : 0.75
                 }}
                 eventHandlers={{
-                  click: () => { setSelectedCircuitId(s.circuitId); fitSpan(s) },
+                  click: () => { setSelectedCircuitId(s.circuitId); setFitSpan(s) },
                   mouseover: (e) => e.target.setStyle({ weight: isSel ? 7 : 6, opacity: 1 }),
                   mouseout:  (e) => e.target.setStyle({ weight: isSel ? 6 : 4, opacity: isSel ? 0.95 : 0.75 }),
                 }}
@@ -416,7 +415,7 @@ export default function NldMapPage () {
                   click: () => {
                     setSelectedCircuitId(n.circuitId)
                     const span = filteredSpans.find(s => s.circuitId === n.circuitId)
-                    if (span) fitSpan(span)
+                    if (span) setFitSpan(span)
                   }
                 }}
               >
@@ -428,7 +427,7 @@ export default function NldMapPage () {
                       e.preventDefault()
                       setSelectedCircuitId(n.circuitId)
                       const span = filteredSpans.find(s => s.circuitId === n.circuitId)
-                      if (span) fitSpan(span)
+                      if (span) setFitSpan(span)
                     }}
                   >
                     {n?.name ?? 'Unknown'}
@@ -440,48 +439,57 @@ export default function NldMapPage () {
         </MapContainer>
 
         {/* right info panel */}
-        <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>Details</Typography>
-          {!selectedSpan ? (
-            <Typography variant="body2" color="text.secondary">
-              Select a circuit to see stats and actions.
-            </Typography>
-          ) : (
-            <DetailsCard span={selectedSpan} colour={colour} fitSpan={fitSpan} fitGroup={fitGroup} />
-          )}
-        </Paper>
+        <RightPanel
+          span={selectedSpan}
+          colour={colour}
+          onFit={() => selectedSpan && setFitSpan(selectedSpan)}
+          onFitGroup={() => selectedSpan && fitGroup(selectedSpan.nldGroup ?? 'Unassigned')}
+        />
       </Box>
     </Box>
   )
 }
 
-/* ---------- small details card component ---------- */
-function DetailsCard({ span, colour, fitSpan, fitGroup }) {
+function RightPanel({ span, colour, onFit, onFitGroup }) {
+  if (!span) {
+    return (
+      <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
+        <Typography variant="h6" sx={{ mb: 1 }}>Details</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Select a circuit to see stats and actions.
+        </Typography>
+      </Paper>
+    )
+  }
+
   const a = [Number(span.nodeA.lat), Number(span.nodeA.lon)]
   const b = [Number(span.nodeB.lat), Number(span.nodeB.lon)]
   const km = haversineKm(a, b)
+
   return (
-    <Stack spacing={1.2}>
-      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colour(span.nldGroup) }}>
-        {span.circuitId}
-      </Typography>
-      <Typography variant="body2">NLD: {span.nldGroup ?? 'Unassigned'}</Typography>
-      <Typography variant="body2">A: {span.nodeA?.name} ({a[0].toFixed(4)}, {a[1].toFixed(4)})</Typography>
-      <Typography variant="body2">B: {span.nodeB?.name} ({b[0].toFixed(4)}, {b[1].toFixed(4)})</Typography>
-      <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
-      {typeof span?.stats?.nld?.uptimePct === 'number' && (
-        <Typography variant="body2">NLD uptime: {span.stats.nld.uptimePct.toFixed(3)}%</Typography>
-      )}
-      {typeof span?.stats?.circuit?.uptimePct === 'number' && (
-        <Typography variant="body2">Circuit uptime: {span.stats.circuit.uptimePct.toFixed(3)}%</Typography>
-      )}
-      {span?.levels && (typeof span.levels.aRx === 'number' || typeof span.levels.bRx === 'number') && (
-        <Typography variant="body2">Rx A/B: {span.levels.aRx ?? '—'} / {span.levels.bRx ?? '—'} dBm</Typography>
-      )}
-      <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-        <Button size="small" variant="outlined" onClick={() => fitSpan(span)}>Fit circuit</Button>
-        <Button size="small" onClick={() => fitGroup(span.nldGroup ?? 'Unassigned')}>Fit NLD</Button>
+    <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
+      <Stack spacing={1.2}>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: colour(span.nldGroup) }}>
+          {span.circuitId}
+        </Typography>
+        <Typography variant="body2">NLD: {span.nldGroup ?? 'Unassigned'}</Typography>
+        <Typography variant="body2">A: {span.nodeA?.name} ({a[0].toFixed(4)}, {a[1].toFixed(4)})</Typography>
+        <Typography variant="body2">B: {span.nodeB?.name} ({b[0].toFixed(4)}, {b[1].toFixed(4)})</Typography>
+        <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
+        {typeof span?.stats?.nld?.uptimePct === 'number' && (
+          <Typography variant="body2">NLD uptime: {span.stats.nld.uptimePct.toFixed(3)}%</Typography>
+        )}
+        {typeof span?.stats?.circuit?.uptimePct === 'number' && (
+          <Typography variant="body2">Circuit uptime: {span.stats.circuit.uptimePct.toFixed(3)}%</Typography>
+        )}
+        {span?.levels && (typeof span.levels.aRx === 'number' || typeof span.levels.bRx === 'number') && (
+          <Typography variant="body2">Rx A/B: {span.levels.aRx ?? '—'} / {span.levels.bRx ?? '—'} dBm</Typography>
+        )}
+        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+          <Button size="small" variant="outlined" onClick={onFit}>Fit circuit</Button>
+          <Button size="small" onClick={onFitGroup}>Fit NLD</Button>
+        </Stack>
       </Stack>
-    </Stack>
+    </Paper>
   )
 }
