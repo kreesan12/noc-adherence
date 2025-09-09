@@ -30,9 +30,10 @@ function haversineKm(a, b) {
   return R * c
 }
 
-/* --------- controller that runs fits inside the map tree --------- */
+/* --------- run fits inside the map tree --------- */
 function MapController({ fitBoundsCmd }) {
   const map = useMap()
+
   useEffect(() => {
     const onResize = () => map.invalidateSize()
     map.whenReady(() => map.invalidateSize())
@@ -44,18 +45,13 @@ function MapController({ fitBoundsCmd }) {
     if (!fitBoundsCmd) return
     const { bounds, options, method } = fitBoundsCmd
     if (!bounds) return
-    const latLngBounds = Array.isArray(bounds[0])
-      ? L.latLngBounds(bounds)
-      : bounds
+    const latLngBounds = Array.isArray(bounds[0]) ? L.latLngBounds(bounds) : bounds
     if (!latLngBounds.isValid()) {
       console.warn('MapController: invalid bounds', bounds)
       return
     }
-    if (method === 'fly') {
-      map.flyToBounds(latLngBounds, options || { padding: [60, 60] })
-    } else {
-      map.fitBounds(latLngBounds, options || { padding: [60, 60] })
-    }
+    if (method === 'fly') map.flyToBounds(latLngBounds, options || { padding: [60, 60] })
+    else map.fitBounds(latLngBounds, options || { padding: [60, 60] })
   }, [fitBoundsCmd, map])
 
   return null
@@ -206,26 +202,9 @@ export default function NldMapPage () {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredSpans.length])
 
-  /* ---------------- UI actions ------------------ */
-  const toggleGroup = (g) => {
-    setSelectedCircuitId(null)
-    setActiveGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(g)) { next.delete(g) } else { next.add(g) }
-      if (next.size === allGroups.length) return new Set() // treat as "all on"
-      return next
-    })
-  }
-  const clearFilters = () => {
-    setQuery('')
-    setActiveGroups(new Set())
-    setSelectedCircuitId(null)
-    setTimeout(fitAll, 0)
-  }
-
   /* ---------------- render ---------------------- */
   return (
-    <Box sx={{ display: 'flex,', height: 'calc(100vh - 64px)' }}>
+    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
       {/* ---------- left panel ---------- */}
       <Paper elevation={1} sx={{ width: 360, overflow: 'auto', p: 2, borderRight: theme => `1px solid ${theme.palette.divider}` }}>
         <Typography variant="h6" sx={{ mb: 1 }}>NLD Explorer</Typography>
@@ -242,7 +221,9 @@ export default function NldMapPage () {
           <IconButton aria-label="fit all" onClick={fitAll} title="Fit all">
             <CenterFocusStrongIcon />
           </IconButton>
-          <IconButton aria-label="clear filters" onClick={clearFilters} title="Clear filters">
+          <IconButton aria-label="clear filters" onClick={() => {
+            setQuery(''); setActiveGroups(new Set()); setSelectedCircuitId(null); setTimeout(fitAll, 0)
+          }} title="Clear filters">
             <FilterAltOffIcon />
           </IconButton>
           <IconButton aria-label="reset view" onClick={() => { setSelectedCircuitId(null); fitAll() }} title="Reset view">
@@ -260,13 +241,21 @@ export default function NldMapPage () {
         <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>NLD Groups</Typography>
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
           {allGroups.map(g => {
-            const on = isGroupActive(g)
+            const on = activeGroups.size === 0 || activeGroups.has(g)
             return (
               <Chip
                 key={g}
                 label={g}
                 clickable
-                onClick={() => toggleGroup(g)}
+                onClick={() => {
+                  setSelectedCircuitId(null)
+                  setActiveGroups(prev => {
+                    const next = new Set(prev)
+                    if (next.has(g)) { next.delete(g) } else { next.add(g) }
+                    if (next.size === allGroups.length) return new Set() // treat as "all on"
+                    return next
+                  })
+                }}
                 variant={on ? 'filled' : 'outlined'}
                 sx={{
                   borderColor: colour(g),
@@ -321,9 +310,10 @@ export default function NldMapPage () {
       </Paper>
 
       {/* ---------- map + right info panel ---------- */}
-      <Box sx={{ display: 'flex', flex: 1 }}>
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <MapContainer
-          center={[-29, 24]} zoom={6} minZoom={4} style={{ flex: 1 }}
+          center={[-29, 24]} zoom={6} minZoom={4}
+          style={{ flex: 1, height: '100%' }}
           zoomControl
         >
           {/* execute fits reliably inside map */}
@@ -359,8 +349,6 @@ export default function NldMapPage () {
               [Number(s.nodeB.lat), Number(s.nodeB.lon)],
             ]
             const distanceKm = haversineKm(positions[0], positions[1])
-            const nldPerf = s?.stats?.nld?.uptimePct
-            const circPerf = s?.stats?.circuit?.uptimePct
             const levels = s?.levels
 
             return (
@@ -383,12 +371,6 @@ export default function NldMapPage () {
                     <Typography variant="subtitle2" sx={{ fontWeight: 700, color }}>{s.circuitId}</Typography>
                     <Typography variant="caption">{s?.nodeA?.name ?? 'Unknown'} ↔ {s?.nodeB?.name ?? 'Unknown'}</Typography>
                     <Typography variant="caption">NLD: {s?.nldGroup ?? 'Unassigned'} • ~{distanceKm.toFixed(1)} km</Typography>
-                    {typeof nldPerf === 'number' && (
-                      <Typography variant="caption">NLD uptime: {nldPerf.toFixed(3)}%</Typography>
-                    )}
-                    {typeof circPerf === 'number' && (
-                      <Typography variant="caption">Circuit uptime: {circPerf.toFixed(3)}%</Typography>
-                    )}
                     {levels && (typeof levels.aRx === 'number' || typeof levels.bRx === 'number') && (
                       <Typography variant="caption">Rx A/B: {levels.aRx ?? '—'} / {levels.bRx ?? '—'} dBm</Typography>
                     )}
@@ -438,7 +420,7 @@ export default function NldMapPage () {
           })}
         </MapContainer>
 
-        {/* right info panel */}
+        {/* right details panel */}
         <RightPanel
           span={selectedSpan}
           colour={colour}
@@ -456,7 +438,7 @@ function RightPanel({ span, colour, onFit, onFitGroup }) {
       <Paper elevation={0} sx={{ width: 340, p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
         <Typography variant="h6" sx={{ mb: 1 }}>Details</Typography>
         <Typography variant="body2" color="text.secondary">
-          Select a circuit to see stats and actions.
+          Select a circuit to see info and actions.
         </Typography>
       </Paper>
     )
@@ -476,12 +458,6 @@ function RightPanel({ span, colour, onFit, onFitGroup }) {
         <Typography variant="body2">A: {span.nodeA?.name} ({a[0].toFixed(4)}, {a[1].toFixed(4)})</Typography>
         <Typography variant="body2">B: {span.nodeB?.name} ({b[0].toFixed(4)}, {b[1].toFixed(4)})</Typography>
         <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
-        {typeof span?.stats?.nld?.uptimePct === 'number' && (
-          <Typography variant="body2">NLD uptime: {span.stats.nld.uptimePct.toFixed(3)}%</Typography>
-        )}
-        {typeof span?.stats?.circuit?.uptimePct === 'number' && (
-          <Typography variant="body2">Circuit uptime: {span.stats.circuit.uptimePct.toFixed(3)}%</Typography>
-        )}
         {span?.levels && (typeof span.levels.aRx === 'number' || typeof span.levels.bRx === 'number') && (
           <Typography variant="body2">Rx A/B: {span.levels.aRx ?? '—'} / {span.levels.bRx ?? '—'} dBm</Typography>
         )}
