@@ -1,8 +1,9 @@
 // frontend/src/pages/NldMapPage.jsx
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, LayersControl
+  MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, LayersControl, useMap
 } from 'react-leaflet'
+import L from 'leaflet'
 import {
   Box, Paper, Typography, List, ListItemButton, ListItemText, Chip,
   Stack, TextField, IconButton, Divider, Switch, FormControlLabel, Button
@@ -29,16 +30,46 @@ function haversineKm(a, b) {
   return R * c
 }
 
+/* --------- controller that runs fits inside the map tree --------- */
+function MapController({ fitBoundsCmd }) {
+  const map = useMap()
+  // ensure map sizes correctly
+  useEffect(() => {
+    const onResize = () => map.invalidateSize()
+    map.whenReady(() => map.invalidateSize())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [map])
+
+  useEffect(() => {
+    if (!fitBoundsCmd) return
+    const { bounds, options, method } = fitBoundsCmd
+    if (!bounds) return
+    const latLngBounds = Array.isArray(bounds[0])
+      ? L.latLngBounds(bounds)
+      : bounds // allow passing an actual LatLngBounds too
+    if (!latLngBounds.isValid()) {
+      console.warn('MapController: invalid bounds', bounds)
+      return
+    }
+    if (method === 'fly') {
+      map.flyToBounds(latLngBounds, options || { padding: [60, 60] })
+    } else {
+      map.fitBounds(latLngBounds, options || { padding: [60, 60] })
+    }
+  }, [fitBoundsCmd, map])
+
+  return null
+}
+
 export default function NldMapPage () {
-  /* ---------------- state + refs ---------------- */
-  const [spans, setSpans] = useState([])               // { circuitId, nldGroup, nodeA:{name,lat,lon}, nodeB:{...}, stats? }
-  const [query, setQuery] = useState('')               // search box
-  const [showMarkers, setShowMarkers] = useState(true) // marker toggle
+  /* ---------------- state ---------------- */
+  const [spans, setSpans] = useState([])
+  const [query, setQuery] = useState('')
+  const [showMarkers, setShowMarkers] = useState(true)
   const [selectedCircuitId, setSelectedCircuitId] = useState(null)
-  const [activeGroups, setActiveGroups] = useState(new Set())  // which NLD groups are visible (empty = all)
-  const mapRef = useRef(null)
-  const [mapReady, setMapReady] = useState(false)
-  const fitQueueRef = useRef(null) // queue a fit action until map is ready
+  const [activeGroups, setActiveGroups] = useState(new Set())
+  const [fitBoundsCmd, setFitBoundsCmd] = useState(null) // {bounds, options, method:'fit'|'fly'}
 
   /* ---------------- fetch once ------------------ */
   useEffect(() => {
@@ -52,7 +83,6 @@ export default function NldMapPage () {
     '#1976d2', '#009688', '#ef6c00', '#8e24aa',
     '#d81b60', '#43a047', '#f9a825', '#5c6bc0',
   ]
-
   const colour = (nldLike) => {
     const str = String(nldLike ?? 'Unassigned')
     const digits = str.replace(/\D/g, '')
@@ -63,7 +93,6 @@ export default function NldMapPage () {
     const idx = Math.abs(hash) % palette.length
     return palette[idx]
   }
-
   const validLatLon = node => {
     const lat = Number(node?.lat), lon = Number(node?.lon)
     return Number.isFinite(lat) && Number.isFinite(lon)
@@ -76,7 +105,6 @@ export default function NldMapPage () {
     const fromUrl = p.get('circuit')
     if (fromUrl) setSelectedCircuitId(fromUrl)
   }, [])
-
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
     if (selectedCircuitId) p.set('circuit', selectedCircuitId)
@@ -131,7 +159,6 @@ export default function NldMapPage () {
       [Number(span.nodeB.lat), Number(span.nodeB.lon)],
     ]
   }
-
   const boundsForSpans = (items) => {
     const pts = []
     items.forEach(s => {
@@ -151,44 +178,34 @@ export default function NldMapPage () {
     return [[minLat, minLon], [maxLat, maxLon]]
   }
 
-  const runFit = (fn) => {
-    const map = mapRef.current
-    if (map && mapReady) {
-      fn(map)
-    } else {
-      // queue it until map is ready
-      fitQueueRef.current = fn
-    }
-  }
-
+  /* ---------------- fit functions (set command) - */
   const fitSpan = (span) => {
     const b = boundsForSpan(span)
     if (!b) return
-    runFit((map) => map.flyToBounds(b, { padding: [50, 50] }))
+    setFitBoundsCmd({ bounds: b, method: 'fly', options: { padding: [60, 60] } })
   }
   const fitAll = () => {
     const b = boundsForSpans(filteredSpans)
-    if (!b) return
-    runFit((map) => map.flyToBounds(b, { padding: [60, 60] }))
+    if (!b) {
+      console.warn('fitAll: no bounds (no spans after filters?)')
+      return
+    }
+    setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [70, 70] } })
   }
   const fitGroup = (groupKey) => {
     const b = boundsForSpans(groups[groupKey] ?? [])
-    if (!b) return
-    runFit((map) => map.flyToBounds(b, { padding: [50, 50] }))
+    if (!b) {
+      console.warn('fitGroup: no bounds for', groupKey)
+      return
+    }
+    setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [60, 60] } })
   }
 
-  // when map becomes ready, run any queued fit
+  // auto-fit when data/filters change (avoid stealing focus if a circuit is selected)
   useEffect(() => {
-    if (mapReady && fitQueueRef.current && mapRef.current) {
-      try { fitQueueRef.current(mapRef.current) } finally { fitQueueRef.current = null }
-    }
-  }, [mapReady])
-
-  // auto-fit when data/filters change (preserve manual if a circuit is selected)
-  useEffect(() => {
-    if (!selectedCircuitId) fitAll()
+    if (!selectedCircuitId && filteredSpans.length) fitAll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredSpans])
+  }, [filteredSpans.length])
 
   /* ---------------- UI actions ------------------ */
   const toggleGroup = (g) => {
@@ -196,16 +213,15 @@ export default function NldMapPage () {
     setActiveGroups(prev => {
       const next = new Set(prev)
       if (next.has(g)) { next.delete(g) } else { next.add(g) }
-      if (next.size === allGroups.length) return new Set() // treat as "all on"
+      if (next.size === allGroups.length) return new Set()
       return next
     })
   }
-
   const clearFilters = () => {
     setQuery('')
     setActiveGroups(new Set())
     setSelectedCircuitId(null)
-    fitAll()
+    setTimeout(fitAll, 0)
   }
 
   /* ---------------- render ---------------------- */
@@ -241,7 +257,7 @@ export default function NldMapPage () {
           sx={{ mb: 1 }}
         />
 
-        {/* Group chips (filter + legend) */}
+        {/* Group chips */}
         <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>NLD Groups</Typography>
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
           {allGroups.map(g => {
@@ -309,9 +325,11 @@ export default function NldMapPage () {
       <Box sx={{ display: 'flex', flex: 1 }}>
         <MapContainer
           center={[-29, 24]} zoom={6} minZoom={4} style={{ flex: 1 }}
-          whenCreated={(m) => { mapRef.current = m; setMapReady(true) }}
           zoomControl
         >
+          {/* the controller executes fits reliably */}
+          <MapController fitBoundsCmd={fitBoundsCmd} />
+
           <LayersControl position="topright">
             <BaseLayer checked name="OpenStreetMap">
               <TileLayer
@@ -344,7 +362,7 @@ export default function NldMapPage () {
             const distanceKm = haversineKm(positions[0], positions[1])
             const nldPerf = s?.stats?.nld?.uptimePct
             const circPerf = s?.stats?.circuit?.uptimePct
-            const levels = s?.levels // e.g. { aRx: -25.4, bRx: -24.8 } if you add this to API
+            const levels = s?.levels
 
             return (
               <Polyline
@@ -381,7 +399,7 @@ export default function NldMapPage () {
             )
           })}
 
-          {/* markers (optional) */}
+          {/* markers */}
           {showMarkers && filteredSpans.flatMap(s => ([
             { ...s.nodeA, circuitId: s.circuitId, nldGroup: s.nldGroup },
             { ...s.nodeB, circuitId: s.circuitId, nldGroup: s.nldGroup },
@@ -429,39 +447,41 @@ export default function NldMapPage () {
               Select a circuit to see stats and actions.
             </Typography>
           ) : (
-            <Stack spacing={1.2}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colour(selectedSpan.nldGroup) }}>
-                {selectedSpan.circuitId}
-              </Typography>
-              <Typography variant="body2">NLD: {selectedSpan.nldGroup ?? 'Unassigned'}</Typography>
-              <Typography variant="body2">A: {selectedSpan.nodeA?.name} ({Number(selectedSpan.nodeA.lat).toFixed(4)}, {Number(selectedSpan.nodeA.lon).toFixed(4)})</Typography>
-              <Typography variant="body2">B: {selectedSpan.nodeB?.name} ({Number(selectedSpan.nodeB.lat).toFixed(4)}, {Number(selectedSpan.nodeB.lon).toFixed(4)})</Typography>
-              {(() => {
-                const a = [Number(selectedSpan.nodeA.lat), Number(selectedSpan.nodeA.lon)]
-                const b = [Number(selectedSpan.nodeB.lat), Number(selectedSpan.nodeB.lon)]
-                const km = haversineKm(a, b)
-                return <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
-              })()}
-              {typeof selectedSpan?.stats?.nld?.uptimePct === 'number' && (
-                <Typography variant="body2">NLD uptime: {selectedSpan.stats.nld.uptimePct.toFixed(3)}%</Typography>
-              )}
-              {typeof selectedSpan?.stats?.circuit?.uptimePct === 'number' && (
-                <Typography variant="body2">Circuit uptime: {selectedSpan.stats.circuit.uptimePct.toFixed(3)}%</Typography>
-              )}
-              {selectedSpan?.levels && (typeof selectedSpan.levels.aRx === 'number' || typeof selectedSpan.levels.bRx === 'number') && (
-                <Typography variant="body2">Rx A/B: {selectedSpan.levels.aRx ?? '—'} / {selectedSpan.levels.bRx ?? '—'} dBm</Typography>
-              )}
-              <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-                <Button size="small" variant="outlined" onClick={() => fitSpan(selectedSpan)}>Fit circuit</Button>
-                <Button size="small" onClick={() => {
-                  const key = selectedSpan.nldGroup ?? 'Unassigned'
-                  fitGroup(key)
-                }}>Fit NLD</Button>
-              </Stack>
-            </Stack>
+            <DetailsCard span={selectedSpan} colour={colour} fitSpan={fitSpan} fitGroup={fitGroup} />
           )}
         </Paper>
       </Box>
     </Box>
+  )
+}
+
+/* ---------- small details card component ---------- */
+function DetailsCard({ span, colour, fitSpan, fitGroup }) {
+  const a = [Number(span.nodeA.lat), Number(span.nodeA.lon)]
+  const b = [Number(span.nodeB.lat), Number(span.nodeB.lon)]
+  const km = haversineKm(a, b)
+  return (
+    <Stack spacing={1.2}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: colour(span.nldGroup) }}>
+        {span.circuitId}
+      </Typography>
+      <Typography variant="body2">NLD: {span.nldGroup ?? 'Unassigned'}</Typography>
+      <Typography variant="body2">A: {span.nodeA?.name} ({a[0].toFixed(4)}, {a[1].toFixed(4)})</Typography>
+      <Typography variant="body2">B: {span.nodeB?.name} ({b[0].toFixed(4)}, {b[1].toFixed(4)})</Typography>
+      <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
+      {typeof span?.stats?.nld?.uptimePct === 'number' && (
+        <Typography variant="body2">NLD uptime: {span.stats.nld.uptimePct.toFixed(3)}%</Typography>
+      )}
+      {typeof span?.stats?.circuit?.uptimePct === 'number' && (
+        <Typography variant="body2">Circuit uptime: {span.stats.circuit.uptimePct.toFixed(3)}%</Typography>
+      )}
+      {span?.levels && (typeof span.levels.aRx === 'number' || typeof span.levels.bRx === 'number') && (
+        <Typography variant="body2">Rx A/B: {span.levels.aRx ?? '—'} / {span.levels.bRx ?? '—'} dBm</Typography>
+      )}
+      <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+        <Button size="small" variant="outlined" onClick={() => fitSpan(span)}>Fit circuit</Button>
+        <Button size="small" onClick={() => fitGroup(span.nldGroup ?? 'Unassigned')}>Fit NLD</Button>
+      </Stack>
+    </Stack>
   )
 }
