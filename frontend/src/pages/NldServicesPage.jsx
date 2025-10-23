@@ -319,98 +319,82 @@ export default function NldServicesPage() {
                 </Card>
               )}
 
-              {/* STEP 2: Paths & Tags */}
-              {activeStep === 1 && (
-                <Card
-                  title="Paths & Tags"
-                  subtitle="Primary/secondary NLD groups and service tags"
-                  right={nldLoading ? <Skeleton width={80} /> : <Chip label={`${nldGroups.length} NLD groups`} size="small" />}
-                >
-                  {/* Row 1 */}
-                  <Grid container spacing={2} sx={{ mb: 2 /* gap between rows */ }}>
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="PRI PATH (NLD Group)"
-                        select
-                        required
-                        fullWidth
-                        value={form.priPath}
-                        onChange={e => setF('priPath', e.target.value)}
-                        onBlur={() => markTouched(['priPath'])}
-                        error={!!(touched.priPath && isEmpty(form.priPath))}
-                        helperText={touched.priPath && isEmpty(form.priPath) ? 'Required' : ' '}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                          minWidth: 260,
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                      >
-                        <MenuItem value="">—</MenuItem>
-                        {nldGroups.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
-                    </Grid>
+            
+            {/* STEP 2: Paths & Tags */}
+            {activeStep === 1 && (
+            <Card
+                title="Paths & Tags"
+                subtitle="Primary/secondary (can be combined path IDs like NLD234)"
+                right={nldLoading ? <Skeleton width={80} /> : <Chip label={`${nldGroups.length} NLD groups`} size="small" />}
+            >
+                {/* Row 1 */}
+                <Grid container spacing={2} sx={{ mb: 2 /* gap between rows */ }}>
+                <Grid item xs={12} md={4}>
+                    <TextField
+                    label="PRI PATH (free text)"
+                    required
+                    fullWidth
+                    value={form.priPath}
+                    onChange={e => setF('priPath', e.target.value)}
+                    onBlur={() => markTouched(['priPath'])}
+                    error={!!(touched.priPath && !String(form.priPath).trim())}
+                    helperText={touched.priPath && !String(form.priPath).trim() ? 'Required' : ' '}
+                    placeholder="e.g., NLD234 (NLD2+NLD3+NLD4)"
+                    />
+                </Grid>
 
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="SEC PATH (NLD Group)"
-                        select
-                        required
-                        fullWidth
-                        value={form.secPath}
-                        onChange={e => setF('secPath', e.target.value)}
-                        onBlur={() => markTouched(['secPath'])}
-                        error={!!(touched.secPath && isEmpty(form.secPath))}
-                        helperText={touched.secPath && isEmpty(form.secPath) ? 'Required' : ' '}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                          minWidth: 260,
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                      >
-                        <MenuItem value="">—</MenuItem>
-                        {nldGroups.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
-                    </Grid>
+                <Grid item xs={12} md={4}>
+                    <TextField
+                    label="SEC PATH (free text)"
+                    required
+                    fullWidth
+                    value={form.secPath}
+                    onChange={e => setF('secPath', e.target.value)}
+                    onBlur={() => markTouched(['secPath'])}
+                    error={!!(touched.secPath && !String(form.secPath).trim())}
+                    helperText={touched.secPath && !String(form.secPath).trim() ? 'Required' : ' '}
+                    placeholder="e.g., NTP1D (backup combination)"
+                    />
+                </Grid>
 
-                    <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center' }}>
-                      <FormControlLabel
-                        control={<Switch checked={!!form.protection} onChange={(_, v) => setF('protection', v)} />}
-                        label="PROTECTION (Yes/No)"
-                      />
-                    </Grid>
-                  </Grid>
+                <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center' }}>
+                    <FormControlLabel
+                    control={<Switch checked={!!form.protection} onChange={(_, v) => setF('protection', v)} />}
+                    label="PROTECTION (Yes/No)"
+                    />
+                </Grid>
+                </Grid>
 
-                  {/* Row 2 */}
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={3}>
-                      <TextField
-                        label="STAG"
-                        required
-                        fullWidth
-                        value={form.stag}
-                        onChange={e => setF('stag', e.target.value)}
-                        onBlur={() => markTouched(['stag'])}
-                        error={!!(touched.stag && isEmpty(form.stag))}
-                        helperText={touched.stag && isEmpty(form.stag) ? 'Required' : ' '}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={3}>
-                      <TextField
-                        label="CTAG"
-                        required
-                        fullWidth
-                        value={form.ctag}
-                        onChange={e => setF('ctag', e.target.value)}
-                        onBlur={() => markTouched(['ctag'])}
-                        error={!!(touched.ctag && isEmpty(form.ctag))}
-                        helperText={touched.ctag && isEmpty(form.ctag) ? 'Required' : ' '}
-                      />
-                    </Grid>
-                  </Grid>
-                </Card>
-              )}
+                {/* Row 2 */}
+                <Grid container spacing={2}>
+                <Grid item xs={12} md={3}>
+                    <TextField
+                    label="STAG"
+                    required
+                    fullWidth
+                    value={form.stag}
+                    onChange={e => setF('stag', e.target.value)}
+                    onBlur={() => markTouched(['stag'])}
+                    error={!!(touched.stag && !String(form.stag).trim())}
+                    helperText={touched.stag && !String(form.stag).trim() ? 'Required' : ' '}
+                    />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                    <TextField
+                    label="CTAG"
+                    required
+                    fullWidth
+                    value={form.ctag}
+                    onChange={e => setF('ctag', e.target.value)}
+                    onBlur={() => markTouched(['ctag'])}
+                    error={!!(touched.ctag && !String(form.ctag).trim())}
+                    helperText={touched.ctag && !String(form.ctag).trim() ? 'Required' : ' '}
+                    />
+                </Grid>
+                </Grid>
+            </Card>
+            )}
+
 
               {/* STEP 3: Sites */}
               {activeStep === 2 && (
