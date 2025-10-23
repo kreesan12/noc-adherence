@@ -25,6 +25,8 @@ import workforceRouter from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
 import managersRoutes    from './routes/managers.js'
 import nldsRoutes from './routes/nlds.js'
+import nldServices from './routes/nldServices.js'
+import nodes from './routes/nodes.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -109,6 +111,9 @@ app.use(
   verifyToken, authRole('supervisor'),
   shiftRoutes(prisma)
 );
+
+app.use('/api', nldServices)
+app.use('/api', nodes)
 
 app.use('/api/engineering', engineeringRoutes)
 

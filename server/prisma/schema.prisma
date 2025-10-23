@@ -329,3 +329,33 @@ model Manager {
 
   @@map("Manager")   // table name stays quoted-capitalised
 }
+
+model NldService {
+  id            Int      @id @default(autoincrement())
+  customer      String
+  frg           String
+  serviceType   String   @map("service_type")
+  capacity      String
+  nldRoute      String   @map("nld_route")
+  deployment    String
+  protection    Boolean
+  priPath       String?  @map("pri_path")
+  secPath       String?  @map("sec_path")
+  stag          String?
+  ctag          String?
+
+  sideAName     String   @map("side_a_name")
+  sideAIC       String?  @map("side_a_ic")
+  sideASO       String?  @map("side_a_so")
+  sideAHandoff  String?  @map("side_a_handoff")
+
+  sideBName     String   @map("side_b_name")
+  sideBIC       String?  @map("side_b_ic")
+  sideBSO       String?  @map("side_b_so")
+  sideBHandoff  String?  @map("side_b_handoff")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt      @map("updated_at")
+
+  @@map("NldService")
+}

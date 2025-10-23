@@ -51,6 +51,7 @@ import ManagersPage       from './pages/ManagersPage'
 import NldMapPage from './pages/NldMapPage'
 import NldUptimePage from './pages/NldUptimePage'
 import CircuitEditorPage from './pages/CircuitEditorPage'
+import NldServicesPage from './pages/NldServicesPage.jsx'
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -132,7 +133,8 @@ function SideNav() {
         { label:'NLD Uptime',       path:'/nld-uptime',       icon:<AvTimerIcon/> },
         { label:'NLD Mapping',      path:'/nld-mapping',      icon:<MapIcon/> },
         { label:'NLD Map',          path:'/nld-map',          icon:<MapIcon/> },
-        { label:'NLD Admin',          path:'/nld-admin',      icon:<AdminPanelSettingsIcon/> },
+        { label:'NLD Admin',        path:'/nld-admin',        icon:<AdminPanelSettingsIcon/> },
+        { label:'NLD Services',     path:'/nld-services',     icon:<AdminPanelSettingsIcon/> },
       ],
     },
   ]
@@ -243,6 +245,7 @@ export default function App() {
                 <Route path="/nld-map"          element={<NldMapPage/>}/>
                 <Route path="/nld-uptime"       element={<NldUptimePage/>}/>
                 <Route path="/nld-admin"       element={<CircuitEditorPage/>}/>
+                <Route path="/engineering/nld-services" element={<NldServicesPage />} />
               </Route>
 
               {/* Fallback */}
