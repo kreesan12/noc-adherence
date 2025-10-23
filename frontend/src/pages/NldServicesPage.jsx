@@ -39,12 +39,11 @@ const initialForm = {
   sideBSO: '',
   sideBHandoff: '',
 }
-
 const requiredFields = ['customer','frg','serviceType','capacity','nldRoute','deployment','sideAName','sideBName']
 
 /* ---------------- small helpers ---------------- */
-const SectionCard = ({ title, subtitle, children, right }) => (
-  <Paper variant="outlined" sx={{ p: 2 }}>
+const SectionCard = ({ title, subtitle, children, right, sx }) => (
+  <Paper variant="outlined" sx={{ p: 2, ...sx }}>
     <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
       <Box>
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{title}</Typography>
@@ -66,10 +65,10 @@ const FieldHint = ({ children }) => (
 export default function NldServicesPage() {
   const [tab, setTab] = useState(0)
 
-  // form
+  // form state
   const [form, setForm] = useState(initialForm)
   const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState(null) // {severity, message}
+  const [toast, setToast] = useState(null)   // {severity, message}
   const [touched, setTouched] = useState({}) // show errors after interaction
 
   // dropdown sources
@@ -81,7 +80,7 @@ export default function NldServicesPage() {
     return Array.from(s).sort()
   }, [nlds])
 
-  // node autocompletes
+  // node autocompletes (async)
   const [nodeOptionsA, setNodeOptionsA] = useState([])
   const [nodeOptionsB, setNodeOptionsB] = useState([])
 
@@ -122,7 +121,7 @@ export default function NldServicesPage() {
       setTotal(r.data?.total ?? 0)
     } catch (e) { console.error(e) } finally { setLoadingList(false) }
   }
-  useEffect(() => { if (tab === 1) loadList() }, [tab]) // load when switching to "Current"
+  useEffect(() => { if (tab === 1) loadList() }, [tab])
 
   /* -------- validation ----------- */
   const errors = useMemo(() => {
@@ -130,7 +129,6 @@ export default function NldServicesPage() {
     for (const k of requiredFields) if (!String(form[k] ?? '').trim()) e[k] = 'Required'
     return e
   }, [form])
-
   const isValid = useMemo(() => Object.keys(errors).length === 0, [errors])
 
   const setF = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
@@ -168,7 +166,6 @@ export default function NldServicesPage() {
         {/* ====== Capture tab ====== */}
         {tab === 0 && (
           <Box sx={{ overflow: 'auto', pr: 1, pb: 8 /* space for sticky bar */ }}>
-            {/* Intro */}
             <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
               Template for capturing NLD services
             </Typography>
