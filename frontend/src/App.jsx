@@ -134,7 +134,7 @@ function SideNav() {
         { label:'NLD Mapping',      path:'/nld-mapping',      icon:<MapIcon/> },
         { label:'NLD Map',          path:'/nld-map',          icon:<MapIcon/> },
         { label:'NLD Admin',        path:'/nld-admin',        icon:<AdminPanelSettingsIcon/> },
-        { label:'NLD Services',     path:'/nld-services',     icon:<AdminPanelSettingsIcon/> },
+        { label:'NLD Services',     path:'/engineering/nld-services',     icon:<AdminPanelSettingsIcon/> },
       ],
     },
   ]
