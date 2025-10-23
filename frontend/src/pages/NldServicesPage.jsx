@@ -212,227 +212,262 @@ export default function NldServicesPage() {
                 </Stepper>
               </Paper>
 
-              {/* STEP 1: Service */}
-              {activeStep === 0 && (
-                <Card title="Service" subtitle="Top-level attributes">
-                    {/* Row 1 */}
-                    <Grid container spacing={2} sx={{ mb: 0 }}>
-                    <Grid item xs={12} md={6}>
-                        <TextField
-                        label="CUSTOMER" required fullWidth
-                        value={form.customer} onChange={e => setF('customer', e.target.value)}
-                        onBlur={() => markTouched(['customer'])}
-                        error={!!(touched.customer && !form.customer.trim())}
-                        helperText={touched.customer && !form.customer.trim() ? 'Required' : ' '}
-                        />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                        <TextField
-                        label="FRG" required fullWidth
-                        value={form.frg} onChange={e => setF('frg', e.target.value)}
-                        onBlur={() => markTouched(['frg'])}
-                        error={!!(touched.frg && !form.frg.trim())}
-                        helperText={touched.frg && !form.frg.trim() ? 'Required' : ' '}
-                        />
-                    </Grid>
-                    </Grid>
+            {/* STEP 1: Service */}
+            {activeStep === 0 && (
+            <Card title="Service" subtitle="Top-level attributes">
+                {/* Row 1 */}
+                <Grid container spacing={2} sx={{ mb: 0 }}>
+                <Grid item xs={12} md={6}>
+                    <TextField
+                    label="CUSTOMER" required fullWidth
+                    value={form.customer} onChange={e => setF('customer', e.target.value)}
+                    onBlur={() => markTouched(['customer'])}
+                    error={!!(touched.customer && !form.customer.trim())}
+                    helperText={touched.customer && !form.customer.trim() ? 'Required' : ' '}
+                    />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                    <TextField
+                    label="FRG" required fullWidth
+                    value={form.frg} onChange={e => setF('frg', e.target.value)}
+                    onBlur={() => markTouched(['frg'])}
+                    error={!!(touched.frg && !form.frg.trim())}
+                    helperText={touched.frg && !form.frg.trim() ? 'Required' : ' '}
+                    />
+                </Grid>
+                </Grid>
 
-                    {/* Row 2 */}
-                    <Grid container spacing={2}>
-                    <Grid item xs={12} md={3}>
-                        <TextField
-                        label="CAPACITY" select fullWidth
-                        value={form.capacity} onChange={e => setF('capacity', e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                            minWidth: 220,
-                            '& .MuiSelect-select': { width: '100% !important' },
-                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                        >
-                        {CAPACITIES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                        </TextField>
-                    </Grid>
+                {/* Row 2 */}
+                <Grid container spacing={2}>
+                <Grid item xs={12} md={3}>
+                    <TextField
+                    label="CAPACITY" select fullWidth
+                    value={form.capacity} onChange={e => setF('capacity', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                        minWidth: 220,
+                        '& .MuiSelect-select': { width: '100% !important' },
+                        '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                    }}
+                    >
+                    {CAPACITIES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                    </TextField>
+                </Grid>
 
-                    <Grid item xs={12} md={3}>
-                        <TextField
-                        label="SERVICE TYPE" select fullWidth
-                        value={form.serviceType} onChange={e => setF('serviceType', e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                            minWidth: 220,
-                            '& .MuiSelect-select': { width: '100% !important' },
-                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                        >
-                        {SERVICE_TYPES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                        </TextField>
-                    </Grid>
+                <Grid item xs={12} md={3}>
+                    <TextField
+                    label="SERVICE TYPE" select fullWidth
+                    value={form.serviceType} onChange={e => setF('serviceType', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                        minWidth: 220,
+                        '& .MuiSelect-select': { width: '100% !important' },
+                        '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                    }}
+                    >
+                    {SERVICE_TYPES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                    </TextField>
+                </Grid>
 
-                    <Grid item xs={12} md={3}>
-                        <TextField
-                        label="DEPLOYMENT" select fullWidth
-                        value={form.deployment} onChange={e => setF('deployment', e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                            minWidth: 220,
-                            '& .MuiSelect-select': { width: '100% !important' },
-                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                        >
-                        {DEPLOYMENTS.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                        </TextField>
-                    </Grid>
+                <Grid item xs={12} md={3}>
+                    <TextField
+                    label="DEPLOYMENT" select fullWidth
+                    value={form.deployment} onChange={e => setF('deployment', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                        minWidth: 220,
+                        '& .MuiSelect-select': { width: '100% !important' },
+                        '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                    }}
+                    >
+                    {DEPLOYMENTS.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                    </TextField>
+                </Grid>
 
-                    <Grid item xs={12} md={3}>
-                        <TextField
-                        label="NLD ROUTE" select fullWidth
-                        value={form.nldRoute} onChange={e => setF('nldRoute', e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                            minWidth: 220,
-                            '& .MuiSelect-select': { width: '100% !important' },
-                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                        >
-                        {ROUTES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                        </TextField>
-                    </Grid>
-                    </Grid>
+                <Grid item xs={12} md={3}>
+                    <TextField
+                    label="NLD ROUTE" select fullWidth
+                    value={form.nldRoute} onChange={e => setF('nldRoute', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                        minWidth: 220,
+                        '& .MuiSelect-select': { width: '100% !important' },
+                        '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                    }}
+                    >
+                    {ROUTES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                    </TextField>
+                </Grid>
+                </Grid>
                 </Card>
-                )}
+               )}
 
               {/* STEP 2: Paths & Tags */}
-              {activeStep === 1 && (
-                <Card
-                  title="Paths & Tags"
-                  subtitle="Primary/secondary NLD groups and service tags"
-                  right={nldLoading ? <Skeleton width={80} /> : <Chip label={`${nldGroups.length} NLD groups`} size="small" />}
-                >
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="PRI PATH (NLD Group)"
-                        select
-                        fullWidth
-                        value={form.priPath}
-                        onChange={e => setF('priPath', e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                      >
-                        <MenuItem value="">—</MenuItem>
-                        {nldGroups.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="SEC PATH (NLD Group)"
-                        select
-                        fullWidth
-                        value={form.secPath}
-                        onChange={e => setF('secPath', e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        sx={{
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
-                      >
-                        <MenuItem value="">—</MenuItem>
-                        {nldGroups.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={4} sx={{ display:'flex', alignItems:'center' }}>
-                      <FormControlLabel
-                        control={<Switch checked={!!form.protection} onChange={(_, v) => setF('protection', v)} />}
-                        label="PROTECTION (Yes/No)"
-                      />
-                    </Grid>
+            {activeStep === 1 && (
+            <Card
+                title="Paths & Tags"
+                subtitle="Primary/secondary NLD groups and service tags"
+                right={nldLoading ? <Skeleton width={80} /> : <Chip label={`${nldGroups.length} NLD groups`} size="small" />}
+            >
+                {/* Row 1 */}
+                <Grid container spacing={2} sx={{ mb: 0 }}>
+                <Grid item xs={12} md={4}>
+                    <TextField
+                    label="PRI PATH (NLD Group)"
+                    select
+                    fullWidth
+                    value={form.priPath}
+                    onChange={e => setF('priPath', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                        minWidth: 260,
+                        '& .MuiSelect-select': { width: '100% !important' },
+                        '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                    }}
+                    >
+                    <MenuItem value="">—</MenuItem>
+                    {nldGroups.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                    </TextField>
+                </Grid>
 
-                    <Grid item xs={12} md={3}>
-                      <TextField label="STAG" fullWidth value={form.stag} onChange={e => setF('stag', e.target.value)} />
-                    </Grid>
-                    <Grid item xs={12} md={3}>
-                      <TextField label="CTAG" fullWidth value={form.ctag} onChange={e => setF('ctag', e.target.value)} />
-                    </Grid>
-                  </Grid>
-                </Card>
-              )}
+                <Grid item xs={12} md={4}>
+                    <TextField
+                    label="SEC PATH (NLD Group)"
+                    select
+                    fullWidth
+                    value={form.secPath}
+                    onChange={e => setF('secPath', e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{
+                        minWidth: 260,
+                        '& .MuiSelect-select': { width: '100% !important' },
+                        '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                    }}
+                    >
+                    <MenuItem value="">—</MenuItem>
+                    {nldGroups.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                    </TextField>
+                </Grid>
+
+                <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center' }}>
+                    <FormControlLabel
+                    control={<Switch checked={!!form.protection} onChange={(_, v) => setF('protection', v)} />}
+                    label="PROTECTION (Yes/No)"
+                    />
+                </Grid>
+                </Grid>
+
+                {/* Row 2 */}
+                <Grid container spacing={2}>
+                <Grid item xs={12} md={3}>
+                    <TextField label="STAG" fullWidth value={form.stag} onChange={e => setF('stag', e.target.value)} />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                    <TextField label="CTAG" fullWidth value={form.ctag} onChange={e => setF('ctag', e.target.value)} />
+                </Grid>
+                </Grid>
+            </Card>
+            )}
+
 
               {/* STEP 3: Sites */}
-              {activeStep === 2 && (
-                <Stack spacing={2}>
-                  <Card title="Side A" subtitle="Site details for A-end">
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <Autocomplete
-                          freeSolo
-                          options={nodeOptionsA}
-                          onInputChange={(_, v) => searchNodes(v, setNodeOptionsA)}
-                          getOptionLabel={(o) => (typeof o === 'string' ? o : `${o.name}${o.code ? ` (${o.code})` : ''}`)}
-                          onChange={(_, v) => setF('sideAName', typeof v === 'string' ? v : v?.name || '')}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="SIDE A (node)" required
-                              value={form.sideAName}
-                              onChange={e => setF('sideAName', e.target.value)}
-                              onBlur={() => markTouched(['sideAName'])}
-                              error={!!(touched.sideAName && !form.sideAName.trim())}
-                              helperText={touched.sideAName && !form.sideAName.trim() ? 'Required' : ' '}
-                            />
-                          )}
+            {activeStep === 2 && (
+            <Stack spacing={2}>
+                {/* Side A */}
+                <Card title="Side A" subtitle="Site details for A-end">
+                {/* Row 1 */}
+                <Grid container spacing={2} sx={{ mb: 0 }}>
+                    <Grid item xs={12} md={6}>
+                    <Autocomplete
+                        freeSolo
+                        options={nodeOptionsA}
+                        onInputChange={(_, v) => searchNodes(v, setNodeOptionsA)}
+                        getOptionLabel={(o) => (typeof o === 'string' ? o : `${o.name}${o.code ? ` (${o.code})` : ''}`)}
+                        onChange={(_, v) => setF('sideAName', typeof v === 'string' ? v : v?.name || '')}
+                        renderInput={(params) => (
+                        <TextField
+                            {...params}
+                            label="SIDE A (node)" required
+                            value={form.sideAName}
+                            onChange={e => setF('sideAName', e.target.value)}
+                            onBlur={() => markTouched(['sideAName'])}
+                            error={!!(touched.sideAName && !form.sideAName.trim())}
+                            helperText={touched.sideAName && !form.sideAName.trim() ? 'Required' : ' '}
+                            sx={{ minWidth: 320 }}
                         />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label="SIDE A – Handoff" fullWidth value={form.sideAHandoff} onChange={e => setF('sideAHandoff', e.target.value)} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label="SIDE A - IC Number" fullWidth value={form.sideAIC} onChange={e => setF('sideAIC', e.target.value)} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label="SIDE A - SO Number" fullWidth value={form.sideASO} onChange={e => setF('sideASO', e.target.value)} />
-                      </Grid>
+                        )}
+                    />
                     </Grid>
-                  </Card>
+                    <Grid item xs={12} md={6}>
+                    <TextField
+                        label="SIDE A – Handoff"
+                        fullWidth
+                        value={form.sideAHandoff}
+                        onChange={e => setF('sideAHandoff', e.target.value)}
+                        sx={{ minWidth: 320 }}
+                    />
+                    </Grid>
+                </Grid>
 
-                  <Card title="Side B" subtitle="Site details for B-end">
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <Autocomplete
-                          freeSolo
-                          options={nodeOptionsB}
-                          onInputChange={(_, v) => searchNodes(v, setNodeOptionsB)}
-                          getOptionLabel={(o) => (typeof o === 'string' ? o : `${o.name}${o.code ? ` (${o.code})` : ''}`)}
-                          onChange={(_, v) => setF('sideBName', typeof v === 'string' ? v : v?.name || '')}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="SIDE B (node)" required
-                              value={form.sideBName}
-                              onChange={e => setF('sideBName', e.target.value)}
-                              onBlur={() => markTouched(['sideBName'])}
-                              error={!!(touched.sideBName && !form.sideBName.trim())}
-                              helperText={touched.sideBName && !form.sideBName.trim() ? 'Required' : ' '}
-                            />
-                          )}
-                        />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label="SIDE B – Handoff" fullWidth value={form.sideBHandoff} onChange={e => setF('sideBHandoff', e.target.value)} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label="SIDE B - IC Number" fullWidth value={form.sideBIC} onChange={e => setF('sideBIC', e.target.value)} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label="SIDE B - SO Number" fullWidth value={form.sideBSO} onChange={e => setF('sideBSO', e.target.value)} />
-                      </Grid>
+                {/* Row 2 */}
+                <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                    <TextField label="SIDE A - IC Number" fullWidth value={form.sideAIC} onChange={e => setF('sideAIC', e.target.value)} />
                     </Grid>
-                  </Card>
-                </Stack>
-              )}
+                    <Grid item xs={12} md={6}>
+                    <TextField label="SIDE A - SO Number" fullWidth value={form.sideASO} onChange={e => setF('sideASO', e.target.value)} />
+                    </Grid>
+                </Grid>
+                </Card>
+
+                {/* Side B */}
+                <Card title="Side B" subtitle="Site details for B-end">
+                {/* Row 1 */}
+                <Grid container spacing={2} sx={{ mb: 0 }}>
+                    <Grid item xs={12} md={6}>
+                    <Autocomplete
+                        freeSolo
+                        options={nodeOptionsB}
+                        onInputChange={(_, v) => searchNodes(v, setNodeOptionsB)}
+                        getOptionLabel={(o) => (typeof o === 'string' ? o : `${o.name}${o.code ? ` (${o.code})` : ''}`)}
+                        onChange={(_, v) => setF('sideBName', typeof v === 'string' ? v : v?.name || '')}
+                        renderInput={(params) => (
+                        <TextField
+                            {...params}
+                            label="SIDE B (node)" required
+                            value={form.sideBName}
+                            onChange={e => setF('sideBName', e.target.value)}
+                            onBlur={() => markTouched(['sideBName'])}
+                            error={!!(touched.sideBName && !form.sideBName.trim())}
+                            helperText={touched.sideBName && !form.sideBName.trim() ? 'Required' : ' '}
+                            sx={{ minWidth: 320 }}
+                        />
+                        )}
+                    />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                    <TextField
+                        label="SIDE B – Handoff"
+                        fullWidth
+                        value={form.sideBHandoff}
+                        onChange={e => setF('sideBHandoff', e.target.value)}
+                        sx={{ minWidth: 320 }}
+                    />
+                    </Grid>
+                </Grid>
+
+                {/* Row 2 */}
+                <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                    <TextField label="SIDE B - IC Number" fullWidth value={form.sideBIC} onChange={e => setF('sideBIC', e.target.value)} />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                    <TextField label="SIDE B - SO Number" fullWidth value={form.sideBSO} onChange={e => setF('sideBSO', e.target.value)} />
+                    </Grid>
+                </Grid>
+                </Card>
+            </Stack>
+            )}
 
               {/* Wizard controls */}
               <Paper elevation={3} sx={{
