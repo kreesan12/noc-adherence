@@ -215,97 +215,92 @@ export default function NldServicesPage() {
               {/* STEP 1: Service */}
               {activeStep === 0 && (
                 <Card title="Service" subtitle="Top-level attributes">
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={4}>
-                      <TextField
+                    {/* Row 1 */}
+                    <Grid container spacing={2} sx={{ mb: 0 }}>
+                    <Grid item xs={12} md={6}>
+                        <TextField
                         label="CUSTOMER" required fullWidth
                         value={form.customer} onChange={e => setF('customer', e.target.value)}
                         onBlur={() => markTouched(['customer'])}
                         error={!!(touched.customer && !form.customer.trim())}
                         helperText={touched.customer && !form.customer.trim() ? 'Required' : ' '}
-                      />
+                        />
                     </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField
+                    <Grid item xs={12} md={6}>
+                        <TextField
                         label="FRG" required fullWidth
                         value={form.frg} onChange={e => setF('frg', e.target.value)}
                         onBlur={() => markTouched(['frg'])}
                         error={!!(touched.frg && !form.frg.trim())}
                         helperText={touched.frg && !form.frg.trim() ? 'Required' : ' '}
-                      />
+                        />
+                    </Grid>
                     </Grid>
 
-                    {/* SELECTS with extra per-field overrides */}
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="CAPACITY"
-                        select
-                        fullWidth
-                        value={form.capacity}
-                        onChange={e => setF('capacity', e.target.value)}
+                    {/* Row 2 */}
+                    <Grid container spacing={2}>
+                    <Grid item xs={12} md={3}>
+                        <TextField
+                        label="CAPACITY" select fullWidth
+                        value={form.capacity} onChange={e => setF('capacity', e.target.value)}
                         InputLabelProps={{ shrink: true }}
                         sx={{
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                            minWidth: 220,
+                            '& .MuiSelect-select': { width: '100% !important' },
+                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
                         }}
-                      >
+                        >
                         {CAPACITIES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
+                        </TextField>
                     </Grid>
 
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="SERVICE TYPE"
-                        select
-                        fullWidth
-                        value={form.serviceType}
-                        onChange={e => setF('serviceType', e.target.value)}
+                    <Grid item xs={12} md={3}>
+                        <TextField
+                        label="SERVICE TYPE" select fullWidth
+                        value={form.serviceType} onChange={e => setF('serviceType', e.target.value)}
                         InputLabelProps={{ shrink: true }}
                         sx={{
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                            minWidth: 220,
+                            '& .MuiSelect-select': { width: '100% !important' },
+                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
                         }}
-                      >
+                        >
                         {SERVICE_TYPES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
+                        </TextField>
                     </Grid>
 
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="DEPLOYMENT"
-                        select
-                        fullWidth
-                        value={form.deployment}
-                        onChange={e => setF('deployment', e.target.value)}
+                    <Grid item xs={12} md={3}>
+                        <TextField
+                        label="DEPLOYMENT" select fullWidth
+                        value={form.deployment} onChange={e => setF('deployment', e.target.value)}
                         InputLabelProps={{ shrink: true }}
                         sx={{
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                            minWidth: 220,
+                            '& .MuiSelect-select': { width: '100% !important' },
+                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
                         }}
-                      >
+                        >
                         {DEPLOYMENTS.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
+                        </TextField>
                     </Grid>
 
-                    <Grid item xs={12} md={4}>
-                      <TextField
-                        label="NLD ROUTE"
-                        select
-                        fullWidth
-                        value={form.nldRoute}
-                        onChange={e => setF('nldRoute', e.target.value)}
+                    <Grid item xs={12} md={3}>
+                        <TextField
+                        label="NLD ROUTE" select fullWidth
+                        value={form.nldRoute} onChange={e => setF('nldRoute', e.target.value)}
                         InputLabelProps={{ shrink: true }}
                         sx={{
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
+                            minWidth: 220,
+                            '& .MuiSelect-select': { width: '100% !important' },
+                            '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
                         }}
-                      >
+                        >
                         {ROUTES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
-                      </TextField>
+                        </TextField>
                     </Grid>
-                  </Grid>
+                    </Grid>
                 </Card>
-              )}
+                )}
 
               {/* STEP 2: Paths & Tags */}
               {activeStep === 1 && (
