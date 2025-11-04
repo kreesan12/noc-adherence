@@ -16,7 +16,7 @@ import api from '../api'
 import { updateNldService } from '../api/nldServices'
 
 /* ---------------- config / options ---------------- */
-const SERVICE_TYPES = ['Carrier', 'NLD']
+const SERVICE_TYPES = ['Carrier path specific', 'NLD']
 const CAPACITIES = ['1G', '2.5G', '10G', '100G', '400G']
 const DEPLOYMENTS = ['OTN', 'EVPN']
 const ROUTES = ['CPT <> JHB', 'CPT <> DBN', 'JHB <> DBN', 'CPT <> EL', 'CPT <> PLZ', 'CPT <> BFN', 'BFN <> JHB']
@@ -25,10 +25,10 @@ const STEPS = ['Service', 'Paths & Tags', 'Sites']
 const initialForm = {
   customer: '',
   frg: '',
-  serviceType: 'NLD',
-  capacity: '10G',
-  nldRoute: 'CPT <> JHB',
-  deployment: 'OTN',
+  serviceType: '',
+  capacity: '',
+  nldRoute: '',
+  deployment: '',
   protection: true,
   priPath: '',
   secPath: '',
