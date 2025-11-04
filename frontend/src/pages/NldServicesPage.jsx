@@ -4,21 +4,22 @@ import {
   Box, Paper, Tabs, Tab, Stack, TextField, MenuItem, Button, Typography, Grid,
   FormControlLabel, Switch, Autocomplete, Chip, Snackbar, Alert,
   Table, TableHead, TableRow, TableCell, TableBody, IconButton, InputAdornment,
-  Tooltip, Drawer, List, ListItem, ListItemText, Skeleton, Stepper, Step, StepLabel
+  Tooltip, Drawer, Skeleton, Stepper, Step, StepLabel
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import SaveIcon from '@mui/icons-material/Save'
 import RotateLeftIcon from '@mui/icons-material/RotateLeft'
-import VisibilityIcon from '@mui/icons-material/Visibility'
+import EditIcon from '@mui/icons-material/Edit'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import api from '../api'
+import { updateNldService } from '../api/nldServices'
 
 /* ---------------- config / options ---------------- */
 const SERVICE_TYPES = ['Carrier', 'NLD']
 const CAPACITIES = ['1G', '2.5G', '10G', '100G', '400G']
 const DEPLOYMENTS = ['OTN', 'EVPN']
-const ROUTES = ['CPT <> JHB', 'CPT <> DBN', 'JHB <> DBN', 'CPT <> EL', 'CPT <> PLZ' , 'CPT <> BFN' , 'BFN <> JHB']
+const ROUTES = ['CPT <> JHB', 'CPT <> DBN', 'JHB <> DBN', 'CPT <> EL', 'CPT <> PLZ', 'CPT <> BFN', 'BFN <> JHB']
 const STEPS = ['Service', 'Paths & Tags', 'Sites']
 
 const initialForm = {
@@ -43,10 +44,10 @@ const initialForm = {
   sideBHandoff: '',
 }
 
-/* Required fields per step */
+/* Required fields (static baseline; Step 2 is made dynamic below) */
 const requiredByStep = {
   0: ['customer', 'frg', 'serviceType', 'capacity', 'nldRoute', 'deployment'],
-  1: ['priPath', 'secPath', 'stag', 'ctag'], // ← Step 2 all mandatory now
+  1: ['priPath', /* secPath conditional */, 'stag', 'ctag'],
   2: ['sideAName', 'sideBName'],
 }
 
@@ -93,9 +94,9 @@ export default function NldServicesPage() {
   const [total, setTotal] = useState(0)
   const [loadingList, setLoadingList] = useState(false)
 
-  // details drawer
+  // details/edit drawer
   const [openDrawer, setOpenDrawer] = useState(false)
-  const [drawerRow, setDrawerRow] = useState(null)
+  const [edit, setEdit] = useState(null) // editable copy of row
 
   /* -------- load NLDs once -------- */
   useEffect(() => {
@@ -133,9 +134,16 @@ export default function NldServicesPage() {
 
   const isEmpty = (v) => !String(v ?? '').trim()
 
-  // Errors only for the *current* step (controls Next/Save disabled state)
+  // dynamic requireds per step (secPath only when protected)
+  const requiredForStep = (step) => {
+    if (step === 1) {
+      return ['priPath', ...(form.protection ? ['secPath'] : []), 'stag', 'ctag']
+    }
+    return requiredByStep[step] || []
+  }
+
   const stepErrors = useMemo(() => {
-    const req = requiredByStep[activeStep] || []
+    const req = requiredForStep(activeStep)
     const e = {}
     req.forEach(k => { if (isEmpty(form[k])) e[k] = 'Required' })
     return e
@@ -143,10 +151,9 @@ export default function NldServicesPage() {
 
   const canNextOrSave = Object.keys(stepErrors).length === 0
 
-  // Compute first step that has missing fields (used on Save)
   const firstMissingStep = () => {
     for (const s of [0, 1, 2]) {
-      const miss = (requiredByStep[s] || []).filter((k) => isEmpty(form[k]))
+      const miss = (requiredForStep(s) || []).filter((k) => isEmpty(form[k]))
       if (miss.length) return { step: s, keys: miss }
     }
     return null
@@ -162,9 +169,8 @@ export default function NldServicesPage() {
   const handleBack = () => setActiveStep(s => Math.max(s - 1, 0))
   const handleReset = () => { setForm(initialForm); setTouched({}); setActiveStep(0) }
 
-  /* -------- submit -------- */
+  /* -------- submit (create) -------- */
   const submit = async () => {
-    // If anything is missing across any step, jump to that step and highlight
     const fm = firstMissingStep()
     if (fm) {
       setActiveStep(fm.step)
@@ -198,7 +204,7 @@ export default function NldServicesPage() {
           </Tabs>
         </Paper>
 
-        {/* ---- PAGE-SCOPED FIX: force full width + visible labels (beats global overrides) ---- */}
+        {/* ---- PAGE-SCOPED FIX: force full width + visible labels ---- */}
         <Box
           className="nldsvc"
           sx={{
@@ -261,11 +267,7 @@ export default function NldServicesPage() {
                         label="CAPACITY" select fullWidth
                         value={form.capacity} onChange={e => setF('capacity', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{
-                          minWidth: 220,
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
+                        sx={{ minWidth: 220 }}
                       >
                         {CAPACITIES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -276,11 +278,7 @@ export default function NldServicesPage() {
                         label="SERVICE TYPE" select fullWidth
                         value={form.serviceType} onChange={e => setF('serviceType', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{
-                          minWidth: 220,
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
+                        sx={{ minWidth: 220 }}
                       >
                         {SERVICE_TYPES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -291,11 +289,7 @@ export default function NldServicesPage() {
                         label="DEPLOYMENT" select fullWidth
                         value={form.deployment} onChange={e => setF('deployment', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{
-                          minWidth: 220,
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
+                        sx={{ minWidth: 220 }}
                       >
                         {DEPLOYMENTS.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -306,11 +300,7 @@ export default function NldServicesPage() {
                         label="NLD ROUTE" select fullWidth
                         value={form.nldRoute} onChange={e => setF('nldRoute', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{
-                          minWidth: 220,
-                          '& .MuiSelect-select': { width: '100% !important' },
-                          '& .MuiInputLabel-root': { overflow: 'visible', maxWidth: 'none' },
-                        }}
+                        sx={{ minWidth: 220 }}
                       >
                         {ROUTES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -319,89 +309,100 @@ export default function NldServicesPage() {
                 </Card>
               )}
 
-            
-            {/* STEP 2: Paths & Tags */}
-            {activeStep === 1 && (
-            <Card
-                title="Paths & Tags"
-                subtitle="Primary/secondary (can be combined path IDs like NLD234)"
-                right={nldLoading ? <Skeleton width={80} /> : <Chip label={`${nldGroups.length} NLD groups`} size="small" />}
-            >
-                {/* Row 1 */}
-                <Grid container spacing={2} sx={{ mb: 2 /* gap between rows */ }}>
-                <Grid item xs={12} md={4}>
-                    <TextField
-                    label="PRI PATH (free text)"
-                    required
-                    fullWidth
-                    value={form.priPath}
-                    onChange={e => setF('priPath', e.target.value)}
-                    onBlur={() => markTouched(['priPath'])}
-                    error={!!(touched.priPath && !String(form.priPath).trim())}
-                    helperText={touched.priPath && !String(form.priPath).trim() ? 'Required' : ' '}
-                    placeholder="e.g., NLD234 (NLD2+NLD3+NLD4)"
-                    />
-                </Grid>
+              {/* STEP 2: Paths & Tags (Protection first; secPath conditional) */}
+              {activeStep === 1 && (
+                <Card
+                  title="Paths & Tags"
+                  subtitle="Primary/secondary (free text; secondary required only when protection is ON)"
+                  right={<Chip label={form.protection ? 'Protected' : 'Unprotected'} size="small" color={form.protection ? 'success' : 'default'} />}
+                >
+                  {/* Row 1 */}
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    {/* Protection first */}
+                    <Grid item xs={12} md={3} sx={{ display: 'flex', alignItems: 'center' }}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={!!form.protection}
+                            onChange={(_, v) => {
+                              setF('protection', v)
+                              if (!v) setF('secPath', '')
+                            }}
+                          />
+                        }
+                        label="PROTECTION (Yes/No)"
+                      />
+                    </Grid>
 
-                <Grid item xs={12} md={4}>
-                    <TextField
-                    label="SEC PATH (free text)"
-                    required
-                    fullWidth
-                    value={form.secPath}
-                    onChange={e => setF('secPath', e.target.value)}
-                    onBlur={() => markTouched(['secPath'])}
-                    error={!!(touched.secPath && !String(form.secPath).trim())}
-                    helperText={touched.secPath && !String(form.secPath).trim() ? 'Required' : ' '}
-                    placeholder="e.g., NTP1D (backup combination)"
-                    />
-                </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        label="PRI PATH (free text)"
+                        required
+                        fullWidth
+                        value={form.priPath}
+                        onChange={e => setF('priPath', e.target.value)}
+                        onBlur={() => markTouched(['priPath'])}
+                        error={!!(touched.priPath && isEmpty(form.priPath))}
+                        helperText={touched.priPath && isEmpty(form.priPath) ? 'Required' : ' '}
+                        placeholder="e.g., NLD234 (NLD2+NLD3+NLD4)"
+                      />
+                    </Grid>
 
-                <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center' }}>
-                    <FormControlLabel
-                    control={<Switch checked={!!form.protection} onChange={(_, v) => setF('protection', v)} />}
-                    label="PROTECTION (Yes/No)"
-                    />
-                </Grid>
-                </Grid>
+                    <Grid item xs={12} md={5}>
+                      <TextField
+                        label="SEC PATH (free text)"
+                        required={!!form.protection}
+                        disabled={!form.protection}
+                        fullWidth
+                        value={form.secPath}
+                        onChange={e => setF('secPath', e.target.value)}
+                        onBlur={() => markTouched(['secPath'])}
+                        error={!!(form.protection && touched.secPath && isEmpty(form.secPath))}
+                        helperText={
+                          form.protection && touched.secPath && isEmpty(form.secPath)
+                            ? 'Required when protection is ON'
+                            : ' '
+                        }
+                        placeholder="e.g., Alternate combined path"
+                      />
+                    </Grid>
+                  </Grid>
 
-                {/* Row 2 */}
-                <Grid container spacing={2}>
-                <Grid item xs={12} md={3}>
-                    <TextField
-                    label="STAG"
-                    required
-                    fullWidth
-                    value={form.stag}
-                    onChange={e => setF('stag', e.target.value)}
-                    onBlur={() => markTouched(['stag'])}
-                    error={!!(touched.stag && !String(form.stag).trim())}
-                    helperText={touched.stag && !String(form.stag).trim() ? 'Required' : ' '}
-                    />
-                </Grid>
-                <Grid item xs={12} md={3}>
-                    <TextField
-                    label="CTAG"
-                    required
-                    fullWidth
-                    value={form.ctag}
-                    onChange={e => setF('ctag', e.target.value)}
-                    onBlur={() => markTouched(['ctag'])}
-                    error={!!(touched.ctag && !String(form.ctag).trim())}
-                    helperText={touched.ctag && !String(form.ctag).trim() ? 'Required' : ' '}
-                    />
-                </Grid>
-                </Grid>
-            </Card>
-            )}
-
+                  {/* Row 2 */}
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={3}>
+                      <TextField
+                        label="STAG"
+                        required
+                        fullWidth
+                        value={form.stag}
+                        onChange={e => setF('stag', e.target.value)}
+                        onBlur={() => markTouched(['stag'])}
+                        error={!!(touched.stag && isEmpty(form.stag))}
+                        helperText={touched.stag && isEmpty(form.stag) ? 'Required' : ' '}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={3}>
+                      <TextField
+                        label="CTAG"
+                        required
+                        fullWidth
+                        value={form.ctag}
+                        onChange={e => setF('ctag', e.target.value)}
+                        onBlur={() => markTouched(['ctag'])}
+                        error={!!(touched.ctag && isEmpty(form.ctag))}
+                        helperText={touched.ctag && isEmpty(form.ctag) ? 'Required' : ' '}
+                      />
+                    </Grid>
+                  </Grid>
+                </Card>
+              )}
 
               {/* STEP 3: Sites */}
               {activeStep === 2 && (
                 <Stack spacing={2}>
                   {/* Side A */}
                   <Card title="Side A" subtitle="Site details for A-end">
-                    {/* Row 1 */}
                     <Grid container spacing={2} sx={{ mb: 0 }}>
                       <Grid item xs={12} md={6}>
                         <Autocomplete
@@ -435,7 +436,6 @@ export default function NldServicesPage() {
                       </Grid>
                     </Grid>
 
-                    {/* Row 2 */}
                     <Grid container spacing={2}>
                       <Grid item xs={12} md={6}>
                         <TextField label="SIDE A - IC Number" fullWidth value={form.sideAIC} onChange={e => setF('sideAIC', e.target.value)} />
@@ -448,7 +448,6 @@ export default function NldServicesPage() {
 
                   {/* Side B */}
                   <Card title="Side B" subtitle="Site details for B-end">
-                    {/* Row 1 */}
                     <Grid container spacing={2} sx={{ mb: 0 }}>
                       <Grid item xs={12} md={6}>
                         <Autocomplete
@@ -482,7 +481,6 @@ export default function NldServicesPage() {
                       </Grid>
                     </Grid>
 
-                    {/* Row 2 */}
                     <Grid container spacing={2}>
                       <Grid item xs={12} md={6}>
                         <TextField label="SIDE B - IC Number" fullWidth value={form.sideBIC} onChange={e => setF('sideBIC', e.target.value)} />
@@ -561,7 +559,7 @@ export default function NldServicesPage() {
                         <TableCell>Side A</TableCell>
                         <TableCell>Side B</TableCell>
                         <TableCell>Created</TableCell>
-                        <TableCell align="center">View</TableCell>
+                        <TableCell align="center">Edit</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -580,9 +578,9 @@ export default function NldServicesPage() {
                           <TableCell>{r.sideBName}</TableCell>
                           <TableCell>{new Date(r.createdAt).toLocaleString()}</TableCell>
                           <TableCell align="center">
-                            <Tooltip title="Open details">
-                              <IconButton size="small" onClick={() => { setDrawerRow(r); setOpenDrawer(true) }}>
-                                <VisibilityIcon fontSize="inherit" />
+                            <Tooltip title="Edit">
+                              <IconButton size="small" onClick={() => { setEdit({ ...r }); setOpenDrawer(true) }}>
+                                <EditIcon fontSize="inherit" />
                               </IconButton>
                             </Tooltip>
                           </TableCell>
@@ -600,44 +598,83 @@ export default function NldServicesPage() {
                 </Paper>
               </Card>
 
-              {/* details drawer */}
+              {/* EDIT drawer */}
               <Drawer anchor="right" open={openDrawer} onClose={() => setOpenDrawer(false)}>
-                <Box sx={{ width: 380, p: 2 }}>
-                  <Typography variant="h6" sx={{ mb: 1 }}>Service Details</Typography>
-                  {drawerRow ? (
-                    <List dense>
-                      {[
-                        ['Customer', drawerRow.customer],
-                        ['FRG', drawerRow.frg],
-                        ['Service Type', drawerRow.serviceType],
-                        ['Capacity', drawerRow.capacity],
-                        ['NLD Route', drawerRow.nldRoute],
-                        ['Deployment', drawerRow.deployment],
-                        ['Protection', drawerRow.protection ? 'Yes' : 'No'],
-                        ['Pri Path', drawerRow.priPath || '—'],
-                        ['Sec Path', drawerRow.secPath || '—'],
-                        ['STAG', drawerRow.stag || '—'],
-                        ['CTAG', drawerRow.ctag || '—'],
-                        ['Side A', drawerRow.sideAName],
-                        ['Side A – Handoff', drawerRow.sideAHandoff || '—'],
-                        ['A – IC', drawerRow.sideAIC || '—'],
-                        ['A – SO', drawerRow.sideASO || '—'],
-                        ['Side B', drawerRow.sideBName],
-                        ['Side B – Handoff', drawerRow.sideBHandoff || '—'],
-                        ['B – IC', drawerRow.sideBIC || '—'],
-                        ['B – SO', drawerRow.sideBSO || '—'],
-                        ['Created', new Date(drawerRow.createdAt).toLocaleString()],
-                      ].map(([k, v]) => (
-                        <ListItem key={k} disableGutters sx={{ py: 0.5 }}>
-                          <ListItemText
-                            primary={<Typography sx={{ fontWeight: 600 }}>{k}</Typography>}
-                            secondary={String(v)}
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
+                <Box sx={{ width: 420, p: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>Edit NLD Service</Typography>
+
+                  {edit ? (
+                    <Stack spacing={1.5}>
+                      <TextField label="Customer" value={edit.customer || ''} onChange={e => setEdit({ ...edit, customer: e.target.value })} />
+                      <TextField label="FRG" value={edit.frg || ''} onChange={e => setEdit({ ...edit, frg: e.target.value })} />
+
+                      <TextField label="Service Type" select value={edit.serviceType || ''} onChange={e => setEdit({ ...edit, serviceType: e.target.value })}>
+                        {SERVICE_TYPES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                      </TextField>
+
+                      <TextField label="Capacity" select value={edit.capacity || ''} onChange={e => setEdit({ ...edit, capacity: e.target.value })}>
+                        {CAPACITIES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                      </TextField>
+
+                      <TextField label="NLD Route" select value={edit.nldRoute || ''} onChange={e => setEdit({ ...edit, nldRoute: e.target.value })}>
+                        {ROUTES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                      </TextField>
+
+                      <TextField label="Deployment" select value={edit.deployment || ''} onChange={e => setEdit({ ...edit, deployment: e.target.value })}>
+                        {DEPLOYMENTS.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                      </TextField>
+
+                      <FormControlLabel
+                        control={<Switch checked={!!edit.protection} onChange={(_, v) => setEdit({ ...edit, protection: v, secPath: v ? (edit.secPath || '') : '' })} />}
+                        label="Protection"
+                      />
+
+                      <TextField label="Primary Path" value={edit.priPath || ''} onChange={e => setEdit({ ...edit, priPath: e.target.value })} />
+                      <TextField
+                        label="Secondary Path"
+                        value={edit.secPath || ''}
+                        onChange={e => setEdit({ ...edit, secPath: e.target.value })}
+                        disabled={!edit.protection}
+                      />
+
+                      <TextField label="STAG" value={edit.stag || ''} onChange={e => setEdit({ ...edit, stag: e.target.value })} />
+                      <TextField label="CTAG" value={edit.ctag || ''} onChange={e => setEdit({ ...edit, ctag: e.target.value })} />
+
+                      <TextField label="Side A (node)" value={edit.sideAName || ''} onChange={e => setEdit({ ...edit, sideAName: e.target.value })} />
+                      <TextField label="Side A – Handoff" value={edit.sideAHandoff || ''} onChange={e => setEdit({ ...edit, sideAHandoff: e.target.value })} />
+                      <TextField label="Side A – IC" value={edit.sideAIC || ''} onChange={e => setEdit({ ...edit, sideAIC: e.target.value })} />
+                      <TextField label="Side A – SO" value={edit.sideASO || ''} onChange={e => setEdit({ ...edit, sideASO: e.target.value })} />
+
+                      <TextField label="Side B (node)" value={edit.sideBName || ''} onChange={e => setEdit({ ...edit, sideBName: e.target.value })} />
+                      <TextField label="Side B – Handoff" value={edit.sideBHandoff || ''} onChange={e => setEdit({ ...edit, sideBHandoff: e.target.value })} />
+                      <TextField label="Side B – IC" value={edit.sideBIC || ''} onChange={e => setEdit({ ...edit, sideBIC: e.target.value })} />
+                      <TextField label="Side B – SO" value={edit.sideBSO || ''} onChange={e => setEdit({ ...edit, sideBSO: e.target.value })} />
+
+                      <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+                        <Button variant="outlined" onClick={() => setOpenDrawer(false)}>Cancel</Button>
+                        <Button
+                          variant="contained"
+                          startIcon={<SaveIcon />}
+                          onClick={async () => {
+                            try {
+                              const payload = { ...edit, protection: !!edit.protection }
+                              await updateNldService(edit.id, payload)
+                              // reflect changes in table
+                              setRows(prev => prev.map(r => (r.id === edit.id ? { ...r, ...payload, updatedAt: new Date().toISOString() } : r)))
+                              setToast({ severity: 'success', message: 'Updated.' })
+                              setOpenDrawer(false)
+                            } catch (e) {
+                              const msg = e?.response?.data?.error || e.message || 'Failed to update'
+                              setToast({ severity: 'error', message: msg })
+                            }
+                          }}
+                        >
+                          Save
+                        </Button>
+                      </Stack>
+                    </Stack>
                   ) : (
-                    <Typography color="text.secondary">No item selected.</Typography>
+                    <Skeleton height={240} />
                   )}
                 </Box>
               </Drawer>
