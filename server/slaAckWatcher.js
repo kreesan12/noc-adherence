@@ -30,7 +30,7 @@ function classifyProduct(tags = []) {
   return 'Other'
 }
 
-// we only care about P1 now
+// Tier 1: P1 only
 function isP1(tags = []) {
   return tags.includes('play_p1')
 }
@@ -55,14 +55,14 @@ async function fetchTier1Tickets() {
   const res = await fetch(url.toString(), {
     headers: {
       Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    },
+      'Content-Type': 'application/json'
+    }
   })
 
   if (!res.ok) {
     const text = await res.text()
     throw new Error(
-      `[SLA WATCHER] Zendesk search/export failed: ${res.status} ${res.statusText} – ${text}`
+      `[SLA WATCHER] Tier1 search/export failed: ${res.status} ${res.statusText} – ${text}`
     )
   }
 
@@ -70,27 +70,84 @@ async function fetchTier1Tickets() {
   return data.results || []
 }
 
-function buildAlertMessage(ftthTickets, fttbTickets) {
-  if (!ftthTickets.length && !fttbTickets.length) return null
+// Tier 2: request_type_noc_tier_2, all priorities
+async function fetchTier2Tickets() {
+  const auth = Buffer.from(
+    `${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`,
+    'utf8'
+  ).toString('base64')
 
+  const url = new URL(
+    `https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`
+  )
+
+  url.searchParams.set(
+    'query',
+    'tags:request_type_noc_tier_2 form:"Frogfoot Initial Form" status:new'
+  )
+  url.searchParams.set('filter[type]', 'ticket')
+  url.searchParams.set('page[size]', '1000')
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json'
+    }
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(
+      `[SLA WATCHER] Tier2 search/export failed: ${res.status} ${res.statusText} – ${text}`
+    )
+  }
+
+  const data = await res.json()
+  return data.results || []
+}
+
+// WhatsApp message builder (Tier1 + Tier2, with links)
+function buildAlertMessage({ ftthTickets, fttbTickets, tier2Tickets }) {
+  if (!ftthTickets.length && !fttbTickets.length && !tier2Tickets.length) {
+    return null
+  }
+
+  const baseUrl = `https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets`
   const lines = []
+
   lines.push(
-    `⚠️ NOC Tier 1 P1 acknowledgement SLA at risk (age between ${WARNING_MINUTES}–${SLA_MINUTES} minutes)`
+    `⚠️ NOC acknowledgement SLA at risk (age between ${WARNING_MINUTES}–${SLA_MINUTES} minutes)`
   )
   lines.push('')
 
-  const fmtLine = t =>
-    `• #${t.id} – ${t.ageMinutes.toFixed(0)} min – ${t.subject ?? ''}`
-
-  if (ftthTickets.length) {
-    lines.push(`FTTH P1 tickets (count: ${ftthTickets.length})`)
-    ftthTickets.forEach(t => lines.push(fmtLine(t)))
-    lines.push('')
+  const fmtLine = t => {
+    const url = `${baseUrl}/${t.id}`
+    return `• #${t.id} – ${t.ageMinutes.toFixed(0)} min – ${t.subject ?? ''}\n  ${url}`
   }
 
-  if (fttbTickets.length) {
-    lines.push(`FTTB P1 tickets (count: ${fttbTickets.length})`)
-    fttbTickets.forEach(t => lines.push(fmtLine(t)))
+  // Tier 1 P1 (FTTH / FTTB)
+  if (ftthTickets.length || fttbTickets.length) {
+    lines.push('Tier 1 – P1 tickets:')
+    lines.push('')
+
+    if (ftthTickets.length) {
+      lines.push(`FTTH P1 (count: ${ftthTickets.length})`)
+      ftthTickets.forEach(t => lines.push(fmtLine(t)))
+      lines.push('')
+    }
+
+    if (fttbTickets.length) {
+      lines.push(`FTTB P1 (count: ${fttbTickets.length})`)
+      fttbTickets.forEach(t => lines.push(fmtLine(t)))
+      lines.push('')
+    }
+  }
+
+  // Tier 2
+  if (tier2Tickets.length) {
+    lines.push('Tier 2 tickets (request_type_noc_tier_2):')
+    lines.push(`Count: ${tier2Tickets.length}`)
+    tier2Tickets.forEach(t => lines.push(fmtLine(t)))
     lines.push('')
   }
 
@@ -104,34 +161,29 @@ export function startSlaAckWatcher(sendSlaAlert) {
   }
 
   console.log(
-    `[SLA WATCHER] Starting Tier1 P1 ack watcher – warning at ${WARNING_MINUTES} min, SLA ${SLA_MINUTES} min`
+    `[SLA WATCHER] Starting ack watcher – warning at ${WARNING_MINUTES} min, SLA ${SLA_MINUTES} min`
   )
 
   const tick = async () => {
     try {
       const now = dayjs()
-      const tickets = await fetchTier1Tickets()
 
+      // ---------- Tier 1: P1 only ----------
+      const tier1Raw = await fetchTier1Tickets()
       const ftth = []
       const fttb = []
 
-      for (const t of tickets) {
+      for (const t of tier1Raw) {
         const tags = t.tags || []
-        if (!isP1(tags)) continue // ✅ P1 only
+        if (!isP1(tags)) continue
 
         const created = dayjs(t.created_at)
         if (!created.isValid()) continue
 
         const ageMinutes = now.diff(created, 'minute', true)
-
-        // ✅ only tickets between WARNING and SLA windows
-        if (ageMinutes < WARNING_MINUTES || ageMinutes >= SLA_MINUTES) {
-          continue
-        }
+        if (ageMinutes < WARNING_MINUTES || ageMinutes >= SLA_MINUTES) continue
 
         const warnKey = `ackP1-${t.id}`
-
-        // ✅ if we already warned once for this ticket, skip
         if (warnedTicketIds.has(warnKey)) continue
         warnedTicketIds.add(warnKey)
 
@@ -140,14 +192,42 @@ export function startSlaAckWatcher(sendSlaAlert) {
           id: t.id,
           subject: t.title,
           status: t.status,
-          ageMinutes,
+          ageMinutes
         }
 
         if (product === 'FTTH') ftth.push(enriched)
         else if (product === 'FTTB') fttb.push(enriched)
       }
 
-      const msg = buildAlertMessage(ftth, fttb)
+      // ---------- Tier 2: request_type_noc_tier_2 ----------
+      const tier2Raw = await fetchTier2Tickets()
+      const tier2 = []
+
+      for (const t of tier2Raw) {
+        const created = dayjs(t.created_at)
+        if (!created.isValid()) continue
+
+        const ageMinutes = now.diff(created, 'minute', true)
+        if (ageMinutes < WARNING_MINUTES || ageMinutes >= SLA_MINUTES) continue
+
+        const warnKey = `ackT2-${t.id}`
+        if (warnedTicketIds.has(warnKey)) continue
+        warnedTicketIds.add(warnKey)
+
+        tier2.push({
+          id: t.id,
+          subject: t.title,
+          status: t.status,
+          ageMinutes
+        })
+      }
+
+      const msg = buildAlertMessage({
+        ftthTickets: ftth,
+        fttbTickets: fttb,
+        tier2Tickets: tier2
+      })
+
       if (msg) {
         console.log('[SLA WATCHER] Sending WhatsApp SLA alert:')
         console.log(msg)
