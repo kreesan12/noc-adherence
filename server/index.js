@@ -10,6 +10,7 @@ import { PrismaClient } from '@prisma/client'
 import authRole                            from './middleware/auth.js'
 import audit                               from './middleware/audit.js'
 import authRoutesFactory, { verifyToken }  from './routes/auth.js'
+import { initWhatsApp, sendSlaAlert, getStatus as getWhatsAppStatus } from './whatsappClient.js'
 
 import rosterRoutes     from './routes/roster.js'
 import scheduleRoutes   from './routes/schedule.js'
@@ -32,6 +33,8 @@ dotenv.config()
 const prisma = new PrismaClient()
 const app    = express()
 
+initWhatsApp()
+
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
   origin:      process.env.CLIENT_ORIGIN,   // e.g. https://kreesan12.github.io
@@ -52,6 +55,28 @@ app.use(morgan('dev'))
 /* ---------- Public auth routes (/api/login, /api/me) ---------- */
 const authRoutes = authRoutesFactory(prisma)
 app.use('/api', authRoutes)
+
+/* ---------- WhatsApp SLA alert endpoints ---------- */
+
+// status check (no auth, or add verifyToken if you prefer)
+app.get('/api/whatsapp/status', (_req, res) => {
+  res.json(getWhatsAppStatus())
+})
+
+// send alert (protected - supervisor only)
+app.post(
+  '/api/whatsapp/notify',
+  verifyToken, authRole('supervisor'),
+  async (req, res, next) => {
+    try {
+      const { message } = req.body || {}
+      await sendSlaAlert(message)
+      res.json({ ok: true })
+    } catch (err) {
+      next(err)
+    }
+  }
+)
 
 /* ---------- Protected business routes ---------- */
 app.use(
