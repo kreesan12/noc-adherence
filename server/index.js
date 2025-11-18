@@ -58,14 +58,13 @@ app.use('/api', authRoutes)
 
 /* ---------- WhatsApp SLA alert endpoints ---------- */
 
-// status check (no auth, or add verifyToken if you prefer)
-app.get('/api/whatsapp/status', (_req, res) => {
+// status check (no auth while testing)
+app.get('/whatsapp/status', (_req, res) => {
   res.json(getWhatsAppStatus())
 })
 
-
-// send alert (TEMP: no auth while we test)
-app.post('/api/whatsapp/notify', async (req, res, next) => {
+// send alert (no auth while testing)
+app.post('/whatsapp/notify', async (req, res, next) => {
   try {
     const { message } = req.body || {}
     await sendSlaAlert(message)
