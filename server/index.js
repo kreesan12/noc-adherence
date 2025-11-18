@@ -54,17 +54,16 @@ app.use(morgan('dev'))
 
 /* ---------- Public auth routes (/api/login, /api/me) ---------- */
 const authRoutes = authRoutesFactory(prisma)
-app.use('/api', authRoutes)
 
 /* ---------- WhatsApp SLA alert endpoints ---------- */
 
 // status check (no auth while testing)
-app.get('/whatsapp/status', (_req, res) => {
+app.get('/api/whatsapp/status', (_req, res) => {
   res.json(getWhatsAppStatus())
 })
 
 // send alert (no auth while testing)
-app.post('/whatsapp/notify', async (req, res, next) => {
+app.post('/api/whatsapp/notify', async (req, res, next) => {
   try {
     const { message } = req.body || {}
     await sendSlaAlert(message)
@@ -74,6 +73,7 @@ app.post('/whatsapp/notify', async (req, res, next) => {
   }
 })
 
+app.use('/api', authRoutes)
 
 /* ---------- Protected business routes ---------- */
 app.use(
