@@ -58,12 +58,12 @@ const authRoutes = authRoutesFactory(prisma)
 /* ---------- WhatsApp SLA alert endpoints ---------- */
 
 // status check (no auth while testing)
-app.get('/api/whatsapp/status', (_req, res) => {
+app.get('/whatsapp/status', (_req, res) => {
   res.json(getWhatsAppStatus())
 })
 
 // send alert (no auth while testing)
-app.post('/api/whatsapp/notify', async (req, res, next) => {
+app.post('/whatsapp/notify', async (req, res, next) => {
   try {
     const { message } = req.body || {}
     await sendSlaAlert(message)
