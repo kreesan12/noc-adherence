@@ -63,20 +63,18 @@ app.get('/api/whatsapp/status', (_req, res) => {
   res.json(getWhatsAppStatus())
 })
 
-// send alert (protected - supervisor only)
-app.post(
-  '/api/whatsapp/notify',
-  verifyToken, authRole('supervisor'),
-  async (req, res, next) => {
-    try {
-      const { message } = req.body || {}
-      await sendSlaAlert(message)
-      res.json({ ok: true })
-    } catch (err) {
-      next(err)
-    }
+
+// send alert (TEMP: no auth while we test)
+app.post('/api/whatsapp/notify', async (req, res, next) => {
+  try {
+    const { message } = req.body || {}
+    await sendSlaAlert(message)
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
   }
-)
+})
+
 
 /* ---------- Protected business routes ---------- */
 app.use(
