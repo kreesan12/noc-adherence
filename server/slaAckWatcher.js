@@ -15,7 +15,7 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
 // tickets we have already warned on (per dyno lifetime)
 const warnedTicketIds = new Set()
 
-function classifyProduct(tags = []) {
+function classifyProduct (tags = []) {
   const hasTag = t => tags.includes(t)
 
   const hasFTTB = hasTag('t2_fttb')
@@ -31,11 +31,11 @@ function classifyProduct(tags = []) {
 }
 
 // Tier 1: P1 only
-function isP1(tags = []) {
+function isP1 (tags = []) {
   return tags.includes('play_p1')
 }
 
-async function fetchTier1Tickets() {
+async function fetchTier1Tickets () {
   const auth = Buffer.from(
     `${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`,
     'utf8'
@@ -71,7 +71,7 @@ async function fetchTier1Tickets() {
 }
 
 // Tier 2: request_type_noc_tier_2, all priorities
-async function fetchTier2Tickets() {
+async function fetchTier2Tickets () {
   const auth = Buffer.from(
     `${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`,
     'utf8'
@@ -107,7 +107,7 @@ async function fetchTier2Tickets() {
 }
 
 // WhatsApp message builder (Tier1 + Tier2, with links)
-function buildAlertMessage({ ftthTickets, fttbTickets, tier2Tickets }) {
+function buildAlertMessage ({ ftthTickets, fttbTickets, tier2Tickets }) {
   if (!ftthTickets.length && !fttbTickets.length && !tier2Tickets.length) {
     return null
   }
@@ -154,7 +154,7 @@ function buildAlertMessage({ ftthTickets, fttbTickets, tier2Tickets }) {
   return lines.join('\n')
 }
 
-export function startSlaAckWatcher(sendSlaAlert) {
+export function startSlaAckWatcher (sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[SLA WATCHER] Not starting – Zendesk config missing')
     return

@@ -11,6 +11,9 @@ let client
 let isReady = false
 let targetGroupId = null
 
+// Default to your known group ID, but allow override via env
+const DEFAULT_GROUP_ID = '120363403922602776@g.us'
+
 export function initWhatsApp () {
   if (client) return client // singleton
 
@@ -41,28 +44,16 @@ export function initWhatsApp () {
   client.on('ready', async () => {
     console.log('WhatsApp client is ready')
     try {
-      const groupName = process.env.GROUP_NAME
-      console.log(`Looking for group: ${groupName}`)
-
-      const chats = await client.getChats()
-      const group = chats.find(
-        chat => chat.isGroup && chat.name === groupName
-      )
-
-      if (!group) {
-        console.error('Group not found. Available groups:')
-        chats
-          .filter(chat => chat.isGroup)
-          .forEach(chat => console.log(`- ${chat.name}`))
+      // Prefer env var, fall back to the hard-coded ID you found
+      targetGroupId = process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
+      if (!targetGroupId) {
+        console.error('No WhatsApp group ID configured')
       } else {
-        targetGroupId = group.id._serialized
-        console.log(`Found group: ${group.name}`)
-        console.log(`Group ID: ${targetGroupId}`)
+        console.log(`Using WhatsApp group ID: ${targetGroupId}`)
       }
-
       isReady = true
     } catch (err) {
-      console.error('Error while fetching chats:', err)
+      console.error('Error during WhatsApp ready handler:', err)
     }
   })
 
