@@ -11,7 +11,8 @@ import authRole                            from './middleware/auth.js'
 import audit                               from './middleware/audit.js'
 import authRoutesFactory, { verifyToken }  from './routes/auth.js'
 import { initWhatsApp, sendSlaAlert, getStatus as getWhatsAppStatus } from './whatsappClient.js'
-import { startSlaAckWatcher } from './slaAckWatcher.js'
+//import { startSlaAckWatcher } from './slaAckWatcher.js'
+import { startNldOutageWatcher } from './nldOutageWatcher.js'   // <-- new import
 
 
 import rosterRoutes     from './routes/roster.js'
@@ -36,7 +37,8 @@ const prisma = new PrismaClient()
 const app    = express()
 
 initWhatsApp()
-startSlaAckWatcher(sendSlaAlert)
+//startSlaAckWatcher(sendSlaAlert)
+startNldOutageWatcher(sendSlaAlert)
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
