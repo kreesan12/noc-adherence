@@ -24,7 +24,26 @@ export function initWhatsApp () {
     }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-accelerated-2d-canvas',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-breakpad',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-features=Translate',
+        '--disable-ipc-flooding-protection',
+        '--disable-renderer-backgrounding',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--no-zygote',
+        '--single-process',
+        '--mute-audio'
+      ]
     }
   })
 
@@ -46,11 +65,13 @@ export function initWhatsApp () {
     try {
       // Prefer env var, fall back to the hard-coded ID you found
       targetGroupId = process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
+
       if (!targetGroupId) {
         console.error('No WhatsApp group ID configured')
       } else {
         console.log(`Using WhatsApp group ID: ${targetGroupId}`)
       }
+
       isReady = true
     } catch (err) {
       console.error('Error during WhatsApp ready handler:', err)
