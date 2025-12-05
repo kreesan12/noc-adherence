@@ -1,7 +1,7 @@
 // nldOutageWatcher.js
 import dayjs from 'dayjs'
 
-const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60) // "time frame"
+const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60) // "time frame" for new outage alert
 const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)             // red-flag threshold
 const POLL_INTERVAL_MS = 5 * 60 * 1000                                     // every 5 minutes
 
@@ -23,7 +23,10 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
 const warnedRecent = new Set()            // recent NLD outages in window (Outage Capturing)
 const warnedBreach = new Set()            // old 4h+ breaches (Outage Capturing)
 const warnedPartialClusters = new Set()   // partial NLD flap clusters
-const warnedPartialNotLogged = new Set()  // partial NLD “not logged yet” events
+
+// For partial “not logged yet” we want repeated alerts every 30 min.
+// Map: key = ticketId (string), value = last bucket notified (integer: 1 for 30m, 2 for 60m, etc)
+const partialNotLoggedBuckets = new Map()
 
 // ----- Helpers (Outage Capturing) -----
 
@@ -74,13 +77,52 @@ async function fetchOutageTickets () {
   return data.results || []
 }
 
+// Normalise route / NLD strings for fuzzy matching
+function normalizeRoute (str) {
+  if (!str) return ''
+  return str
+    .toLowerCase()
+    // normalise "<>", "<->", " < > " etc to " <> "
+    .replace(/\s*<[-–]?>\s*/g, ' <> ')
+    // collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Build an index of unsolved outages for route matching
+function buildOutageRouteIndex (enrichedOutages) {
+  return enrichedOutages.map(o => ({
+    ticketId: o.id,
+    nldNorm: normalizeRoute(o.nld || ''),
+    subjectNorm: normalizeRoute(o.subject || '')
+  }))
+}
+
+// Does this partial NLD event have a matching unsolved outage?
+function hasMatchingOutageForEvent (event, outageIndex) {
+  const eventNorm = normalizeRoute(event.nldRoute || event.partialCircuit || '')
+  if (!eventNorm) return false
+
+  for (const o of outageIndex) {
+    const { nldNorm, subjectNorm } = o
+    if (nldNorm && (nldNorm.includes(eventNorm) || eventNorm.includes(nldNorm))) {
+      return true
+    }
+    if (subjectNorm && (subjectNorm.includes(eventNorm) || eventNorm.includes(subjectNorm))) {
+      return true
+    }
+  }
+
+  return false
+}
+
 // Build the WhatsApp messages (Outage Capturing)
 
-function buildRecentMsg (tickets, windowMinutes) {
+function buildRecentMsg (tickets) {
   if (!tickets.length) return null
 
   const lines = []
-  lines.push(`🟡 NEW NLD OUTAGE`)
+  lines.push('🟡 NEW NLD OUTAGE')
   lines.push('')
 
   tickets.forEach(t => {
@@ -89,10 +131,7 @@ function buildRecentMsg (tickets, windowMinutes) {
     lines.push(`Created   : ${t.created_at}`)
     lines.push(`Updated   : ${t.updated_at}`)
     lines.push(`Impact    : ${t.subscriberImpact}`)
-    lines.push(`Status    : ${t.outageStatus}`)
-    lines.push(`Who       : ${t.whoWorking}`)
-    lines.push(`Type      : ${t.type}`)
-    lines.push(`NLD       : ${t.nld || ''}`) 
+    lines.push(`NLD       : ${t.nld || ''}`)
     lines.push(`Liquid Ref: ${t.liquidRef}`)
     lines.push(`Liquid Cir: ${t.liquidCircuit}`)
     lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
@@ -115,10 +154,7 @@ function buildBreachMsg (tickets, breachHours, windowMinutes) {
     lines.push(`Created   : ${t.created_at}`)
     lines.push(`Updated   : ${t.updated_at}`)
     lines.push(`Impact    : ${t.subscriberImpact}`)
-    lines.push(`Status    : ${t.outageStatus}`)
-    lines.push(`Who       : ${t.whoWorking}`)
-    lines.push(`Type      : ${t.type}`)
-    lines.push(`NLD       : ${t.nld || ''}`) 
+    lines.push(`NLD       : ${t.nld || ''}`)
     lines.push(`Liquid Ref: ${t.liquidRef}`)
     lines.push(`Liquid Cir: ${t.liquidCircuit}`)
     lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
@@ -181,8 +217,8 @@ function transformPartialNldAlerts (results) {
     const subject = t.subject || ''
     const parts = subject.split('|')
 
-    const raw = (parts[0] || '').trim()
-    const route = (parts[1] || '').trim()
+    const raw = (parts[0] || '').trim()        // "NLD Down" / "NLD Flap" / Other
+    const route = (parts[1] || '').trim()      // "Pietermaritzburg <> Heidelberg"
 
     const partialRaw = parts[2]
     let partial = 'none'
@@ -239,7 +275,7 @@ function transformPartialNldAlerts (results) {
 function findPartialClusters (events) {
   const byKey = new Map()
 
-  // Group by "partial circuit" – using nldRoute as the main key
+  // Group by routeKey – primarily nldRoute, fallback to partialCircuit
   events.forEach(e => {
     const routeKey = e.nldRoute || e.partialCircuit || 'UNKNOWN'
     if (!routeKey || routeKey === 'UNKNOWN') return
@@ -268,7 +304,8 @@ function findPartialClusters (events) {
       const count = j - i
       if (count >= CLUSTER_MIN_EVENTS) {
         const windowEvents = sorted.slice(i, j)
-        const clusterKey = `partial-cluster:${routeKey}:${windowEvents[0].ticketId}:${windowEvents[windowEvents.length - 1].ticketId}`
+        const clusterKey =
+          `partial-cluster:${routeKey}:${windowEvents[0].ticketId}:${windowEvents[windowEvents.length - 1].ticketId}`
 
         if (!warnedPartialClusters.has(clusterKey)) {
           warnedPartialClusters.add(clusterKey)
@@ -319,18 +356,27 @@ function buildPartialClusterMsg (clusters) {
 
 // ---- "outage not logged yet" on partial NLD alerts ----
 
-function findPartialNotLogged (events) {
+function findPartialNotLogged (events, outageIndex) {
   const affected = []
 
   for (const e of events) {
     if (e.isCleared) continue
     if (e.ageMinutes < PARTIAL_NOT_LOGGED_MINUTES) continue
 
-    const key = `partial-notlogged:${e.ticketId}:${e.circuit}`
-    if (warnedPartialNotLogged.has(key)) continue
+    // If there IS a matching unsolved outage, this is fine: skip
+    if (hasMatchingOutageForEvent(e, outageIndex)) continue
 
-    warnedPartialNotLogged.add(key)
-    affected.push(e)
+    const bucket = Math.floor(e.ageMinutes / PARTIAL_NOT_LOGGED_MINUTES)
+    if (bucket < 1) continue // safety, though age >= threshold above
+
+    const key = String(e.ticketId)
+    const lastBucket = partialNotLoggedBuckets.get(key) || 0
+
+    // Only alert when we cross a new 30-min bucket: 1 (30m), 2 (60m), 3 (90m), etc
+    if (bucket > lastBucket) {
+      partialNotLoggedBuckets.set(key, bucket)
+      affected.push({ ...e, bucket })
+    }
   }
 
   return affected
@@ -341,7 +387,10 @@ function buildPartialNotLoggedMsg (events) {
 
   const lines = []
   lines.push(
-    `🔴 Partial NLD alerts active for >= ${PARTIAL_NOT_LOGGED_MINUTES} minutes without clear – possible outage not logged / delayed response`
+    `🔴 Partial NLD alerts active with NO logged outage (age >= ${PARTIAL_NOT_LOGGED_MINUTES} min)`
+  )
+  lines.push(
+    `Repeated every ${PARTIAL_NOT_LOGGED_MINUTES} min per event while it remains active and without an outage.`
   )
   lines.push('')
 
@@ -349,7 +398,9 @@ function buildPartialNotLoggedMsg (events) {
     lines.push(
       `• #${e.ticketId} – ${e.eventGroup} – ${e.nldRoute || e.partialCircuit || ''}`
     )
-    lines.push(`  Age: ${e.ageHours.toFixed(2)} h – state: ${e.state}`)
+    lines.push(
+      `  Age: ${e.ageHours.toFixed(2)} h (bucket ${e.bucket}) – state: ${e.state}`
+    )
     lines.push(`  Circuit: ${e.circuit}`)
     lines.push(`  ${e.ticketUrl}`)
   })
@@ -373,17 +424,19 @@ export function startNldOutageWatcher (sendSlaAlert) {
     `[NLD WATCHER] Starting NLD outage watcher – window ${OUTAGE_WINDOW_MINUTES} min, breach ${BREACH_HOURS} h, poll every 5 min`
   )
   console.log(
-    `[NLD WATCHER] Partial NLD: lookback ${PARTIAL_LOOKBACK_HOURS}h, cluster ${CLUSTER_MIN_EVENTS} events / ${CLUSTER_WINDOW_HOURS}h, not-logged >= ${PARTIAL_NOT_LOGGED_MINUTES} min`
+    `[NLD WATCHER] Partial NLD: lookback ${PARTIAL_LOOKBACK_HOURS}h, cluster ${CLUSTER_MIN_EVENTS} events / ${CLUSTER_WINDOW_HOURS}h, not-logged >= ${PARTIAL_NOT_LOGGED_MINUTES} min (repeats every ${PARTIAL_NOT_LOGGED_MINUTES} min)`
   )
 
   const tick = async () => {
     try {
       const now = dayjs()
-      // --------- 1) Outage Capturing NLD tickets (existing logic) ---------
+
+      // --------- 1) Outage Capturing NLD tickets ---------
       const rawOutages = await fetchOutageTickets()
 
       const recent = []
       const breaches = []
+      const allEnrichedOutages = []
 
       for (const t of rawOutages) {
         if (!isNldTicket(t)) continue
@@ -402,14 +455,12 @@ export function startNldOutageWatcher (sendSlaAlert) {
           ageMinutes,
           ageHours,
           subscriberImpact: Number(cf(t, 5552674828049)) || 0,
-          nld: cf(t, 40137360073617) || '', 
-          outageStatus: cf(t, 4419340564625) || '',
-          whoWorking: cf(t, 6832283279121) || '',
-          type: cf(t, 14118200804369) || '',
-          dfaRef: cf(t, 7657855944209) || '',
+          nld: cf(t, 40137360073617) || '',
           liquidRef: cf(t, 7657816716433) || '',
           liquidCircuit: cf(t, 8008871186961) || ''
         }
+
+        allEnrichedOutages.push(enriched)
 
         // Recent NLD outages within the configured window
         if (ageMinutes >= 0 && ageMinutes <= OUTAGE_WINDOW_MINUTES) {
@@ -430,21 +481,28 @@ export function startNldOutageWatcher (sendSlaAlert) {
         }
       }
 
-      const recentMsg = buildRecentMsg(recent, OUTAGE_WINDOW_MINUTES)
+      const recentMsg = buildRecentMsg(recent)
       if (recentMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp NLD recent-outage alert:')
         console.log(recentMsg)
         await sendSlaAlert(recentMsg)
       }
 
-      const breachMsg = buildBreachMsg(breaches, BREACH_HOURS, OUTAGE_WINDOW_MINUTES)
+      const breachMsg = buildBreachMsg(
+        breaches,
+        BREACH_HOURS,
+        OUTAGE_WINDOW_MINUTES
+      )
       if (breachMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp NLD BREACH alert:')
         console.log(breachMsg)
         await sendSlaAlert(breachMsg)
       }
 
-      // --------- 2) Partial NLD alert metrics (new logic) ---------
+      // Build outage route index for correlation with partial events
+      const outageIndex = buildOutageRouteIndex(allEnrichedOutages)
+
+      // --------- 2) Partial NLD alert metrics ---------
       const rawPartial = await fetchPartialNldAlertsRaw()
       const partialEvents = transformPartialNldAlerts(rawPartial)
 
@@ -457,8 +515,8 @@ export function startNldOutageWatcher (sendSlaAlert) {
         await sendSlaAlert(clusterMsg)
       }
 
-      // 2b) “outage not logged yet” – active partial alerts >= 30 min
-      const notLogged = findPartialNotLogged(partialEvents)
+      // 2b) “outage not logged yet” – active partial alerts >= 30 min with NO matching outage
+      const notLogged = findPartialNotLogged(partialEvents, outageIndex)
       const notLoggedMsg = buildPartialNotLoggedMsg(notLogged)
       if (notLoggedMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD NOT-LOGGED alert:')
