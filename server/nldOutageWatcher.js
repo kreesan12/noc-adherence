@@ -6,7 +6,7 @@ const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)             // re
 const POLL_INTERVAL_MS = 5 * 60 * 1000                                     // every 5 minutes
 
 // partial NLD metrics
-const PARTIAL_LOOKBACK_HOURS = Number(process.env.NLD_PARTIAL_LOOKBACK_HOURS || 48)
+const PARTIAL_LOOKBACK_HOURS = Number(process.env.NLD_PARTIAL_LOOKBACK_HOURS || 24)
 const CLUSTER_WINDOW_HOURS = Number(process.env.NLD_CLUSTER_WINDOW_HOURS || 6)
 const CLUSTER_MIN_EVENTS = Number(process.env.NLD_CLUSTER_MIN_EVENTS || 3)
 const PARTIAL_NOT_LOGGED_MINUTES = Number(process.env.NLD_NOT_LOGGED_MINUTES || 30)
