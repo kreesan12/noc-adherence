@@ -80,7 +80,7 @@ function buildRecentMsg (tickets, windowMinutes) {
   if (!tickets.length) return null
 
   const lines = []
-  lines.push(`🟡 NLD outages active in the last ${windowMinutes} minutes`)
+  lines.push(`🟡 NEW NLD OUTAGE`)
   lines.push('')
 
   tickets.forEach(t => {
@@ -92,7 +92,7 @@ function buildRecentMsg (tickets, windowMinutes) {
     lines.push(`Status    : ${t.outageStatus}`)
     lines.push(`Who       : ${t.whoWorking}`)
     lines.push(`Type      : ${t.type}`)
-    lines.push(`DFA Ref   : ${t.dfaRef}`)
+    lines.push(`NLD       : ${t.nld || ''}`) 
     lines.push(`Liquid Ref: ${t.liquidRef}`)
     lines.push(`Liquid Cir: ${t.liquidCircuit}`)
     lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
@@ -118,7 +118,7 @@ function buildBreachMsg (tickets, breachHours, windowMinutes) {
     lines.push(`Status    : ${t.outageStatus}`)
     lines.push(`Who       : ${t.whoWorking}`)
     lines.push(`Type      : ${t.type}`)
-    lines.push(`DFA Ref   : ${t.dfaRef}`)
+    lines.push(`NLD       : ${t.nld || ''}`) 
     lines.push(`Liquid Ref: ${t.liquidRef}`)
     lines.push(`Liquid Cir: ${t.liquidCircuit}`)
     lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
@@ -402,6 +402,7 @@ export function startNldOutageWatcher (sendSlaAlert) {
           ageMinutes,
           ageHours,
           subscriberImpact: Number(cf(t, 5552674828049)) || 0,
+          nld: cf(t, 40137360073617) || '', 
           outageStatus: cf(t, 4419340564625) || '',
           whoWorking: cf(t, 6832283279121) || '',
           type: cf(t, 14118200804369) || '',
