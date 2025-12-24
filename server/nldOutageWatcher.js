@@ -1,15 +1,19 @@
-// nldOutageWatcher.js
+// server/nldOutageWatcher.js
 import dayjs from 'dayjs'
 
-const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60) // "time frame" for new outage alert
-const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)             // red-flag threshold
-const POLL_INTERVAL_MS = 5 * 60 * 1000                                     // every 5 minutes
+const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60)
+const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)
+const POLL_INTERVAL_MS = Number(process.env.NLD_POLL_INTERVAL_MS || 5 * 60 * 1000)
 
 // partial NLD metrics
 const PARTIAL_LOOKBACK_HOURS = Number(process.env.NLD_PARTIAL_LOOKBACK_HOURS || 24)
 const CLUSTER_WINDOW_HOURS = Number(process.env.NLD_CLUSTER_WINDOW_HOURS || 6)
 const CLUSTER_MIN_EVENTS = Number(process.env.NLD_CLUSTER_MIN_EVENTS || 3)
 const PARTIAL_NOT_LOGGED_MINUTES = Number(process.env.NLD_NOT_LOGGED_MINUTES || 30)
+
+// memory pruning
+const CACHE_TTL_HOURS = Number(process.env.NLD_CACHE_TTL_HOURS || 72) // default 3 days
+const CACHE_MAX_KEYS = Number(process.env.NLD_CACHE_MAX_KEYS || 5000) // safety cap
 
 const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN
 const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL
@@ -19,17 +23,64 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
   console.warn('[NLD WATCHER] Zendesk env vars missing; watcher will not run')
 }
 
-// Track which tickets we've already warned on (per dyno lifetime)
-const warnedRecent = new Set()            // recent NLD outages in window (Outage Capturing)
-const warnedBreach = new Set()            // old 4h+ breaches (Outage Capturing)
-const warnedPartialClusters = new Set()   // partial NLD flap clusters
+// ------------------------------
+// Memory bounded caches (key -> lastSeenMs)
+// ------------------------------
+const warnedRecent = new Map() // recent NLD outages
+const warnedBreach = new Map() // 4h+ breaches
+const warnedPartialClusters = new Map() // partial clusters
 
-// For partial “not logged yet” we want repeated alerts every 30 min.
-// Map: key = ticketId (string), value = last bucket notified (integer: 1 for 30m, 2 for 60m, etc)
+// For partial “not logged yet” repeated alerts every 30 min
+// key = ticketId, value = { lastBucket: number, lastSeenMs: number }
 const partialNotLoggedBuckets = new Map()
 
-// ----- Helpers (Outage Capturing) -----
+function nowMs () {
+  return Date.now()
+}
 
+function pruneMapByTtlAndSize (m, ttlMs, maxKeys, label) {
+  const cutoff = nowMs() - ttlMs
+  let removed = 0
+
+  for (const [k, v] of m.entries()) {
+    const ts = typeof v === 'number' ? v : (v?.lastSeenMs || 0)
+    if (ts < cutoff) {
+      m.delete(k)
+      removed++
+    }
+  }
+
+  // If still too large, delete oldest
+  if (m.size > maxKeys) {
+    const entries = [...m.entries()].map(([k, v]) => {
+      const ts = typeof v === 'number' ? v : (v?.lastSeenMs || 0)
+      return [k, ts]
+    })
+    entries.sort((a, b) => a[1] - b[1]) // oldest first
+
+    const toDelete = m.size - maxKeys
+    for (let i = 0; i < toDelete; i++) {
+      m.delete(entries[i][0])
+      removed++
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`[NLD WATCHER] Pruned ${removed} keys from ${label}. Remaining: ${m.size}`)
+  }
+}
+
+function pruneCaches () {
+  const ttlMs = CACHE_TTL_HOURS * 60 * 60 * 1000
+  pruneMapByTtlAndSize(warnedRecent, ttlMs, CACHE_MAX_KEYS, 'warnedRecent')
+  pruneMapByTtlAndSize(warnedBreach, ttlMs, CACHE_MAX_KEYS, 'warnedBreach')
+  pruneMapByTtlAndSize(warnedPartialClusters, ttlMs, CACHE_MAX_KEYS, 'warnedPartialClusters')
+  pruneMapByTtlAndSize(partialNotLoggedBuckets, ttlMs, CACHE_MAX_KEYS, 'partialNotLoggedBuckets')
+}
+
+// ------------------------------
+// Helpers
+// ------------------------------
 function isNldTicket (t) {
   return (t.subject || '').toUpperCase().includes('NLD')
 }
@@ -41,27 +92,40 @@ function cf (t, id) {
   return val ?? ''
 }
 
-async function fetchOutageTickets () {
+function buildZendeskAuthHeader () {
   const auth = Buffer.from(
     `${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`,
     'utf8'
   ).toString('base64')
 
-  const url = new URL(
-    `https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`
-  )
+  return `Basic ${auth}`
+}
+
+async function fetchJsonWithTimeout (url, opts = {}, timeoutMs = 20000) {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const res = await fetch(url, { ...opts, signal: controller.signal })
+    return res
+  } finally {
+    clearTimeout(id)
+  }
+}
+
+async function fetchOutageTickets () {
+  const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
 
   // group:5160847905297 form:"Outage Capturing" status<solved
-  url.searchParams.set(
-    'query',
-    'group:5160847905297 form:"Outage Capturing" status<solved'
-  )
+  url.searchParams.set('query', 'group:5160847905297 form:"Outage Capturing" status<solved')
   url.searchParams.set('filter[type]', 'ticket')
-  url.searchParams.set('page[size]', '1000')
 
-  const res = await fetch(url.toString(), {
+  // Keep this smaller to reduce payload and memory spikes
+  url.searchParams.set('page[size]', String(Number(process.env.ZENDESK_PAGE_SIZE || 500)))
+
+  const res = await fetchJsonWithTimeout(url.toString(), {
     headers: {
-      Authorization: `Basic ${auth}`,
+      Authorization: buildZendeskAuthHeader(),
       'Content-Type': 'application/json'
     }
   })
@@ -77,14 +141,12 @@ async function fetchOutageTickets () {
   return data.results || []
 }
 
-// Normalise route / NLD strings for fuzzy matching
+// Normalise route strings for fuzzy matching
 function normalizeRoute (str) {
   if (!str) return ''
   return str
     .toLowerCase()
-    // normalise "<>", "<->", " < > " etc to " <> "
     .replace(/\s*<[-–]?>\s*/g, ' <> ')
-    // collapse whitespace
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -105,19 +167,15 @@ function hasMatchingOutageForEvent (event, outageIndex) {
 
   for (const o of outageIndex) {
     const { nldNorm, subjectNorm } = o
-    if (nldNorm && (nldNorm.includes(eventNorm) || eventNorm.includes(nldNorm))) {
-      return true
-    }
-    if (subjectNorm && (subjectNorm.includes(eventNorm) || eventNorm.includes(subjectNorm))) {
-      return true
-    }
+    if (nldNorm && (nldNorm.includes(eventNorm) || eventNorm.includes(nldNorm))) return true
+    if (subjectNorm && (subjectNorm.includes(eventNorm) || eventNorm.includes(subjectNorm))) return true
   }
-
   return false
 }
 
-// Build the WhatsApp messages (Outage Capturing)
-
+// ------------------------------
+// Message builders (Outage Capturing)
+// ------------------------------
 function buildRecentMsg (tickets) {
   if (!tickets.length) return null
 
@@ -135,7 +193,7 @@ function buildRecentMsg (tickets) {
     lines.push(`Liquid Ref: ${t.liquidRef}`)
     lines.push(`Liquid Cir: ${t.liquidCircuit}`)
     lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
-    lines.push('') // blank line between tickets
+    lines.push('')
   })
 
   return lines.join('\n')
@@ -164,17 +222,11 @@ function buildBreachMsg (tickets, breachHours, windowMinutes) {
   return lines.join('\n')
 }
 
-// ----- Partial NLD Alerts (second API / JSONata port) -----
-
+// ------------------------------
+// Partial NLD alerts
+// ------------------------------
 async function fetchPartialNldAlertsRaw () {
-  const auth = Buffer.from(
-    `${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`,
-    'utf8'
-  ).toString('base64')
-
-  const url = new URL(
-    `https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`
-  )
+  const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
 
   // type:ticket tags:partial_nld_alert requester:"IRIS API" -tags:"partial_nld_alert_duplicate_solved"
   url.searchParams.set(
@@ -182,11 +234,11 @@ async function fetchPartialNldAlertsRaw () {
     'type:ticket tags:partial_nld_alert requester:"IRIS API" -tags:"partial_nld_alert_duplicate_solved"'
   )
   url.searchParams.set('filter[type]', 'ticket')
-  url.searchParams.set('page[size]', '1000')
+  url.searchParams.set('page[size]', String(Number(process.env.ZENDESK_PAGE_SIZE || 500)))
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchJsonWithTimeout(url.toString(), {
     headers: {
-      Authorization: `Basic ${auth}`,
+      Authorization: buildZendeskAuthHeader(),
       'Content-Type': 'application/json'
     }
   })
@@ -203,8 +255,8 @@ async function fetchPartialNldAlertsRaw () {
 }
 
 function transformPartialNldAlerts (results) {
-  const nowMs = Date.now()
-  const cutoffMs = nowMs - PARTIAL_LOOKBACK_HOURS * 60 * 60 * 1000
+  const now = nowMs()
+  const cutoffMs = now - PARTIAL_LOOKBACK_HOURS * 60 * 60 * 1000
   const base = `https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/`
 
   const events = []
@@ -217,14 +269,13 @@ function transformPartialNldAlerts (results) {
     const subject = t.subject || ''
     const parts = subject.split('|')
 
-    const raw = (parts[0] || '').trim()        // "NLD Down" / "NLD Flap" / Other
-    const route = (parts[1] || '').trim()      // "Pietermaritzburg <> Heidelberg"
+    const raw = (parts[0] || '').trim()
+    const route = (parts[1] || '').trim()
 
     const partialRaw = parts[2]
     let partial = 'none'
     if (partialRaw) {
       partial = partialRaw.trim()
-      // normalise "<>" and double spaces
       partial = partial.replace(/\s*<>\s*/g, ' <-> ')
       partial = partial.replace(/\s{2,}/g, ' ')
     }
@@ -240,7 +291,7 @@ function transformPartialNldAlerts (results) {
     const tags = t.tags || []
     const cleared = tags.includes('partial_nld_alert_clear')
 
-    const ageMs = nowMs - createdMs
+    const ageMs = now - createdMs
     const ageHours = ageMs / (60 * 60 * 1000)
     const ageMinutes = ageMs / (60 * 1000)
 
@@ -254,8 +305,8 @@ function transformPartialNldAlerts (results) {
         ticketUrl: `${base}${t.id}`,
         status: t.status,
         eventGroup,
-        nldRoute: route,          // "Pietermaritzburg <> Heidelberg"
-        partialCircuit: partial,  // third pipe segment if present
+        nldRoute: route,
+        partialCircuit: partial,
         circuit: String(circuitCode || 'unknown'),
         created_at: t.created_at,
         createdMs,
@@ -271,15 +322,11 @@ function transformPartialNldAlerts (results) {
 }
 
 // ---- cluster detection on partial NLD events ----
-
 function findPartialClusters (events) {
   const byKey = new Map()
-
-  // Group by routeKey – primarily nldRoute, fallback to partialCircuit
   events.forEach(e => {
     const routeKey = e.nldRoute || e.partialCircuit || 'UNKNOWN'
     if (!routeKey || routeKey === 'UNKNOWN') return
-
     if (!byKey.has(routeKey)) byKey.set(routeKey, [])
     byKey.get(routeKey).push({ ...e, routeKey })
   })
@@ -296,10 +343,7 @@ function findPartialClusters (events) {
     while (i < sorted.length) {
       const startMs = sorted[i].createdMs
       let j = i
-
-      while (j < sorted.length && sorted[j].createdMs - startMs <= windowMs) {
-        j++
-      }
+      while (j < sorted.length && sorted[j].createdMs - startMs <= windowMs) j++
 
       const count = j - i
       if (count >= CLUSTER_MIN_EVENTS) {
@@ -307,13 +351,12 @@ function findPartialClusters (events) {
         const clusterKey =
           `partial-cluster:${routeKey}:${windowEvents[0].ticketId}:${windowEvents[windowEvents.length - 1].ticketId}`
 
-        if (!warnedPartialClusters.has(clusterKey)) {
-          warnedPartialClusters.add(clusterKey)
-          clusters.push({
-            routeKey,
-            count,
-            events: windowEvents
-          })
+        const lastSeen = warnedPartialClusters.get(clusterKey) || 0
+        if (lastSeen === 0) {
+          warnedPartialClusters.set(clusterKey, nowMs())
+          clusters.push({ routeKey, count, events: windowEvents })
+        } else {
+          warnedPartialClusters.set(clusterKey, nowMs())
         }
       }
 
@@ -328,24 +371,17 @@ function buildPartialClusterMsg (clusters) {
   if (!clusters.length) return null
 
   const lines = []
-  lines.push(
-    `🟠 Partial NLD flap / outage clusters (>=${CLUSTER_MIN_EVENTS} events in ${CLUSTER_WINDOW_HOURS}h on same partial circuit)`
-  )
+  lines.push(`🟠 Partial NLD flap / outage clusters (>=${CLUSTER_MIN_EVENTS} events in ${CLUSTER_WINDOW_HOURS}h on same partial circuit)`)
   lines.push('')
 
   clusters.forEach(cluster => {
     const { routeKey, count, events } = cluster
     const isMajor = count > CLUSTER_MIN_EVENTS
-
-    const label = isMajor
-      ? `🔴 MAJOR MAJOR RED FLAG – ${count} events`
-      : `🟠 Cluster – ${count} events`
+    const label = isMajor ? `🔴 MAJOR MAJOR RED FLAG – ${count} events` : `🟠 Cluster – ${count} events`
 
     lines.push(`${label} on partial circuit: ${routeKey}`)
     events.forEach(e => {
-      lines.push(
-        `• ${e.created_at} – #${e.ticketId} – ${e.eventGroup} – circuit ${e.circuit}`
-      )
+      lines.push(`• ${e.created_at} – #${e.ticketId} – ${e.eventGroup} – circuit ${e.circuit}`)
       lines.push(`  ${e.ticketUrl}`)
     })
     lines.push('')
@@ -355,27 +391,30 @@ function buildPartialClusterMsg (clusters) {
 }
 
 // ---- "outage not logged yet" on partial NLD alerts ----
-
 function findPartialNotLogged (events, outageIndex) {
   const affected = []
 
   for (const e of events) {
     if (e.isCleared) continue
     if (e.ageMinutes < PARTIAL_NOT_LOGGED_MINUTES) continue
-
-    // If there IS a matching unsolved outage, this is fine: skip
     if (hasMatchingOutageForEvent(e, outageIndex)) continue
 
     const bucket = Math.floor(e.ageMinutes / PARTIAL_NOT_LOGGED_MINUTES)
-    if (bucket < 1) continue // safety, though age >= threshold above
+    if (bucket < 1) continue
 
     const key = String(e.ticketId)
-    const lastBucket = partialNotLoggedBuckets.get(key) || 0
+    const last = partialNotLoggedBuckets.get(key) || { lastBucket: 0, lastSeenMs: 0 }
 
-    // Only alert when we cross a new 30-min bucket: 1 (30m), 2 (60m), 3 (90m), etc
-    if (bucket > lastBucket) {
-      partialNotLoggedBuckets.set(key, bucket)
+    // track activity
+    last.lastSeenMs = nowMs()
+
+    // Only alert when we cross a new bucket: 1 (30m), 2 (60m), etc
+    if (bucket > last.lastBucket) {
+      last.lastBucket = bucket
+      partialNotLoggedBuckets.set(key, last)
       affected.push({ ...e, bucket })
+    } else {
+      partialNotLoggedBuckets.set(key, last)
     }
   }
 
@@ -386,21 +425,13 @@ function buildPartialNotLoggedMsg (events) {
   if (!events.length) return null
 
   const lines = []
-  lines.push(
-    `🔴 Partial NLD alerts active with NO logged outage (age >= ${PARTIAL_NOT_LOGGED_MINUTES} min)`
-  )
-  lines.push(
-    `Repeated every ${PARTIAL_NOT_LOGGED_MINUTES} min per event while it remains active and without an outage.`
-  )
+  lines.push(`🔴 Partial NLD alerts active with NO logged outage (age >= ${PARTIAL_NOT_LOGGED_MINUTES} min)`)
+  lines.push(`Repeated every ${PARTIAL_NOT_LOGGED_MINUTES} min per event while it remains active and without an outage.`)
   lines.push('')
 
   events.forEach(e => {
-    lines.push(
-      `• #${e.ticketId} – ${e.eventGroup} – ${e.nldRoute || e.partialCircuit || ''}`
-    )
-    lines.push(
-      `  Age: ${e.ageHours.toFixed(2)} h (bucket ${e.bucket}) – state: ${e.state}`
-    )
+    lines.push(`• #${e.ticketId} – ${e.eventGroup} – ${e.nldRoute || e.partialCircuit || ''}`)
+    lines.push(`  Age: ${e.ageHours.toFixed(2)} h (bucket ${e.bucket}) – state: ${e.state}`)
     lines.push(`  Circuit: ${e.circuit}`)
     lines.push(`  ${e.ticketUrl}`)
   })
@@ -408,8 +439,9 @@ function buildPartialNotLoggedMsg (events) {
   return lines.join('\n')
 }
 
-// ----- Main public entrypoint -----
-
+// ------------------------------
+// Main entrypoint
+// ------------------------------
 let watcherStarted = false
 
 export function startNldOutageWatcher (sendSlaAlert) {
@@ -420,18 +452,17 @@ export function startNldOutageWatcher (sendSlaAlert) {
   if (watcherStarted) return
   watcherStarted = true
 
-  console.log(
-    `[NLD WATCHER] Starting NLD outage watcher – window ${OUTAGE_WINDOW_MINUTES} min, breach ${BREACH_HOURS} h, poll every 5 min`
-  )
-  console.log(
-    `[NLD WATCHER] Partial NLD: lookback ${PARTIAL_LOOKBACK_HOURS}h, cluster ${CLUSTER_MIN_EVENTS} events / ${CLUSTER_WINDOW_HOURS}h, not-logged >= ${PARTIAL_NOT_LOGGED_MINUTES} min (repeats every ${PARTIAL_NOT_LOGGED_MINUTES} min)`
-  )
+  console.log(`[NLD WATCHER] Starting – window ${OUTAGE_WINDOW_MINUTES} min, breach ${BREACH_HOURS} h, poll ${Math.round(POLL_INTERVAL_MS / 1000)}s`)
+  console.log(`[NLD WATCHER] Partial – lookback ${PARTIAL_LOOKBACK_HOURS}h, cluster ${CLUSTER_MIN_EVENTS} events / ${CLUSTER_WINDOW_HOURS}h, not-logged >= ${PARTIAL_NOT_LOGGED_MINUTES} min`)
+  console.log(`[NLD WATCHER] Cache – TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
   const tick = async () => {
     try {
+      pruneCaches()
+
       const now = dayjs()
 
-      // --------- 1) Outage Capturing NLD tickets ---------
+      // 1) Outage Capturing NLD tickets
       const rawOutages = await fetchOutageTickets()
 
       const recent = []
@@ -462,73 +493,68 @@ export function startNldOutageWatcher (sendSlaAlert) {
 
         allEnrichedOutages.push(enriched)
 
-        // Recent NLD outages within the configured window
+        // Recent within window
         if (ageMinutes >= 0 && ageMinutes <= OUTAGE_WINDOW_MINUTES) {
           const key = `recent-${t.id}`
           if (!warnedRecent.has(key)) {
-            warnedRecent.add(key)
+            warnedRecent.set(key, nowMs())
             recent.push(enriched)
+          } else {
+            warnedRecent.set(key, nowMs())
           }
         }
 
-        // Breach: still unsolved, older than breachHours, and outside recent window
+        // Breach: older than breachHours and outside recent window
         if (ageHours >= BREACH_HOURS && ageMinutes > OUTAGE_WINDOW_MINUTES) {
           const key = `breach-${t.id}`
           if (!warnedBreach.has(key)) {
-            warnedBreach.add(key)
+            warnedBreach.set(key, nowMs())
             breaches.push(enriched)
+          } else {
+            warnedBreach.set(key, nowMs())
           }
         }
       }
 
       const recentMsg = buildRecentMsg(recent)
       if (recentMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp NLD recent-outage alert:')
-        console.log(recentMsg)
+        console.log('[NLD WATCHER] Sending WhatsApp NLD recent-outage alert')
         await sendSlaAlert(recentMsg)
       }
 
-      const breachMsg = buildBreachMsg(
-        breaches,
-        BREACH_HOURS,
-        OUTAGE_WINDOW_MINUTES
-      )
+      const breachMsg = buildBreachMsg(breaches, BREACH_HOURS, OUTAGE_WINDOW_MINUTES)
       if (breachMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp NLD BREACH alert:')
-        console.log(breachMsg)
+        console.log('[NLD WATCHER] Sending WhatsApp NLD breach alert')
         await sendSlaAlert(breachMsg)
       }
 
-      // Build outage route index for correlation with partial events
+      // correlate partial events to outages
       const outageIndex = buildOutageRouteIndex(allEnrichedOutages)
 
-      // --------- 2) Partial NLD alert metrics ---------
+      // 2) Partial NLD alert metrics
       const rawPartial = await fetchPartialNldAlertsRaw()
       const partialEvents = transformPartialNldAlerts(rawPartial)
 
-      // 2a) clusters on same partial circuit (nldRoute) within 6h
+      // 2a) clusters
       const clusters = findPartialClusters(partialEvents)
       const clusterMsg = buildPartialClusterMsg(clusters)
       if (clusterMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD CLUSTER alert:')
-        console.log(clusterMsg)
+        console.log('[NLD WATCHER] Sending WhatsApp partial cluster alert')
         await sendSlaAlert(clusterMsg)
       }
 
-      // 2b) “outage not logged yet” – active partial alerts >= 30 min with NO matching outage
+      // 2b) outage not logged yet
       const notLogged = findPartialNotLogged(partialEvents, outageIndex)
       const notLoggedMsg = buildPartialNotLoggedMsg(notLogged)
       if (notLoggedMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD NOT-LOGGED alert:')
-        console.log(notLoggedMsg)
+        console.log('[NLD WATCHER] Sending WhatsApp partial not-logged alert')
         await sendSlaAlert(notLoggedMsg)
       }
     } catch (err) {
-      console.error('[NLD WATCHER] Tick error:', err.message)
+      console.error('[NLD WATCHER] Tick error:', err?.message || err)
     }
   }
 
-  // Run immediately once, then every 5 minutes
   tick()
   setInterval(tick, POLL_INTERVAL_MS)
 }
