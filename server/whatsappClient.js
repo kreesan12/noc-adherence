@@ -1,152 +1,96 @@
 // server/whatsappClient.js
 import dotenv from 'dotenv'
-import qrcode from 'qrcode-terminal'
-import pkg from 'whatsapp-web.js'
-import { execSync } from 'node:child_process'
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion
+} from '@whiskeysockets/baileys'
+import { usePostgresAuthState } from './baileysPostgresAuth.js'
 
 dotenv.config()
 
-const { Client, LocalAuth } = pkg
-
-let client
+let sock
 let isReady = false
 let targetGroupId = null
 
-// Default to your known group ID, but allow override via env
 const DEFAULT_GROUP_ID = '120363403922602776@g.us'
+const SESSION_ID = process.env.WHATSAPP_SESSION_ID || 'noc-adherence'
 
-// --- Internal send queue to prevent burst memory spikes ---
-const sendQueue = []
-let sending = false
-
-async function drainQueue () {
-  if (sending) return
-  sending = true
-
-  try {
-    while (sendQueue.length) {
-      const job = sendQueue.shift()
-      try {
-        await job()
-      } catch (e) {
-        console.error('[WA] Send job failed:', e?.message || e)
-      }
-
-      // small delay between sends helps keep Chrome stable
-      await new Promise(resolve => setTimeout(resolve, 250))
-    }
-  } finally {
-    sending = false
-  }
+function normalizeGroupId (id) {
+  // Baileys expects the WhatsApp JID.
+  // Groups end with @g.us
+  if (!id) return null
+  if (id.endsWith('@g.us')) return id
+  return `${id}@g.us`
 }
 
-function resolveChromePath () {
-  // Try common env vars first
-  const envPath =
-    process.env.CHROME_BIN ||
-    process.env.GOOGLE_CHROME_BIN ||
-    process.env.PUPPETEER_EXECUTABLE_PATH ||
-    process.env.CHROME_PATH ||
-    null
+export async function initWhatsApp () {
+  if (sock) return sock // singleton
 
-  if (envPath) return envPath
-
-  // Chrome-for-testing buildpack puts "chrome" on PATH. Try "which chrome".
-  try {
-    const p = execSync('which chrome', { stdio: ['ignore', 'pipe', 'ignore'] })
-      .toString('utf8')
-      .trim()
-    return p || null
-  } catch {
-    return null
-  }
-}
-
-export function initWhatsApp () {
-  if (client) return client // singleton
-
-  const chromePath = resolveChromePath()
-  if (chromePath) {
-    console.log('[WA] Chrome executable:', chromePath)
+  targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
+  if (!targetGroupId) {
+    console.warn('[WA] No WHATSAPP_GROUP_ID set (and no DEFAULT_GROUP_ID). Sending will fail until configured.')
   } else {
-    console.warn('[WA] Could not resolve Chrome path. Puppeteer will try defaults (likely to fail on Heroku).')
+    console.log('[WA] Target group JID:', targetGroupId)
   }
 
-  client = new Client({
-    authStrategy: new LocalAuth({
-      // NOTE: on Heroku, filesystem is ephemeral.
-      // LocalAuth will persist within a running dyno, but resets on restart unless you use a persistent store.
-      dataPath: './wwebjs_auth'
-    }),
-    puppeteer: {
-      headless: true,
-      ...(chromePath ? { executablePath: chromePath } : {}),
-      args: [
-        '--headless=new',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
+  const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
 
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--mute-audio',
+  // pull latest compatible WA Web version
+  const { version } = await fetchLatestBaileysVersion()
+  console.log('[WA] Baileys using WA Web version:', version.join('.'))
 
-        '--disable-background-networking',
-        '--disable-background-timer-throttling',
-        '--disable-breakpad',
-        '--disable-extensions',
-        '--disable-sync',
-        '--disable-translate',
-        '--disable-renderer-backgrounding',
-        '--disable-ipc-flooding-protection',
-        '--metrics-recording-only',
-        '--safebrowsing-disable-auto-update',
+  sock = makeWASocket({
+    version,
+    auth: state,
+    printQRInTerminal: true, // shows QR in Heroku logs for first-time login
+    markOnlineOnConnect: false,
+    syncFullHistory: false
+  })
 
-        '--disable-gpu',
-        '--disable-software-rasterizer'
-      ]
+  sock.ev.on('creds.update', async () => {
+    try {
+      await saveCreds()
+    } catch (e) {
+      console.error('[WA] Failed to persist creds:', e?.message || e)
     }
   })
 
-  client.on('qr', qr => {
-    console.log('Scan this QR code with WhatsApp on your phone:')
-    qrcode.generate(qr, { small: true })
-  })
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update
 
-  client.on('authenticated', () => {
-    console.log('WhatsApp authenticated')
-  })
-
-  client.on('auth_failure', msg => {
-    console.error('WhatsApp auth failure:', msg)
-    isReady = false
-  })
-
-  client.on('ready', async () => {
-    console.log('WhatsApp client is ready')
-
-    targetGroupId = process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
-    if (!targetGroupId) {
-      console.error('No WhatsApp group ID configured')
-      isReady = false
+    if (connection === 'open') {
+      isReady = true
+      console.log('[WA] Connected to WhatsApp (Baileys)')
       return
     }
 
-    console.log(`Using WhatsApp group ID: ${targetGroupId}`)
-    isReady = true
+    if (connection === 'close') {
+      isReady = false
+      const statusCode = lastDisconnect?.error?.output?.statusCode
+      const reason = statusCode
+
+      console.log('[WA] Connection closed. statusCode:', statusCode)
+
+      // If logged out, clear DB session and require re-scan.
+      if (reason === DisconnectReason.loggedOut) {
+        console.warn('[WA] Logged out. Clearing session from Postgres. You will need to scan QR again.')
+        await clear()
+      }
+
+      // Reconnect unless logged out
+      if (reason !== DisconnectReason.loggedOut) {
+        console.log('[WA] Reconnecting...')
+        sock = null
+        await initWhatsApp()
+      }
+    }
   })
 
-  client.on('disconnected', reason => {
-    console.log('WhatsApp client disconnected:', reason)
-    isReady = false
-  })
-
-  client.initialize()
-  return client
+  return sock
 }
 
 export async function sendSlaAlert (message) {
-  if (!client || !isReady) throw new Error('WhatsApp client not ready')
+  if (!sock || !isReady) throw new Error('WhatsApp client not ready')
   if (!targetGroupId) throw new Error('Target WhatsApp group not configured')
 
   const text =
@@ -154,20 +98,8 @@ export async function sendSlaAlert (message) {
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  // Queue the send so bursts don’t spike Chrome
-  return new Promise((resolve, reject) => {
-    sendQueue.push(async () => {
-      try {
-        await client.sendMessage(targetGroupId, text)
-        console.log('[WA] Message sent')
-        resolve()
-      } catch (e) {
-        reject(e)
-      }
-    })
-
-    drainQueue()
-  })
+  await sock.sendMessage(targetGroupId, { text })
+  console.log('[WA] Message sent')
 }
 
 export function getStatus () {
