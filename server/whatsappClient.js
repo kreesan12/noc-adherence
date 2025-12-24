@@ -1,5 +1,6 @@
 // server/whatsappClient.js
 import dotenv from 'dotenv'
+import qrcode from 'qrcode-terminal'
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion
@@ -16,33 +17,24 @@ const DEFAULT_GROUP_ID = '120363403922602776@g.us'
 const SESSION_ID = process.env.WHATSAPP_SESSION_ID || 'noc-adherence'
 
 function normalizeGroupId (id) {
-  // Baileys expects the WhatsApp JID.
-  // Groups end with @g.us
   if (!id) return null
-  if (id.endsWith('@g.us')) return id
-  return `${id}@g.us`
+  return id.endsWith('@g.us') ? id : `${id}@g.us`
 }
 
 export async function initWhatsApp () {
-  if (sock) return sock // singleton
+  if (sock) return sock
 
   targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
-  if (!targetGroupId) {
-    console.warn('[WA] No WHATSAPP_GROUP_ID set (and no DEFAULT_GROUP_ID). Sending will fail until configured.')
-  } else {
-    console.log('[WA] Target group JID:', targetGroupId)
-  }
+  console.log('[WA] Target group JID:', targetGroupId)
 
   const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
 
-  // pull latest compatible WA Web version
   const { version } = await fetchLatestBaileysVersion()
   console.log('[WA] Baileys using WA Web version:', version.join('.'))
 
   sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: true, // shows QR in Heroku logs for first-time login
     markOnlineOnConnect: false,
     syncFullHistory: false
   })
@@ -56,7 +48,13 @@ export async function initWhatsApp () {
   })
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update
+    const { connection, lastDisconnect, qr } = update
+
+    // QR handling (Baileys deprecated printQRInTerminal)
+    if (qr) {
+      console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
+      qrcode.generate(qr, { small: true })
+    }
 
     if (connection === 'open') {
       isReady = true
@@ -66,19 +64,15 @@ export async function initWhatsApp () {
 
     if (connection === 'close') {
       isReady = false
-      const statusCode = lastDisconnect?.error?.output?.statusCode
-      const reason = statusCode
+      const code = lastDisconnect?.error?.output?.statusCode
+      console.log('[WA] Connection closed. statusCode:', code)
 
-      console.log('[WA] Connection closed. statusCode:', statusCode)
-
-      // If logged out, clear DB session and require re-scan.
-      if (reason === DisconnectReason.loggedOut) {
-        console.warn('[WA] Logged out. Clearing session from Postgres. You will need to scan QR again.')
+      if (code === DisconnectReason.loggedOut) {
+        console.warn('[WA] Logged out. Clearing session from Postgres. Scan QR again.')
         await clear()
       }
 
-      // Reconnect unless logged out
-      if (reason !== DisconnectReason.loggedOut) {
+      if (code !== DisconnectReason.loggedOut) {
         console.log('[WA] Reconnecting...')
         sock = null
         await initWhatsApp()

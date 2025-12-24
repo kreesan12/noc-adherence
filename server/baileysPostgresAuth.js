@@ -1,11 +1,9 @@
 // server/baileysPostgresAuth.js
 import pg from 'pg'
+import { initAuthCreds } from '@whiskeysockets/baileys'
 
 const { Pool } = pg
 
-// Heroku provides DATABASE_URL.
-// pg will use SSL on Heroku Postgres; keep rejectUnauthorized false for Heroku.
-// (If you use a private CA later, tighten this.)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
@@ -32,23 +30,23 @@ async function dbDel (id) {
   await pool.query('delete from whatsapp_auth where id = $1', [id])
 }
 
-// Baileys expects an object with `state` + `saveCreds`,
-// but for production we also need a key store.
-// We’ll persist both creds + keys as JSON.
 export async function usePostgresAuthState (sessionId = 'default') {
   const baseId = `wa:${sessionId}`
   const existing = await dbGet(baseId)
 
-  const state = existing || {
-    creds: null,
-    keys: {}
-  }
+  // IMPORTANT: creds must be an object, never null
+  const state = existing && typeof existing === 'object'
+    ? existing
+    : { creds: initAuthCreds(), keys: {} }
+
+  // if existing had creds as null from earlier attempts, fix it
+  if (!state.creds) state.creds = initAuthCreds()
+  if (!state.keys) state.keys = {}
 
   const saveState = async () => {
     await dbSet(baseId, state)
   }
 
-  // key store wrapper Baileys expects: get/set for categories
   const keys = {
     get: async (type, ids) => {
       const out = {}
@@ -68,13 +66,8 @@ export async function usePostgresAuthState (sessionId = 'default') {
   }
 
   return {
-    state: {
-      creds: state.creds,
-      keys
-    },
-    // Baileys triggers creds.update often; persist creds back
+    state: { creds: state.creds, keys },
     saveCreds: async () => {
-      // creds will be mutated by Baileys in memory
       await saveState()
     },
     clear: async () => {
