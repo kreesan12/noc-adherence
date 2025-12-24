@@ -14,11 +14,12 @@ let targetGroupId = null
 const DEFAULT_GROUP_ID = '120363403922602776@g.us'
 
 function getChromePath () {
-  // google-chrome buildpack sets GOOGLE_CHROME_BIN
   return (
-    process.env.GOOGLE_CHROME_BIN ||
     process.env.CHROME_BIN ||
+    process.env.CHROME_FOR_TESTING_BIN ||
+    process.env.GOOGLE_CHROME_BIN ||
     process.env.PUPPETEER_EXECUTABLE_PATH ||
+    process.env.CHROME_PATH ||
     null
   )
 }
@@ -30,7 +31,7 @@ export function initWhatsApp () {
   if (chromePath) {
     console.log('[WA] Using Chrome executable:', chromePath)
   } else {
-    console.warn('[WA] No Chrome executable env var found (GOOGLE_CHROME_BIN/CHROME_BIN). Puppeteer will try defaults.')
+    console.warn('[WA] No Chrome executable env var found. Puppeteer will try defaults.')
   }
 
   client = new Client({
@@ -59,6 +60,8 @@ export function initWhatsApp () {
         '--disable-ipc-flooding-protection',
         '--metrics-recording-only',
         '--safebrowsing-disable-auto-update',
+
+        '--disable-features=Translate,TranslateUI',
 
         '--disable-gpu',
         '--disable-software-rasterizer'
