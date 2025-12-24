@@ -10,56 +10,92 @@ const pool = new Pool({
 })
 
 export async function usePostgresAuthState (sessionId) {
-  // Ensure table exists
   await pool.query(`
     create table if not exists whatsapp_auth (
-      id text primary key,
-      data jsonb not null,
-      updated_at timestamptz not null default now()
+      session_id text not null,
+      type text not null,
+      key text not null,
+      value jsonb not null,
+      updated_at timestamptz not null default now(),
+      primary key (session_id, type, key)
     )
   `)
 
-  async function readData () {
-    const res = await pool.query(
-      'select data from whatsapp_auth where id = $1',
-      [sessionId]
-    )
+  // ---------- CREDS ----------
+  const credsRes = await pool.query(
+    `select value from whatsapp_auth
+     where session_id = $1 and type = 'creds' and key = 'creds'`,
+    [sessionId]
+  )
 
-    if (!res.rows.length) return null
+  const creds = credsRes.rows.length
+    ? JSON.parse(JSON.stringify(credsRes.rows[0].value), BufferJSON.reviver)
+    : initAuthCreds()
 
-    // 🔑 CRITICAL: revive Buffers
-    return JSON.parse(
-      JSON.stringify(res.rows[0].data),
-      BufferJSON.reviver
+  async function saveCreds () {
+    await pool.query(
+      `
+      insert into whatsapp_auth (session_id, type, key, value)
+      values ($1, 'creds', 'creds', $2)
+      on conflict (session_id, type, key)
+      do update set value = excluded.value, updated_at = now()
+      `,
+      [sessionId, JSON.parse(JSON.stringify(creds, BufferJSON.replacer))]
     )
   }
 
-  async function writeData (data) {
-    await pool.query(
-      `
-      insert into whatsapp_auth (id, data, updated_at)
-      values ($1, $2, now())
-      on conflict (id)
-      do update set data = excluded.data, updated_at = now()
-      `,
-      [sessionId, JSON.parse(JSON.stringify(data, BufferJSON.replacer))]
-    )
+  // ---------- KEYS ----------
+  const keys = {
+    async get (type, ids) {
+      const res = await pool.query(
+        `
+        select key, value from whatsapp_auth
+        where session_id = $1 and type = $2 and key = any($3)
+        `,
+        [sessionId, type, ids]
+      )
+
+      const out = {}
+      for (const row of res.rows) {
+        out[row.key] = JSON.parse(
+          JSON.stringify(row.value),
+          BufferJSON.reviver
+        )
+      }
+      return out
+    },
+
+    async set (data) {
+      for (const type of Object.keys(data)) {
+        for (const key of Object.keys(data[type])) {
+          const value = JSON.parse(
+            JSON.stringify(data[type][key], BufferJSON.replacer)
+          )
+
+          await pool.query(
+            `
+            insert into whatsapp_auth (session_id, type, key, value)
+            values ($1, $2, $3, $4)
+            on conflict (session_id, type, key)
+            do update set value = excluded.value, updated_at = now()
+            `,
+            [sessionId, type, key, value]
+          )
+        }
+      }
+    }
   }
 
   async function clear () {
-    await pool.query('delete from whatsapp_auth where id = $1', [sessionId])
-  }
-
-  const stored = await readData()
-
-  const state = stored ?? {
-    creds: initAuthCreds(),
-    keys: {}
+    await pool.query(
+      'delete from whatsapp_auth where session_id = $1',
+      [sessionId]
+    )
   }
 
   return {
-    state,
-    saveCreds: async () => writeData(state),
+    state: { creds, keys },
+    saveCreds,
     clear
   }
 }
