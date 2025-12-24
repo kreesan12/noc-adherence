@@ -3,8 +3,7 @@ import dotenv from 'dotenv'
 import qrcode from 'qrcode-terminal'
 import makeWASocket, {
   DisconnectReason,
-  fetchLatestBaileysVersion,
-  initAuthCreds
+  fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys'
 import { usePostgresAuthState } from './baileysPostgresAuth.js'
 
@@ -17,92 +16,113 @@ let targetGroupId = null
 const DEFAULT_GROUP_ID = '120363403922602776@g.us'
 const SESSION_ID = process.env.WHATSAPP_SESSION_ID || 'noc-adherence'
 
+// Prevent multiple simultaneous reconnect loops
+let isConnecting = false
+
 function normalizeGroupId (id) {
   if (!id) return null
   return id.endsWith('@g.us') ? id : `${id}@g.us`
 }
 
+function sleep (ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 export async function initWhatsApp () {
   if (sock) return sock
+  if (isConnecting) return sock
+  isConnecting = true
 
-  targetGroupId = normalizeGroupId(
-    process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
-  )
-  console.log('[WA] Target group JID:', targetGroupId)
+  try {
+    targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
+    console.log('[WA] Target group JID:', targetGroupId)
 
-  const { state, saveCreds, clear } =
-    await usePostgresAuthState(SESSION_ID)
+    // Auth state persisted in Postgres
+    const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
 
-  // 🔑 CRITICAL FIX: creds must NEVER be null
-  if (!state.creds) {
-    console.warn('[WA] No creds found, initialising fresh auth state')
-    state.creds = initAuthCreds()
-  }
-
-  const { version } = await fetchLatestBaileysVersion()
-  console.log('[WA] Baileys using WA Web version:', version.join('.'))
-
-  sock = makeWASocket({
-    version,
-    auth: {
-      creds: state.creds,
-      keys: state.keys
-    },
-    printQRInTerminal: false,
-    markOnlineOnConnect: false,
-    syncFullHistory: false
-  })
-
-  // Persist credentials safely
-  sock.ev.on('creds.update', async () => {
+    // Baileys version
+    let version
     try {
-      await saveCreds()
-    } catch (err) {
-      console.error('[WA] Failed to save creds:', err)
-    }
-  })
-
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update
-
-    if (qr) {
-      console.log('[WA] Scan this QR with WhatsApp → Linked Devices')
-      qrcode.generate(qr, { small: true })
+      const latest = await fetchLatestBaileysVersion()
+      version = latest?.version
+      if (version?.length) {
+        console.log('[WA] Baileys using WA Web version:', version.join('.'))
+      }
+    } catch (e) {
+      console.warn('[WA] fetchLatestBaileysVersion failed, continuing with defaults:', e?.message || e)
     }
 
-    if (connection === 'open') {
-      isReady = true
-      console.log('[WA] WhatsApp connected successfully')
-      return
-    }
+    sock = makeWASocket({
+      ...(version ? { version } : {}),
+      auth: state,
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      generateHighQualityLinkPreview: false,
+      defaultQueryTimeoutMs: 60_000,
+      connectTimeoutMs: 60_000,
+      keepAliveIntervalMs: 25_000
+    })
 
-    if (connection === 'close') {
-      isReady = false
-      const code = lastDisconnect?.error?.output?.statusCode
-      console.warn('[WA] Connection closed. statusCode:', code)
+    // Persist creds to Postgres whenever updated
+    sock.ev.on('creds.update', async () => {
+      try {
+        await saveCreds()
+      } catch (e) {
+        console.error('[WA] Failed to persist creds:', e?.message || e)
+      }
+    })
 
-      if (code === DisconnectReason.loggedOut) {
-        console.warn('[WA] Logged out. Clearing session and requiring QR scan.')
-        await clear()
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update
+
+      // QR handling (Baileys no longer prints automatically)
+      if (qr) {
+        isReady = false
+        console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
+        qrcode.generate(qr, { small: true })
       }
 
-      // controlled reconnect
-      sock = null
-      setTimeout(() => initWhatsApp(), 3_000)
-    }
-  })
+      if (connection === 'open') {
+        isReady = true
+        console.log('[WA] Connected to WhatsApp (Baileys)')
+        return
+      }
 
-  return sock
+      if (connection === 'close') {
+        isReady = false
+
+        const statusCode = lastDisconnect?.error?.output?.statusCode
+        console.log('[WA] Connection closed. statusCode:', statusCode)
+
+        // Logged out: nuke session so next boot forces fresh QR
+        if (statusCode === DisconnectReason.loggedOut) {
+          console.warn('[WA] Logged out. Clearing session from Postgres. Scan QR again.')
+          try {
+            await clear()
+          } catch (e) {
+            console.error('[WA] Failed clearing session:', e?.message || e)
+          }
+          sock = null
+          return
+        }
+
+        // Otherwise: backoff + reconnect
+        console.log('[WA] Reconnecting in 5s...')
+        sock = null
+        await sleep(5000)
+        await initWhatsApp()
+      }
+    })
+
+    return sock
+  } finally {
+    isConnecting = false
+  }
 }
 
 export async function sendSlaAlert (message) {
-  if (!sock || !isReady) {
-    throw new Error('WhatsApp client not ready')
-  }
-
-  if (!targetGroupId) {
-    throw new Error('Target WhatsApp group not configured')
-  }
+  if (!sock || !isReady) throw new Error('WhatsApp client not ready')
+  if (!targetGroupId) throw new Error('Target WhatsApp group not configured')
 
   const text =
     message ||
@@ -116,6 +136,7 @@ export async function sendSlaAlert (message) {
 export function getStatus () {
   return {
     ready: isReady,
-    groupConfigured: !!targetGroupId
+    groupConfigured: !!targetGroupId,
+    sessionId: SESSION_ID
   }
 }
