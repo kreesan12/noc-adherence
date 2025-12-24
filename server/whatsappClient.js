@@ -2,6 +2,7 @@
 import dotenv from 'dotenv'
 import qrcode from 'qrcode-terminal'
 import pkg from 'whatsapp-web.js'
+import { execSync } from 'node:child_process'
 
 dotenv.config()
 
@@ -11,37 +12,77 @@ let client
 let isReady = false
 let targetGroupId = null
 
+// Default to your known group ID, but allow override via env
 const DEFAULT_GROUP_ID = '120363403922602776@g.us'
 
-function getChromePath () {
-  return (
+// --- Internal send queue to prevent burst memory spikes ---
+const sendQueue = []
+let sending = false
+
+async function drainQueue () {
+  if (sending) return
+  sending = true
+
+  try {
+    while (sendQueue.length) {
+      const job = sendQueue.shift()
+      try {
+        await job()
+      } catch (e) {
+        console.error('[WA] Send job failed:', e?.message || e)
+      }
+
+      // small delay between sends helps keep Chrome stable
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+  } finally {
+    sending = false
+  }
+}
+
+function resolveChromePath () {
+  // Try common env vars first
+  const envPath =
     process.env.CHROME_BIN ||
-    process.env.CHROME_FOR_TESTING_BIN ||
     process.env.GOOGLE_CHROME_BIN ||
     process.env.PUPPETEER_EXECUTABLE_PATH ||
     process.env.CHROME_PATH ||
     null
-  )
+
+  if (envPath) return envPath
+
+  // Chrome-for-testing buildpack puts "chrome" on PATH. Try "which chrome".
+  try {
+    const p = execSync('which chrome', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString('utf8')
+      .trim()
+    return p || null
+  } catch {
+    return null
+  }
 }
 
 export function initWhatsApp () {
   if (client) return client // singleton
 
-  const chromePath = getChromePath()
+  const chromePath = resolveChromePath()
   if (chromePath) {
-    console.log('[WA] Using Chrome executable:', chromePath)
+    console.log('[WA] Chrome executable:', chromePath)
   } else {
-    console.warn('[WA] No Chrome executable env var found. Puppeteer will try defaults.')
+    console.warn('[WA] Could not resolve Chrome path. Puppeteer will try defaults (likely to fail on Heroku).')
   }
 
   client = new Client({
     authStrategy: new LocalAuth({
+      // NOTE: on Heroku, filesystem is ephemeral.
+      // LocalAuth will persist within a running dyno, but resets on restart unless you use a persistent store.
       dataPath: './wwebjs_auth'
     }),
     puppeteer: {
       headless: true,
       ...(chromePath ? { executablePath: chromePath } : {}),
       args: [
+        '--headless=new',
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -61,12 +102,8 @@ export function initWhatsApp () {
         '--metrics-recording-only',
         '--safebrowsing-disable-auto-update',
 
-        '--disable-features=Translate,TranslateUI',
-
         '--disable-gpu',
         '--disable-software-rasterizer'
-
-        // do NOT add --single-process (often worse on Heroku)
       ]
     }
   })
@@ -87,8 +124,8 @@ export function initWhatsApp () {
 
   client.on('ready', async () => {
     console.log('WhatsApp client is ready')
-    targetGroupId = process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
 
+    targetGroupId = process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
     if (!targetGroupId) {
       console.error('No WhatsApp group ID configured')
       isReady = false
@@ -117,8 +154,20 @@ export async function sendSlaAlert (message) {
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  await client.sendMessage(targetGroupId, text)
-  console.log('WhatsApp message sent')
+  // Queue the send so bursts don’t spike Chrome
+  return new Promise((resolve, reject) => {
+    sendQueue.push(async () => {
+      try {
+        await client.sendMessage(targetGroupId, text)
+        console.log('[WA] Message sent')
+        resolve()
+      } catch (e) {
+        reject(e)
+      }
+    })
+
+    drainQueue()
+  })
 }
 
 export function getStatus () {

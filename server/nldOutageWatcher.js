@@ -1,9 +1,10 @@
 // server/nldOutageWatcher.js
 import dayjs from 'dayjs'
 
+// ---- Config ----
 const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60)
 const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)
-const POLL_INTERVAL_MS = Number(process.env.NLD_POLL_INTERVAL_MS || 5 * 60 * 1000)
+const POLL_INTERVAL_MS = Number(process.env.NLD_POLL_MS || 5 * 60 * 1000)
 
 // partial NLD metrics
 const PARTIAL_LOOKBACK_HOURS = Number(process.env.NLD_PARTIAL_LOOKBACK_HOURS || 24)
@@ -11,9 +12,9 @@ const CLUSTER_WINDOW_HOURS = Number(process.env.NLD_CLUSTER_WINDOW_HOURS || 6)
 const CLUSTER_MIN_EVENTS = Number(process.env.NLD_CLUSTER_MIN_EVENTS || 3)
 const PARTIAL_NOT_LOGGED_MINUTES = Number(process.env.NLD_NOT_LOGGED_MINUTES || 30)
 
-// memory pruning
-const CACHE_TTL_HOURS = Number(process.env.NLD_CACHE_TTL_HOURS || 72) // default 3 days
-const CACHE_MAX_KEYS = Number(process.env.NLD_CACHE_MAX_KEYS || 5000) // safety cap
+// Memory safety: keep “warned” keys bounded using TTL + max keys
+const CACHE_TTL_HOURS = Number(process.env.NLD_CACHE_TTL_HOURS || 72)
+const CACHE_MAX_KEYS = Number(process.env.NLD_CACHE_MAX_KEYS || 5000)
 
 const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN
 const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL
@@ -23,64 +24,53 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
   console.warn('[NLD WATCHER] Zendesk env vars missing; watcher will not run')
 }
 
-// ------------------------------
-// Memory bounded caches (key -> lastSeenMs)
-// ------------------------------
-const warnedRecent = new Map() // recent NLD outages
-const warnedBreach = new Map() // 4h+ breaches
-const warnedPartialClusters = new Map() // partial clusters
+// ---- TTL cache helpers (so Sets don’t grow forever) ----
+function makeTtlCache (ttlMs, maxKeys) {
+  const m = new Map() // key -> expiresAtMs
 
-// For partial “not logged yet” repeated alerts every 30 min
-// key = ticketId, value = { lastBucket: number, lastSeenMs: number }
-const partialNotLoggedBuckets = new Map()
+  function prune () {
+    const now = Date.now()
 
-function nowMs () {
-  return Date.now()
-}
+    // Remove expired
+    for (const [k, exp] of m.entries()) {
+      if (exp <= now) m.delete(k)
+    }
 
-function pruneMapByTtlAndSize (m, ttlMs, maxKeys, label) {
-  const cutoff = nowMs() - ttlMs
-  let removed = 0
-
-  for (const [k, v] of m.entries()) {
-    const ts = typeof v === 'number' ? v : (v?.lastSeenMs || 0)
-    if (ts < cutoff) {
-      m.delete(k)
-      removed++
+    // If still too big, delete oldest-ish (Map keeps insertion order)
+    while (m.size > maxKeys) {
+      const firstKey = m.keys().next().value
+      m.delete(firstKey)
     }
   }
 
-  // If still too large, delete oldest
-  if (m.size > maxKeys) {
-    const entries = [...m.entries()].map(([k, v]) => {
-      const ts = typeof v === 'number' ? v : (v?.lastSeenMs || 0)
-      return [k, ts]
-    })
-    entries.sort((a, b) => a[1] - b[1]) // oldest first
-
-    const toDelete = m.size - maxKeys
-    for (let i = 0; i < toDelete; i++) {
-      m.delete(entries[i][0])
-      removed++
+  function has (key) {
+    prune()
+    const exp = m.get(key)
+    if (!exp) return false
+    if (exp <= Date.now()) {
+      m.delete(key)
+      return false
     }
+    return true
   }
 
-  if (removed > 0) {
-    console.log(`[NLD WATCHER] Pruned ${removed} keys from ${label}. Remaining: ${m.size}`)
+  function add (key) {
+    prune()
+    m.set(key, Date.now() + ttlMs)
   }
+
+  return { has, add, prune, size: () => m.size }
 }
 
-function pruneCaches () {
-  const ttlMs = CACHE_TTL_HOURS * 60 * 60 * 1000
-  pruneMapByTtlAndSize(warnedRecent, ttlMs, CACHE_MAX_KEYS, 'warnedRecent')
-  pruneMapByTtlAndSize(warnedBreach, ttlMs, CACHE_MAX_KEYS, 'warnedBreach')
-  pruneMapByTtlAndSize(warnedPartialClusters, ttlMs, CACHE_MAX_KEYS, 'warnedPartialClusters')
-  pruneMapByTtlAndSize(partialNotLoggedBuckets, ttlMs, CACHE_MAX_KEYS, 'partialNotLoggedBuckets')
-}
+const TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000
+const warnedRecent = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
+const warnedBreach = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
+const warnedPartialClusters = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 
-// ------------------------------
-// Helpers
-// ------------------------------
+// For partial “not logged yet” repeated alerts every 30 min.
+const partialNotLoggedBuckets = new Map() // ticketId -> last bucket
+
+// ---- Helpers (Zendesk) ----
 function isNldTicket (t) {
   return (t.subject || '').toUpperCase().includes('NLD')
 }
@@ -92,56 +82,49 @@ function cf (t, id) {
   return val ?? ''
 }
 
-function buildZendeskAuthHeader () {
+function makeAuthHeader () {
   const auth = Buffer.from(
     `${ZENDESK_EMAIL}/token:${ZENDESK_API_TOKEN}`,
     'utf8'
   ).toString('base64')
-
   return `Basic ${auth}`
 }
 
-async function fetchJsonWithTimeout (url, opts = {}, timeoutMs = 20000) {
+async function fetchJsonWithTimeout (url, { headers, timeoutMs = 25000 } = {}) {
   const controller = new AbortController()
-  const id = setTimeout(() => controller.abort(), timeoutMs)
+  const t = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const res = await fetch(url, { ...opts, signal: controller.signal })
-    return res
+    const res = await fetch(url, { headers, signal: controller.signal })
+    const text = await res.text()
+
+    if (!res.ok) {
+      throw new Error(`${res.status} ${res.statusText} – ${text}`)
+    }
+
+    return JSON.parse(text)
   } finally {
-    clearTimeout(id)
+    clearTimeout(t)
   }
 }
 
 async function fetchOutageTickets () {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
-
-  // group:5160847905297 form:"Outage Capturing" status<solved
   url.searchParams.set('query', 'group:5160847905297 form:"Outage Capturing" status<solved')
   url.searchParams.set('filter[type]', 'ticket')
+  url.searchParams.set('page[size]', '1000')
 
-  // Keep this smaller to reduce payload and memory spikes
-  url.searchParams.set('page[size]', String(Number(process.env.ZENDESK_PAGE_SIZE || 500)))
-
-  const res = await fetchJsonWithTimeout(url.toString(), {
+  const data = await fetchJsonWithTimeout(url.toString(), {
     headers: {
-      Authorization: buildZendeskAuthHeader(),
+      Authorization: makeAuthHeader(),
       'Content-Type': 'application/json'
     }
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(
-      `[NLD WATCHER] search/export (Outage Capturing) failed: ${res.status} ${res.statusText} – ${text}`
-    )
-  }
-
-  const data = await res.json()
   return data.results || []
 }
 
-// Normalise route strings for fuzzy matching
+// Normalise route / NLD strings for fuzzy matching
 function normalizeRoute (str) {
   if (!str) return ''
   return str
@@ -151,7 +134,6 @@ function normalizeRoute (str) {
     .trim()
 }
 
-// Build an index of unsolved outages for route matching
 function buildOutageRouteIndex (enrichedOutages) {
   return enrichedOutages.map(o => ({
     ticketId: o.id,
@@ -160,7 +142,6 @@ function buildOutageRouteIndex (enrichedOutages) {
   }))
 }
 
-// Does this partial NLD event have a matching unsolved outage?
 function hasMatchingOutageForEvent (event, outageIndex) {
   const eventNorm = normalizeRoute(event.nldRoute || event.partialCircuit || '')
   if (!eventNorm) return false
@@ -170,18 +151,14 @@ function hasMatchingOutageForEvent (event, outageIndex) {
     if (nldNorm && (nldNorm.includes(eventNorm) || eventNorm.includes(nldNorm))) return true
     if (subjectNorm && (subjectNorm.includes(eventNorm) || eventNorm.includes(subjectNorm))) return true
   }
+
   return false
 }
 
-// ------------------------------
-// Message builders (Outage Capturing)
-// ------------------------------
+// ---- WhatsApp message builders ----
 function buildRecentMsg (tickets) {
   if (!tickets.length) return null
-
-  const lines = []
-  lines.push('🟡 NEW NLD OUTAGE')
-  lines.push('')
+  const lines = ['🟡 NEW NLD OUTAGE', '']
 
   tickets.forEach(t => {
     lines.push(`Ticket #${t.id} – ${t.subject || ''}`)
@@ -201,10 +178,7 @@ function buildRecentMsg (tickets) {
 
 function buildBreachMsg (tickets, breachHours, windowMinutes) {
   if (!tickets.length) return null
-
-  const lines = []
-  lines.push(`🔴 NLD outage duration exceeded ${breachHours} hours (outside last ${windowMinutes} minutes)`)
-  lines.push('')
+  const lines = [`🔴 NLD outage duration exceeded ${breachHours} hours (outside last ${windowMinutes} minutes)`, '']
 
   tickets.forEach(t => {
     lines.push(`Ticket #${t.id} – ${t.subject || ''}`)
@@ -222,41 +196,29 @@ function buildBreachMsg (tickets, breachHours, windowMinutes) {
   return lines.join('\n')
 }
 
-// ------------------------------
-// Partial NLD alerts
-// ------------------------------
+// ---- Partial NLD fetch + transform ----
 async function fetchPartialNldAlertsRaw () {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
-
-  // type:ticket tags:partial_nld_alert requester:"IRIS API" -tags:"partial_nld_alert_duplicate_solved"
   url.searchParams.set(
     'query',
     'type:ticket tags:partial_nld_alert requester:"IRIS API" -tags:"partial_nld_alert_duplicate_solved"'
   )
   url.searchParams.set('filter[type]', 'ticket')
-  url.searchParams.set('page[size]', String(Number(process.env.ZENDESK_PAGE_SIZE || 500)))
+  url.searchParams.set('page[size]', '1000')
 
-  const res = await fetchJsonWithTimeout(url.toString(), {
+  const data = await fetchJsonWithTimeout(url.toString(), {
     headers: {
-      Authorization: buildZendeskAuthHeader(),
+      Authorization: makeAuthHeader(),
       'Content-Type': 'application/json'
     }
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(
-      `[NLD WATCHER] search/export (partial NLD) failed: ${res.status} ${res.statusText} – ${text}`
-    )
-  }
-
-  const data = await res.json()
   return data.results || []
 }
 
 function transformPartialNldAlerts (results) {
-  const now = nowMs()
-  const cutoffMs = now - PARTIAL_LOOKBACK_HOURS * 60 * 60 * 1000
+  const nowMs = Date.now()
+  const cutoffMs = nowMs - PARTIAL_LOOKBACK_HOURS * 60 * 60 * 1000
   const base = `https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/`
 
   const events = []
@@ -291,7 +253,7 @@ function transformPartialNldAlerts (results) {
     const tags = t.tags || []
     const cleared = tags.includes('partial_nld_alert_clear')
 
-    const ageMs = now - createdMs
+    const ageMs = nowMs - createdMs
     const ageHours = ageMs / (60 * 60 * 1000)
     const ageMinutes = ageMs / (60 * 1000)
 
@@ -321,9 +283,11 @@ function transformPartialNldAlerts (results) {
   return events
 }
 
-// ---- cluster detection on partial NLD events ----
+// ---- Cluster detection ----
 function findPartialClusters (events) {
   const byKey = new Map()
+  const windowMs = CLUSTER_WINDOW_HOURS * 60 * 60 * 1000
+
   events.forEach(e => {
     const routeKey = e.nldRoute || e.partialCircuit || 'UNKNOWN'
     if (!routeKey || routeKey === 'UNKNOWN') return
@@ -332,15 +296,13 @@ function findPartialClusters (events) {
   })
 
   const clusters = []
-  const windowMs = CLUSTER_WINDOW_HOURS * 60 * 60 * 1000
 
   for (const [routeKey, arr] of byKey.entries()) {
     if (arr.length < CLUSTER_MIN_EVENTS) continue
 
     const sorted = [...arr].sort((a, b) => a.createdMs - b.createdMs)
 
-    let i = 0
-    while (i < sorted.length) {
+    for (let i = 0; i < sorted.length; i++) {
       const startMs = sorted[i].createdMs
       let j = i
       while (j < sorted.length && sorted[j].createdMs - startMs <= windowMs) j++
@@ -351,16 +313,11 @@ function findPartialClusters (events) {
         const clusterKey =
           `partial-cluster:${routeKey}:${windowEvents[0].ticketId}:${windowEvents[windowEvents.length - 1].ticketId}`
 
-        const lastSeen = warnedPartialClusters.get(clusterKey) || 0
-        if (lastSeen === 0) {
-          warnedPartialClusters.set(clusterKey, nowMs())
+        if (!warnedPartialClusters.has(clusterKey)) {
+          warnedPartialClusters.add(clusterKey)
           clusters.push({ routeKey, count, events: windowEvents })
-        } else {
-          warnedPartialClusters.set(clusterKey, nowMs())
         }
       }
-
-      i++
     }
   }
 
@@ -370,14 +327,16 @@ function findPartialClusters (events) {
 function buildPartialClusterMsg (clusters) {
   if (!clusters.length) return null
 
-  const lines = []
-  lines.push(`🟠 Partial NLD flap / outage clusters (>=${CLUSTER_MIN_EVENTS} events in ${CLUSTER_WINDOW_HOURS}h on same partial circuit)`)
-  lines.push('')
+  const lines = [
+    `🟠 Partial NLD flap / outage clusters (>=${CLUSTER_MIN_EVENTS} events in ${CLUSTER_WINDOW_HOURS}h on same partial circuit)`,
+    ''
+  ]
 
   clusters.forEach(cluster => {
     const { routeKey, count, events } = cluster
-    const isMajor = count > CLUSTER_MIN_EVENTS
-    const label = isMajor ? `🔴 MAJOR MAJOR RED FLAG – ${count} events` : `🟠 Cluster – ${count} events`
+    const label = count > CLUSTER_MIN_EVENTS
+      ? `🔴 MAJOR MAJOR RED FLAG – ${count} events`
+      : `🟠 Cluster – ${count} events`
 
     lines.push(`${label} on partial circuit: ${routeKey}`)
     events.forEach(e => {
@@ -390,7 +349,7 @@ function buildPartialClusterMsg (clusters) {
   return lines.join('\n')
 }
 
-// ---- "outage not logged yet" on partial NLD alerts ----
+// ---- “Outage not logged yet” ----
 function findPartialNotLogged (events, outageIndex) {
   const affected = []
 
@@ -403,18 +362,19 @@ function findPartialNotLogged (events, outageIndex) {
     if (bucket < 1) continue
 
     const key = String(e.ticketId)
-    const last = partialNotLoggedBuckets.get(key) || { lastBucket: 0, lastSeenMs: 0 }
+    const lastBucket = partialNotLoggedBuckets.get(key) || 0
 
-    // track activity
-    last.lastSeenMs = nowMs()
-
-    // Only alert when we cross a new bucket: 1 (30m), 2 (60m), etc
-    if (bucket > last.lastBucket) {
-      last.lastBucket = bucket
-      partialNotLoggedBuckets.set(key, last)
+    if (bucket > lastBucket) {
+      partialNotLoggedBuckets.set(key, bucket)
       affected.push({ ...e, bucket })
-    } else {
-      partialNotLoggedBuckets.set(key, last)
+    }
+  }
+
+  // also prevent this map growing forever
+  if (partialNotLoggedBuckets.size > CACHE_MAX_KEYS) {
+    const keys = Array.from(partialNotLoggedBuckets.keys())
+    for (let i = 0; i < keys.length - CACHE_MAX_KEYS; i++) {
+      partialNotLoggedBuckets.delete(keys[i])
     }
   }
 
@@ -424,10 +384,11 @@ function findPartialNotLogged (events, outageIndex) {
 function buildPartialNotLoggedMsg (events) {
   if (!events.length) return null
 
-  const lines = []
-  lines.push(`🔴 Partial NLD alerts active with NO logged outage (age >= ${PARTIAL_NOT_LOGGED_MINUTES} min)`)
-  lines.push(`Repeated every ${PARTIAL_NOT_LOGGED_MINUTES} min per event while it remains active and without an outage.`)
-  lines.push('')
+  const lines = [
+    `🔴 Partial NLD alerts active with NO logged outage (age >= ${PARTIAL_NOT_LOGGED_MINUTES} min)`,
+    `Repeated every ${PARTIAL_NOT_LOGGED_MINUTES} min per event while it remains active and without an outage.`,
+    ''
+  ]
 
   events.forEach(e => {
     lines.push(`• #${e.ticketId} – ${e.eventGroup} – ${e.nldRoute || e.partialCircuit || ''}`)
@@ -439,9 +400,7 @@ function buildPartialNotLoggedMsg (events) {
   return lines.join('\n')
 }
 
-// ------------------------------
-// Main entrypoint
-// ------------------------------
+// ---- Main entrypoint ----
 let watcherStarted = false
 
 export function startNldOutageWatcher (sendSlaAlert) {
@@ -458,8 +417,6 @@ export function startNldOutageWatcher (sendSlaAlert) {
 
   const tick = async () => {
     try {
-      pruneCaches()
-
       const now = dayjs()
 
       // 1) Outage Capturing NLD tickets
@@ -493,25 +450,19 @@ export function startNldOutageWatcher (sendSlaAlert) {
 
         allEnrichedOutages.push(enriched)
 
-        // Recent within window
         if (ageMinutes >= 0 && ageMinutes <= OUTAGE_WINDOW_MINUTES) {
           const key = `recent-${t.id}`
           if (!warnedRecent.has(key)) {
-            warnedRecent.set(key, nowMs())
+            warnedRecent.add(key)
             recent.push(enriched)
-          } else {
-            warnedRecent.set(key, nowMs())
           }
         }
 
-        // Breach: older than breachHours and outside recent window
         if (ageHours >= BREACH_HOURS && ageMinutes > OUTAGE_WINDOW_MINUTES) {
           const key = `breach-${t.id}`
           if (!warnedBreach.has(key)) {
-            warnedBreach.set(key, nowMs())
+            warnedBreach.add(key)
             breaches.push(enriched)
-          } else {
-            warnedBreach.set(key, nowMs())
           }
         }
       }
@@ -524,30 +475,27 @@ export function startNldOutageWatcher (sendSlaAlert) {
 
       const breachMsg = buildBreachMsg(breaches, BREACH_HOURS, OUTAGE_WINDOW_MINUTES)
       if (breachMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp NLD breach alert')
+        console.log('[NLD WATCHER] Sending WhatsApp NLD BREACH alert')
         await sendSlaAlert(breachMsg)
       }
 
-      // correlate partial events to outages
       const outageIndex = buildOutageRouteIndex(allEnrichedOutages)
 
       // 2) Partial NLD alert metrics
       const rawPartial = await fetchPartialNldAlertsRaw()
       const partialEvents = transformPartialNldAlerts(rawPartial)
 
-      // 2a) clusters
       const clusters = findPartialClusters(partialEvents)
       const clusterMsg = buildPartialClusterMsg(clusters)
       if (clusterMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp partial cluster alert')
+        console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD CLUSTER alert')
         await sendSlaAlert(clusterMsg)
       }
 
-      // 2b) outage not logged yet
       const notLogged = findPartialNotLogged(partialEvents, outageIndex)
       const notLoggedMsg = buildPartialNotLoggedMsg(notLogged)
       if (notLoggedMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp partial not-logged alert')
+        console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD NOT-LOGGED alert')
         await sendSlaAlert(notLoggedMsg)
       }
     } catch (err) {
@@ -556,5 +504,8 @@ export function startNldOutageWatcher (sendSlaAlert) {
   }
 
   tick()
-  setInterval(tick, POLL_INTERVAL_MS)
+
+  const interval = setInterval(tick, POLL_INTERVAL_MS)
+  // let Node exit cleanly on dyno shutdown
+  interval.unref?.()
 }
