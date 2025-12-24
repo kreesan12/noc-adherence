@@ -3,13 +3,14 @@ import dotenv from 'dotenv'
 import qrcode from 'qrcode-terminal'
 import makeWASocket, {
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  initAuthCreds
 } from '@whiskeysockets/baileys'
 import { usePostgresAuthState } from './baileysPostgresAuth.js'
 
 dotenv.config()
 
-let sock
+let sock = null
 let isReady = false
 let targetGroupId = null
 
@@ -24,59 +25,70 @@ function normalizeGroupId (id) {
 export async function initWhatsApp () {
   if (sock) return sock
 
-  targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
+  targetGroupId = normalizeGroupId(
+    process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID
+  )
   console.log('[WA] Target group JID:', targetGroupId)
 
-  const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
+  const { state, saveCreds, clear } =
+    await usePostgresAuthState(SESSION_ID)
+
+  // 🔑 CRITICAL FIX: creds must NEVER be null
+  if (!state.creds) {
+    console.warn('[WA] No creds found, initialising fresh auth state')
+    state.creds = initAuthCreds()
+  }
 
   const { version } = await fetchLatestBaileysVersion()
   console.log('[WA] Baileys using WA Web version:', version.join('.'))
 
   sock = makeWASocket({
     version,
-    auth: state,
+    auth: {
+      creds: state.creds,
+      keys: state.keys
+    },
+    printQRInTerminal: false,
     markOnlineOnConnect: false,
     syncFullHistory: false
   })
 
+  // Persist credentials safely
   sock.ev.on('creds.update', async () => {
     try {
       await saveCreds()
-    } catch (e) {
-      console.error('[WA] Failed to persist creds:', e?.message || e)
+    } catch (err) {
+      console.error('[WA] Failed to save creds:', err)
     }
   })
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update
 
-    // QR handling (Baileys deprecated printQRInTerminal)
     if (qr) {
-      console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
+      console.log('[WA] Scan this QR with WhatsApp → Linked Devices')
       qrcode.generate(qr, { small: true })
     }
 
     if (connection === 'open') {
       isReady = true
-      console.log('[WA] Connected to WhatsApp (Baileys)')
+      console.log('[WA] WhatsApp connected successfully')
       return
     }
 
     if (connection === 'close') {
       isReady = false
       const code = lastDisconnect?.error?.output?.statusCode
-      console.log('[WA] Connection closed. statusCode:', code)
+      console.warn('[WA] Connection closed. statusCode:', code)
 
       if (code === DisconnectReason.loggedOut) {
-        console.warn('[WA] Logged out. Clearing session from Postgres. Scan QR again.')
+        console.warn('[WA] Logged out. Clearing session and requiring QR scan.')
         await clear()
       }
 
-      if (code !== DisconnectReason.loggedOut) {
-        console.log('[WA] Reconnecting...')
-        sock = null
-        await initWhatsApp()
-      }
+      // controlled reconnect
+      sock = null
+      setTimeout(() => initWhatsApp(), 3_000)
     }
   })
 
@@ -84,8 +96,13 @@ export async function initWhatsApp () {
 }
 
 export async function sendSlaAlert (message) {
-  if (!sock || !isReady) throw new Error('WhatsApp client not ready')
-  if (!targetGroupId) throw new Error('Target WhatsApp group not configured')
+  if (!sock || !isReady) {
+    throw new Error('WhatsApp client not ready')
+  }
+
+  if (!targetGroupId) {
+    throw new Error('Target WhatsApp group not configured')
+  }
 
   const text =
     message ||
