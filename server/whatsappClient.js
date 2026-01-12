@@ -57,6 +57,7 @@ export async function initWhatsApp () {
       auth: state,
       markOnlineOnConnect: false,
       syncFullHistory: false,
+      shouldSyncHistoryMessage: () => false,
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 60_000,
       connectTimeoutMs: 60_000,

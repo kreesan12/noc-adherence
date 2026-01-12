@@ -11,7 +11,7 @@ const pool = new Pool({
 
 const TABLE = 'public.whatsapp_auth'
 
-// One-time DB identity log (helps confirm pgAdmin and dyno are on same DB)
+// Optional: log DB identity once per connection (useful sanity)
 pool.on('connect', async (client) => {
   try {
     const r = await client.query(
@@ -24,7 +24,6 @@ pool.on('connect', async (client) => {
 })
 
 async function ensureSchema () {
-  // Create table if missing
   await pool.query(`
     create table if not exists ${TABLE} (
       session_id text not null,
@@ -35,32 +34,6 @@ async function ensureSchema () {
       primary key (session_id, type, key)
     )
   `)
-
-  // Heal older schemas
-  const colsRes = await pool.query(
-    `
-    select column_name
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'whatsapp_auth'
-    `
-  )
-  const cols = new Set(colsRes.rows.map(r => r.column_name))
-
-  // If old schema used "data" instead of "value"
-  if (cols.has('data') && !cols.has('value')) {
-    await pool.query(`alter table ${TABLE} rename column data to value`)
-  }
-
-  // If value is missing for any reason
-  if (!cols.has('value')) {
-    await pool.query(`alter table ${TABLE} add column if not exists value jsonb`)
-  }
-
-  // updated_at is nice to have
-  if (!cols.has('updated_at')) {
-    await pool.query(`alter table ${TABLE} add column if not exists updated_at timestamptz not null default now()`)
-  }
 }
 
 export async function usePostgresAuthState (sessionId) {
@@ -78,56 +51,90 @@ export async function usePostgresAuthState (sessionId) {
     : initAuthCreds()
 
   async function saveCreds () {
-    await pool.query(
-      `
-      insert into ${TABLE} (session_id, type, key, value)
-      values ($1, 'creds', 'creds', $2)
-      on conflict (session_id, type, key)
-      do update set value = excluded.value, updated_at = now()
-      `,
-      [sessionId, JSON.parse(JSON.stringify(creds, BufferJSON.replacer))]
-    )
+    try {
+      await pool.query(
+        `
+        insert into ${TABLE} (session_id, type, key, value)
+        values ($1, 'creds', 'creds', $2::jsonb)
+        on conflict (session_id, type, key)
+        do update set value = excluded.value, updated_at = now()
+        `,
+        [sessionId, JSON.stringify(creds, BufferJSON.replacer)]
+      )
+    } catch (e) {
+      console.error('[WA][DB] saveCreds failed:', e?.message || e)
+      throw e
+    }
   }
 
   // ---------- KEYS ----------
   const keys = {
     async get (type, ids) {
-      const res = await pool.query(
-        `
-        select key, value from ${TABLE}
-        where session_id = $1 and type = $2 and key = any($3)
-        `,
-        [sessionId, type, ids]
-      )
+      try {
+        if (!ids?.length) return {}
 
-      const out = {}
-      for (const row of res.rows) {
-        out[row.key] = JSON.parse(JSON.stringify(row.value), BufferJSON.reviver)
+        const res = await pool.query(
+          `
+          select key, value from ${TABLE}
+          where session_id = $1
+            and type = $2
+            and key = any($3::text[])
+          `,
+          [sessionId, type, ids]
+        )
+
+        const out = {}
+        for (const row of res.rows) {
+          out[row.key] = JSON.parse(JSON.stringify(row.value), BufferJSON.reviver)
+        }
+        return out
+      } catch (e) {
+        console.error('[WA][DB] keys.get failed:', { type, count: ids?.length }, e?.message || e)
+        throw e
       }
-      return out
     },
 
     async set (data) {
-      for (const type of Object.keys(data)) {
-        for (const key of Object.keys(data[type])) {
-          const value = JSON.parse(JSON.stringify(data[type][key], BufferJSON.replacer))
+      // IMPORTANT: bulk upsert per type (much faster than one insert per key)
+      try {
+        const types = Object.keys(data || {})
+        for (const type of types) {
+          const obj = data[type] || {}
+          const ks = Object.keys(obj)
+          if (!ks.length) continue
 
+          const valuesJson = ks.map(k => JSON.stringify(obj[k], BufferJSON.replacer))
+
+          // Bulk upsert: unnest arrays to rows
           await pool.query(
             `
             insert into ${TABLE} (session_id, type, key, value)
-            values ($1, $2, $3, $4)
+            select
+              $1::text as session_id,
+              $2::text as type,
+              u.key,
+              u.value::jsonb
+            from unnest($3::text[], $4::text[]) as u(key, value)
             on conflict (session_id, type, key)
             do update set value = excluded.value, updated_at = now()
             `,
-            [sessionId, type, key, value]
+            [sessionId, type, ks, valuesJson]
           )
         }
+      } catch (e) {
+        console.error('[WA][DB] keys.set failed:', e?.message || e)
+        throw e
       }
     }
   }
 
   async function clear () {
-    await pool.query(`delete from ${TABLE} where session_id = $1`, [sessionId])
+    try {
+      await pool.query(`delete from ${TABLE} where session_id = $1`, [sessionId])
+    } catch (e) {
+      console.error('[WA][DB] clear failed:', e?.message || e)
+      throw e
+    }
   }
 
   return {
