@@ -68,104 +68,100 @@ export default function StaffingPage() {
    * schedule 5 consecutive work days starting from the block startDate.
    * This produces 5-on, 2-off inside each week automatically.
    */
-  function getWorkDates(start, weeksCount) {
-    const dates = [];
-    for (let w = 0; w < weeksCount; w++) {
-      const base = dayjs(start).add(w * 7, 'day');
-      for (let d = 0; d < 5; d++) {
-        dates.push(base.add(d, 'day').format('YYYY-MM-DD'));
-      }
+// Rotation-aware: weeks * 5 workdays
+function getWorkDates(startDate, weeksCount, dateSet) {
+  const out = [];
+  for (let w = 0; w < weeksCount; w++) {
+    const base = dayjs(startDate).add(w * 7, 'day');
+    for (let d = 0; d < 5; d++) {
+      const dd = base.add(d, 'day').format('YYYY-MM-DD');
+      // optional guard if you want to skip days outside forecast horizon
+      if (!dateSet || dateSet.has(dd)) out.push(dd);
     }
-    return dates;
   }
+  return out;
+}
 
-  /** buildSchedule with global-balancing lunch placement */
-  function buildSchedule(solution, reqMap) {
-    const schedByEmp = {};
-    const totalEmp   = solution.reduce((s, b) => s + b.count, 0);
-    const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1);
-    queue.forEach(id => (schedByEmp[id] = []));
+function buildSchedule(solution, reqMap) {
+  const schedByEmp = {};
+  const totalEmp   = solution.reduce((s, b) => s + b.count, 0);
+  const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1);
+  queue.forEach(id => (schedByEmp[id] = []));
 
-    /* running coverage counters */
-    const coverMap = {};  // on duty excl. lunch
-    const lunchMap = {};  // already at lunch
+  const coverMap = {};
+  const lunchMap = {};
 
-    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
-    const cycles     = Math.ceil(
-      (horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7)
-    );
+  const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
+  const cycles     = Math.ceil((horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7));
 
-    const sorted = [...solution].sort(
-      (a, b) => (a.patternIndex ?? 0) - (b.patternIndex ?? 0) || a.startHour - b.startHour
-    );
+  const sorted = [...solution].sort(
+    (a, b) => (a.patternIndex ?? 0) - (b.patternIndex ?? 0) || a.startHour - b.startHour
+  );
 
-    for (let ci = 0; ci < cycles; ci++) {
-      let offset = 0;
+  for (let ci = 0; ci < cycles; ci++) {
+    let offset = 0;
 
-      sorted.forEach(block => {
-        const group = queue.slice(offset, offset + block.count);
+    sorted.forEach(block => {
+      const group = queue.slice(offset, offset + block.count);
 
-        group.forEach(empId => {
-          // IMPORTANT:
-          // Use block.startDate directly. Do NOT shift it by patternIndex.
-          // The backend already supplies the correct startDate per pattern.
-          getWorkDates(block.startDate, weeks).forEach(dtStr => {
-            const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
-            if (d.isAfter(horizonEnd, 'day')) return;
-            const day = d.format('YYYY-MM-DD');
+      group.forEach(empId => {
+        // IMPORTANT: do NOT shift by patternIndex*7. startDate is already the intended anchor.
+        const workDates = getWorkDates(block.startDate, weeks);
 
-            /* ── choose lunch hour inside the shift ── */
-            const candidates = [];
-            for (let off = 2; off <= 5; off++) {
-              const h = block.startHour + off;
-              if (h >= block.startHour + SHIFT_LENGTH) break;
+        workDates.forEach(dtStr => {
+          const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
+          if (d.isAfter(horizonEnd, 'day')) return;
 
-              const k          = `${day}|${h}`;
-              const onDuty     = coverMap[k] ?? 0;
-              const lunches    = lunchMap[k] ?? 0;
-              const required   = reqMap[k]   ?? 0;
-              const projected  = onDuty - lunches - 1;
-              const surplus    = projected - required;
+          const day = d.format('YYYY-MM-DD');
 
-              if (surplus >= 0) {
-                candidates.push({ h, surplus, lunches });
-              }
-            }
+          // pick lunch hour (2..5 hours into shift)
+          const candidates = [];
+          for (let off = 2; off <= 5; off++) {
+            const h = block.startHour + off;
+            if (h >= block.startHour + SHIFT_LENGTH) break;
 
-            const breakHour = candidates.length
-              ? candidates.sort((a, b) =>
-                  a.surplus - b.surplus ||
-                  a.lunches - b.lunches ||
-                  a.h       - b.h
-                )[0].h
-              : (
-                  block.breakOffset != null
-                    ? block.startHour + block.breakOffset
-                    : block.startHour + Math.floor(block.length / 2)
-                );
+            const k         = `${day}|${h}`;
+            const onDuty    = coverMap[k] ?? 0;
+            const lunches   = lunchMap[k] ?? 0;
+            const required  = reqMap[k]   ?? 0;
 
-            /* record shift for employee */
-            schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
+            const projected = onDuty - lunches - 1;
+            const surplus   = projected - required;
 
-            /* update counters */
-            for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
-              const k = `${day}|${h}`;
-              coverMap[k] = (coverMap[k] ?? 0) + 1;
-            }
-            const lk = `${day}|${breakHour}`;
-            lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
-          });
+            if (surplus >= 0) candidates.push({ h, surplus, lunches });
+          }
+
+          const breakHour = candidates.length
+            ? candidates.sort((a, b) =>
+                a.surplus - b.surplus ||
+                a.lunches - b.lunches ||
+                a.h       - b.h
+              )[0].h
+            : (block.breakOffset != null
+                ? block.startHour + block.breakOffset
+                : block.startHour + Math.floor(block.length / 2)
+              );
+
+          schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
+
+          for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
+            const k = `${day}|${h}`;
+            coverMap[k] = (coverMap[k] ?? 0) + 1;
+          }
+          const lk = `${day}|${breakHour}`;
+          lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
         });
-
-        offset += block.count;
       });
 
-      /* rotate for next cycle */
-      queue.unshift(queue.pop());
-    }
+      offset += block.count;
+    });
 
-    return schedByEmp;
+    queue.unshift(queue.pop());
   }
+
+  return schedByEmp;
+}
+
 
   /** map numeric “employee #” to display name (real or dummy) */
   const nameFor = (empNum) => {

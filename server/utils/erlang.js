@@ -31,6 +31,7 @@ export function erlangC(A, N) {
  * @param serviceThresholdSeconds
  * @param shrinkage e.g. 0.3 for 30%
  */
+
 export function requiredAgents({
   callsPerHour,
   ahtSeconds,
@@ -38,34 +39,27 @@ export function requiredAgents({
   serviceThresholdSeconds,
   shrinkage
 }) {
-  // ✅ No work on this stream means no agents for this stream
-  if (!callsPerHour || callsPerHour <= 0) return 0
+  // If there is no work, require 0 before minimum staffing rules are applied elsewhere
+  if (!callsPerHour || callsPerHour <= 0) return 0;
 
-  // traffic intensity in Erlangs
-  const A = callsPerHour * (ahtSeconds / 3600)
-  if (A <= 0) return 0
+  const A = callsPerHour * (ahtSeconds / 3600);
+  if (A <= 0) return 0;
 
-  // start just above traffic to avoid A/N >= 1 instability
-  const startN = Math.max(1, Math.floor(A) + 1)
+  for (let N = 1; N < 500; N++) {
+    // guard: Erlang-C blows up if A >= N
+    if (A >= N) continue;
 
-  // brute-force search for smallest N that meets SL
-  for (let N = startN; N < 500; N++) {
-    if (A >= N) continue
-
-    const PC = erlangC(A, N)
-
-    // P(wait ≤ T) = 1 – P(wait > T)
-    // P(wait > T) = PC * exp(-(N – A) * T / AHT)
-    const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds))
-    const SL = 1 - PC * expTerm
+    const PC = erlangC(A, N);
+    const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds));
+    const SL = 1 - PC * expTerm;
 
     if (SL >= targetServiceLevel) {
-      // account for shrinkage
-      return Math.ceil(N / (1 - shrinkage))
+      // apply shrinkage here if you want, but we will pass shrinkage=0 for base calcs
+      return Math.ceil(N / (1 - (shrinkage || 0)));
     }
   }
 
-  throw new Error("Couldn't meet service level with N < 500")
+  throw new Error("Couldn't meet service level with N < 500");
 }
 
 /**
@@ -74,6 +68,7 @@ export function requiredAgents({
  * @param excludeAutomation  when true, subtracts auto-processed
  *                           ticket counts (DFA/MNT/Outage/MntSolved) from total.
  */
+
 export async function computeDayStaffing({
   prisma,
   role,
@@ -124,34 +119,39 @@ export async function computeDayStaffing({
 
   /* 3️⃣ staffing for each hour */
   return Array.from({ length: 24 }, (_, h) => {
-    const { calls = 0, tickets = 0 } = byHour[h] || {}
+    const { calls = 0, tickets = 0 } = byHour[h] || {};
 
-    const callAgents = requiredAgents({
-      callsPerHour: calls,
-      ahtSeconds: callAhtSeconds,
-      targetServiceLevel: serviceLevel,
+    // Base requirements without shrinkage (avoid double-shrink)
+    const callBase = requiredAgents({
+      callsPerHour:            calls,
+      ahtSeconds:              callAhtSeconds,
+      targetServiceLevel:      serviceLevel,
       serviceThresholdSeconds: thresholdSeconds,
-      shrinkage
-    })
+      shrinkage:               0
+    });
 
-    const ticketAgents = requiredAgents({
-      callsPerHour: tickets,
-      ahtSeconds: ticketAhtSeconds,
-      targetServiceLevel: serviceLevel,
+    const ticketBase = requiredAgents({
+      callsPerHour:            tickets,
+      ahtSeconds:              ticketAhtSeconds,
+      targetServiceLevel:      serviceLevel,
       serviceThresholdSeconds: thresholdSeconds,
-      shrinkage
-    })
+      shrinkage:               0
+    });
 
-    const total = callAgents + ticketAgents
+    const baseTotal = callBase + ticketBase;
 
-    // ✅ Minimum 2 total agents per hour, even if total is 0 or 1
-    const requiredTotal = total < 2 ? 2 : total
+    // Apply shrinkage once to the combined requirement
+    const withShrink = Math.ceil(baseTotal / (1 - shrinkage));
+
+    // Enforce your rule: minimum 2 total on duty requirement
+    const requiredTotal = Math.max(2, withShrink);
 
     return {
-      hour: h,
+      hour:           h,
       calls,
       tickets,
       requiredAgents: requiredTotal
-    }
-  })
+    };
+  });
+
 }
