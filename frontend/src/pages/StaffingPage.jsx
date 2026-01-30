@@ -378,57 +378,75 @@ export default function StaffingPage() {
       }
 
       // Expansion: ALWAYS greedy (fast) to find an upper bound
-      setSolverPhase('Expanding cap');
-      let lo = 0, hi = 1;
-      let plan = await solve(hi, false, 'Expanding cap');
+// Phase 1: Greedy scan from 1 upward (+1) until feasible H is found
+setSolverPhase('Greedy scan (+1)');
+let H = null;
+let plan = null;
 
-      while (!plan.feasible) {
-        lo = hi;
-        hi *= 2;
-        if (hi > 10000) break;
-        plan = await solve(hi, false, 'Expanding cap');
-      }
+const MAX_CAP = 10000; // safety ceiling
+let cap = 1;
 
-      if (!plan.feasible) {
-        setSolverPhase('Failed');
-        logLine('Could not find feasible upper bound within limits.');
-        return;
-      }
+while (cap <= MAX_CAP) {
+  setSolverIter(cap); // just to show progress
+  plan = await solve(cap, false, `Greedy scan (+1) (${cap}/${MAX_CAP})`);
 
-      setSolverBestFeasible(plan.headCnt);
-      logLine(`Feasible upper bound found at cap ${hi}, starting binary search`);
+  if (plan.feasible) {
+    H = cap;
+    setSolverBestFeasible(plan.headCnt);
+    logLine(`First feasible headcount found at cap ${H} (greedy)`);
+    break;
+  }
 
-      // Binary search: use exact ONLY here (when reducing)
-      let best = plan;
-      let iter = 0;
+  cap += 1;
+}
 
-      while (iter < MAX_ITERS && hi - lo > 1) {
-        iter++;
-        setSolverIter(iter);
+if (H == null || !plan?.feasible) {
+  setSolverPhase('Failed');
+  logLine(`Could not find a feasible cap up to ${MAX_CAP}.`);
+  return;
+}
 
-        const mid = Math.floor((lo + hi) / 2);
-        const phaseLabel = `Binary search (${iter}/${MAX_ITERS})`;
+// Phase 2: Try to push down: H-1, H-2, ... until it fails
+let best = plan;
 
-        const cur = await solve(mid, useExact, phaseLabel);
+if (useExact) {
+  setSolverPhase('Tightening cap (exact)');
+  let iter = 0;
 
-        if (!cur.feasible) {
-          lo = mid;
-          logLine(`Shortfall at ${mid}, moving lo to ${lo}`);
-        } else {
-          hi = mid;
-          best = cur;
-          setSolverBestFeasible(best.headCnt);
-          logLine(`Feasible at ${mid}, moving hi to ${hi}`);
-        }
-      }
+  for (let c = H - 1; c >= 1; c--) {
+    iter++;
+    setSolverIter(iter);
 
-      setBlocks(best.solution);
-      setBestStart(best.bestStart);
-      setPersonSchedule(best.schedule);
-      setFixedStaff(best.headCnt);
+    const phaseLabel = `Tighten cap (exact) ${c}`;
+    const cur = await solve(c, true, phaseLabel);
 
-      setSolverPhase('Done');
-      logLine(`Done. Final headcount ${best.headCnt}`);
+    if (cur.feasible) {
+      best = cur;
+      setSolverBestFeasible(best.headCnt);
+      logLine(`Feasible at ${c}, trying ${c - 1}`);
+    } else {
+      logLine(`Not feasible at ${c}, stopping tighten`);
+      break;
+    }
+
+    if (iter >= MAX_ITERS) {
+      logLine(`Reached tighten iteration limit (${MAX_ITERS}), stopping tighten`);
+      break;
+    }
+  }
+} else {
+  logLine('Exact optimiser disabled, using greedy feasible cap only.');
+}
+
+// Commit best plan found
+setBlocks(best.solution);
+setBestStart(best.bestStart);
+setPersonSchedule(best.schedule);
+setFixedStaff(best.headCnt);
+
+setSolverPhase('Done');
+logLine(`Done. Final headcount ${best.headCnt}`);
+
     } catch (err) {
       console.error(err);
       setSolverPhase('Error');
