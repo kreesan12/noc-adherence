@@ -10,12 +10,13 @@ import dayjs from '../utils/dayjs.js'
 export function erlangC(A, N) {
   let invFact = 1
   let sum = 1
+
   for (let k = 1; k < N; k++) {
     invFact = invFact * (A / k)
     sum += invFact
   }
 
-  // Guard: if A >= N, the formula becomes unstable (1 - A/N <= 0)
+  // Guard: if A >= N, formula becomes unstable (1 - A/N <= 0)
   if (A >= N) return 1
 
   const P0 = 1 / (sum + invFact * (A / N) / (1 - A / N))
@@ -24,14 +25,9 @@ export function erlangC(A, N) {
 }
 
 /**
- * Compute required agents for a single traffic load
- * @param callsPerHour
- * @param ahtSeconds
- * @param targetServiceLevel e.g. 0.8 for 80%
- * @param serviceThresholdSeconds
- * @param shrinkage e.g. 0.3 for 30%
+ * Compute required agents for a single traffic load.
+ * Returns "base agents" for that stream. (We’ll apply shrinkage once later.)
  */
-
 export function requiredAgents({
   callsPerHour,
   ahtSeconds,
@@ -40,35 +36,36 @@ export function requiredAgents({
   shrinkage
 }) {
   // If there is no work, require 0 before minimum staffing rules are applied elsewhere
-  if (!callsPerHour || callsPerHour <= 0) return 0;
+  if (!callsPerHour || callsPerHour <= 0) return 0
 
-  const A = callsPerHour * (ahtSeconds / 3600);
-  if (A <= 0) return 0;
+  const A = callsPerHour * (ahtSeconds / 3600)
+  if (A <= 0) return 0
 
   for (let N = 1; N < 500; N++) {
-    // guard: Erlang-C blows up if A >= N
-    if (A >= N) continue;
+    if (A >= N) continue // guard
 
-    const PC = erlangC(A, N);
-    const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds));
-    const SL = 1 - PC * expTerm;
+    const PC = erlangC(A, N)
+    const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds))
+    const SL = 1 - PC * expTerm
 
     if (SL >= targetServiceLevel) {
-      // apply shrinkage here if you want, but we will pass shrinkage=0 for base calcs
-      return Math.ceil(N / (1 - (shrinkage || 0)));
+      return Math.ceil(N / (1 - (shrinkage || 0)))
     }
   }
 
-  throw new Error("Couldn't meet service level with N < 500");
+  throw new Error("Couldn't meet service level with N < 500")
 }
 
 /**
  * Build 24-hour staffing array for one date.
  * Uses ACTUAL rows when present; otherwise FORECAST rows.
- * @param excludeAutomation  when true, subtracts auto-processed
- *                           ticket counts (DFA/MNT/Outage/MntSolved) from total.
+ * excludeAutomation subtracts auto processed ticket counts.
+ *
+ * IMPORTANT:
+ * - We compute calls and tickets base requirement WITHOUT shrinkage,
+ *   then apply shrinkage ONCE to the combined requirement.
+ * - Then enforce minimum 2 total.
  */
-
 export async function computeDayStaffing({
   prisma,
   role,
@@ -83,7 +80,7 @@ export async function computeDayStaffing({
   const start = dayjs(date).startOf('day').toDate()
   const end = dayjs(date).endOf('day').toDate()
 
-  /* 1️⃣ get rows */
+  /* 1) get rows */
   const actualRows = await prisma.volumeActual.findMany({
     where: { role, date: { gte: start, lte: end } }
   })
@@ -94,13 +91,12 @@ export async function computeDayStaffing({
         where: { role, date: { gte: start, lte: end } }
       })
 
-  /* 2️⃣ bucket by hour */
+  /* 2) bucket by hour */
   const byHour = {}
   rows.forEach(r => {
     const h = r.hour
     const callsRaw = r.calls ?? r.expectedCalls ?? 0
 
-    /* tickets with optional automation stripping */
     const ticketsRaw = r.tickets ?? r.expectedTickets ?? 0
     const autoSum = excludeAutomation
       ? (r.autoDfaLogged ?? 0) +
@@ -111,47 +107,43 @@ export async function computeDayStaffing({
 
     const ticketsAdj = Math.max(0, ticketsRaw - autoSum)
 
-    byHour[h] = {
-      calls: callsRaw,
-      tickets: ticketsAdj
-    }
+    byHour[h] = { calls: callsRaw, tickets: ticketsAdj }
   })
 
-  /* 3️⃣ staffing for each hour */
+  /* 3) staffing each hour */
   return Array.from({ length: 24 }, (_, h) => {
-    const { calls = 0, tickets = 0 } = byHour[h] || {};
+    const { calls = 0, tickets = 0 } = byHour[h] || {}
 
-    // Base requirements without shrinkage (avoid double-shrink)
+    // base requirements (no shrinkage here)
     const callBase = requiredAgents({
-      callsPerHour:            calls,
-      ahtSeconds:              callAhtSeconds,
-      targetServiceLevel:      serviceLevel,
+      callsPerHour: calls,
+      ahtSeconds: callAhtSeconds,
+      targetServiceLevel: serviceLevel,
       serviceThresholdSeconds: thresholdSeconds,
-      shrinkage:               0
-    });
+      shrinkage: 0
+    })
 
     const ticketBase = requiredAgents({
-      callsPerHour:            tickets,
-      ahtSeconds:              ticketAhtSeconds,
-      targetServiceLevel:      serviceLevel,
+      callsPerHour: tickets,
+      ahtSeconds: ticketAhtSeconds,
+      targetServiceLevel: serviceLevel,
       serviceThresholdSeconds: thresholdSeconds,
-      shrinkage:               0
-    });
+      shrinkage: 0
+    })
 
-    const baseTotal = callBase + ticketBase;
+    const baseTotal = callBase + ticketBase
 
-    // Apply shrinkage once to the combined requirement
-    const withShrink = Math.ceil(baseTotal / (1 - shrinkage));
+    // apply shrinkage once to combined
+    const withShrink = Math.ceil(baseTotal / (1 - shrinkage))
 
-    // Enforce your rule: minimum 2 total on duty requirement
-    const requiredTotal = Math.max(2, withShrink);
+    // enforce minimum total = 2
+    const requiredTotal = Math.max(2, withShrink)
 
     return {
-      hour:           h,
+      hour: h,
       calls,
       tickets,
       requiredAgents: requiredTotal
-    };
-  });
-
+    }
+  })
 }

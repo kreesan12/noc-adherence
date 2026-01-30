@@ -3,8 +3,9 @@ import dayjs from '../utils/dayjs.js'
 /* -------------------------------------------------------------- *
  * assignRotationalShifts
  * Enumerates candidate blocks: startDate × startHour × breakOffset
- * Greedy assigns 1 head at a time, then collapses into blocks with
- * count <= splitSize so lunches can stagger.
+ * Greedy assigns 1 head at a time, then PRUNES redundant heads,
+ * then collapses into blocks with count <= splitSize so lunches
+ * can stagger.
  * -------------------------------------------------------------- */
 
 export function assignRotationalShifts(
@@ -14,10 +15,10 @@ export function assignRotationalShifts(
     shiftLength = 9,
     startHours,              // optional whitelist from caller
     maxStaff,
-    splitSize = 999            // max heads kept together per block instance
+    splitSize = 2            // lunch staggering group size (does NOT change headcount)
   } = {}
 ) {
-  /* 1) unmet-need map + date sets */
+  /* ---------- 1) unmet-need map + date sets ------------------- */
   const needs = {}
   const allDates = []
 
@@ -32,15 +33,15 @@ export function assignRotationalShifts(
   allDates.sort()
   const dateSet = new Set(allDates)
 
-  /* 2) first-week range */
+  /* ---------- 2) first-week range (anchor candidates) --------- */
   const firstWeek = allDates.filter(d => dayjs(d).diff(allDates[0], 'day') < 7)
 
-  /* 3) hours we’re willing to start */
+  /* ---------- 3) hours we’re willing to start ----------------- */
   const hoursToTry = Array.isArray(startHours)
     ? startHours
-    : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h)
+    : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h) // 0..15 when shiftLength=9
 
-  /* 4) helper: on-duty dates for a startDate */
+  /* ---------- 4) helper: on-duty dates for a startDate -------- */
   function getWorkDates(startDate) {
     const out = []
     for (let w = 0; w < weeks; w++) {
@@ -53,19 +54,22 @@ export function assignRotationalShifts(
     return out
   }
 
-  /* 5) build EVERY candidate triple */
-  const candidates = firstWeek.flatMap(startDate => {
-    const workDates = getWorkDates(startDate)
-    if (workDates.length < 5 * weeks) return []
+  /* ---------- 5) build EVERY candidate triple ----------------- */
+  const candidates = []
+  const candByKey = new Map() // key -> candidate
 
-    return hoursToTry.flatMap(startHour => {
+  for (const startDate of firstWeek) {
+    const workDates = getWorkDates(startDate)
+    if (workDates.length < 5 * weeks) continue
+
+    for (const startHour of hoursToTry) {
       const maxOffset = Math.min(5, shiftLength - 1)
-      return Array.from({ length: maxOffset - 1 }, (_, i) => {
-        const off = i + 2 // 2..maxOffset
+      for (let off = 2; off <= maxOffset; off++) {
         const cover = []
         const breakHours = new Set()
 
         workDates.forEach(d => {
+          // lunch hour NOT covered
           breakHours.add(`${d}|${startHour + off}`)
           for (let h = startHour; h < startHour + shiftLength; h++) {
             if (h === startHour + off) continue
@@ -73,7 +77,7 @@ export function assignRotationalShifts(
           }
         })
 
-        return {
+        const cand = {
           startDate,
           startHour,
           breakOffset: off,
@@ -81,11 +85,15 @@ export function assignRotationalShifts(
           cover,
           breakHours
         }
-      })
-    })
-  })
 
-  /* 6) greedy selection */
+        const key = `${startDate}|${startHour}|${off}`
+        candidates.push(cand)
+        candByKey.set(key, cand)
+      }
+    }
+  }
+
+  /* ---------- 6) greedy selection ----------------------------- */
   const localNeeds = { ...needs }
   const assignments = []
 
@@ -97,7 +105,10 @@ export function assignRotationalShifts(
 
     for (const c of candidates) {
       const sc = c.cover.reduce((s, k) => s + (localNeeds[k] || 0), 0)
-      if (sc > bestScore) { best = c; bestScore = sc }
+      if (sc > bestScore) {
+        best = c
+        bestScore = sc
+      }
     }
 
     if (!best || bestScore === 0) break
@@ -113,7 +124,96 @@ export function assignRotationalShifts(
     })
   }
 
-  /* 7) collapse with splitSize (FIXED) */
+  /* ---------- 7) OPTIONAL: demand-aware “ensure day exists” --- */
+  // Only add a starter block for a first-week day if that day has ANY demand
+  // across its rotation window, and only if it doesn't already exist.
+  for (const startDate of firstWeek) {
+    const exists = assignments.some(a => a.startDate === startDate)
+    if (exists) continue
+
+    // is there any demand at all on this rotation window?
+    const workDates = getWorkDates(startDate)
+    const hasAnyDemand = workDates.some(d => {
+      for (let h = 0; h < 24; h++) {
+        if ((needs[`${d}|${h}`] || 0) > 0) return true
+      }
+      return false
+    })
+    if (!hasAnyDemand) continue
+
+    // choose best startHour/off for this day based on needs
+    let bestCombo = null
+    let bestScore = -1
+    for (const h of hoursToTry) {
+      const maxOff = Math.min(5, shiftLength - 1)
+      for (let off = 2; off <= maxOff; off++) {
+        const score = workDates.reduce((s, d) => {
+          for (let x = h; x < h + shiftLength; x++) {
+            if (x === h + off) continue
+            s += needs[`${d}|${x}`] || 0
+          }
+          return s
+        }, 0)
+        if (score > bestScore) {
+          bestScore = score
+          bestCombo = { h, off }
+        }
+      }
+    }
+
+    if (bestCombo && bestScore > 0) {
+      // respect maxStaff if provided
+      if (typeof maxStaff === 'number' && assignments.length >= maxStaff) break
+      assignments.push({
+        startDate,
+        startHour: bestCombo.h,
+        breakOffset: bestCombo.off
+      })
+    }
+  }
+
+  /* ---------- 8) PRUNE redundant heads (safe trim) ----------- */
+  // Build coverage map from assignments
+  const coverage = {}
+  function applyDelta(a, delta) {
+    const key = `${a.startDate}|${a.startHour}|${a.breakOffset}`
+    const cand = candByKey.get(key)
+    if (!cand) return
+    for (const k of cand.cover) {
+      coverage[k] = (coverage[k] || 0) + delta
+    }
+  }
+
+  assignments.forEach(a => applyDelta(a, +1))
+
+  function canRemove(a) {
+    const key = `${a.startDate}|${a.startHour}|${a.breakOffset}`
+    const cand = candByKey.get(key)
+    if (!cand) return false
+
+    for (const k of cand.cover) {
+      const after = (coverage[k] || 0) - 1
+      const req = needs[k] || 0
+      if (after < req) return false
+    }
+    return true
+  }
+
+  // Iteratively remove removable assignments (prefer those added later)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (let i = assignments.length - 1; i >= 0; i--) {
+      const a = assignments[i]
+      if (!canRemove(a)) continue
+
+      applyDelta(a, -1)
+      assignments.splice(i, 1)
+      changed = true
+    }
+  }
+
+  /* ---------- 9) collapse into solution blocks (splitSize) ---- */
   const solution = []
   const tally = new Map()
   const order = []
@@ -144,38 +244,6 @@ export function assignRotationalShifts(
     }
   }
 
-  /* 8) ensure every first-week day has one block */
-  firstWeek.forEach(startDate => {
-    const exists = solution.some(b => b.startDate === startDate)
-    if (exists) return
-
-    let bestCombo = null
-    let bestScore = -1
-
-    for (const h of hoursToTry) {
-      const maxOff = Math.min(5, shiftLength - 1)
-      for (let off = 2; off <= maxOff; off++) {
-        const score = getWorkDates(startDate).reduce((s, d) => {
-          for (let x = h; x < h + shiftLength; x++) {
-            if (x === h + off) continue
-            s += needs[`${d}|${x}`] || 0
-          }
-          return s
-        }, 0)
-        if (score > bestScore) { bestScore = score; bestCombo = { h, off } }
-      }
-    }
-
-    solution.push({
-      startDate,
-      startHour: bestCombo.h,
-      breakOffset: bestCombo.off,
-      length: shiftLength,
-      count: 1,
-      patternIndex: dayjs(startDate).day()
-    })
-  })
-
   solution.sort((a, b) =>
     (a.patternIndex ?? 0) - (b.patternIndex ?? 0) ||
     a.startHour - b.startHour
@@ -184,7 +252,7 @@ export function assignRotationalShifts(
   return solution
 }
 
-/* autoAssignRotations (pass splitSize through) */
+/* ---------- autoAssignRotations ------------------------------ */
 export function autoAssignRotations(
   forecast,
   { weeks = 3, shiftLength = 9, topN = 5, maxStaff, splitSize = 2 } = {}

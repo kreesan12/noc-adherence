@@ -6,9 +6,7 @@ import {
   Table, TableHead, TableBody, TableRow, TableCell,
   Tooltip, FormControlLabel
 } from '@mui/material';
-import {
-  LocalizationProvider, DatePicker
-} from '@mui/x-date-pickers';
+import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 import dayjs from 'dayjs';
@@ -22,35 +20,35 @@ import api from '../api';
 import * as XLSX from 'xlsx';
 
 /* ──────────────────────────────────────────────────────────── */
-/*  1.  CONSTANTS */
-const HORIZON_MONTHS = 6;        // forecast window
-const SHIFT_LENGTH   = 9;        // hours per shift
-const MAX_ITERS      = 50;       // binary-search depth
+/*  CONSTANTS */
+const HORIZON_MONTHS = 6;
+const SHIFT_LENGTH   = 9;
+const MAX_ITERS      = 50;
 
 /* ──────────────────────────────────────────────────────────── */
 export default function StaffingPage() {
-  /* 2. STATE ------------------------------------------------- */
+  /* STATE */
   const [roles,  setRoles]  = useState([]);
   const [team,   setTeam]   = useState('');
-  const [agents, setAgents] = useState([]);           // full agent list
+  const [agents, setAgents] = useState([]);
 
-  const [startDate,  setStartDate]  = useState(dayjs().startOf('day'));
-  const [callAht,    setCallAht]    = useState(300);
-  const [ticketAht,  setTicketAht]  = useState(240);
-  const [sl,         setSL]         = useState(0.8);
-  const [threshold,  setThreshold]  = useState(20);
-  const [shrinkage,  setShrinkage]  = useState(0.3);
-  const [weeks,      setWeeks]      = useState(3);
+  const [startDate, setStartDate] = useState(dayjs().startOf('day'));
+  const [callAht, setCallAht] = useState(300);
+  const [ticketAht, setTicketAht] = useState(240);
+  const [sl, setSL] = useState(0.8);
+  const [threshold, setThreshold] = useState(20);
+  const [shrinkage, setShrinkage] = useState(0.3);
+  const [weeks, setWeeks] = useState(3);
 
-  const [forecast,        setForecast]        = useState([]);
-  const [blocks,          setBlocks]          = useState([]);
-  const [bestStartHours,  setBestStart]       = useState([]);
-  const [personSchedule,  setPersonSchedule]  = useState({}); // keyed by #1, #2…
-  const [useFixedStaff,   setUseFixedStaff]   = useState(false);
-  const [fixedStaff,      setFixedStaff]      = useState(0);
-  const [excludeAuto,     setExcludeAuto]     = useState(true);
+  const [forecast, setForecast] = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  const [bestStartHours, setBestStart] = useState([]);
+  const [personSchedule, setPersonSchedule] = useState({});
+  const [useFixedStaff, setUseFixedStaff] = useState(false);
+  const [fixedStaff, setFixedStaff] = useState(0);
+  const [excludeAuto, setExcludeAuto] = useState(true);
 
-  /* 3. LOAD AGENTS & ROLES (once) ---------------------------- */
+  /* LOAD AGENTS & ROLES */
   useEffect(() => {
     api.get('/agents')
       .then(res => {
@@ -62,111 +60,105 @@ export default function StaffingPage() {
       .catch(console.error);
   }, []);
 
-  /* 4. HELPERS ---------------------------------------------- */
-  /**
-   * Work dates for a rotation: for each week in the rotation,
-   * schedule 5 consecutive work days starting from the block startDate.
-   * This produces 5-on, 2-off inside each week automatically.
-   */
-// Rotation-aware: weeks * 5 workdays
-function getWorkDates(startDate, weeksCount, dateSet) {
-  const out = [];
-  for (let w = 0; w < weeksCount; w++) {
-    const base = dayjs(startDate).add(w * 7, 'day');
-    for (let d = 0; d < 5; d++) {
-      const dd = base.add(d, 'day').format('YYYY-MM-DD');
-      // optional guard if you want to skip days outside forecast horizon
-      if (!dateSet || dateSet.has(dd)) out.push(dd);
+  /* HELPERS */
+
+  // Rotation-aware work dates: weeks * 5 workdays, filtered to forecast dateSet
+  function getWorkDates(startDateStr, weeksCount, dateSet) {
+    const out = [];
+    for (let w = 0; w < weeksCount; w++) {
+      const base = dayjs(startDateStr).add(w * 7, 'day');
+      for (let d = 0; d < 5; d++) {
+        const dd = base.add(d, 'day').format('YYYY-MM-DD');
+        if (!dateSet || dateSet.has(dd)) out.push(dd);
+      }
     }
+    return out;
   }
-  return out;
-}
 
-function buildSchedule(solution, reqMap) {
-  const schedByEmp = {};
-  const totalEmp   = solution.reduce((s, b) => s + b.count, 0);
-  const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1);
-  queue.forEach(id => (schedByEmp[id] = []));
+  // Build schedule from solver solution (must match solver assumptions)
+  function buildSchedule(solution, reqMap, forecastDateSet) {
+    const schedByEmp = {};
+    const totalEmp = solution.reduce((s, b) => s + b.count, 0);
+    const queue = Array.from({ length: totalEmp }, (_, i) => i + 1);
+    queue.forEach(id => (schedByEmp[id] = []));
 
-  const coverMap = {};
-  const lunchMap = {};
+    const coverMap = {};
+    const lunchMap = {};
 
-  const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
-  const cycles     = Math.ceil((horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7));
+    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
+    const cycles = Math.ceil((horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7));
 
-  const sorted = [...solution].sort(
-    (a, b) => (a.patternIndex ?? 0) - (b.patternIndex ?? 0) || a.startHour - b.startHour
-  );
+    const sorted = [...solution].sort(
+      (a, b) => (a.patternIndex ?? 0) - (b.patternIndex ?? 0) || a.startHour - b.startHour
+    );
 
-  for (let ci = 0; ci < cycles; ci++) {
-    let offset = 0;
+    for (let ci = 0; ci < cycles; ci++) {
+      let offset = 0;
 
-    sorted.forEach(block => {
-      const group = queue.slice(offset, offset + block.count);
+      sorted.forEach(block => {
+        const group = queue.slice(offset, offset + block.count);
 
-      group.forEach(empId => {
-        // IMPORTANT: do NOT shift by patternIndex*7. startDate is already the intended anchor.
-        const workDates = getWorkDates(block.startDate, weeks);
+        group.forEach(empId => {
+          // IMPORTANT: startDate is already the anchor; do NOT shift by patternIndex*7
+          const workDates = getWorkDates(block.startDate, weeks, forecastDateSet);
 
-        workDates.forEach(dtStr => {
-          const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
-          if (d.isAfter(horizonEnd, 'day')) return;
+          workDates.forEach(dtStr => {
+            const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
+            if (d.isAfter(horizonEnd, 'day')) return;
 
-          const day = d.format('YYYY-MM-DD');
+            const day = d.format('YYYY-MM-DD');
 
-          // pick lunch hour (2..5 hours into shift)
-          const candidates = [];
-          for (let off = 2; off <= 5; off++) {
-            const h = block.startHour + off;
-            if (h >= block.startHour + SHIFT_LENGTH) break;
+            // choose lunch hour (2..5 hours into shift)
+            const candidates = [];
+            for (let off = 2; off <= 5; off++) {
+              const h = block.startHour + off;
+              if (h >= block.startHour + SHIFT_LENGTH) break;
 
-            const k         = `${day}|${h}`;
-            const onDuty    = coverMap[k] ?? 0;
-            const lunches   = lunchMap[k] ?? 0;
-            const required  = reqMap[k]   ?? 0;
+              const k = `${day}|${h}`;
+              const onDuty = coverMap[k] ?? 0;
+              const lunches = lunchMap[k] ?? 0;
+              const required = reqMap[k] ?? 0;
 
-            const projected = onDuty - lunches - 1;
-            const surplus   = projected - required;
+              const projected = onDuty - lunches - 1;
+              const surplus = projected - required;
 
-            if (surplus >= 0) candidates.push({ h, surplus, lunches });
-          }
+              if (surplus >= 0) candidates.push({ h, surplus, lunches });
+            }
 
-          const breakHour = candidates.length
-            ? candidates.sort((a, b) =>
-                a.surplus - b.surplus ||
-                a.lunches - b.lunches ||
-                a.h       - b.h
-              )[0].h
-            : (block.breakOffset != null
-                ? block.startHour + block.breakOffset
-                : block.startHour + Math.floor(block.length / 2)
-              );
+            const breakHour = candidates.length
+              ? candidates.sort((a, b) =>
+                  a.surplus - b.surplus ||
+                  a.lunches - b.lunches ||
+                  a.h - b.h
+                )[0].h
+              : (block.breakOffset != null
+                  ? block.startHour + block.breakOffset
+                  : block.startHour + Math.floor(block.length / 2)
+                );
 
-          schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
+            schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
 
-          for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
-            const k = `${day}|${h}`;
-            coverMap[k] = (coverMap[k] ?? 0) + 1;
-          }
-          const lk = `${day}|${breakHour}`;
-          lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
+            for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
+              const k = `${day}|${h}`;
+              coverMap[k] = (coverMap[k] ?? 0) + 1;
+            }
+            const lk = `${day}|${breakHour}`;
+            lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
+          });
         });
+
+        offset += block.count;
       });
 
-      offset += block.count;
-    });
+      queue.unshift(queue.pop());
+    }
 
-    queue.unshift(queue.pop());
+    return schedByEmp;
   }
 
-  return schedByEmp;
-}
-
-
-  /** map numeric “employee #” to display name (real or dummy) */
   const nameFor = (empNum) => {
     const teamAgents = agents.filter(a => a.role === team);
-    const idx        = empNum - 1;
+    const idx = empNum - 1;
     if (idx < teamAgents.length) {
       const a = teamAgents[idx];
       return a.name ?? a.fullName ?? a.email ?? `Agent ${a.id}`;
@@ -174,10 +166,8 @@ function buildSchedule(solution, reqMap) {
     return `TBD ${idx - teamAgents.length + 1}`;
   };
 
-  /* 5. DERIVED HEAT-MAP DATA -------------------------------- */
-  const {
-    scheduled, deficit, maxReq, maxSch, maxDef
-  } = useMemo(() => {
+  /* DERIVED HEATMAP DATA */
+  const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
     const reqMap = {};
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) => {
@@ -206,30 +196,30 @@ function buildSchedule(solution, reqMap) {
     const allDef = Object.values(defMap).map(v => Math.abs(v));
 
     return {
-      scheduled : schedMap,
-      deficit   : defMap,
-      maxReq    : allReq.length ? Math.max(...allReq) : 0,
-      maxSch    : allSch.length ? Math.max(...allSch) : 0,
-      maxDef    : allDef.length ? Math.max(...allDef) : 0
+      scheduled: schedMap,
+      deficit: defMap,
+      maxReq: allReq.length ? Math.max(...allReq) : 0,
+      maxSch: allSch.length ? Math.max(...allSch) : 0,
+      maxDef: allDef.length ? Math.max(...allDef) : 0
     };
   }, [personSchedule, forecast]);
 
   const hasShortfall = def => Object.values(def).some(v => v < 0);
 
-  /* 6-A. BUILD 6-MONTH FORECAST ----------------------------- */
+  /* FORECAST */
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD');
-    const end   = startDate.add(HORIZON_MONTHS, 'month')
+    const end = startDate.add(HORIZON_MONTHS, 'month')
       .subtract(1, 'day')
       .format('YYYY-MM-DD');
 
     const { data } = await api.post('/erlang/staff/bulk-range', {
-      role             : team,
+      role: team,
       start, end,
-      callAhtSeconds   : callAht,
-      ticketAhtSeconds : ticketAht,
-      serviceLevel     : sl,
-      thresholdSeconds : threshold,
+      callAhtSeconds: callAht,
+      ticketAhtSeconds: ticketAht,
+      serviceLevel: sl,
+      thresholdSeconds: threshold,
       shrinkage,
       excludeAutomation: excludeAuto
     });
@@ -240,11 +230,10 @@ function buildSchedule(solution, reqMap) {
     setPersonSchedule({});
   };
 
-  /* 6-B. ASSIGN SHIFTS -------------------------------------- */
+  /* ASSIGN SHIFTS */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return; }
 
-    /* build req-map for lunch choices */
     const reqMap = {};
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) => {
@@ -252,13 +241,14 @@ function buildSchedule(solution, reqMap) {
       })
     );
 
-    /* helper: call backend solver → full schedule plan */
+    const forecastDateSet = new Set(forecast.map(d => d.date));
+
     const solve = async (cap) => {
       const body = {
-        staffing    : forecast,
+        staffing: forecast,
         weeks,
-        shiftLength : SHIFT_LENGTH,
-        topN        : 5
+        shiftLength: SHIFT_LENGTH,
+        topN: 5
       };
       if (cap > 0) body.maxStaff = cap;
 
@@ -267,33 +257,33 @@ function buildSchedule(solution, reqMap) {
       const headCnt = data.solution.reduce((s, b) => s + b.count, 0);
       console.log('Solver headcount:', headCnt, 'cap:', cap, 'weeks:', weeks);
 
-      const sched   = buildSchedule(data.solution, reqMap);
+      const sched = buildSchedule(data.solution, reqMap, forecastDateSet);
 
-      /* coverage / deficit maps */
       const cov = {};
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
             if (h === breakHour) continue;
             const k = `${day}|${h}`;
-            cov[k]  = (cov[k] ?? 0) + 1;
+            cov[k] = (cov[k] ?? 0) + 1;
           }
         })
       );
 
       const def = {};
-      Object.keys(reqMap).forEach(k => { def[k] = (cov[k] ?? 0) - reqMap[k]; });
+      Object.keys(reqMap).forEach(k => {
+        def[k] = (cov[k] ?? 0) - reqMap[k];
+      });
 
       return {
-        solution  : data.solution,
-        bestStart : data.bestStartHours,
-        schedule  : sched,
-        deficit   : def,
+        solution: data.solution,
+        bestStart: data.bestStartHours,
+        schedule: sched,
+        deficit: def,
         headCnt
       };
     };
 
-    /* ---- FIXED-CAP PATH ----------------------------------- */
     if (useFixedStaff && fixedStaff > 0) {
       const plan = await solve(fixedStaff);
       setBlocks(plan.solution);
@@ -302,8 +292,9 @@ function buildSchedule(solution, reqMap) {
       return;
     }
 
-    /* ---- ADAPTIVE SEARCH ---------------------------------- */
-    let lo = 0, hi = 1, plan = await solve(hi);
+    let lo = 0, hi = 1;
+    let plan = await solve(hi);
+
     while (hasShortfall(plan.deficit)) {
       hi *= 2;
       if (hi > 10000) break;
@@ -324,12 +315,12 @@ function buildSchedule(solution, reqMap) {
     setFixedStaff(best.headCnt);
   };
 
-  /* 6-C. EXPORT SCHEDULE TO EXCEL --------------------------- */
+  /* EXPORT */
   const exportExcel = () => {
     const rows = [];
     Object.entries(personSchedule).forEach(([emp, arr]) =>
       arr.forEach(({ day, hour, breakHour }) => {
-        rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${hour}:00`,      Type: 'Shift'  });
+        rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${hour}:00`, Type: 'Shift' });
         rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${breakHour}:00`, Type: 'Lunch' });
       })
     );
@@ -340,7 +331,7 @@ function buildSchedule(solution, reqMap) {
     XLSX.writeFile(wb, 'staff-calendar.xlsx');
   };
 
-  /* 6-D. PUSH SHIFTS TO BACKEND ----------------------------- */
+  /* PUSH SHIFTS */
   const buildAllocationPayload = () => {
     const liveAgents = agents.filter(a => a.role === team);
     const rows = [];
@@ -352,17 +343,17 @@ function buildSchedule(solution, reqMap) {
       const agentId = liveAgents[idx].id;
 
       shifts.forEach(({ day, hour, breakHour }) => {
-        const startAt    = dayjs.utc(`${day}T${hour.toString().padStart(2, '0')}:00:00`);
-        const endAt      = startAt.add(SHIFT_LENGTH, 'hour');
+        const startAt = dayjs.utc(`${day}T${hour.toString().padStart(2, '0')}:00:00`);
+        const endAt = startAt.add(SHIFT_LENGTH, 'hour');
         const breakStart = dayjs.utc(`${day}T${breakHour.toString().padStart(2, '0')}:00:00`);
-        const breakEnd   = breakStart.add(1, 'hour');
+        const breakEnd = breakStart.add(1, 'hour');
 
         rows.push({
           agentId,
-          startAt:    startAt.toISOString(),
-          endAt:      endAt.toISOString(),
+          startAt: startAt.toISOString(),
+          endAt: endAt.toISOString(),
           breakStart: breakStart.toISOString(),
-          breakEnd:   breakEnd.toISOString()
+          breakEnd: breakEnd.toISOString()
         });
       });
     });
@@ -372,6 +363,7 @@ function buildSchedule(solution, reqMap) {
 
   const allocateToAgents = async () => {
     if (!Object.keys(personSchedule).length) return;
+
     const ok = window.confirm(
       'Allocate these shifts to live agents?\n' +
       '(Existing shifts in the same window will be cleared first.)'
@@ -391,7 +383,7 @@ function buildSchedule(solution, reqMap) {
     }
   };
 
-  /* 7. RENDER ------------------------------------------------ */
+  /* RENDER */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Box sx={{ p: 3 }}>
@@ -399,7 +391,6 @@ function buildSchedule(solution, reqMap) {
           Staffing Forecast &amp; Scheduling
         </Typography>
 
-        {/* toolbar */}
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 4 }}>
           <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
@@ -469,7 +460,7 @@ function buildSchedule(solution, reqMap) {
           </Button>
         </Box>
 
-        {/* 1) REQUIRED AGENTS HEATMAP */}
+        {/* REQUIRED HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6">Required Agents Heatmap</Typography>
@@ -504,7 +495,7 @@ function buildSchedule(solution, reqMap) {
           </Box>
         )}
 
-        {/* 2) SCHEDULED COVERAGE HEATMAP */}
+        {/* SCHEDULED HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
@@ -539,7 +530,7 @@ function buildSchedule(solution, reqMap) {
           </Box>
         )}
 
-        {/* 3) UNDER / OVER STAFFING HEATMAP */}
+        {/* DEFICIT HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
@@ -577,7 +568,7 @@ function buildSchedule(solution, reqMap) {
           </Box>
         )}
 
-        {/* 4) SHIFT BLOCK TABLE */}
+        {/* BLOCKS TABLE */}
         {blocks.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6">Assigned Shift-Block Types</Typography>
@@ -608,16 +599,19 @@ function buildSchedule(solution, reqMap) {
           </Box>
         )}
 
-        {/* 5) 6-MONTH ROTATING CALENDAR */}
+        {/* CALENDAR */}
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>
               6-Month Staff Calendar (rotating every {weeks} weeks)
             </Typography>
+
             <Button variant="outlined" onClick={exportExcel} sx={{ mb: 2 }}>
               Export to Excel
             </Button>
+
             <CalendarView scheduleByEmp={personSchedule} nameFor={nameFor} />
+
             <Box sx={{ mt: 2, p: 2, bgcolor: '#f9f9f9', borderRadius: 1 }}>
               <Typography variant="subtitle1">
                 {useFixedStaff
@@ -633,8 +627,7 @@ function buildSchedule(solution, reqMap) {
   );
 }
 
-/* ──────────────────────────────────────────────────────────── */
-/*  CalendarView (inline) */
+/* CalendarView */
 function CalendarView({ scheduleByEmp, nameFor }) {
   const allDates = [...new Set(
     Object.values(scheduleByEmp).flatMap(arr => arr.map(e => e.day))
@@ -657,7 +650,9 @@ function CalendarView({ scheduleByEmp, nameFor }) {
           {Object.entries(scheduleByEmp).map(([emp, arr]) => {
             const mapDay = {};
             arr.forEach(({ day, hour }) => { mapDay[day] = hour; });
-            const color = '#' + ((+emp * 1234567) % 0xffffff).toString(16).padStart(6, '0');
+
+            const color = '#' + ((+emp * 1234567) % 0xffffff)
+              .toString(16).padStart(6, '0');
 
             return (
               <TableRow key={emp}>
