@@ -1,10 +1,10 @@
 // frontend/src/pages/StaffingPage.jsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box, TextField, Button, Typography,
   MenuItem, Select, InputLabel, FormControl, Switch,
   Table, TableHead, TableBody, TableRow, TableCell,
-  Tooltip, FormControlLabel
+  Tooltip, FormControlLabel, LinearProgress, Paper, Divider, Chip
 } from '@mui/material';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -19,13 +19,11 @@ dayjs.extend(isSameOrBefore);
 import api from '../api';
 import * as XLSX from 'xlsx';
 
-/* ──────────────────────────────────────────────────────────── */
-/*  CONSTANTS */
+/* CONSTANTS */
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
 const MAX_ITERS      = 50;
 
-/* ──────────────────────────────────────────────────────────── */
 export default function StaffingPage() {
   /* STATE */
   const [roles,  setRoles]  = useState([]);
@@ -48,6 +46,27 @@ export default function StaffingPage() {
   const [fixedStaff, setFixedStaff] = useState(0);
   const [excludeAuto, setExcludeAuto] = useState(true);
 
+  // Solver UX knobs (optional but useful)
+  const [useExact, setUseExact] = useState(false);
+  const [latestStartHour, setLatestStartHour] = useState(15); // midnight..3pm default
+  const [timeLimitMin, setTimeLimitMin] = useState(0);        // 0 = no limit
+  const [greedyRestarts, setGreedyRestarts] = useState(15);
+  const [splitSize, setSplitSize] = useState(999);
+
+  // Solver progress UI state
+  const [solverRunning, setSolverRunning] = useState(false);
+  const [solverPhase, setSolverPhase] = useState('');
+  const [solverCap, setSolverCap] = useState(null);
+  const [solverHeadCnt, setSolverHeadCnt] = useState(null);
+  const [solverFeasible, setSolverFeasible] = useState(null);
+  const [solverElapsedMs, setSolverElapsedMs] = useState(0);
+  const [solverLastMs, setSolverLastMs] = useState(null);
+  const [solverBestFeasible, setSolverBestFeasible] = useState(null);
+  const [solverLog, setSolverLog] = useState([]);
+
+  const abortRef = useRef(null);
+  const solverStartRef = useRef(null);
+
   /* LOAD AGENTS & ROLES */
   useEffect(() => {
     api.get('/agents')
@@ -59,6 +78,32 @@ export default function StaffingPage() {
       })
       .catch(console.error);
   }, []);
+
+  // Timer tick while solver running
+  useEffect(() => {
+    if (!solverRunning) return;
+    const t = setInterval(() => {
+      if (!solverStartRef.current) return;
+      setSolverElapsedMs(Date.now() - solverStartRef.current);
+    }, 250);
+    return () => clearInterval(t);
+  }, [solverRunning]);
+
+  const fmtMs = (ms) => {
+    if (ms == null) return '';
+    const total = Math.floor(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const pushLog = (msg) => {
+    const t = dayjs().format('HH:mm:ss');
+    setSolverLog(prev => {
+      const next = [...prev, `[${t}] ${msg}`];
+      return next.length > 300 ? next.slice(next.length - 300) : next;
+    });
+  };
 
   /* HELPERS */
 
@@ -99,7 +144,7 @@ export default function StaffingPage() {
         const group = queue.slice(offset, offset + block.count);
 
         group.forEach(empId => {
-          // IMPORTANT: startDate is already the anchor; do NOT shift by patternIndex*7
+          // IMPORTANT: startDate is already the anchor
           const workDates = getWorkDates(block.startDate, weeks, forecastDateSet);
 
           workDates.forEach(dtStr => {
@@ -230,89 +275,177 @@ export default function StaffingPage() {
     setPersonSchedule({});
   };
 
+  const cancelSolver = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      pushLog('Cancel requested by user');
+    }
+  };
+
   /* ASSIGN SHIFTS */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return; }
 
-    const reqMap = {};
-    forecast.forEach(d =>
-      d.staffing.forEach(({ hour, requiredAgents }) => {
-        reqMap[`${d.date}|${hour}`] = requiredAgents;
-      })
-    );
+    // reset progress UI
+    setSolverRunning(true);
+    setSolverPhase('Starting');
+    setSolverCap(null);
+    setSolverHeadCnt(null);
+    setSolverFeasible(null);
+    setSolverElapsedMs(0);
+    setSolverLastMs(null);
+    setSolverBestFeasible(null);
+    setSolverLog([]);
+    solverStartRef.current = Date.now();
+    pushLog('Solver started');
 
-    const forecastDateSet = new Set(forecast.map(d => d.date));
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    const solve = async (cap) => {
-      const body = {
-        staffing: forecast,
-        weeks,
-        shiftLength: SHIFT_LENGTH,
-        topN: 5
-      };
-      if (cap > 0) body.maxStaff = cap;
-
-      const { data } = await api.post('/erlang/staff/schedule', body);
-
-      const headCnt = data.solution.reduce((s, b) => s + b.count, 0);
-      console.log('Solver headcount:', headCnt, 'cap:', cap, 'weeks:', weeks);
-
-      const sched = buildSchedule(data.solution, reqMap, forecastDateSet);
-
-      const cov = {};
-      Object.values(sched).forEach(arr =>
-        arr.forEach(({ day, hour, breakHour }) => {
-          for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-            if (h === breakHour) continue;
-            const k = `${day}|${h}`;
-            cov[k] = (cov[k] ?? 0) + 1;
-          }
+    try {
+      const reqMap = {};
+      forecast.forEach(d =>
+        d.staffing.forEach(({ hour, requiredAgents }) => {
+          reqMap[`${d.date}|${hour}`] = requiredAgents;
         })
       );
 
-      const def = {};
-      Object.keys(reqMap).forEach(k => {
-        def[k] = (cov[k] ?? 0) - reqMap[k];
-      });
+      const forecastDateSet = new Set(forecast.map(d => d.date));
 
-      return {
-        solution: data.solution,
-        bestStart: data.bestStartHours,
-        schedule: sched,
-        deficit: def,
-        headCnt
+      const startHoursArr = Array.from(
+        { length: Math.max(0, Math.min(15, +latestStartHour) + 1) },
+        (_, h) => h
+      );
+
+      const solve = async (cap, phaseLabel) => {
+        setSolverPhase(phaseLabel);
+        setSolverCap(cap);
+        pushLog(`Testing cap ${cap} (${phaseLabel})`);
+
+        const body = {
+          staffing: forecast,
+          weeks,
+          shiftLength: SHIFT_LENGTH,
+          topN: 5,
+          startHours: startHoursArr,
+          splitSize,
+
+          exact: useExact,
+          timeLimitMs: Math.max(0, Number(timeLimitMin) || 0) * 60 * 1000,
+          greedyRestarts: Math.max(1, Number(greedyRestarts) || 1),
+          exactLogEvery: 50000
+        };
+
+        if (cap > 0) body.maxStaff = cap;
+
+        const t0 = performance.now();
+        const { data } = await api.post('/erlang/staff/schedule', body, { signal: controller.signal });
+        const t1 = performance.now();
+
+        const headCnt = data.solution.reduce((s, b) => s + b.count, 0);
+        setSolverHeadCnt(headCnt);
+        setSolverLastMs(Math.round(t1 - t0));
+
+        pushLog(`Returned headcount ${headCnt} in ${Math.round(t1 - t0)} ms`);
+
+        const sched = buildSchedule(data.solution, reqMap, forecastDateSet);
+
+        // coverage / deficit maps
+        const cov = {};
+        Object.values(sched).forEach(arr =>
+          arr.forEach(({ day, hour, breakHour }) => {
+            for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
+              if (h === breakHour) continue;
+              const k = `${day}|${h}`;
+              cov[k] = (cov[k] ?? 0) + 1;
+            }
+          })
+        );
+
+        const def = {};
+        Object.keys(reqMap).forEach(k => {
+          def[k] = (cov[k] ?? 0) - reqMap[k];
+        });
+
+        const feasible = !hasShortfall(def);
+        setSolverFeasible(feasible);
+        pushLog(feasible ? `Feasible at cap ${cap}` : `Not feasible at cap ${cap}`);
+
+        if (feasible) {
+          setSolverBestFeasible(prev => {
+            if (prev == null) return headCnt;
+            return Math.min(prev, headCnt);
+          });
+        }
+
+        return {
+          solution: data.solution,
+          bestStart: data.bestStartHours,
+          schedule: sched,
+          deficit: def,
+          headCnt,
+          meta: data.meta
+        };
       };
-    };
 
-    if (useFixedStaff && fixedStaff > 0) {
-      const plan = await solve(fixedStaff);
-      setBlocks(plan.solution);
-      setBestStart(plan.bestStart);
-      setPersonSchedule(plan.schedule);
-      return;
+      // Fixed cap path
+      if (useFixedStaff && fixedStaff > 0) {
+        pushLog(`Fixed staff mode enabled, cap = ${fixedStaff}`);
+        const plan = await solve(fixedStaff, 'Fixed cap');
+        setBlocks(plan.solution);
+        setBestStart(plan.bestStart);
+        setPersonSchedule(plan.schedule);
+        return;
+      }
+
+      // Adaptive search
+      let lo = 0, hi = 1;
+      let plan = await solve(hi, 'Expanding cap');
+      while (hasShortfall(plan.deficit)) {
+        hi *= 2;
+        if (hi > 10000) break;
+        plan = await solve(hi, 'Expanding cap');
+      }
+
+      let best = plan;
+      if (!hasShortfall(best.deficit)) {
+        pushLog(`Feasible upper bound found at cap ${hi}, starting binary search`);
+      } else {
+        pushLog(`Could not find feasible cap under 10000, using best found so far`);
+      }
+
+      for (let i = 0; i < MAX_ITERS && hi - lo > 1; i++) {
+        const mid = Math.floor((lo + hi) / 2);
+        const cur = await solve(mid, `Binary search (${i + 1}/${MAX_ITERS})`);
+
+        if (hasShortfall(cur.deficit)) {
+          lo = mid;
+          pushLog(`Shortfall at ${mid}, moving lo to ${lo}`);
+        } else {
+          hi = mid;
+          best = cur;
+          pushLog(`Feasible at ${mid}, moving hi to ${hi}`);
+        }
+      }
+
+      setBlocks(best.solution);
+      setBestStart(best.bestStart);
+      setPersonSchedule(best.schedule);
+      setFixedStaff(best.headCnt);
+
+      pushLog(`Done. Final headcount ${best.headCnt}`);
+    } catch (err) {
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError') {
+        pushLog('Solver cancelled');
+      } else {
+        console.error(err);
+        pushLog(`Solver error: ${err?.message || String(err)}`);
+        alert('Scheduling failed, see console.');
+      }
+    } finally {
+      setSolverRunning(false);
+      abortRef.current = null;
     }
-
-    let lo = 0, hi = 1;
-    let plan = await solve(hi);
-
-    while (hasShortfall(plan.deficit)) {
-      hi *= 2;
-      if (hi > 10000) break;
-      plan = await solve(hi);
-    }
-
-    let best = plan;
-    for (let i = 0; i < MAX_ITERS && hi - lo > 1; i++) {
-      const mid = Math.floor((lo + hi) / 2);
-      const cur = await solve(mid);
-      if (hasShortfall(cur.deficit)) lo = mid;
-      else { hi = mid; best = cur; }
-    }
-
-    setBlocks(best.solution);
-    setBestStart(best.bestStart);
-    setPersonSchedule(best.schedule);
-    setFixedStaff(best.headCnt);
   };
 
   /* EXPORT */
@@ -391,7 +524,7 @@ export default function StaffingPage() {
           Staffing Forecast &amp; Scheduling
         </Typography>
 
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 4 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
           <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
@@ -437,28 +570,117 @@ export default function StaffingPage() {
             Calculate 6-Month Forecast
           </Button>
 
-          <FormControlLabel sx={{ ml: 2 }}
+          <FormControlLabel sx={{ ml: 1 }}
             control={<Switch checked={useFixedStaff} onChange={e => setUseFixedStaff(e.target.checked)} />}
             label="Use Fixed Staff?"
           />
           {useFixedStaff && (
             <TextField label="Staff Cap" type="number" size="small"
-              sx={{ width: 100 }} value={fixedStaff}
+              sx={{ width: 110 }} value={fixedStaff}
               onChange={e => setFixedStaff(+e.target.value)} />
           )}
 
-          <Button variant="contained" sx={{ ml: 2 }}
-            disabled={!forecast.length}
-            onClick={assignToStaff}>
+          <Button
+            variant="contained"
+            sx={{ ml: 1 }}
+            disabled={!forecast.length || solverRunning}
+            onClick={assignToStaff}
+          >
             Draft schedule & assign agents
           </Button>
 
-          <Button variant="contained" color="secondary" sx={{ ml: 2 }}
+          <Button
+            variant="outlined"
+            color="error"
+            disabled={!solverRunning}
+            onClick={cancelSolver}
+          >
+            Cancel
+          </Button>
+
+          <Button
+            variant="contained"
+            color="secondary"
+            sx={{ ml: 1 }}
             disabled={!Object.keys(personSchedule).length}
-            onClick={allocateToAgents}>
+            onClick={allocateToAgents}
+          >
             Allocate to Agents
           </Button>
         </Box>
+
+        {/* Solver settings + live dashboard */}
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>Solver Controls</Typography>
+
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+            <FormControlLabel
+              control={<Switch checked={useExact} onChange={e => setUseExact(e.target.checked)} />}
+              label="Use exact optimiser (slow)"
+            />
+            <TextField
+              label="Latest start hour (0..15)"
+              type="number"
+              size="small"
+              sx={{ width: 200 }}
+              value={latestStartHour}
+              onChange={e => setLatestStartHour(+e.target.value)}
+            />
+            <TextField
+              label="Time limit (minutes, 0 = none)"
+              type="number"
+              size="small"
+              sx={{ width: 240 }}
+              value={timeLimitMin}
+              onChange={e => setTimeLimitMin(+e.target.value)}
+            />
+            <TextField
+              label="Greedy restarts"
+              type="number"
+              size="small"
+              sx={{ width: 180 }}
+              value={greedyRestarts}
+              onChange={e => setGreedyRestarts(+e.target.value)}
+            />
+            <TextField
+              label="Split size"
+              type="number"
+              size="small"
+              sx={{ width: 140 }}
+              value={splitSize}
+              onChange={e => setSplitSize(+e.target.value)}
+            />
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
+            <Chip label={solverRunning ? 'Running' : 'Idle'} color={solverRunning ? 'warning' : 'default'} />
+            <Chip label={`Elapsed ${fmtMs(solverElapsedMs)}`} />
+            <Chip label={`Phase: ${solverPhase || '-'}`} />
+            <Chip label={`Cap: ${solverCap ?? '-'}`} />
+            <Chip label={`Headcount: ${solverHeadCnt ?? '-'}`} />
+            <Chip label={`Last call: ${solverLastMs ?? '-'} ms`} />
+            <Chip label={`Best feasible: ${solverBestFeasible ?? '-'}`} color="success" />
+            <Chip
+              label={solverFeasible == null ? 'Feasible: -' : (solverFeasible ? 'Feasible: yes' : 'Feasible: no')}
+              color={solverFeasible == null ? 'default' : (solverFeasible ? 'success' : 'error')}
+            />
+          </Box>
+
+          {solverRunning && (
+            <Box sx={{ mt: 2 }}>
+              <LinearProgress />
+            </Box>
+          )}
+
+          <Box sx={{ mt: 2, maxHeight: 180, overflow: 'auto', bgcolor: '#fafafa', border: '1px solid #eee', p: 1 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>Solver log</Typography>
+            <Box component="pre" sx={{ m: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>
+              {solverLog.join('\n')}
+            </Box>
+          </Box>
+        </Paper>
 
         {/* REQUIRED HEATMAP */}
         {forecast.length > 0 && (

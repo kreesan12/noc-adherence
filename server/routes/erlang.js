@@ -83,8 +83,8 @@ export default prisma => {
   })
 
   /* ──────────────────────────────────────────────────────────
-   * 3) Multi-day forecast staffing  ➜ now supports
-   *    `excludeAutomation` flag (bool, default false)
+   * 3) Multi-day forecast staffing
+   *    supports excludeAutomation flag
    * ────────────────────────────────────────────────────────── */
   r.post('/staff/bulk-range', async (req, res, next) => {
     try {
@@ -93,7 +93,7 @@ export default prisma => {
         callAhtSeconds, ticketAhtSeconds,
         serviceLevel,   thresholdSeconds,
         shrinkage,
-        excludeAutomation = false      // ⬅️ NEW
+        excludeAutomation = false
       } = req.body
 
       const days = []
@@ -109,7 +109,7 @@ export default prisma => {
           serviceLevel,
           thresholdSeconds,
           shrinkage,
-          excludeAutomation          // ⬅️ pass through
+          excludeAutomation
         })
         days.push({ date, staffing })
         cursor = cursor.add(1, 'day')
@@ -120,15 +120,32 @@ export default prisma => {
 
   /* ──────────────────────────────────────────────────────────
    * 4) Shift-schedule generator
+   *
+   *  Adds optional exact optimiser params, but stays compatible
+   *  with your existing frontend call.
    * ────────────────────────────────────────────────────────── */
-  r.post('/staff/schedule', (req, res, next) => {
+  r.post('/staff/schedule', async (req, res, next) => {
     try {
+      // allow long running solver calls
+      req.setTimeout(0)
+      res.setTimeout(0)
+
       const {
         staffing: forecast,
         weeks = 3,
         shiftLength = 9,
         topN = 5,
-        maxStaff
+        maxStaff,
+
+        // optional knobs (ignored unless your scheduler supports them)
+        exact = false,
+        timeLimitMs = 0,
+        greedyRestarts = 15,
+        exactLogEvery = 50000,
+
+        // constraints / output shaping
+        startHours,          // e.g. [0..15]
+        splitSize            // e.g. 999 to avoid chunking
       } = req.body
 
       if (!Array.isArray(forecast) || !forecast.length) {
@@ -137,12 +154,29 @@ export default prisma => {
           .json({ error: 'Missing or empty `staffing` in request body' })
       }
 
-      const { bestStartHours, solution } = autoAssignRotations(
+      const effectiveStartHours = Array.isArray(startHours) && startHours.length
+        ? startHours
+        : undefined
+
+      const { bestStartHours, solution, meta } = autoAssignRotations(
         forecast,
-        { weeks, shiftLength, topN, maxStaff }
+        {
+          weeks,
+          shiftLength,
+          topN,
+          maxStaff,
+
+          startHours: effectiveStartHours,
+          splitSize,
+
+          exact,
+          timeLimitMs,
+          greedyRestarts,
+          exactLogEvery
+        }
       )
 
-      res.json({ bestStartHours, solution })
+      res.json({ bestStartHours, solution, meta })
     } catch (err) { next(err) }
   })
 

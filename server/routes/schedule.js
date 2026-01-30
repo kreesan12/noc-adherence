@@ -1,6 +1,6 @@
 // server/routes/schedule.js
 import { Router } from 'express'
-import dayjs      from '../utils/dayjs.js'
+import dayjs from '../utils/dayjs.js'
 import { autoAssignRotations } from '../utils/scheduler.js'
 
 export default prisma => {
@@ -11,22 +11,22 @@ export default prisma => {
   // OR  GET /api/schedule?week=YYYY-MM-DD  (Monday)
   r.get('/', async (req, res, next) => {
     try {
-      const { week, date, team } = req.query;
+      const { week, date, team } = req.query
 
-      // reusable piece: add role filter when team is supplied
       const roleFilter = team?.trim()
         ? { agent: { is: { role: team.trim() } } }
-        : {};
+        : {}
 
       if (week) {
         const start = new Date(req.query.week)
-        const end   = new Date(start)
+        const end = new Date(start)
         end.setDate(end.getDate() + 6)
+
         const shifts = await prisma.shift.findMany({
           where: {
-                    shiftDate: { gte: start, lte: end },
-                    ...roleFilter
-                  },
+            shiftDate: { gte: start, lte: end },
+            ...roleFilter
+          },
           include: {
             agent: true,
             attendance: { include: { duty: true } }
@@ -35,7 +35,7 @@ export default prisma => {
         return res.json(shifts)
       }
 
-      const dateObj = new Date(date);
+      const dateObj = new Date(date)
       const shifts = await prisma.shift.findMany({
         where: { shiftDate: dateObj, ...roleFilter },
         include: {
@@ -43,6 +43,7 @@ export default prisma => {
           attendance: { include: { duty: true } }
         }
       })
+
       res.json(shifts)
     } catch (err) {
       next(err)
@@ -55,11 +56,13 @@ export default prisma => {
     try {
       const shiftId = Number(req.params.shiftId)
       const payload = req.body
+
       const updated = await prisma.attendanceLog.upsert({
-        where:  { shiftId },
+        where: { shiftId },
         update: payload,
         create: { shiftId, ...payload }
       })
+
       await res.audit('update_attendance', 'AttendanceLog', updated.id, payload)
       res.json(updated)
     } catch (err) {
@@ -68,25 +71,76 @@ export default prisma => {
   })
 
   // ─── Auto-assign shifts to employees ─────────────────────────
-  // POST /api/schedule/assign
-  // body: { forecast, windowDays?, shiftLength? }
+  // POST /api/schedule/auto-assign
+  //
+  // body:
+  // {
+  //   forecast: [...],
+  //   weeks?: 3,
+  //   shiftLength?: 9,
+  //   topN?: 5,
+  //   maxStaff?: number,
+  //
+  //   exact?: boolean,           // true = branch+bound exact optimizer
+  //   timeLimitMs?: number,      // 0 = no limit (can run for hours)
+  //   greedyRestarts?: number,   // better upper bound for exact
+  //   exactLogEvery?: number,    // console logging cadence
+  //   startHours?: number[],     // default 0..15 (midnight to 3pm)
+  //   splitSize?: number         // how many heads per identical block in output
+  // }
+  r.post('/auto-assign', async (req, res, next) => {
+    try {
+      // Disable Node request timeouts (still subject to proxy/load balancer limits)
+      req.setTimeout(0)
+      res.setTimeout(0)
 
-  r.post('/auto-assign', (req, res, next) => {
-  try {
-    const { forecast, weeks = 3, shiftLength = 9, topN = 5 } = req.body
-    if (!Array.isArray(forecast) || forecast.length === 0) {
-      return res.status(400).json({ error: 'Missing or empty `forecast`' })
+      const {
+        forecast,
+        weeks = 3,
+        shiftLength = 9,
+        topN = 5,
+        maxStaff,
+
+        exact = false,
+        timeLimitMs = 0,
+        greedyRestarts = 15,
+        exactLogEvery = 50000,
+
+        // default: allowed start times midnight..3pm
+        startHours,
+        splitSize = 999
+      } = req.body || {}
+
+      if (!Array.isArray(forecast) || forecast.length === 0) {
+        return res.status(400).json({ error: 'Missing or empty `forecast`' })
+      }
+
+      const effectiveStartHours = Array.isArray(startHours) && startHours.length
+        ? startHours
+        : Array.from({ length: 16 }, (_, h) => h) // 0..15
+
+      const result = autoAssignRotations(forecast, {
+        weeks,
+        shiftLength,
+        topN,
+        maxStaff,
+        splitSize,
+        startHours: effectiveStartHours,
+
+        // exact optimizer knobs
+        exact,
+        timeLimitMs,
+        greedyRestarts,
+        exactLogEvery
+      })
+
+      // return meta too so you can verify it truly searched
+      const { bestStartHours, solution, meta } = result
+      return res.json({ bestStartHours, solution, meta })
+    } catch (err) {
+      next(err)
     }
-    const { bestStartHours, solution } = autoAssignRotations(
-      forecast,
-      { weeks, shiftLength, topN }
-    )
-    return res.json({ bestStartHours, solution })
-  } catch (err) {
-    next(err)
-  }
-})
-
+  })
 
   return r
 }
