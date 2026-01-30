@@ -14,7 +14,7 @@ export function assignRotationalShifts(
     shiftLength = 9,
     startHours,              // optional whitelist from caller
     maxStaff,
-    splitSize = 2            // max heads kept together per block instance
+    splitSize = 999            // max heads kept together per block instance
   } = {}
 ) {
   /* 1) unmet-need map + date sets */
