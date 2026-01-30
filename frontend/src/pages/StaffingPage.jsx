@@ -6,11 +6,16 @@ import {
   Table, TableHead, TableBody, TableRow, TableCell,
   Tooltip, FormControlLabel
 } from '@mui/material';
-import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
+import {
+  LocalizationProvider, DatePicker
+} from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
+
+dayjs.extend(utc);
 dayjs.extend(isSameOrBefore);
 
 import api from '../api';
@@ -21,14 +26,6 @@ import * as XLSX from 'xlsx';
 const HORIZON_MONTHS = 6;        // forecast window
 const SHIFT_LENGTH   = 9;        // hours per shift
 const MAX_ITERS      = 50;       // binary-search depth
-
-// If your requiredAgents already includes shrinkage (it does, because you pass shrinkage into bulk-range),
-// then lunch should usually still count as coverage in the deficit test.
-// Lunch is still scheduled and exported, but it does not “remove” an agent from the hourly coverage map.
-const LUNCH_COUNTS_AS_COVERAGE = true;
-
-// Optional: quick console validations
-const DEBUG_VALIDATE = true;
 
 /* ──────────────────────────────────────────────────────────── */
 export default function StaffingPage() {
@@ -66,7 +63,11 @@ export default function StaffingPage() {
   }, []);
 
   /* 4. HELPERS ---------------------------------------------- */
-  // N-week × 5-day list of YYYY-MM-DD strings (5-on 2-off repeated each week)
+  /**
+   * Work dates for a rotation: for each week in the rotation,
+   * schedule 5 consecutive work days starting from the block startDate.
+   * This produces 5-on, 2-off inside each week automatically.
+   */
   function getWorkDates(start, weeksCount) {
     const dates = [];
     for (let w = 0; w < weeksCount; w++) {
@@ -78,15 +79,21 @@ export default function StaffingPage() {
     return dates;
   }
 
-  /** buildSchedule with lunch placement */
+  /** buildSchedule with global-balancing lunch placement */
   function buildSchedule(solution, reqMap) {
     const schedByEmp = {};
     const totalEmp   = solution.reduce((s, b) => s + b.count, 0);
     const queue      = Array.from({ length: totalEmp }, (_, i) => i + 1);
     queue.forEach(id => (schedByEmp[id] = []));
 
-    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month').subtract(1, 'day');
-    const cycles     = Math.ceil((horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7));
+    /* running coverage counters */
+    const coverMap = {};  // on duty excl. lunch
+    const lunchMap = {};  // already at lunch
+
+    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
+    const cycles     = Math.ceil(
+      (horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7)
+    );
 
     const sorted = [...solution].sort(
       (a, b) => (a.patternIndex ?? 0) - (b.patternIndex ?? 0) || a.startHour - b.startHour
@@ -99,43 +106,61 @@ export default function StaffingPage() {
         const group = queue.slice(offset, offset + block.count);
 
         group.forEach(empId => {
-          // Important: block.startDate should already be correct from the solver.
-          // Do NOT add patternIndex again here.
+          // IMPORTANT:
+          // Use block.startDate directly. Do NOT shift it by patternIndex.
+          // The backend already supplies the correct startDate per pattern.
           getWorkDates(block.startDate, weeks).forEach(dtStr => {
             const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
             if (d.isAfter(horizonEnd, 'day')) return;
-
             const day = d.format('YYYY-MM-DD');
 
-            // Choose lunch inside first 5 hours (within 5 hours of start),
-            // and for 1 hour. Keep it inside the shift window.
-            // If LUNCH_COUNTS_AS_COVERAGE is true, lunch is just a calendar event,
-            // not a removal from coverage for deficit testing.
-            const lunchCandidates = [];
+            /* ── choose lunch hour inside the shift ── */
+            const candidates = [];
             for (let off = 2; off <= 5; off++) {
               const h = block.startHour + off;
               if (h >= block.startHour + SHIFT_LENGTH) break;
-              const required = reqMap[`${day}|${h}`] ?? 0;
-              lunchCandidates.push({ h, required });
+
+              const k          = `${day}|${h}`;
+              const onDuty     = coverMap[k] ?? 0;
+              const lunches    = lunchMap[k] ?? 0;
+              const required   = reqMap[k]   ?? 0;
+              const projected  = onDuty - lunches - 1;
+              const surplus    = projected - required;
+
+              if (surplus >= 0) {
+                candidates.push({ h, surplus, lunches });
+              }
             }
 
-            // pick the lowest required hour for lunch (reduces operational pain)
-            const breakHour = lunchCandidates.length
-              ? lunchCandidates.sort((a, b) => a.required - b.required || a.h - b.h)[0].h
-              : (block.breakOffset != null
-                  ? block.startHour + block.breakOffset
-                  : block.startHour + Math.floor(SHIFT_LENGTH / 2)
+            const breakHour = candidates.length
+              ? candidates.sort((a, b) =>
+                  a.surplus - b.surplus ||
+                  a.lunches - b.lunches ||
+                  a.h       - b.h
+                )[0].h
+              : (
+                  block.breakOffset != null
+                    ? block.startHour + block.breakOffset
+                    : block.startHour + Math.floor(block.length / 2)
                 );
 
+            /* record shift for employee */
             schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
+
+            /* update counters */
+            for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
+              const k = `${day}|${h}`;
+              coverMap[k] = (coverMap[k] ?? 0) + 1;
+            }
+            const lk = `${day}|${breakHour}`;
+            lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
           });
         });
 
-        // This must happen once per block, not per employee
         offset += block.count;
       });
 
-      // rotate for next cycle
+      /* rotate for next cycle */
       queue.unshift(queue.pop());
     }
 
@@ -154,7 +179,9 @@ export default function StaffingPage() {
   };
 
   /* 5. DERIVED HEAT-MAP DATA -------------------------------- */
-  const { scheduled, deficit, maxReq, maxSch, maxDef } = useMemo(() => {
+  const {
+    scheduled, deficit, maxReq, maxSch, maxDef
+  } = useMemo(() => {
     const reqMap = {};
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) => {
@@ -166,7 +193,7 @@ export default function StaffingPage() {
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
         for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-          if (!LUNCH_COUNTS_AS_COVERAGE && h === breakHour) continue;
+          if (h === breakHour) continue;
           const k = `${day}|${h}`;
           schedMap[k] = (schedMap[k] ?? 0) + 1;
         }
@@ -221,6 +248,7 @@ export default function StaffingPage() {
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return; }
 
+    /* build req-map for lunch choices */
     const reqMap = {};
     forecast.forEach(d =>
       d.staffing.forEach(({ hour, requiredAgents }) => {
@@ -228,27 +256,7 @@ export default function StaffingPage() {
       })
     );
 
-    const validateScheduleAgainstForecast = (sched) => {
-      if (!DEBUG_VALIDATE) return;
-
-      const forecastDates = new Set(forecast.map(d => d.date));
-      const scheduledDates = new Set(
-        Object.values(sched).flatMap(arr => arr.map(x => x.day))
-      );
-
-      const missingDates = [...forecastDates].filter(d => !scheduledDates.has(d));
-      const extraDates   = [...scheduledDates].filter(d => !forecastDates.has(d));
-
-      console.log('Validate schedule dates', {
-        forecastDays: forecastDates.size,
-        scheduledDays: scheduledDates.size,
-        missingDates: missingDates.slice(0, 30),
-        missingCount: missingDates.length,
-        extraDates: extraDates.slice(0, 30),
-        extraCount: extraDates.length
-      });
-    };
-
+    /* helper: call backend solver → full schedule plan */
     const solve = async (cap) => {
       const body = {
         staffing    : forecast,
@@ -259,18 +267,20 @@ export default function StaffingPage() {
       if (cap > 0) body.maxStaff = cap;
 
       const { data } = await api.post('/erlang/staff/schedule', body);
-      const sched = buildSchedule(data.solution, reqMap);
 
-      validateScheduleAgainstForecast(sched);
+      const headCnt = data.solution.reduce((s, b) => s + b.count, 0);
+      console.log('Solver headcount:', headCnt, 'cap:', cap, 'weeks:', weeks);
 
-      // coverage and deficit
+      const sched   = buildSchedule(data.solution, reqMap);
+
+      /* coverage / deficit maps */
       const cov = {};
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-            if (!LUNCH_COUNTS_AS_COVERAGE && h === breakHour) continue;
+            if (h === breakHour) continue;
             const k = `${day}|${h}`;
-            cov[k] = (cov[k] ?? 0) + 1;
+            cov[k]  = (cov[k] ?? 0) + 1;
           }
         })
       );
@@ -283,10 +293,11 @@ export default function StaffingPage() {
         bestStart : data.bestStartHours,
         schedule  : sched,
         deficit   : def,
-        headCnt   : data.solution.reduce((s, b) => s + b.count, 0)
+        headCnt
       };
     };
 
+    /* ---- FIXED-CAP PATH ----------------------------------- */
     if (useFixedStaff && fixedStaff > 0) {
       const plan = await solve(fixedStaff);
       setBlocks(plan.solution);
@@ -295,6 +306,7 @@ export default function StaffingPage() {
       return;
     }
 
+    /* ---- ADAPTIVE SEARCH ---------------------------------- */
     let lo = 0, hi = 1, plan = await solve(hi);
     while (hasShortfall(plan.deficit)) {
       hi *= 2;
@@ -321,7 +333,7 @@ export default function StaffingPage() {
     const rows = [];
     Object.entries(personSchedule).forEach(([emp, arr]) =>
       arr.forEach(({ day, hour, breakHour }) => {
-        rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${hour}:00`,      Type: 'Shift' });
+        rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${hour}:00`,      Type: 'Shift'  });
         rows.push({ Employee: nameFor(+emp), Date: day, StartHour: `${breakHour}:00`, Type: 'Lunch' });
       })
     );
@@ -379,7 +391,7 @@ export default function StaffingPage() {
       alert('Shifts allocated!');
     } catch (err) {
       console.error(err);
-      alert('Allocation failed. See console.');
+      alert('Allocation failed, see console.');
     }
   };
 
@@ -391,11 +403,14 @@ export default function StaffingPage() {
           Staffing Forecast &amp; Scheduling
         </Typography>
 
+        {/* toolbar */}
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 4 }}>
           <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
-              {roles.map(r => (<MenuItem key={r} value={r}>{r}</MenuItem>))}
+              {roles.map(r => (
+                <MenuItem key={r} value={r}>{r}</MenuItem>
+              ))}
             </Select>
           </FormControl>
 
@@ -409,7 +424,9 @@ export default function StaffingPage() {
           <FormControl sx={{ minWidth: 120 }}>
             <InputLabel>Rotation (weeks)</InputLabel>
             <Select value={weeks} label="Rotation" onChange={e => setWeeks(+e.target.value)}>
-              {[1,2,3,4,5].map(w => (<MenuItem key={w} value={w}>{w}</MenuItem>))}
+              {[1,2,3,4,5].map(w => (
+                <MenuItem key={w} value={w}>{w}</MenuItem>
+              ))}
             </Select>
           </FormControl>
 
@@ -439,20 +456,24 @@ export default function StaffingPage() {
           />
           {useFixedStaff && (
             <TextField label="Staff Cap" type="number" size="small"
-              sx={{ width: 100 }} value={fixedStaff} onChange={e => setFixedStaff(+e.target.value)} />
+              sx={{ width: 100 }} value={fixedStaff}
+              onChange={e => setFixedStaff(+e.target.value)} />
           )}
 
           <Button variant="contained" sx={{ ml: 2 }}
-            disabled={!forecast.length} onClick={assignToStaff}>
+            disabled={!forecast.length}
+            onClick={assignToStaff}>
             Draft schedule & assign agents
           </Button>
 
           <Button variant="contained" color="secondary" sx={{ ml: 2 }}
-            disabled={!Object.keys(personSchedule).length} onClick={allocateToAgents}>
+            disabled={!Object.keys(personSchedule).length}
+            onClick={allocateToAgents}>
             Allocate to Agents
           </Button>
         </Box>
 
+        {/* 1) REQUIRED AGENTS HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6">Required Agents Heatmap</Typography>
@@ -460,7 +481,9 @@ export default function StaffingPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Hour</TableCell>
-                  {forecast.map(d => (<TableCell key={d.date}>{d.date}</TableCell>))}
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -485,6 +508,7 @@ export default function StaffingPage() {
           </Box>
         )}
 
+        {/* 2) SCHEDULED COVERAGE HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
             <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
@@ -492,7 +516,9 @@ export default function StaffingPage() {
               <TableHead>
                 <TableRow>
                   <TableCell>Hour</TableCell>
-                  {forecast.map(d => (<TableCell key={d.date}>{d.date}</TableCell>))}
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -517,14 +543,17 @@ export default function StaffingPage() {
           </Box>
         )}
 
+        {/* 3) UNDER / OVER STAFFING HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Under or Over Staffing Heatmap</Typography>
+            <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Hour</TableCell>
-                  {forecast.map(d => (<TableCell key={d.date}>{d.date}</TableCell>))}
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -534,7 +563,9 @@ export default function StaffingPage() {
                     {forecast.map(d => {
                       const val = deficit[`${d.date}|${h}`] || 0;
                       const ratio = maxDef ? (Math.abs(val) / maxDef) * 0.8 + 0.2 : 0.2;
-                      const col = val < 0 ? `rgba(244,67,54,${ratio})` : `rgba(76,175,80,${ratio})`;
+                      const col = val < 0
+                        ? `rgba(244,67,54,${ratio})`
+                        : `rgba(76,175,80,${ratio})`;
                       return (
                         <Tooltip key={d.date} title={`Deficit: ${val}`}>
                           <TableCell sx={{ backgroundColor: col }}>
@@ -550,9 +581,10 @@ export default function StaffingPage() {
           </Box>
         )}
 
+        {/* 4) SHIFT BLOCK TABLE */}
         {blocks.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Assigned Shift Block Types</Typography>
+            <Typography variant="h6">Assigned Shift-Block Types</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -580,6 +612,7 @@ export default function StaffingPage() {
           </Box>
         )}
 
+        {/* 5) 6-MONTH ROTATING CALENDAR */}
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>
@@ -593,8 +626,8 @@ export default function StaffingPage() {
               <Typography variant="subtitle1">
                 {useFixedStaff
                   ? `Staff cap set to ${fixedStaff}.`
-                  : `Full coverage schedule uses ${Object.keys(personSchedule).length} agents
-                    (${excludeAuto ? 'automation excluded' : 'automation included'}).`}
+                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} agents
+                  (${excludeAuto ? 'automation excluded' : 'automation included'}).`}
               </Typography>
             </Box>
           </Box>
@@ -605,6 +638,7 @@ export default function StaffingPage() {
 }
 
 /* ──────────────────────────────────────────────────────────── */
+/*  CalendarView (inline) */
 function CalendarView({ scheduleByEmp, nameFor }) {
   const allDates = [...new Set(
     Object.values(scheduleByEmp).flatMap(arr => arr.map(e => e.day))
@@ -633,11 +667,14 @@ function CalendarView({ scheduleByEmp, nameFor }) {
               <TableRow key={emp}>
                 <TableCell>{nameFor(+emp)}</TableCell>
                 {allDates.map(d => (
-                  <TableCell key={d} sx={{
-                    backgroundColor: mapDay[d] != null ? `${color}33` : undefined,
-                    textAlign: 'center',
-                    fontSize: 12
-                  }}>
+                  <TableCell
+                    key={d}
+                    sx={{
+                      backgroundColor: mapDay[d] != null ? `${color}33` : undefined,
+                      textAlign: 'center',
+                      fontSize: 12
+                    }}
+                  >
                     {mapDay[d] != null ? `${mapDay[d]}:00` : ''}
                   </TableCell>
                 ))}
