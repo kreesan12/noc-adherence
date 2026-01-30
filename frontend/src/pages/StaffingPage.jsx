@@ -60,14 +60,15 @@ export default function StaffingPage() {
   }, []);
 
   /* 4. HELPERS ---------------------------------------------- */
-  /** N-week × 5-day list of YYYY-MM-DD strings */
-  function getWorkDates(start, weeksCount) {
+  /**
+   * FIX: This should represent ONE workweek (5 consecutive days),
+   * not "N weeks x 5 days", otherwise blocks get multiplied by rotation weeks.
+   */
+  function getWorkDays5(start) {
     const dates = [];
-    for (let w = 0; w < weeksCount; w++) {
-      const base = dayjs(start).add(w * 7, 'day');
-      for (let d = 0; d < 5; d++) {
-        dates.push(base.add(d, 'day').format('YYYY-MM-DD'));
-      }
+    const base = dayjs(start);
+    for (let d = 0; d < 5; d++) {
+      dates.push(base.add(d, 'day').format('YYYY-MM-DD'));
     }
     return dates;
   }
@@ -94,12 +95,15 @@ export default function StaffingPage() {
 
     for (let ci = 0; ci < cycles; ci++) {
       let offset = 0;
+
       sorted.forEach(block => {
         /* employees assigned to this block-instance */
         const group = queue.slice(offset, offset + block.count);
 
         group.forEach(empId => {
-          getWorkDates(block.startDate, weeks).forEach(dtStr => {
+          // FIX: Only schedule 5 days for this block instance.
+          // The rotation repetition is handled by cycles + (ci * weeks * 7).
+          getWorkDays5(block.startDate).forEach(dtStr => {
             const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
             if (d.isAfter(horizonEnd, 'day')) return;
             const day = d.format('YYYY-MM-DD');
@@ -329,34 +333,34 @@ export default function StaffingPage() {
   };
 
   /* 6-D. PUSH SHIFTS TO BACKEND ----------------------------- */
-    const buildAllocationPayload = () => {
-      const liveAgents = agents.filter(a => a.role === team);   // ignore “TBD”
-      const rows = [];
+  const buildAllocationPayload = () => {
+    const liveAgents = agents.filter(a => a.role === team);   // ignore “TBD”
+    const rows = [];
 
-      Object.entries(personSchedule).forEach(([empNum, shifts]) => {
-        const idx = +empNum - 1;                // 1-based → 0-based
-        if (idx >= liveAgents.length) return;   // skip dummy slots
+    Object.entries(personSchedule).forEach(([empNum, shifts]) => {
+      const idx = +empNum - 1;                // 1-based → 0-based
+      if (idx >= liveAgents.length) return;   // skip dummy slots
 
-        const agentId = liveAgents[idx].id;
+      const agentId = liveAgents[idx].id;
 
-        shifts.forEach(({ day, hour, breakHour }) => {
-          const startAt      = dayjs.utc(`${day}T${hour.toString().padStart(2, '0')}:00:00`);
-          const endAt        = startAt.add(SHIFT_LENGTH, 'hour');
-          const breakStart   = dayjs.utc(`${day}T${breakHour.toString().padStart(2, '0')}:00:00`);
-          const breakEnd     = breakStart.add(1, 'hour');
+      shifts.forEach(({ day, hour, breakHour }) => {
+        const startAt      = dayjs.utc(`${day}T${hour.toString().padStart(2, '0')}:00:00`);
+        const endAt        = startAt.add(SHIFT_LENGTH, 'hour');
+        const breakStart   = dayjs.utc(`${day}T${breakHour.toString().padStart(2, '0')}:00:00`);
+        const breakEnd     = breakStart.add(1, 'hour');
 
-          rows.push({
-            agentId,
-            startAt:    startAt.toISOString(),
-            endAt:      endAt.toISOString(),
-            breakStart: breakStart.toISOString(),
-            breakEnd:   breakEnd.toISOString()
-          });
+        rows.push({
+          agentId,
+          startAt:    startAt.toISOString(),
+          endAt:      endAt.toISOString(),
+          breakStart: breakStart.toISOString(),
+          breakEnd:   breakEnd.toISOString()
         });
       });
+    });
 
-      return rows;
-    };
+    return rows;
+  };
 
   const allocateToAgents = async () => {
     if (!Object.keys(personSchedule).length) return;
