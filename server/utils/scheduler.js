@@ -1,29 +1,21 @@
 import dayjs from '../utils/dayjs.js'
 
 /* -------------------------------------------------------------- *
- * assignRotationalShifts
- * Enumerates candidate blocks: startDate × startHour × breakOffset
- * Greedy assigns 1 head at a time (up to maxStaff), then prunes
- * redundant picks.
+ * Candidate = (startDate, startHour, breakOffset)
+ * Each selected candidate represents ONE employee assigned to that pattern.
  *
- * Returns:
- * - solution: collapsed blocks with counts
- * - meta: { unmet, headcount, assignments }
+ * We are solving a minimum headcount multi cover:
+ * - needs[k] = required agents at k = "YYYY-MM-DD|hour"
+ * - each employee covers a set of k values (excluding lunch hour)
+ * Goal: minimise number of employees so that for all k: covered[k] >= needs[k]
+ *
+ * This file provides:
+ * - greedy (fast) builder
+ * - exact (slow, branch & bound) optimiser that truly retries combinations
  * -------------------------------------------------------------- */
 
-export function assignRotationalShifts(
-  forecast,
-  {
-    weeks = 3,
-    shiftLength = 9,
-    startHours,                 // optional whitelist
-    maxStaff,                   // cap on heads (assignments)
-    splitSize = 999,            // chunk size when collapsing counts
-    restarts = 12,              // randomized greedy restarts
-    prune = true                // remove redundant assignments
-  } = {}
-) {
-  /* 1) unmet-need map + dates */
+/* ------------------ build base structures --------------------- */
+function buildNeedsAndCandidates(forecast, { weeks, shiftLength, startHours } = {}) {
   const needs = {}
   const allDates = []
 
@@ -31,26 +23,21 @@ export function assignRotationalShifts(
     if (!Array.isArray(d.staffing)) return
     allDates.push(d.date)
     d.staffing.forEach(({ hour, requiredAgents }) => {
-      needs[`${d.date}|${hour}`] = requiredAgents
+      needs[`${d.date}|${hour}`] = requiredAgents || 0
     })
   })
 
   allDates.sort()
   const dateSet = new Set(allDates)
-  if (!allDates.length) {
-    return { solution: [], meta: { unmet: 0, headcount: 0, assignments: [] } }
-  }
+  if (!allDates.length) return { needs, allDates, candidates: [], keys: [] }
 
-  /* 2) first-week range used as allowable startDate anchors */
   const firstDay = allDates[0]
   const firstWeek = allDates.filter(d => dayjs(d).diff(firstDay, 'day') < 7)
 
-  /* 3) allowed start hours (default: every possible for shiftLength) */
   const hoursToTry = Array.isArray(startHours)
     ? startHours
-    : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h) // 0..15 for 9h
+    : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h) // default 0..15 for 9h
 
-  /* 4) rotation work dates: weeks * (5-on) spaced by 7 days */
   function getWorkDates(startDate) {
     const out = []
     for (let w = 0; w < weeks; w++) {
@@ -63,7 +50,6 @@ export function assignRotationalShifts(
     return out
   }
 
-  /* 5) candidates: startDate × startHour × breakOffset (2..5) */
   const candidates = []
   for (const startDate of firstWeek) {
     const workDates = getWorkDates(startDate)
@@ -73,13 +59,12 @@ export function assignRotationalShifts(
       const maxOffset = Math.min(5, shiftLength - 1)
       for (let off = 2; off <= maxOffset; off++) {
         const cover = []
-        workDates.forEach(d => {
+        for (const d of workDates) {
           for (let h = startHour; h < startHour + shiftLength; h++) {
-            if (h === startHour + off) continue // lunch hour not covered
+            if (h === startHour + off) continue
             cover.push(`${d}|${h}`)
           }
-        })
-
+        }
         candidates.push({
           startDate,
           startHour,
@@ -91,131 +76,278 @@ export function assignRotationalShifts(
     }
   }
 
-  if (!candidates.length) {
-    return { solution: [], meta: { unmet: 0, headcount: 0, assignments: [] } }
+  const keys = Object.keys(needs).filter(k => needs[k] > 0).sort()
+  return { needs, allDates, candidates, keys }
+}
+
+/* ------------------ greedy: good upper bound ------------------ */
+function greedyUpperBound(needs, candidates, { cap, restarts = 8 } = {}) {
+  const keys = Object.keys(needs)
+
+  const scoreCandidate = (c, localNeeds) => {
+    let s = 0
+    for (const k of c.cover) s += (localNeeds[k] || 0)
+    return s
   }
 
-  function totalUnmet(localNeeds) {
-    let t = 0
-    for (const k in localNeeds) t += (localNeeds[k] || 0)
-    return t
-  }
-
-  function applyCandidate(c, localNeeds) {
+  const apply = (c, localNeeds) => {
     for (const k of c.cover) {
       const cur = localNeeds[k] || 0
       if (cur > 0) localNeeds[k] = cur - 1
     }
   }
 
-  function scoreCandidate(c, localNeeds) {
-    let sc = 0
-    for (const k of c.cover) sc += (localNeeds[k] || 0)
-    return sc
+  const totalUnmet = (localNeeds) => {
+    let t = 0
+    for (const k of keys) t += (localNeeds[k] || 0)
+    return t
   }
 
-  /* prune: remove assignments that are not needed to meet needs */
-  function pruneAssignments(assignments) {
-    const coverCounts = {}
-    for (const a of assignments) {
-      for (const k of a.cover) coverCounts[k] = (coverCounts[k] || 0) + 1
-    }
-
-    // remove low impact picks first
-    const scored = assignments.map((a, idx) => {
-      let tight = 0
-      for (const k of a.cover) {
-        const req = needs[k] || 0
-        const cov = coverCounts[k] || 0
-        if (cov <= req) tight += 1
-      }
-      return { idx, tight }
-    }).sort((x, y) => x.tight - y.tight)
-
-    const removed = new Set()
-
-    for (const s of scored) {
-      if (removed.has(s.idx)) continue
-      const a = assignments[s.idx]
-
-      let ok = true
-      for (const k of a.cover) {
-        const req = needs[k] || 0
-        const cov = coverCounts[k] || 0
-        if (cov - 1 < req) { ok = false; break }
-      }
-      if (!ok) continue
-
-      for (const k of a.cover) coverCounts[k] = (coverCounts[k] || 0) - 1
-      removed.add(s.idx)
-    }
-
-    return assignments.filter((_, idx) => !removed.has(idx))
-  }
-
-  /* One greedy attempt, optionally randomized for tie diversity */
-  function runGreedy(randomize) {
+  function runOnce(randomize) {
     const localNeeds = { ...needs }
-    const assignments = []
+    const picks = []
 
-    const candList = randomize ? [...candidates] : candidates
+    const list = randomize ? [...candidates] : candidates
     if (randomize) {
-      for (let i = candList.length - 1; i > 0; i--) {
+      for (let i = list.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
-        const tmp = candList[i]
-        candList[i] = candList[j]
-        candList[j] = tmp
+        const tmp = list[i]
+        list[i] = list[j]
+        list[j] = tmp
       }
     }
 
     while (true) {
-      if (typeof maxStaff === 'number' && assignments.length >= maxStaff) break
+      if (typeof cap === 'number' && picks.length >= cap) break
 
       let best = null
       let bestScore = 0
 
-      for (const c of candList) {
+      for (const c of list) {
         const sc = scoreCandidate(c, localNeeds)
         if (sc > bestScore) {
-          best = c
           bestScore = sc
+          best = c
         }
       }
 
       if (!best || bestScore === 0) break
-
-      assignments.push(best)
-      applyCandidate(best, localNeeds)
+      picks.push(best)
+      apply(best, localNeeds)
+      if (totalUnmet(localNeeds) === 0) break
     }
 
-    const pruned = prune ? pruneAssignments(assignments) : assignments
-    // unmet after greedy loop, not after prune, so recompute unmet precisely
-    // by simulating coverage of pruned assignments
-    const recompute = { ...needs }
-    for (const a of pruned) applyCandidate(a, recompute)
-    const unmet = totalUnmet(recompute)
-
-    return { assignments: pruned, unmet }
+    return { picks, unmet: totalUnmet(localNeeds) }
   }
 
-  /* multi restart: pick best by unmet asc, then headcount asc */
-  const tries = Math.max(1, Number(restarts) || 1)
-  let bestRun = null
-
-  for (let t = 0; t < tries; t++) {
-    const r = runGreedy(t > 0)
-    if (!bestRun) bestRun = r
-    else if (r.unmet < bestRun.unmet) bestRun = r
-    else if (r.unmet === bestRun.unmet && r.assignments.length < bestRun.assignments.length) bestRun = r
+  let best = null
+  for (let t = 0; t < Math.max(1, restarts); t++) {
+    const r = runOnce(t > 0)
+    if (!best) best = r
+    else if (r.unmet < best.unmet) best = r
+    else if (r.unmet === best.unmet && r.picks.length < best.picks.length) best = r
   }
 
-  const assignments = bestRun.assignments
+  return best
+}
 
-  /* collapse into blocks with splitSize */
+/* ------------------ exact optimisation (branch & bound) ------- */
+function exactMinimise(needs, candidates, {
+  timeLimitMs = 0,              // 0 = no limit
+  logEvery = 20000,
+  initialUpperBound,            // number
+  initialSolutionPicks,         // array of candidates
+  hardCap,                      // optional: do not exceed
+  allowHours = false            // just a label for intent
+} = {}) {
+  const startTs = Date.now()
+  const keys = Object.keys(needs).filter(k => needs[k] > 0)
+
+  // map: key -> candidate indices that cover it
+  const keyToCands = new Map()
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i]
+    for (const k of c.cover) {
+      if (!needs[k]) continue
+      if (!keyToCands.has(k)) keyToCands.set(k, [])
+      keyToCands.get(k).push(i)
+    }
+  }
+
+  // if some needed key has no covering candidate, impossible
+  for (const k of keys) {
+    if (!keyToCands.has(k) || keyToCands.get(k).length === 0) {
+      return {
+        bestHeads: Infinity,
+        bestPicks: [],
+        nodes: 0,
+        timedOut: false,
+        impossible: true
+      }
+    }
+  }
+
+  const maxCoverLen = candidates.reduce((m, c) => Math.max(m, c.cover.length), 1)
+
+  // best solution so far
+  let bestHeads = typeof initialUpperBound === 'number' ? initialUpperBound : Infinity
+  let bestPicks = Array.isArray(initialSolutionPicks) ? [...initialSolutionPicks] : []
+
+  // remaining needs as plain object
+  const rem = { ...needs }
+  let totalRem = keys.reduce((s, k) => s + (rem[k] || 0), 0)
+
+  // quick lower bound: total remaining divided by maximum cover length
+  const lowerBound = (total) => Math.ceil(total / maxCoverLen)
+
+  // small memo: hash => smallest headsUsed seen for that hash
+  // (correctness is preserved because we only prune if we have reached this exact state with <= heads)
+  const memo = new Map()
+  const hashState = () => {
+    // state signature: only keys with rem>0
+    // yes it’s heavy, but it’s collision-free and exact
+    const parts = []
+    for (const k of keys) {
+      const v = rem[k] || 0
+      if (v > 0) parts.push(`${k}:${v}`)
+    }
+    return parts.join('|')
+  }
+
+  // choose next key: most constrained (highest remaining, then smallest candidate list)
+  const pickNextKey = () => {
+    let bestK = null
+    let bestNeed = -1
+    let bestCandCount = Infinity
+    for (const k of keys) {
+      const v = rem[k] || 0
+      if (v <= 0) continue
+      const cCount = (keyToCands.get(k) || []).length
+      if (v > bestNeed || (v === bestNeed && cCount < bestCandCount)) {
+        bestNeed = v
+        bestCandCount = cCount
+        bestK = k
+      }
+    }
+    return bestK
+  }
+
+  const applyCandidateIdx = (idx) => {
+    const c = candidates[idx]
+    const changed = []
+    for (const k of c.cover) {
+      const cur = rem[k] || 0
+      if (cur > 0) {
+        rem[k] = cur - 1
+        totalRem -= 1
+        changed.push(k)
+      }
+    }
+    return changed
+  }
+
+  const undo = (changed) => {
+    for (const k of changed) {
+      rem[k] = (rem[k] || 0) + 1
+      totalRem += 1
+    }
+  }
+
+  let nodes = 0
+  let timedOut = false
+
+  function shouldStop() {
+    if (timeLimitMs && timeLimitMs > 0) {
+      if (Date.now() - startTs > timeLimitMs) return true
+    }
+    return false
+  }
+
+  const curPicks = []
+
+  function dfs(headsUsed) {
+    if (shouldStop()) { timedOut = true; return }
+
+    nodes++
+    if (logEvery && nodes % logEvery === 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[EXACT] nodes=${nodes} bestHeads=${bestHeads} headsUsed=${headsUsed} totalRem=${totalRem}`)
+    }
+
+    // success
+    if (totalRem === 0) {
+      if (headsUsed < bestHeads) {
+        bestHeads = headsUsed
+        bestPicks = [...curPicks]
+        // eslint-disable-next-line no-console
+        console.log(`[EXACT] ✅ new best headcount = ${bestHeads}`)
+      }
+      return
+    }
+
+    // cap pruning
+    if (typeof hardCap === 'number' && headsUsed > hardCap) return
+    if (headsUsed >= bestHeads) return
+
+    // lower bound pruning
+    const lb = lowerBound(totalRem)
+    if (headsUsed + lb >= bestHeads) return
+
+    // memo pruning
+    const sig = hashState()
+    const prev = memo.get(sig)
+    if (prev != null && prev <= headsUsed) return
+    memo.set(sig, headsUsed)
+
+    // choose a remaining key to satisfy next
+    const k = pickNextKey()
+    if (!k) return
+
+    const candIdxs = keyToCands.get(k)
+    if (!candIdxs || candIdxs.length === 0) return
+
+    // sort candidates by "gain" (how much unmet they cover right now), descending
+    const scored = candIdxs.map(idx => {
+      const c = candidates[idx]
+      let gain = 0
+      for (const kk of c.cover) gain += (rem[kk] || 0) > 0 ? 1 : 0
+      return { idx, gain }
+    }).sort((a, b) => b.gain - a.gain)
+
+    for (const { idx } of scored) {
+      if (headsUsed + 1 >= bestHeads) continue
+      if (typeof hardCap === 'number' && headsUsed + 1 > hardCap) continue
+
+      const changed = applyCandidateIdx(idx)
+      if (changed.length === 0) { undo(changed); continue }
+
+      curPicks.push(candidates[idx])
+      dfs(headsUsed + 1)
+      curPicks.pop()
+
+      undo(changed)
+      if (timedOut) return
+    }
+  }
+
+  dfs(0)
+
+  return {
+    bestHeads,
+    bestPicks,
+    nodes,
+    timedOut,
+    impossible: false
+  }
+}
+
+/* ------------------ collapse picks into block solution -------- */
+function collapsePicksToSolution(picks, { shiftLength, splitSize = 999 } = {}) {
   const tally = new Map()
   const order = []
-  for (const a of assignments) {
-    const key = `${a.startDate}|${a.startHour}|${a.breakOffset}`
+
+  for (const p of picks) {
+    const key = `${p.startDate}|${p.startHour}|${p.breakOffset}`
     if (!tally.has(key)) order.push(key)
     tally.set(key, (tally.get(key) || 0) + 1)
   }
@@ -246,130 +378,102 @@ export function assignRotationalShifts(
     a.startHour - b.startHour
   )
 
-  return {
-    solution,
-    meta: {
-      unmet: bestRun.unmet,
-      headcount: assignments.length,
-      assignments
-    }
-  }
+  return solution
 }
 
 /* -------------------------------------------------------------- *
- * optimizeRotationalShifts
- * This is the "ladder" you described:
- * - Find feasible headcount H
- * - Try H-1 from scratch (many restarts)
- * - Keep going down until infeasible
- * - Return last feasible solution
+ * PUBLIC API
  * -------------------------------------------------------------- */
-export function optimizeRotationalShifts(
-  forecast,
-  {
-    weeks = 3,
-    shiftLength = 9,
-    startHours,
-    splitSize = 999,
-    restartsPerCap = 24,
-    prune = true,
-    maxCap = 5000
-  } = {}
-) {
-  // feasibility test at a specific cap
-  function solveAtCap(cap) {
-    const { solution, meta } = assignRotationalShifts(forecast, {
-      weeks,
-      shiftLength,
-      startHours,
-      maxStaff: cap,
-      splitSize,
-      restarts: restartsPerCap,
-      prune
-    })
-    return { solution, meta, feasible: meta.unmet === 0 }
-  }
 
-  // Step 1: find any feasible headcount (doubling)
-  let cap = 1
-  let best = solveAtCap(cap)
-
-  while (!best.feasible && cap < maxCap) {
-    cap *= 2
-    best = solveAtCap(cap)
-  }
-
-  // If still not feasible, return best attempt
-  if (!best.feasible) {
-    return { bestStartHours: [], solution: best.solution, meta: best.meta }
-  }
-
-  // Step 2: ladder down one by one, recomputing from scratch each time
-  let lastFeasible = best
-  for (let nextCap = cap - 1; nextCap >= 1; nextCap--) {
-    const attempt = solveAtCap(nextCap)
-    if (attempt.feasible) {
-      lastFeasible = attempt
-    } else {
-      break
-    }
-  }
-
-  const solution = lastFeasible.solution
-
-  const tally = solution.reduce((acc, b) => {
-    acc[b.startHour] = (acc[b.startHour] || 0) + b.count
-    return acc
-  }, {})
-
-  const bestStartHours = Object.entries(tally)
-    .map(([h, total]) => ({ startHour: +h, totalAssigned: total }))
-    .sort((a, b) => b.totalAssigned - a.totalAssigned)
-    .slice(0, 5)
-
-  return { bestStartHours, solution, meta: lastFeasible.meta }
-}
-
-/* -------------------------------------------------------------- *
- * autoAssignRotations
- * If optimizeHeadcount = true, uses the ladder optimiser.
- * Else returns one run at the provided cap.
- * -------------------------------------------------------------- */
 export function autoAssignRotations(
   forecast,
   {
     weeks = 3,
     shiftLength = 9,
     topN = 5,
+    startHours,
     maxStaff,
     splitSize = 999,
-    restarts = 12,
-    prune = true,
-    optimizeHeadcount = false,
-    restartsPerCap = 24
+
+    // exact optimiser knobs
+    exact = false,
+    timeLimitMs = 0,           // 0 = no limit (hours)
+    greedyRestarts = 10,
+    exactLogEvery = 50000
   } = {}
 ) {
-  if (optimizeHeadcount) {
-    const out = optimizeRotationalShifts(forecast, {
-      weeks,
-      shiftLength,
-      splitSize,
-      restartsPerCap,
-      prune
-    })
-    // respect topN on the output
-    out.bestStartHours = (out.bestStartHours || []).slice(0, topN)
-    return out
+  const { needs, candidates } = buildNeedsAndCandidates(forecast, { weeks, shiftLength, startHours })
+
+  if (!candidates.length) {
+    return { bestStartHours: [], solution: [], meta: { headCnt: 0, exact: false } }
   }
 
-  const { solution } = assignRotationalShifts(forecast, {
-    weeks,
-    shiftLength,
-    maxStaff,
-    splitSize,
-    restarts,
-    prune
+  // If not exact: keep your previous greedy behaviour (fast)
+  if (!exact) {
+    const ub = greedyUpperBound(needs, candidates, { cap: maxStaff, restarts: greedyRestarts })
+    const solution = collapsePicksToSolution(
+      ub.picks.map(p => ({
+        startDate: p.startDate,
+        startHour: p.startHour,
+        breakOffset: p.breakOffset,
+        length: shiftLength,
+        cover: p.cover
+      })),
+      { shiftLength, splitSize }
+    )
+
+    const tally = solution.reduce((acc, b) => {
+      acc[b.startHour] = (acc[b.startHour] || 0) + b.count
+      return acc
+    }, {})
+
+    const bestStartHours = Object.entries(tally)
+      .map(([h, total]) => ({ startHour: +h, totalAssigned: total }))
+      .sort((a, b) => b.totalAssigned - a.totalAssigned)
+      .slice(0, topN)
+
+    return {
+      bestStartHours,
+      solution,
+      meta: {
+        headCnt: ub.picks.length,
+        unmet: ub.unmet,
+        exact: false
+      }
+    }
+  }
+
+  // EXACT: get a good upper bound first (greedy), then minimise exactly
+  const ub = greedyUpperBound(needs, candidates, { cap: maxStaff, restarts: greedyRestarts })
+  const initialHeads = ub.unmet === 0 ? ub.picks.length : Infinity
+
+  // eslint-disable-next-line no-console
+  console.log(`[EXACT] starting. greedy heads=${ub.picks.length} unmet=${ub.unmet} initialUpper=${initialHeads}`)
+
+  const exactRes = exactMinimise(needs, candidates, {
+    timeLimitMs,
+    logEvery: exactLogEvery,
+    initialUpperBound: initialHeads,
+    initialSolutionPicks: ub.unmet === 0 ? ub.picks : [],
+    hardCap: typeof maxStaff === 'number' ? maxStaff : undefined
   })
+
+  // If greedy didn't even meet needs and exact couldn't either, return best we have
+  const finalPicks =
+    (exactRes.bestHeads !== Infinity && exactRes.bestPicks.length)
+      ? exactRes.bestPicks
+      : ub.picks
+
+  const solution = collapsePicksToSolution(
+    finalPicks.map(p => ({
+      startDate: p.startDate,
+      startHour: p.startHour,
+      breakOffset: p.breakOffset,
+      length: shiftLength,
+      cover: p.cover
+    })),
+    { shiftLength, splitSize }
+  )
 
   const tally = solution.reduce((acc, b) => {
     acc[b.startHour] = (acc[b.startHour] || 0) + b.count
@@ -381,5 +485,18 @@ export function autoAssignRotations(
     .sort((a, b) => b.totalAssigned - a.totalAssigned)
     .slice(0, topN)
 
-  return { bestStartHours, solution }
+  return {
+    bestStartHours,
+    solution,
+    meta: {
+      headCnt: finalPicks.length,
+      greedyHeads: ub.picks.length,
+      greedyUnmet: ub.unmet,
+      exactBestHeads: exactRes.bestHeads,
+      exactNodes: exactRes.nodes,
+      exactTimedOut: exactRes.timedOut,
+      exactImpossible: exactRes.impossible,
+      exact: true
+    }
+  }
 }
