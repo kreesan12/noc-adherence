@@ -93,70 +93,70 @@ export default function StaffingPage() {
       (a, b) => a.patternIndex - b.patternIndex || a.startHour - b.startHour
     );
 
-    for (let ci = 0; ci < cycles; ci++) {
-      let offset = 0;
+for (let ci = 0; ci < cycles; ci++) {
+  let offset = 0;
 
-      sorted.forEach(block => {
-        /* employees assigned to this block-instance */
-        const group = queue.slice(offset, offset + block.count);
+  sorted.forEach(block => {
+    // employees assigned to this block-instance
+    const group = queue.slice(offset, offset + block.count);
 
-        group.forEach(empId => {
-          // FIX: Only schedule 5 days for this block instance.
-          // The rotation repetition is handled by cycles + (ci * weeks * 7).
-          getWorkDays5(block.startDate).forEach(dtStr => {
-            const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
-            if (d.isAfter(horizonEnd, 'day')) return;
-            const day = d.format('YYYY-MM-DD');
+    group.forEach(empId => {
+      const weekStart = dayjs(block.startDate).add((block.patternIndex ?? 0) * 7, 'day');
 
-            /* ── choose lunch hour inside the shift ── */
-            const candidates = [];
-            for (let off = 2; off <= 5; off++) {
-              const h = block.startHour + off;
-              if (h >= block.startHour + SHIFT_LENGTH) break;
+      getWorkDays5(weekStart).forEach(dtStr => {
+        const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
+        if (d.isAfter(horizonEnd, 'day')) return;
+        const day = d.format('YYYY-MM-DD');
 
-              const k          = `${day}|${h}`;
-              const onDuty     = coverMap[k] ?? 0;
-              const lunches    = lunchMap[k] ?? 0;
-              const required   = reqMap[k]   ?? 0;
-              const projected  = onDuty - lunches - 1;
-              const surplus    = projected - required;
+        // choose lunch hour inside the shift
+        const candidates = [];
+        for (let off = 2; off <= 5; off++) {
+          const h = block.startHour + off;
+          if (h >= block.startHour + SHIFT_LENGTH) break;
 
-              if (surplus >= 0) {
-                candidates.push({ h, surplus, lunches });
-              }
-            }
+          const k         = `${day}|${h}`;
+          const onDuty    = coverMap[k] ?? 0;
+          const lunches   = lunchMap[k] ?? 0;
+          const required  = reqMap[k] ?? 0;
+          const projected = onDuty - lunches - 1;
+          const surplus   = projected - required;
 
-            const breakHour = candidates.length
-              ? candidates.sort((a, b) =>
-                  a.surplus - b.surplus ||
-                  a.lunches - b.lunches ||
-                  a.h       - b.h
-                )[0].h
-              : (
-                  block.breakOffset != null
-                    ? block.startHour + block.breakOffset
-                    : block.startHour + Math.floor(block.length / 2)
-                );
+          if (surplus >= 0) candidates.push({ h, surplus, lunches });
+        }
 
-            /* record shift for employee */
-            schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
+        const breakHour = candidates.length
+          ? candidates.sort((a, b) =>
+              a.surplus - b.surplus ||
+              a.lunches - b.lunches ||
+              a.h - b.h
+            )[0].h
+          : (
+              block.breakOffset != null
+                ? block.startHour + block.breakOffset
+                : block.startHour + Math.floor(block.length / 2)
+            );
 
-            /* update counters */
-            for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
-              const k = `${day}|${h}`;
-              coverMap[k] = (coverMap[k] ?? 0) + 1;
-            }
-            const lk = `${day}|${breakHour}`;
-            lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
-          });
-        });
+        // record shift for employee
+        schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
 
-        offset += block.count;
+        // update counters
+        for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
+          const k = `${day}|${h}`;
+          coverMap[k] = (coverMap[k] ?? 0) + 1;
+        }
+        const lk = `${day}|${breakHour}`;
+        lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
       });
+    });
 
-      /* rotate for next cycle */
-      queue.unshift(queue.pop());
-    }
+    // IMPORTANT: increment offset once per block (not per employee)
+    offset += block.count;
+  });
+
+  // rotate for next cycle
+  queue.unshift(queue.pop());
+}
+
 
     return schedByEmp;
   }
