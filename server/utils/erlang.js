@@ -1,5 +1,5 @@
 // server/utils/erlang.js
-import dayjs      from '../utils/dayjs.js'
+import dayjs from '../utils/dayjs.js'
 
 /**
  * Erlang C formula
@@ -9,11 +9,15 @@ import dayjs      from '../utils/dayjs.js'
  */
 export function erlangC(A, N) {
   let invFact = 1
-  let sum     = 1
+  let sum = 1
   for (let k = 1; k < N; k++) {
     invFact = invFact * (A / k)
-    sum    += invFact
+    sum += invFact
   }
+
+  // Guard: if A >= N, the formula becomes unstable (1 - A/N <= 0)
+  if (A >= N) return 1
+
   const P0 = 1 / (sum + invFact * (A / N) / (1 - A / N))
   const PC = (invFact * (A / N) * P0) / (1 - A / N)
   return PC
@@ -34,16 +38,26 @@ export function requiredAgents({
   serviceThresholdSeconds,
   shrinkage
 }) {
+  // ✅ No work on this stream means no agents for this stream
+  if (!callsPerHour || callsPerHour <= 0) return 0
+
   // traffic intensity in Erlangs
   const A = callsPerHour * (ahtSeconds / 3600)
+  if (A <= 0) return 0
 
-  // brute‐force search for smallest N that meets SL
-  for (let N = 1; N < 500; N++) {
+  // start just above traffic to avoid A/N >= 1 instability
+  const startN = Math.max(1, Math.floor(A) + 1)
+
+  // brute-force search for smallest N that meets SL
+  for (let N = startN; N < 500; N++) {
+    if (A >= N) continue
+
     const PC = erlangC(A, N)
+
     // P(wait ≤ T) = 1 – P(wait > T)
     // P(wait > T) = PC * exp(-(N – A) * T / AHT)
     const expTerm = Math.exp(- (N - A) * (serviceThresholdSeconds / ahtSeconds))
-    const SL      = 1 - PC * expTerm
+    const SL = 1 - PC * expTerm
 
     if (SL >= targetServiceLevel) {
       // account for shrinkage
@@ -55,22 +69,10 @@ export function requiredAgents({
 }
 
 /**
- * Compute per‐hour staffing requirements for one date
- * @param prisma          Prisma client
- * @param role            team/role name string
- * @param date            'YYYY-MM-DD'
- * @param callAhtSeconds
- * @param ticketAhtSeconds
- * @param serviceLevel
- * @param thresholdSeconds
- * @param shrinkage
- * @returns [{ hour, calls, tickets, requiredAgents }]
- */
-/**
  * Build 24-hour staffing array for one date.
  * Uses ACTUAL rows when present; otherwise FORECAST rows.
  * @param excludeAutomation  when true, subtracts auto-processed
- *                           ticket counts (DFA/MNT/Outage) from total.
+ *                           ticket counts (DFA/MNT/Outage/MntSolved) from total.
  */
 export async function computeDayStaffing({
   prisma,
@@ -81,12 +83,12 @@ export async function computeDayStaffing({
   serviceLevel,
   thresholdSeconds,
   shrinkage,
-  excludeAutomation = false    // NEW – default off
+  excludeAutomation = false
 }) {
   const start = dayjs(date).startOf('day').toDate()
-  const end   = dayjs(date).endOf('day').toDate()
+  const end = dayjs(date).endOf('day').toDate()
 
-  /* 1️⃣  get rows */
+  /* 1️⃣ get rows */
   const actualRows = await prisma.volumeActual.findMany({
     where: { role, date: { gte: start, lte: end } }
   })
@@ -97,53 +99,59 @@ export async function computeDayStaffing({
         where: { role, date: { gte: start, lte: end } }
       })
 
-  /* 2️⃣  bucket by hour */
+  /* 2️⃣ bucket by hour */
   const byHour = {}
   rows.forEach(r => {
-    const h        = r.hour
+    const h = r.hour
     const callsRaw = r.calls ?? r.expectedCalls ?? 0
 
-    /* tickets w/ optional automation stripping */
+    /* tickets with optional automation stripping */
     const ticketsRaw = r.tickets ?? r.expectedTickets ?? 0
-    const autoSum    = excludeAutomation
-      ? (r.autoDfaLogged        ?? 0) +
-        (r.autoMntLogged        ?? 0) +
-        (r.autoOutageLinked     ?? 0) +
-        (r.autoMntSolved    ?? 0)
+    const autoSum = excludeAutomation
+      ? (r.autoDfaLogged ?? 0) +
+        (r.autoMntLogged ?? 0) +
+        (r.autoOutageLinked ?? 0) +
+        (r.autoMntSolved ?? 0)
       : 0
+
     const ticketsAdj = Math.max(0, ticketsRaw - autoSum)
 
     byHour[h] = {
-      calls:   callsRaw,
+      calls: callsRaw,
       tickets: ticketsAdj
     }
   })
 
-  /* 3️⃣  staffing for each hour */
+  /* 3️⃣ staffing for each hour */
   return Array.from({ length: 24 }, (_, h) => {
     const { calls = 0, tickets = 0 } = byHour[h] || {}
 
     const callAgents = requiredAgents({
-      callsPerHour:            calls,
-      ahtSeconds:              callAhtSeconds,
-      targetServiceLevel:      serviceLevel,
+      callsPerHour: calls,
+      ahtSeconds: callAhtSeconds,
+      targetServiceLevel: serviceLevel,
       serviceThresholdSeconds: thresholdSeconds,
       shrinkage
     })
 
     const ticketAgents = requiredAgents({
-      callsPerHour:            tickets,
-      ahtSeconds:              ticketAhtSeconds,
-      targetServiceLevel:      serviceLevel,
+      callsPerHour: tickets,
+      ahtSeconds: ticketAhtSeconds,
+      targetServiceLevel: serviceLevel,
       serviceThresholdSeconds: thresholdSeconds,
       shrinkage
     })
 
+    const total = callAgents + ticketAgents
+
+    // ✅ Minimum 2 total agents per hour, even if total is 0 or 1
+    const requiredTotal = total < 2 ? 2 : total
+
     return {
-      hour:           h,
+      hour: h,
       calls,
       tickets,
-      requiredAgents: callAgents + ticketAgents
+      requiredAgents: requiredTotal
     }
   })
 }
