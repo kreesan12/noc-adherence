@@ -22,6 +22,8 @@ import * as XLSX from 'xlsx';
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
 const MAX_ITERS      = 50;
+const START_HOURS_FIXED = [0, 6, 9, 11, 13, 15]; // 00:00, 06:00, 09:00, 11:00, 13:00, 15:00
+
 
 export default function StaffingPage() {
   /* STATE */
@@ -302,20 +304,26 @@ export default function StaffingPage() {
 
       logLine(`Testing cap ${cap} (${phaseLabel})`);
 
-      const body = {
-        staffing: forecast,
-        weeks,
-        shiftLength: SHIFT_LENGTH,
-        topN: 5,
-        maxStaff: cap,
+const body = {
+  staffing: forecast,
+  weeks,
+  shiftLength: SHIFT_LENGTH,
+  topN: 5,
+  maxStaff: cap,
 
-        // solver knobs
-        exact: Boolean(exactMode),
-        timeLimitMs: exactMode ? Math.max(0, Math.floor(Number(timeLimitMinutes) * 60 * 1000)) : 0,
-        greedyRestarts: exactMode ? Number(greedyRestarts) : 0,
-        splitSize: Number(splitSize),
-        latestStartHour: Number(latestStartHour)
-      };
+  // tighten start times (reduces permutations)
+  startHours: START_HOURS_FIXED,
+
+  // solver knobs
+  exact: Boolean(exactMode),
+  timeLimitMs: exactMode ? Math.max(0, Math.floor(Number(timeLimitMinutes) * 60 * 1000)) : 0,
+  greedyRestarts: exactMode ? Number(greedyRestarts) : 0,
+  splitSize: Number(splitSize),
+
+  // this becomes irrelevant when startHours is provided, but safe to keep
+  latestStartHour: Number(latestStartHour)
+};
+
 
       const t0 = performance.now();
       const { data } = await api.post('/erlang/staff/schedule', body);

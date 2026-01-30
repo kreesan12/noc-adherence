@@ -135,12 +135,35 @@ export default prisma => {
           .json({ error: 'Missing or empty `staffing` in request body' })
       }
 
-      // limit start hours: midnight..latestStartHour, but also clamp by shiftLength
-      const maxStartAllowed = Math.max(0, Math.min(
-        Number(latestStartHour ?? 15),
-        24 - shiftLength
-      ))
-      const startHours = Array.from({ length: maxStartAllowed + 1 }, (_, h) => h)
+// Start-hours:
+// If client provides startHours, use it (sanitized).
+// Otherwise fall back to midnight..latestStartHour.
+const maxStartAllowed = Math.max(0, Math.min(
+  Number(latestStartHour ?? 15),
+  24 - shiftLength
+))
+
+let startHours = null
+
+if (Array.isArray(req.body.startHours) && req.body.startHours.length) {
+  // sanitize: ints, unique, in range 0..(24-shiftLength)
+  const maxH = 24 - shiftLength
+  startHours = [...new Set(
+    req.body.startHours
+      .map(h => Number(h))
+      .filter(h => Number.isFinite(h))
+      .map(h => Math.floor(h))
+      .filter(h => h >= 0 && h <= maxH)
+  )].sort((a, b) => a - b)
+
+  // If sanitation wipes everything, fall back
+  if (!startHours.length) startHours = null
+}
+
+if (!startHours) {
+  startHours = Array.from({ length: maxStartAllowed + 1 }, (_, h) => h)
+}
+
 
       const { bestStartHours, solution, meta } = autoAssignRotations(
         forecast,
