@@ -1,20 +1,20 @@
 import dayjs from '../utils/dayjs.js'
 
 /* -------------------------------------------------------------- *
- * Scheduler: multi-restart greedy + local improvement.
+ * Scheduler: greedy baseline + time-bounded multi-restart search.
  *
- * Key idea:
- * - Build candidate blocks: startDate × startHour × breakOffset
- * - Solve as a set-cover style problem (NP-hard).
- * - "exact" here means: run lots of restarts + improvement
- *   for as long as timeLimitMs allows. Not literal enumeration.
+ * IMPORTANT FIXES:
+ * 1) Per-restart improvement budget:
+ *    localImprove() gets a restart-local budget so restart #1
+ *    cannot consume the entire global time limit.
  *
- * Options:
- *  weeks, shiftLength, startHours, maxStaff, splitSize
- *  exact (bool)             -> spend time exploring
- *  timeLimitMs (int)        -> hard wall for exploration
- *  greedyRestarts (int)     -> number of restarts target
- *  exactLogEvery (int)      -> meta counter interval
+ * 2) Restarts are respected:
+ *    If timeLimitMs > 0 -> stop by time, but also stop when
+ *    restarts reach greedyRestarts (unless greedyRestarts = 0).
+ *
+ * "exact" here means: explore many randomized greedy builds
+ * + stochastic local improvement for as long as allowed.
+ * It is not literal enumeration of all combinations.
  * -------------------------------------------------------------- */
 
 function makeNeedsMap(forecast) {
@@ -59,7 +59,7 @@ function buildCandidates({ firstWeek, weeks, shiftLength, hoursToTry, dateSet })
     if (workDates.length < 5 * weeks) continue
 
     for (const startHour of hoursToTry) {
-      const maxOffset = Math.min(5, shiftLength - 1) // lunch must be within 5h and inside shift
+      const maxOffset = Math.min(5, shiftLength - 1) // lunch within 5h and inside shift
       for (let off = 2; off <= maxOffset; off++) {
         const cover = []
         const breakHours = new Set()
@@ -90,15 +90,12 @@ function buildCandidates({ firstWeek, weeks, shiftLength, hoursToTry, dateSet })
 }
 
 function scoreCandidate(candidate, localNeeds) {
-  // how much remaining demand this block would satisfy right now
   let s = 0
   for (const k of candidate.cover) s += (localNeeds[k] || 0)
   return s
 }
 
 function weightedPickTopK(topK, temperature = 1.0) {
-  // softmax-ish choice among topK candidates to diversify solutions
-  // lower temperature => greedier
   let sum = 0
   const weights = topK.map(x => {
     const w = Math.exp((x.score || 0) / Math.max(1e-9, temperature))
@@ -114,7 +111,6 @@ function weightedPickTopK(topK, temperature = 1.0) {
 }
 
 function evaluateSolution(assignments, candidates, needs) {
-  // build coverage counts
   const cov = {}
   for (const idx of assignments) {
     const c = candidates[idx]
@@ -134,8 +130,6 @@ function evaluateSolution(assignments, candidates, needs) {
 }
 
 function objective({ shortfall, over, headcount }) {
-  // Heavy punish shortfall, then mild punish over, then mild punish headcount
-  // This drives feasibility first.
   return shortfall * 1_000_000 + over * 10 + headcount * 1
 }
 
@@ -151,7 +145,6 @@ function greedyBuild({
   const assignments = []
 
   while (assignments.length < maxStaff) {
-    // compute best candidates by current remaining needs
     let bestScore = 0
     let best = null
 
@@ -163,7 +156,6 @@ function greedyBuild({
       if (best == null || bestScore === 0) break
       assignments.push(best)
     } else {
-      // build a topK list
       const scored = []
       for (let i = 0; i < candidates.length; i++) {
         const sc = scoreCandidate(candidates[i], localNeeds)
@@ -183,7 +175,6 @@ function greedyBuild({
       assignments.push(best)
     }
 
-    // apply this headcount to remaining needs
     const chosen = candidates[assignments[assignments.length - 1]]
     for (const k of chosen.cover) {
       localNeeds[k] = Math.max(0, (localNeeds[k] || 0) - 1)
@@ -196,31 +187,26 @@ function greedyBuild({
 function localImprove({
   candidates,
   needs,
-  maxStaff,
   startAssignments,
-  timeLimitMs,
-  startTimeMs
+  budgetMs
 }) {
-  // simple stochastic 1-swap hill-climb / annealing-ish
+  const startLocal = Date.now()
+
   let best = startAssignments.slice()
   let bestEval = evaluateSolution(best, candidates, needs)
   let bestObj = objective(bestEval)
 
   const nCand = candidates.length
   const n = best.length
-
-  // if no staff, nothing to do
   if (n === 0) return { best, bestEval, bestObj, iters: 0 }
 
   let iters = 0
   while (true) {
     iters++
-    if (timeLimitMs > 0 && (Date.now() - startTimeMs) >= timeLimitMs) break
+    if (budgetMs > 0 && (Date.now() - startLocal) >= budgetMs) break
 
-    // pick a position to swap out and a new candidate to swap in
     const pos = Math.floor(Math.random() * n)
     const newIdx = Math.floor(Math.random() * nCand)
-
     if (best[pos] === newIdx) continue
 
     const trial = best.slice()
@@ -229,7 +215,6 @@ function localImprove({
     const ev = evaluateSolution(trial, candidates, needs)
     const obj = objective(ev)
 
-    // accept if better, or sometimes if slightly worse (escape local minima)
     const delta = obj - bestObj
     const accept = delta <= 0 || Math.random() < Math.exp(-delta / 5000)
 
@@ -289,16 +274,15 @@ function collapseAssignments(assignments, candidates, shiftLength, splitSize) {
 export function assignRotationalShifts(
   forecast,
   {
-    weeks       = 3,
+    weeks = 3,
     shiftLength = 9,
     startHours,
     maxStaff,
-    splitSize   = 999,
+    splitSize = 999,
 
     exact = false,
     timeLimitMs = 0,
-    greedyRestarts = 15,
-    exactLogEvery = 50000
+    greedyRestarts = 15
   } = {}
 ) {
   const t0 = Date.now()
@@ -320,7 +304,7 @@ export function assignRotationalShifts(
 
   const cap = (typeof maxStaff === 'number' && maxStaff > 0) ? maxStaff : 999999
 
-  // If not exact, do one deterministic greedy build
+  // Non-exact: one deterministic greedy build
   if (!exact) {
     const assignments = greedyBuild({
       candidates,
@@ -346,7 +330,7 @@ export function assignRotationalShifts(
     }
   }
 
-  // "exact": many restarts + improvement, time-bounded
+  // Exact-search: many restarts + improvement, bounded by time AND restart count
   let bestAssignments = []
   let bestEval = { shortfall: Infinity, over: Infinity, headcount: 0 }
   let bestObj = Infinity
@@ -356,13 +340,34 @@ export function assignRotationalShifts(
 
   const hardStop = () => timeLimitMs > 0 && (Date.now() - t0) >= timeLimitMs
 
-  // Explore until time limit or restarts exhausted
-  while (!hardStop()) {
+  // greedyRestarts:
+  //   0 => unlimited (timeLimitMs must be > 0, or this could run forever)
+  const restartLimit = (typeof greedyRestarts === 'number' && greedyRestarts >= 0)
+    ? greedyRestarts
+    : 15
+
+  while (!hardStop() && (restartLimit === 0 || restarts < restartLimit)) {
     restarts++
-    if (restarts > greedyRestarts && timeLimitMs <= 0) break
+
+    const remainingMs = timeLimitMs > 0
+      ? Math.max(0, timeLimitMs - (Date.now() - t0))
+      : 0
+
+    const restartsLeft = restartLimit === 0
+      ? 1
+      : Math.max(1, restartLimit - restarts + 1)
+
+    // Per-restart improvement budget:
+    // - If time-limited: split remaining time roughly across remaining restarts
+    // - If not time-limited: cap each restart improvement to keep moving
+    const improveBudgetMs = timeLimitMs > 0
+      ? Math.max(250, Math.floor(remainingMs / restartsLeft))
+      : 2500
 
     // diversify: more random early, greedier later
-    const temp = Math.max(0.5, 2.0 - (restarts / Math.max(1, greedyRestarts)) * 1.5)
+    const temp = restartLimit === 0
+      ? 1.0
+      : Math.max(0.5, 2.0 - (restarts / Math.max(1, restartLimit)) * 1.5)
 
     const seed = greedyBuild({
       candidates,
@@ -373,18 +378,11 @@ export function assignRotationalShifts(
       temperature: temp
     })
 
-    // if we got fewer than cap but still shortfall exists, this seed is weak but keep going
-    const seedEval = evaluateSolution(seed, candidates, needs)
-    let seedObj = objective(seedEval)
-
-    // local improvement phase (uses remaining time)
     const improved = localImprove({
       candidates,
       needs,
-      maxStaff: cap,
       startAssignments: seed,
-      timeLimitMs: timeLimitMs > 0 ? timeLimitMs : 0,
-      startTimeMs: t0
+      budgetMs: improveBudgetMs
     })
     improveItersTotal += improved.iters
 
@@ -397,13 +395,8 @@ export function assignRotationalShifts(
       bestEval = ev
     }
 
-    if (exactLogEvery && (restarts % Math.max(1, Math.floor(exactLogEvery / 10000))) === 0) {
-      // no console spam here; meta covers it. keep loop hot.
-    }
-
-    // If we found feasible with exactly cap staff, keep searching for better over reduction,
-    // but if cap is low, time will dominate anyway.
-    // (feasibility is shortfall === 0)
+    // quick exit if perfectly feasible and no over at all
+    if (bestEval.shortfall === 0 && bestEval.over === 0) break
   }
 
   const solution = collapseAssignments(bestAssignments, candidates, shiftLength, splitSize)
@@ -440,7 +433,6 @@ export function autoAssignRotations(
     exact = false,
     timeLimitMs = 0,
     greedyRestarts = 15,
-    exactLogEvery = 50000,
 
     startHours
   } = {}
@@ -455,7 +447,6 @@ export function autoAssignRotations(
       exact,
       timeLimitMs,
       greedyRestarts,
-      exactLogEvery,
       startHours
     }
   )

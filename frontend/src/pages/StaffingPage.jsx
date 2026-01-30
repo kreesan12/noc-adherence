@@ -3,7 +3,7 @@ import {
   Box, TextField, Button, Typography,
   MenuItem, Select, InputLabel, FormControl, Switch,
   Table, TableHead, TableBody, TableRow, TableCell,
-  Tooltip, FormControlLabel, Divider
+  Tooltip, FormControlLabel, Paper, Divider, LinearProgress
 } from '@mui/material';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -22,13 +22,6 @@ import * as XLSX from 'xlsx';
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
 const MAX_ITERS      = 50;
-
-function fmtElapsed(ms) {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, '0')}`;
-}
 
 export default function StaffingPage() {
   /* STATE */
@@ -52,44 +45,27 @@ export default function StaffingPage() {
   const [fixedStaff, setFixedStaff] = useState(0);
   const [excludeAuto, setExcludeAuto] = useState(true);
 
-  /* Solver controls */
-  const [useExactTrim, setUseExactTrim] = useState(false);
-  const [latestStartHour, setLatestStartHour] = useState(15);     // 0..15 default
-  const [timeLimitMin, setTimeLimitMin] = useState(30);           // per-cap exact attempt
-  const [greedyRestarts, setGreedyRestarts] = useState(999);
+  // Solver UI + controls
+  const [useExact, setUseExact] = useState(false);
+  const [latestStartHour, setLatestStartHour] = useState(15);
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(30);
+  const [greedyRestarts, setGreedyRestarts] = useState(60);
   const [splitSize, setSplitSize] = useState(999);
 
-  /* Live solver status */
   const [solverRunning, setSolverRunning] = useState(false);
   const [solverPhase, setSolverPhase] = useState('Idle');
+  const [solverIter, setSolverIter] = useState(0);
   const [solverCap, setSolverCap] = useState(null);
   const [solverHeadcount, setSolverHeadcount] = useState(null);
   const [solverBestFeasible, setSolverBestFeasible] = useState(null);
-  const [solverLastMs, setSolverLastMs] = useState(null);
+  const [solverFeasible, setSolverFeasible] = useState(null);
+  const [solverElapsedSec, setSolverElapsedSec] = useState(0);
+  const [solverLastCallMs, setSolverLastCallMs] = useState(null);
   const [solverLog, setSolverLog] = useState([]);
 
-  const startTsRef = useRef(0);
+  const solverStartRef = useRef(null);
   const timerRef = useRef(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
-
-  function logLine(msg) {
-    const ts = dayjs().format('HH:mm:ss');
-    setSolverLog(prev => [...prev, `[${ts}] ${msg}`].slice(-300));
-  }
-
-  function startTimer() {
-    startTsRef.current = Date.now();
-    setElapsedMs(0);
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setElapsedMs(Date.now() - startTsRef.current);
-    }, 250);
-  }
-
-  function stopTimer() {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
-  }
+  const cancelRef = useRef(false);
 
   /* LOAD AGENTS & ROLES */
   useEffect(() => {
@@ -105,6 +81,27 @@ export default function StaffingPage() {
 
   /* HELPERS */
 
+  function logLine(msg) {
+    const ts = dayjs().format('HH:mm:ss');
+    setSolverLog(prev => [`[${ts}] ${msg}`, ...prev].slice(0, 400));
+  }
+
+  function startSolverTimer() {
+    solverStartRef.current = Date.now();
+    setSolverElapsedSec(0);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      if (!solverStartRef.current) return;
+      setSolverElapsedSec(Math.floor((Date.now() - solverStartRef.current) / 1000));
+    }, 500);
+  }
+
+  function stopSolverTimer() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+  }
+
+  // Rotation-aware work dates: weeks * 5 workdays, filtered to forecast dateSet
   function getWorkDates(startDateStr, weeksCount, dateSet) {
     const out = [];
     for (let w = 0; w < weeksCount; w++) {
@@ -117,6 +114,7 @@ export default function StaffingPage() {
     return out;
   }
 
+  // Build schedule from solver solution (must match solver assumptions)
   function buildSchedule(solution, reqMap, forecastDateSet) {
     const schedByEmp = {};
     const totalEmp = solution.reduce((s, b) => s + b.count, 0);
@@ -148,6 +146,7 @@ export default function StaffingPage() {
 
             const day = d.format('YYYY-MM-DD');
 
+            // choose lunch hour (2..5 hours into shift)
             const candidates = [];
             for (let off = 2; off <= 5; off++) {
               const h = block.startHour + off;
@@ -178,8 +177,8 @@ export default function StaffingPage() {
             schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
 
             for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
-              const k2 = `${day}|${h}`;
-              coverMap[k2] = (coverMap[k2] ?? 0) + 1;
+              const k = `${day}|${h}`;
+              coverMap[k] = (coverMap[k] ?? 0) + 1;
             }
             const lk = `${day}|${breakHour}`;
             lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
@@ -267,159 +266,150 @@ export default function StaffingPage() {
     setBlocks([]);
     setBestStart([]);
     setPersonSchedule({});
-    setSolverLog([]);
-    setSolverBestFeasible(null);
-    setSolverPhase('Idle');
-    setSolverCap(null);
-    setSolverHeadcount(null);
-    setSolverLastMs(null);
   };
 
   /* ASSIGN SHIFTS */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return; }
 
+    cancelRef.current = false;
     setSolverRunning(true);
-    setSolverLog([]);
-    setSolverBestFeasible(null);
     setSolverPhase('Starting');
+    setSolverIter(0);
     setSolverCap(null);
     setSolverHeadcount(null);
-    setSolverLastMs(null);
-    startTimer();
+    setSolverBestFeasible(null);
+    setSolverFeasible(null);
+    setSolverLastCallMs(null);
+    setSolverLog([]);
+    startSolverTimer();
     logLine('Solver started');
 
-    try {
-      const reqMap = {};
-      forecast.forEach(d =>
-        d.staffing.forEach(({ hour, requiredAgents }) => {
-          reqMap[`${d.date}|${hour}`] = requiredAgents;
+    const reqMap = {};
+    forecast.forEach(d =>
+      d.staffing.forEach(({ hour, requiredAgents }) => {
+        reqMap[`${d.date}|${hour}`] = requiredAgents;
+      })
+    );
+
+    const forecastDateSet = new Set(forecast.map(d => d.date));
+
+    const solve = async (cap, exactMode, phaseLabel) => {
+      if (cancelRef.current) throw new Error('Cancelled');
+
+      setSolverPhase(phaseLabel);
+      setSolverCap(cap);
+
+      logLine(`Testing cap ${cap} (${phaseLabel})`);
+
+      const body = {
+        staffing: forecast,
+        weeks,
+        shiftLength: SHIFT_LENGTH,
+        topN: 5,
+        maxStaff: cap,
+
+        // solver knobs
+        exact: Boolean(exactMode),
+        timeLimitMs: exactMode ? Math.max(0, Math.floor(Number(timeLimitMinutes) * 60 * 1000)) : 0,
+        greedyRestarts: exactMode ? Number(greedyRestarts) : 0,
+        splitSize: Number(splitSize),
+        latestStartHour: Number(latestStartHour)
+      };
+
+      const t0 = performance.now();
+      const { data } = await api.post('/erlang/staff/schedule', body);
+      const dt = Math.round(performance.now() - t0);
+
+      setSolverLastCallMs(dt);
+
+      const headCnt = (data.solution || []).reduce((s, b) => s + (b.count || 0), 0);
+      setSolverHeadcount(headCnt);
+
+      logLine(`Returned headcount ${headCnt} in ${dt} ms (${data?.meta?.method || (exactMode ? 'exact' : 'greedy')})`);
+
+      const sched = buildSchedule(data.solution || [], reqMap, forecastDateSet);
+
+      // compute deficit
+      const cov = {};
+      Object.values(sched).forEach(arr =>
+        arr.forEach(({ day, hour, breakHour }) => {
+          for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
+            if (h === breakHour) continue;
+            const k = `${day}|${h}`;
+            cov[k] = (cov[k] ?? 0) + 1;
+          }
         })
       );
 
-      const forecastDateSet = new Set(forecast.map(d => d.date));
+      const def = {};
+      Object.keys(reqMap).forEach(k => {
+        def[k] = (cov[k] ?? 0) - reqMap[k];
+      });
 
-      const startHours = Array.from(
-        { length: Math.max(0, Math.min(15, latestStartHour)) + 1 },
-        (_, i) => i
-      );
+      const feasible = !hasShortfall(def);
+      setSolverFeasible(feasible);
 
-      const solve = async (cap, mode) => {
-        // mode: 'greedy' or 'exact'
-        const body = {
-          staffing: forecast,
-          weeks,
-          shiftLength: SHIFT_LENGTH,
-          topN: 5,
-          splitSize,
-          startHours
-        };
+      if (feasible) logLine(`Feasible at cap ${cap}`);
+      else logLine(`Not feasible at cap ${cap}`);
 
-        if (cap > 0) body.maxStaff = cap;
-
-        // CRITICAL FIX: exact is ONLY used in trim phase
-        if (mode === 'exact') {
-          body.exact = true;
-          body.timeLimitMs = Math.max(0, Math.floor(timeLimitMin * 60 * 1000));
-          body.greedyRestarts = Math.max(1, greedyRestarts);
-        } else {
-          body.exact = false;
-          body.timeLimitMs = 0;
-          body.greedyRestarts = 0;
-        }
-
-        setSolverCap(cap);
-        const t0 = Date.now();
-        const { data } = await api.post('/erlang/staff/schedule', body);
-        const dt = Date.now() - t0;
-
-        const headCnt = data.solution.reduce((s, b) => s + b.count, 0);
-        setSolverHeadcount(headCnt);
-        setSolverLastMs(dt);
-
-        const sched = buildSchedule(data.solution, reqMap, forecastDateSet);
-
-        const cov = {};
-        Object.values(sched).forEach(arr =>
-          arr.forEach(({ day, hour, breakHour }) => {
-            for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-              if (h === breakHour) continue;
-              const k = `${day}|${h}`;
-              cov[k] = (cov[k] ?? 0) + 1;
-            }
-          })
-        );
-
-        const def = {};
-        Object.keys(reqMap).forEach(k => { def[k] = (cov[k] ?? 0) - reqMap[k]; });
-
-        const feasible = !hasShortfall(def);
-
-        return {
-          solution: data.solution,
-          bestStart: data.bestStartHours,
-          schedule: sched,
-          deficit: def,
-          headCnt,
-          feasible,
-          meta: data.meta,
-          ms: dt
-        };
+      return {
+        solution: data.solution || [],
+        bestStart: data.bestStartHours || [],
+        schedule: sched,
+        deficit: def,
+        headCnt,
+        feasible,
+        meta: data.meta
       };
+    };
 
-      /* Fixed cap path */
+    try {
+      // Fixed-cap path
       if (useFixedStaff && fixedStaff > 0) {
-        setSolverPhase('Fixed cap (greedy)');
-        logLine(`Testing fixed cap ${fixedStaff} (greedy)`);
-        const plan = await solve(fixedStaff, 'greedy');
-        logLine(`Returned headcount ${plan.headCnt} in ${plan.ms} ms`);
-        logLine(plan.feasible ? 'Feasible' : 'Not feasible');
-
+        const plan = await solve(Number(fixedStaff), useExact, 'Fixed cap');
         setBlocks(plan.solution);
         setBestStart(plan.bestStart);
         setPersonSchedule(plan.schedule);
         setSolverBestFeasible(plan.feasible ? plan.headCnt : null);
+        setSolverPhase('Done');
+        logLine(`Done. Final headcount ${plan.headCnt}`);
         return;
       }
 
-      /* Phase 1: Fast greedy expand to get an upper bound */
-      setSolverPhase('Expanding cap (greedy)');
-      let lo = 0;
-      let hi = 1;
-
-      logLine(`Testing cap ${hi} (greedy expand)`);
-      let plan = await solve(hi, 'greedy');
-      logLine(`Returned headcount ${plan.headCnt} in ${plan.ms} ms`);
-      if (!plan.feasible) logLine(`Not feasible at cap ${hi}`);
+      // Expansion: ALWAYS greedy (fast) to find an upper bound
+      setSolverPhase('Expanding cap');
+      let lo = 0, hi = 1;
+      let plan = await solve(hi, false, 'Expanding cap');
 
       while (!plan.feasible) {
         lo = hi;
         hi *= 2;
-        if (hi > 10000) {
-          logLine('Guard hit: cap exceeded 10000');
-          break;
-        }
-        logLine(`Testing cap ${hi} (greedy expand)`);
-        plan = await solve(hi, 'greedy');
-        logLine(`Returned headcount ${plan.headCnt} in ${plan.ms} ms`);
-        logLine(plan.feasible ? `Feasible at cap ${hi}` : `Not feasible at cap ${hi}`);
+        if (hi > 10000) break;
+        plan = await solve(hi, false, 'Expanding cap');
       }
 
+      if (!plan.feasible) {
+        setSolverPhase('Failed');
+        logLine('Could not find feasible upper bound within limits.');
+        return;
+      }
+
+      setSolverBestFeasible(plan.headCnt);
+      logLine(`Feasible upper bound found at cap ${hi}, starting binary search`);
+
+      // Binary search: use exact ONLY here (when reducing)
       let best = plan;
-      if (best.feasible) {
-        setSolverBestFeasible(best.headCnt);
-        logLine(`Feasible upper bound found at cap ${hi}, starting binary search (greedy only)`);
-      } else {
-        logLine('No feasible upper bound found in greedy expand');
-      }
+      let iter = 0;
 
-      /* Phase 1b: Binary search (still greedy only) */
-      setSolverPhase('Binary search (greedy)');
-      for (let i = 0; i < MAX_ITERS && best.feasible && hi - lo > 1; i++) {
+      while (iter < MAX_ITERS && hi - lo > 1) {
+        iter++;
+        setSolverIter(iter);
+
         const mid = Math.floor((lo + hi) / 2);
-        logLine(`Testing cap ${mid} (greedy binary ${i + 1}/${MAX_ITERS})`);
-        const cur = await solve(mid, 'greedy');
-        logLine(`Returned headcount ${cur.headCnt} in ${cur.ms} ms`);
+        const phaseLabel = `Binary search (${iter}/${MAX_ITERS})`;
+
+        const cur = await solve(mid, useExact, phaseLabel);
 
         if (!cur.feasible) {
           lo = mid;
@@ -432,47 +422,20 @@ export default function StaffingPage() {
         }
       }
 
-      /* Phase 2: Exact trim (ONLY now) */
-      if (useExactTrim && best.feasible) {
-        setSolverPhase('Exact trim (slow)');
-        logLine(`Starting exact trim from ${best.headCnt - 1} downwards`);
-        logLine(`Exact budget per cap: ${timeLimitMin} min, restarts: ${greedyRestarts}`);
-
-        let cap = best.headCnt - 1;
-        while (cap >= 1) {
-          logLine(`Testing cap ${cap} (exact trim)`);
-          const cur = await solve(cap, 'exact');
-          logLine(`Returned headcount ${cur.headCnt} in ${cur.ms} ms`);
-          if (cur.meta) {
-            logLine(`Meta: restarts=${cur.meta.restarts ?? '?'} timeMs=${cur.meta.timeMs ?? '?'} shortfall=${cur.meta.shortfall ?? '?'} over=${cur.meta.over ?? '?'}`);
-          }
-          if (cur.feasible) {
-            best = cur;
-            setSolverBestFeasible(best.headCnt);
-            logLine(`Feasible at cap ${cap}. Continuing trim`);
-            cap = best.headCnt - 1; // keep trimming from the new best
-            continue;
-          } else {
-            logLine(`Infeasible at cap ${cap}. Stopping trim`);
-            break;
-          }
-        }
-      }
-
-      logLine(`Done. Final headcount ${best.headCnt}`);
-
       setBlocks(best.solution);
       setBestStart(best.bestStart);
       setPersonSchedule(best.schedule);
       setFixedStaff(best.headCnt);
+
+      setSolverPhase('Done');
+      logLine(`Done. Final headcount ${best.headCnt}`);
     } catch (err) {
       console.error(err);
-      logLine(`ERROR: ${err?.message || String(err)}`);
-      alert('Scheduling failed, see console.');
+      setSolverPhase('Error');
+      logLine(`Error: ${err?.message || 'unknown'}`);
     } finally {
       setSolverRunning(false);
-      setSolverPhase('Idle');
-      stopTimer();
+      stopSolverTimer();
     }
   };
 
@@ -544,6 +507,12 @@ export default function StaffingPage() {
     }
   };
 
+  const formatElapsed = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
   /* RENDER */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -552,13 +521,19 @@ export default function StaffingPage() {
           Staffing Forecast &amp; Scheduling
         </Typography>
 
-        {/* Solver panel */}
-        <Box sx={{ mb: 2, p: 2, border: '1px solid #ddd', borderRadius: 1 }}>
+        {/* Solver Controls */}
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="h6" gutterBottom>Solver Controls</Typography>
 
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
             <FormControlLabel
-              control={<Switch checked={useExactTrim} onChange={e => setUseExactTrim(e.target.checked)} />}
+              control={
+                <Switch
+                  checked={useExact}
+                  onChange={e => setUseExact(e.target.checked)}
+                  disabled={solverRunning}
+                />
+              }
               label="Use exact optimiser (slow)"
             />
 
@@ -566,61 +541,92 @@ export default function StaffingPage() {
               label="Latest start hour (0..15)"
               type="number"
               size="small"
+              sx={{ width: 180 }}
               value={latestStartHour}
-              onChange={e => setLatestStartHour(Math.max(0, Math.min(15, +e.target.value)))}
-              sx={{ width: 170 }}
+              onChange={e => setLatestStartHour(+e.target.value)}
+              disabled={solverRunning}
+              inputProps={{ min: 0, max: 15 }}
             />
 
             <TextField
               label="Time limit (minutes, 0 = none)"
               type="number"
               size="small"
-              value={timeLimitMin}
-              onChange={e => setTimeLimitMin(Math.max(0, +e.target.value))}
               sx={{ width: 220 }}
+              value={timeLimitMinutes}
+              onChange={e => setTimeLimitMinutes(+e.target.value)}
+              disabled={solverRunning || !useExact}
+              inputProps={{ min: 0 }}
             />
 
             <TextField
-              label="Greedy restarts"
+              label="Greedy restarts (0 = unlimited)"
               type="number"
               size="small"
+              sx={{ width: 220 }}
               value={greedyRestarts}
-              onChange={e => setGreedyRestarts(Math.max(1, +e.target.value))}
-              sx={{ width: 150 }}
+              onChange={e => setGreedyRestarts(+e.target.value)}
+              disabled={solverRunning || !useExact}
+              inputProps={{ min: 0 }}
             />
 
             <TextField
               label="Split size"
               type="number"
               size="small"
-              value={splitSize}
-              onChange={e => setSplitSize(Math.max(1, +e.target.value))}
               sx={{ width: 120 }}
+              value={splitSize}
+              onChange={e => setSplitSize(+e.target.value)}
+              disabled={solverRunning}
+              inputProps={{ min: 1 }}
             />
+
+            <Button
+              variant="outlined"
+              disabled={!solverRunning}
+              onClick={() => { cancelRef.current = true; logLine('Cancel requested'); }}
+            >
+              Cancel
+            </Button>
           </Box>
 
           <Divider sx={{ my: 2 }} />
 
           <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-            <Typography variant="body2"><b>Status:</b> {solverRunning ? 'Running' : 'Idle'}</Typography>
-            <Typography variant="body2"><b>Elapsed:</b> {fmtElapsed(elapsedMs)}</Typography>
-            <Typography variant="body2"><b>Phase:</b> {solverPhase}</Typography>
-            <Typography variant="body2"><b>Cap:</b> {solverCap ?? '-'}</Typography>
-            <Typography variant="body2"><b>Headcount:</b> {solverHeadcount ?? '-'}</Typography>
-            <Typography variant="body2"><b>Best feasible:</b> {solverBestFeasible ?? '-'}</Typography>
-            <Typography variant="body2"><b>Last call:</b> {solverLastMs != null ? `${solverLastMs} ms` : '-'}</Typography>
+            <Typography variant="body2">Status: <b>{solverPhase}</b></Typography>
+            <Typography variant="body2">Elapsed: <b>{formatElapsed(solverElapsedSec)}</b></Typography>
+            <Typography variant="body2">Cap: <b>{solverCap ?? '-'}</b></Typography>
+            <Typography variant="body2">Headcount: <b>{solverHeadcount ?? '-'}</b></Typography>
+            <Typography variant="body2">Best feasible: <b>{solverBestFeasible ?? '-'}</b></Typography>
+            <Typography variant="body2">Feasible: <b>{solverFeasible == null ? '-' : (solverFeasible ? 'yes' : 'no')}</b></Typography>
+            <Typography variant="body2">Last call: <b>{solverLastCallMs == null ? '-' : `${solverLastCallMs} ms`}</b></Typography>
           </Box>
 
-          <Box sx={{ mt: 2, maxHeight: 160, overflow: 'auto', bgcolor: '#fafafa', p: 1, borderRadius: 1, border: '1px solid #eee' }}>
+          {solverRunning && <LinearProgress sx={{ mt: 2 }} />}
+
+          <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle2" gutterBottom>Solver log</Typography>
-            <Box component="pre" sx={{ m: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>
-              {solverLog.join('\n')}
+            <Box sx={{
+              maxHeight: 220,
+              overflowY: 'auto',
+              bgcolor: '#0b1020',
+              color: '#d7e0ff',
+              p: 1.5,
+              borderRadius: 1,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+              fontSize: 12
+            }}>
+              {solverLog.length === 0 ? (
+                <div style={{ opacity: 0.75 }}>No log yet</div>
+              ) : solverLog.map((l, i) => (
+                <div key={i}>{l}</div>
+              ))}
             </Box>
           </Box>
-        </Box>
+        </Paper>
 
         {/* Main toolbar */}
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 4 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
           <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
@@ -663,7 +669,7 @@ export default function StaffingPage() {
           />
 
           <Button variant="contained" onClick={calcForecast}>
-            Calculate 6 Month Forecast
+            Calculate 6-Month Forecast
           </Button>
 
           <FormControlLabel sx={{ ml: 2 }}
@@ -676,26 +682,166 @@ export default function StaffingPage() {
               onChange={e => setFixedStaff(+e.target.value)} />
           )}
 
-          <Button variant="contained" sx={{ ml: 2 }}
+          <Button
+            variant="contained"
+            sx={{ ml: 2 }}
             disabled={!forecast.length || solverRunning}
-            onClick={assignToStaff}>
+            onClick={assignToStaff}
+          >
             Draft schedule & assign agents
           </Button>
 
           <Button variant="contained" color="secondary" sx={{ ml: 2 }}
-            disabled={!Object.keys(personSchedule).length}
+            disabled={!Object.keys(personSchedule).length || solverRunning}
             onClick={allocateToAgents}>
             Allocate to Agents
           </Button>
         </Box>
 
-        {/* HEATMAPS and tables unchanged from your version */}
-        {/* ... keep your existing heatmap and calendar rendering here ... */}
+        {/* REQUIRED HEATMAP */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Required Agents Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const req = d.staffing.find(s => s.hour === h)?.requiredAgents || 0;
+                      const alpha = maxReq ? (req / maxReq) * 0.8 + 0.2 : 0.2;
+                      return (
+                        <Tooltip key={d.date} title={`Req: ${req}`}>
+                          <TableCell sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}>
+                            {req}
+                          </TableCell>
+                        </Tooltip>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
 
+        {/* SCHEDULED HEATMAP */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const cov = scheduled[`${d.date}|${h}`] || 0;
+                      const alpha = maxSch ? (cov / maxSch) * 0.8 + 0.2 : 0.2;
+                      return (
+                        <Tooltip key={d.date} title={`Cov: ${cov}`}>
+                          <TableCell sx={{ backgroundColor: `rgba(76,175,80,${alpha})` }}>
+                            {cov}
+                          </TableCell>
+                        </Tooltip>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* DEFICIT HEATMAP */}
+        {forecast.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Hour</TableCell>
+                  {forecast.map(d => (
+                    <TableCell key={d.date}>{d.date}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <TableRow key={h}>
+                    <TableCell>{h}:00</TableCell>
+                    {forecast.map(d => {
+                      const val = deficit[`${d.date}|${h}`] || 0;
+                      const ratio = maxDef ? (Math.abs(val) / maxDef) * 0.8 + 0.2 : 0.2;
+                      const col = val < 0
+                        ? `rgba(244,67,54,${ratio})`
+                        : `rgba(76,175,80,${ratio})`;
+                      return (
+                        <Tooltip key={d.date} title={`Deficit: ${val}`}>
+                          <TableCell sx={{ backgroundColor: col }}>
+                            {val}
+                          </TableCell>
+                        </Tooltip>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* BLOCKS TABLE */}
+        {blocks.length > 0 && (
+          <Box sx={{ mb: 4, overflowX: 'auto' }}>
+            <Typography variant="h6">Assigned Shift-Block Types</Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Start Date</TableCell>
+                  <TableCell>Start Hour</TableCell>
+                  <TableCell>Length (h)</TableCell>
+                  <TableCell>Count</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {blocks.map((b, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{i + 1}</TableCell>
+                    <TableCell>{b.startDate}</TableCell>
+                    <Tooltip title={`Starts at ${b.startHour}:00`}>
+                      <TableCell>{b.startHour}:00</TableCell>
+                    </Tooltip>
+                    <TableCell>{b.length}</TableCell>
+                    <TableCell>{b.count}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* CALENDAR */}
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>
-              6 Month Staff Calendar (rotating every {weeks} weeks)
+              6-Month Staff Calendar (rotating every {weeks} weeks)
             </Typography>
 
             <Button variant="outlined" onClick={exportExcel} sx={{ mb: 2 }}>
@@ -708,7 +854,7 @@ export default function StaffingPage() {
               <Typography variant="subtitle1">
                 {useFixedStaff
                   ? `Staff cap set to ${fixedStaff}.`
-                  : `Full coverage schedule uses ${Object.keys(personSchedule).length} agents
+                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} agents
                   (${excludeAuto ? 'automation excluded' : 'automation included'}).`}
               </Typography>
             </Box>

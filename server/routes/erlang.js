@@ -51,8 +51,8 @@ export default prisma => {
 
       const hours = Array.from({ length: 24 }, (_, h) => {
         const slice   = actuals.filter(a => a.hour === h)
-        const calls   = slice.reduce((s, a) => s + a.calls,   0)
-        const tickets = slice.reduce((s, a) => s + a.tickets, 0)
+        const calls   = slice.reduce((s, a) => s + (a.calls ?? 0),   0)
+        const tickets = slice.reduce((s, a) => s + (a.tickets ?? 0), 0)
         return { hour: h, calls, tickets }
       })
 
@@ -121,17 +121,26 @@ export default prisma => {
         topN = 5,
         maxStaff,
 
-        // new optional controls
-        splitSize = 999,
-        startHours,          // array whitelist, eg [0..15]
+        // NEW solver knobs
         exact = false,
         timeLimitMs = 0,
-        greedyRestarts = 15
+        greedyRestarts = 15,
+        splitSize = 999,
+        latestStartHour = 15
       } = req.body
 
       if (!Array.isArray(forecast) || !forecast.length) {
-        return res.status(400).json({ error: 'Missing or empty `staffing` in request body' })
+        return res
+          .status(400)
+          .json({ error: 'Missing or empty `staffing` in request body' })
       }
+
+      // limit start hours: midnight..latestStartHour, but also clamp by shiftLength
+      const maxStartAllowed = Math.max(0, Math.min(
+        Number(latestStartHour ?? 15),
+        24 - shiftLength
+      ))
+      const startHours = Array.from({ length: maxStartAllowed + 1 }, (_, h) => h)
 
       const { bestStartHours, solution, meta } = autoAssignRotations(
         forecast,
@@ -141,10 +150,10 @@ export default prisma => {
           topN,
           maxStaff,
           splitSize,
-          startHours,
-          exact,
-          timeLimitMs,
-          greedyRestarts
+          exact: Boolean(exact),
+          timeLimitMs: Number(timeLimitMs || 0),
+          greedyRestarts: Number(greedyRestarts ?? 15),
+          startHours
         }
       )
 
