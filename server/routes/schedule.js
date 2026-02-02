@@ -1,7 +1,8 @@
 // server/routes/schedule.js
 import { Router } from 'express'
 import dayjs from '../utils/dayjs.js'
-import { autoAssignRotations } from '../utils/scheduler.js'
+import { autoAssignRotations } from '../utils/shiftSolverWaterfallTemplate.js'
+
 
 export default prisma => {
   const r = Router()
@@ -97,46 +98,21 @@ export default prisma => {
       const {
         forecast,
         weeks = 3,
-        shiftLength = 9,
-        topN = 5,
-        maxStaff,
-
-        exact = false,
-        timeLimitMs = 0,
-        greedyRestarts = 15,
-        exactLogEvery = 50000,
-
-        // default: allowed start times midnight..3pm
-        startHours,
-        splitSize = 999
+        shiftLength = 9
       } = req.body || {}
 
       if (!Array.isArray(forecast) || forecast.length === 0) {
         return res.status(400).json({ error: 'Missing or empty `forecast`' })
       }
 
-      const effectiveStartHours = Array.isArray(startHours) && startHours.length
-        ? startHours
-        : Array.from({ length: 16 }, (_, h) => h) // 0..15
-
       const result = autoAssignRotations(forecast, {
-        weeks,
-        shiftLength,
-        topN,
-        maxStaff,
-        splitSize,
-        startHours: effectiveStartHours,
-
-        // exact optimizer knobs
-        exact,
-        timeLimitMs,
-        greedyRestarts,
-        exactLogEvery
+        weeks: Number(weeks || 3),
+        shiftLength: Number(shiftLength || 9)
       })
 
-      // return meta too so you can verify it truly searched
-      const { bestStartHours, solution, meta } = result
-      return res.json({ bestStartHours, solution, meta })
+      const { bestStartHours, solution, plan, meta } = result
+      return res.json({ bestStartHours, solution, plan, meta })
+
     } catch (err) {
       next(err)
     }

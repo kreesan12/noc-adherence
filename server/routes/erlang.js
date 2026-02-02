@@ -5,7 +5,8 @@ import {
   requiredAgents,
   computeDayStaffing
 } from '../utils/erlang.js'
-import { autoAssignRotations }  from '../utils/scheduler.js'
+import { autoAssignRotations } from '../utils/shiftSolverWaterfallTemplate.js'
+
 
 dayjs.extend(isSameOrBefore)
 
@@ -114,73 +115,29 @@ export default prisma => {
   /* 4) Shift-schedule generator */
   r.post('/staff/schedule', (req, res, next) => {
     try {
-      const {
-        staffing: forecast,
-        weeks = 3,
-        shiftLength = 9,
-        topN = 5,
-        maxStaff,
+        const {
+          staffing: forecast,
+          weeks = 3,
+          shiftLength = 9
+        } = req.body
 
-        // NEW solver knobs
-        exact = false,
-        timeLimitMs = 0,
-        greedyRestarts = 15,
-        splitSize = 999,
-        latestStartHour = 15
-      } = req.body
-
-      if (!Array.isArray(forecast) || !forecast.length) {
-        return res
-          .status(400)
-          .json({ error: 'Missing or empty `staffing` in request body' })
-      }
-
-// Start-hours:
-// If client provides startHours, use it (sanitized).
-// Otherwise fall back to midnight..latestStartHour.
-const maxStartAllowed = Math.max(0, Math.min(
-  Number(latestStartHour ?? 15),
-  24 - shiftLength
-))
-
-let startHours = null
-
-if (Array.isArray(req.body.startHours) && req.body.startHours.length) {
-  // sanitize: ints, unique, in range 0..(24-shiftLength)
-  const maxH = 24 - shiftLength
-  startHours = [...new Set(
-    req.body.startHours
-      .map(h => Number(h))
-      .filter(h => Number.isFinite(h))
-      .map(h => Math.floor(h))
-      .filter(h => h >= 0 && h <= maxH)
-  )].sort((a, b) => a - b)
-
-  // If sanitation wipes everything, fall back
-  if (!startHours.length) startHours = null
-}
-
-if (!startHours) {
-  startHours = Array.from({ length: maxStartAllowed + 1 }, (_, h) => h)
-}
-
-
-      const { bestStartHours, solution, meta } = autoAssignRotations(
-        forecast,
-        {
-          weeks,
-          shiftLength,
-          topN,
-          maxStaff,
-          splitSize,
-          exact: Boolean(exact),
-          timeLimitMs: Number(timeLimitMs || 0),
-          greedyRestarts: Number(greedyRestarts ?? 15),
-          startHours
+        if (!Array.isArray(forecast) || !forecast.length) {
+          return res
+            .status(400)
+            .json({ error: 'Missing or empty `staffing` in request body' })
         }
-      )
 
-      res.json({ bestStartHours, solution, meta })
+        // Waterfall template solver ignores old knobs like exact, startHours, maxStaff etc
+        const result = autoAssignRotations(forecast, {
+          weeks: Number(weeks || 3),
+          shiftLength: Number(shiftLength || 9)
+        })
+
+        // IMPORTANT: return `plan` too (frontend uses plan.slots etc)
+        const { bestStartHours, solution, plan, meta } = result
+        return res.json({ bestStartHours, solution, plan, meta })
+
+
     } catch (err) { next(err) }
   })
 

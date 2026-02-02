@@ -22,12 +22,6 @@ import * as XLSX from 'xlsx';
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
 
-const SHIFT_TYPES = {
-  grave: { startHour: 0, breakOffset: 4 },
-  day:   { startHour: 8, breakOffset: 4 },
-  late:  { startHour: 15, breakOffset: 4 }
-};
-
 export default function StaffingPage() {
   /* STATE */
   const [roles,  setRoles]  = useState([]);
@@ -46,14 +40,8 @@ export default function StaffingPage() {
   const [blocks, setBlocks] = useState([]);
   const [bestStartHours, setBestStart] = useState([]);
   const [personSchedule, setPersonSchedule] = useState({});
-  const [useFixedStaff, setUseFixedStaff] = useState(false);
-  const [fixedStaff, setFixedStaff] = useState(0);
   const [excludeAuto, setExcludeAuto] = useState(true);
   const [countLunchAsCoverage, setCountLunchAsCoverage] = useState(false);
-
-  // Waterfall rotation controls
-  const [graveRotateAfterCycles, setGraveRotateAfterCycles] = useState(2);
-  const [lateRotateAfterCycles, setLateRotateAfterCycles] = useState(2);
 
   // Solver UI
   const [solverRunning, setSolverRunning] = useState(false);
@@ -103,18 +91,20 @@ export default function StaffingPage() {
     timerRef.current = null;
   }
 
+  function formatElapsed(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
   function hasShortfall(def) {
     return Object.values(def).some(v => v < 0);
   }
 
-  function buildWeekdayDateMapFromForecastDates(forecastDates) {
-    const map = {};
-    const firstWeek = forecastDates.slice(0, 7);
-    firstWeek.forEach(d => {
-      const wd = dayjs(d).day();
-      if (map[wd] == null) map[wd] = d;
-    });
-    return map;
+  function addHourKey(dayStr, hour) {
+    if (hour < 24) return `${dayStr}|${hour}`;
+    const nextDay = dayjs(dayStr).add(1, 'day').format('YYYY-MM-DD');
+    return `${nextDay}|${hour - 24}`;
   }
 
   function getWorkDates(startDateStr, weeksCount) {
@@ -128,40 +118,39 @@ export default function StaffingPage() {
     return out;
   }
 
-  function shiftTypeForTrackAtCycle(track, ci) {
-    if (track.pool === 'day') return 'day';
-
-    const required = track.required ?? 1;
-    const rotateAfter = track.rotateAfterCycles ?? 2;
-    const groupSize = Math.max(1, required);
-    const groupCount = rotateAfter + 1;
-
-    const groupIndex0 = Math.floor((track.slotIndex ?? 0) / groupSize);
-    const groupIndex = (groupIndex0 + ci) % groupCount;
-
-    if (groupIndex === 0) return track.pool;
-    return 'day';
+  function buildWeekdayDateMapFromForecastDates(forecastDates) {
+    const map = {};
+    const firstWeek = forecastDates.slice(0, 7);
+    firstWeek.forEach(d => {
+      const wd = dayjs(d).day();
+      if (map[wd] == null) map[wd] = d;
+    });
+    return map;
   }
 
-  function phaseForTrackAtCycle(track, ci) {
-    const p0 = track.phase0 ?? 0;
-    return (p0 + ci) % 7;
+  function pickBreakHour({ dayStr, startHour, reqMap, covMap }) {
+    const candidates = [];
+    for (let off = 2; off <= 5; off++) {
+      const h = startHour + off;
+      const k = addHourKey(dayStr, h);
+      const req = reqMap[k] ?? 0;
+      const got = covMap[k] ?? 0;
+      const slack = got - req;
+      candidates.push({ h, slack });
+    }
+    candidates.sort((a, b) => b.slack - a.slack || a.h - b.h);
+    return candidates[0]?.h ?? (startHour + 4);
   }
 
-  function buildScheduleFromTracks(tracks, reqMap, forecastDateSet) {
-    const schedByEmp = {};
-    const totalEmp = tracks.length;
-    const empIds = Array.from({ length: totalEmp }, (_, i) => i + 1);
-    empIds.forEach(id => (schedByEmp[id] = []));
-
-    const coverMap = {};
-    const lunchMap = {};
+  function buildScheduleFromPlan(plan, reqMap, forecastDateSet) {
+    const { slots, phaseToBucket, bucketStartHours } = plan;
 
     const allForecastDates = Array.from(forecastDateSet).sort();
     const horizonStart = allForecastDates[0];
     const horizonEnd = allForecastDates[allForecastDates.length - 1];
 
     const weekdayMap = buildWeekdayDateMapFromForecastDates(allForecastDates);
+
     const start = dayjs(horizonStart);
     const end = dayjs(horizonEnd);
 
@@ -169,69 +158,66 @@ export default function StaffingPage() {
     const totalDays = end.diff(start, 'day') + 1;
     const cycles = Math.max(1, Math.ceil(totalDays / cycleDays));
 
+    const headcount = slots.length;
+    const schedByEmp = {};
+    const covMap = {};
+
+    for (let e = 0; e < headcount; e++) schedByEmp[e + 1] = [];
+
     for (let ci = 0; ci < cycles; ci++) {
-      for (let ti = 0; ti < tracks.length; ti++) {
-        const track = tracks[ti];
-        const empId = ti + 1;
+      for (let e = 0; e < headcount; e++) {
+        if (cancelRef.current) throw new Error('Cancelled');
 
-        const phase = phaseForTrackAtCycle(track, ci);
-        const baseStartDate = weekdayMap[phase];
-        if (!baseStartDate) continue;
+        const phase = slots[(e + ci) % headcount];
+        const bucketKey = phaseToBucket[String(phase)] || phaseToBucket[phase];
+        const startHour = bucketStartHours[bucketKey] ?? 8;
 
-        const shiftType = shiftTypeForTrackAtCycle(track, ci);
-        const st = SHIFT_TYPES[shiftType] ?? SHIFT_TYPES.day;
+        const baseStart = weekdayMap[phase];
+        if (!baseStart) continue;
 
-        const workDates = getWorkDates(baseStartDate, weeks);
+        const cycleStart = dayjs(baseStart).add(ci * cycleDays, 'day');
+        const workDates = getWorkDates(cycleStart.format('YYYY-MM-DD'), weeks);
 
-        workDates.forEach(dtStr => {
-          const d = dayjs(dtStr).add(ci * cycleDays, 'day');
-          if (d.isBefore(start, 'day')) return;
-          if (d.isAfter(end, 'day')) return;
+        for (const dtStr of workDates) {
+          const d = dayjs(dtStr);
+          if (d.isBefore(start, 'day')) continue;
+          if (d.isAfter(end, 'day')) continue;
 
-          const day = d.format('YYYY-MM-DD');
-          if (!forecastDateSet.has(day)) return;
+          const dayStr = d.format('YYYY-MM-DD');
+          if (!forecastDateSet.has(dayStr)) continue;
 
-          // Pick lunch hour that hurts the least (same logic you had)
-          const candidates = [];
-          for (let off = 2; off <= 5; off++) {
-            const h = st.startHour + off;
-            if (h >= st.startHour + SHIFT_LENGTH) break;
-            if (h >= 24) break;
+          const breakHour = pickBreakHour({ dayStr, startHour, reqMap, covMap });
 
-            const k = `${day}|${h}`;
-            const onDuty = coverMap[k] ?? 0;
-            const lunches = lunchMap[k] ?? 0;
-            const required = reqMap[k] ?? 0;
+          schedByEmp[e + 1].push({ day: dayStr, hour: startHour, breakHour });
 
-            const projected = onDuty - lunches - 1;
-            const surplus = projected - required;
-
-            if (surplus >= 0) candidates.push({ h, surplus, lunches });
+          for (let h = startHour; h < startHour + SHIFT_LENGTH; h++) {
+            const k = addHourKey(dayStr, h);
+            covMap[k] = (covMap[k] ?? 0) + 1;
           }
-
-          const breakHour = candidates.length
-            ? candidates.sort((a, b) =>
-                a.surplus - b.surplus ||
-                a.lunches - b.lunches ||
-                a.h - b.h
-              )[0].h
-            : (st.startHour + (st.breakOffset ?? 4));
-
-          schedByEmp[empId].push({ day, hour: st.startHour, breakHour });
-
-          // Apply coverage maps
-          for (let h = st.startHour; h < st.startHour + SHIFT_LENGTH; h++) {
-            if (h >= 24) break;
-            const k = `${day}|${h}`;
-            coverMap[k] = (coverMap[k] ?? 0) + 1;
-          }
-          const lk = `${day}|${breakHour}`;
-          lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
-        });
+          const lk = addHourKey(dayStr, breakHour);
+          covMap[lk] = (covMap[lk] ?? 0); // lunch tracking optional
+        }
       }
     }
 
-    return schedByEmp;
+    // Feasibility based on lunch excluded coverage
+    const covNoLunch = {};
+    Object.values(schedByEmp).forEach(arr =>
+      arr.forEach(({ day, hour, breakHour }) => {
+        for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
+          const k = addHourKey(day, h);
+          if (h === breakHour) continue;
+          covNoLunch[k] = (covNoLunch[k] ?? 0) + 1;
+        }
+      })
+    );
+
+    const def = {};
+    Object.keys(reqMap).forEach(k => {
+      def[k] = (covNoLunch[k] ?? 0) - reqMap[k];
+    });
+
+    return { schedByEmp, deficit: def, headcount };
   }
 
   const nameFor = (empNum) => {
@@ -257,9 +243,8 @@ export default function StaffingPage() {
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
         for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-          if (h >= 24) break;
+          const k = addHourKey(day, h);
           if (!countLunchAsCoverage && h === breakHour) continue;
-          const k = `${day}|${h}`;
           schedMap[k] = (schedMap[k] ?? 0) + 1;
         }
       })
@@ -307,7 +292,7 @@ export default function StaffingPage() {
     setPersonSchedule({});
   };
 
-  /* ASSIGN SHIFTS (single backend call, Option D waterfall) */
+  /* ASSIGN SHIFTS */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return; }
 
@@ -332,73 +317,44 @@ export default function StaffingPage() {
     const forecastDateSet = new Set(forecast.map(d => d.date));
 
     try {
-      if (useFixedStaff && fixedStaff > 0) {
-        logLine(`Fixed staff is enabled (${fixedStaff}). Note: waterfall mode ignores cap for now.`);
-      }
-
-      setSolverPhase('Solving (waterfall backend)');
-      logLine(`Calling backend waterfall solver (weeks ${weeks}, grave rotate ${graveRotateAfterCycles}, late rotate ${lateRotateAfterCycles})`);
+      setSolverPhase('Solving waterfall template');
+      logLine(`Calling backend waterfall template (weeks ${weeks})`);
 
       const body = {
         staffing: forecast,
-        mode: 'waterfall',
         weeks,
-        shiftLength: SHIFT_LENGTH,
-        graveRotateAfterCycles: Number(graveRotateAfterCycles),
-        lateRotateAfterCycles: Number(lateRotateAfterCycles)
+        shiftLength: SHIFT_LENGTH
       };
 
       const t0 = performance.now();
       const { data } = await api.post('/erlang/staff/schedule', body);
       const dt = Math.round(performance.now() - t0);
-
       setSolverLastCallMs(dt);
 
       const meta = data?.meta || {};
-      const tracks = data?.tracks || [];
-      const blocksOut = data?.solution || [];
+      const plan = data?.plan || null;
 
-      const headCnt = tracks.length || (blocksOut.reduce((s, b) => s + (b.count || 0), 0));
-      setSolverHeadcount(headCnt);
-      setSolverBestFeasible(meta?.feasible ? headCnt : null);
-      setSolverFeasible(Boolean(meta?.feasible));
+      if (!plan?.slots?.length) {
+        throw new Error('Backend did not return plan.slots');
+      }
 
       logLine(`Backend returned in ${dt} ms`);
-      logLine(`Meta: feasible ${meta?.feasible ? 'yes' : 'no'}, headcount ${meta?.headcount ?? headCnt}, over ${meta?.over ?? '-'}, checks ${meta?.checks ?? '-'}`);
+      logLine(`Meta: feasible ${meta.feasible ? 'yes' : 'no'}, headcount ${meta.headcount ?? plan.slots.length}, over ${meta.over ?? '-'}`);
 
-      // Build schedule from tracks
-      const sched = buildScheduleFromTracks(tracks, reqMap, forecastDateSet);
+      const built = buildScheduleFromPlan(plan, reqMap, forecastDateSet);
 
-      // compute feasibility from built schedule (lunch excluded)
-      const cov = {};
-      Object.values(sched).forEach(arr =>
-        arr.forEach(({ day, hour, breakHour }) => {
-          for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-            if (h >= 24) break;
-            if (h === breakHour) continue;
-            const k = `${day}|${h}`;
-            cov[k] = (cov[k] ?? 0) + 1;
-          }
-        })
-      );
-
-      const def = {};
-      Object.keys(reqMap).forEach(k => {
-        def[k] = (cov[k] ?? 0) - reqMap[k];
-      });
-
-      const feasible = !hasShortfall(def);
-      setSolverFeasible(feasible);
-      if (feasible) logLine('Feasibility check passed on frontend');
-      else logLine('Feasibility check failed on frontend');
-
-      setBlocks(blocksOut);
+      setBlocks(data.solution || []);
       setBestStart(data.bestStartHours || []);
-      setPersonSchedule(sched);
-      setFixedStaff(headCnt);
+      setPersonSchedule(built.schedByEmp);
+
+      setSolverHeadcount(built.headcount);
+      setSolverBestFeasible(meta.feasible ? built.headcount : null);
+
+      const feasible = !hasShortfall(built.deficit);
+      setSolverFeasible(feasible);
 
       setSolverPhase('Done');
-      logLine(`Done. Final headcount ${headCnt}`);
+      logLine(`Done. Final headcount ${built.headcount}`);
 
     } catch (err) {
       console.error(err);
@@ -478,12 +434,6 @@ export default function StaffingPage() {
     }
   };
 
-  const formatElapsed = (sec) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${String(s).padStart(2, '0')}`;
-  };
-
   /* RENDER */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -497,28 +447,6 @@ export default function StaffingPage() {
           <Typography variant="h6" gutterBottom>Solver Controls</Typography>
 
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <TextField
-              label="Grave rotate after cycles"
-              type="number"
-              size="small"
-              sx={{ width: 220 }}
-              value={graveRotateAfterCycles}
-              onChange={e => setGraveRotateAfterCycles(+e.target.value)}
-              disabled={solverRunning}
-              inputProps={{ min: 0 }}
-            />
-
-            <TextField
-              label="Late rotate after cycles"
-              type="number"
-              size="small"
-              sx={{ width: 220 }}
-              value={lateRotateAfterCycles}
-              onChange={e => setLateRotateAfterCycles(+e.target.value)}
-              disabled={solverRunning}
-              inputProps={{ min: 0 }}
-            />
-
             <Button
               variant="outlined"
               disabled={!solverRunning}
@@ -609,16 +537,6 @@ export default function StaffingPage() {
           <Button variant="contained" onClick={calcForecast}>
             Calculate 6 Month Forecast
           </Button>
-
-          <FormControlLabel sx={{ ml: 2 }}
-            control={<Switch checked={useFixedStaff} onChange={e => setUseFixedStaff(e.target.checked)} />}
-            label="Use Fixed Staff?"
-          />
-          {useFixedStaff && (
-            <TextField label="Staff Cap" type="number" size="small"
-              sx={{ width: 100 }} value={fixedStaff}
-              onChange={e => setFixedStaff(+e.target.value)} />
-          )}
 
           <Button
             variant="contained"
@@ -757,7 +675,7 @@ export default function StaffingPage() {
         {/* BLOCKS TABLE */}
         {blocks.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Assigned Shift Block Types (cycle 0 view)</Typography>
+            <Typography variant="h6">Assigned Shift Block Types</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -789,7 +707,7 @@ export default function StaffingPage() {
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>
-              6 Month Staff Calendar (waterfall lanes, rotates every {weeks} weeks)
+              6 Month Staff Calendar (waterfall template)
             </Typography>
 
             <Button variant="outlined" onClick={exportExcel} sx={{ mb: 2 }}>
@@ -800,10 +718,8 @@ export default function StaffingPage() {
 
             <Box sx={{ mt: 2, p: 2, bgcolor: '#f9f9f9', borderRadius: 1 }}>
               <Typography variant="subtitle1">
-                {useFixedStaff
-                  ? `Staff cap set to ${fixedStaff}.`
-                  : `Full coverage schedule uses ${Object.keys(personSchedule).length} agents
-                  (${excludeAuto ? 'automation excluded' : 'automation included'}).`}
+                Full coverage schedule uses {Object.keys(personSchedule).length} agents
+                ({excludeAuto ? 'automation excluded' : 'automation included'}).
               </Typography>
             </Box>
           </Box>
