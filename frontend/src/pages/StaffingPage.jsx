@@ -128,19 +128,59 @@ export default function StaffingPage() {
     return map;
   }
 
-  function pickBreakHour({ dayStr, startHour, reqMap, covMap }) {
-    const candidates = [];
-    for (let off = 2; off <= 5; off++) {
-      const h = startHour + off;
-      const k = addHourKey(dayStr, h);
-      const req = reqMap[k] ?? 0;
-      const got = covMap[k] ?? 0;
-      const slack = got - req;
-      candidates.push({ h, slack });
-    }
-    candidates.sort((a, b) => b.slack - a.slack || a.h - b.h);
-    return candidates[0]?.h ?? (startHour + 4);
+function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
+  const candidates = [];
+
+  for (let off = 2; off <= 5; off++) {
+    const h = startHour + off;
+    const k = addHourKey(dayStr, h);
+
+    const req = Number(reqMap[k] ?? 0);
+
+    // covMap tracks scheduled bodies on duty, lunchMap tracks lunches already placed
+    const onDuty = Number(covMap[k] ?? 0);
+    const lunches = Number(lunchMap[k] ?? 0);
+
+    // effective coverage at that hour if we place another lunch there
+    // because the new person will not cover at their lunch hour
+    const effective = onDuty - lunches;
+
+    const deficitAfter = Math.max(0, req - effective);
+
+    candidates.push({
+      h,
+      req,
+      onDuty,
+      lunches,
+      deficitAfter
+    });
   }
+
+  if (!candidates.length) return startHour + 4;
+
+  // weights
+  const DEFICIT_W = 2000;      // do not lunch in a short hour
+  const SPREAD_W = 40;         // push lunches apart
+  const DEMAND_W = 1;          // tiny preference away from high demand if tied
+
+  candidates.sort((a, b) => {
+    // lunch stack penalty grows faster than linear
+    const scoreA = (a.deficitAfter * DEFICIT_W) + (a.lunches * a.lunches * SPREAD_W) + (a.req * DEMAND_W);
+    const scoreB = (b.deficitAfter * DEFICIT_W) + (b.lunches * b.lunches * SPREAD_W) + (b.req * DEMAND_W);
+
+    return scoreA - scoreB
+      || a.lunches - b.lunches
+      || a.deficitAfter - b.deficitAfter
+      || a.h - b.h;
+  });
+
+        // tiny randomness among best few, to avoid repeated ties
+        const TOP = Math.min(3, candidates.length);
+        const pick = candidates[Math.floor(Math.random() * TOP)];
+
+        return pick?.h ?? (startHour + 4);
+      }
+
 
   function buildScheduleFromPlan(plan, reqMap, forecastDateSet) {
     const { slots, phaseToBucket, bucketStartHours } = plan;
@@ -161,6 +201,7 @@ export default function StaffingPage() {
     const headcount = slots.length;
     const schedByEmp = {};
     const covMap = {};
+    const lunchMap = {};
 
     for (let e = 0; e < headcount; e++) schedByEmp[e + 1] = [];
 
@@ -186,7 +227,7 @@ export default function StaffingPage() {
           const dayStr = d.format('YYYY-MM-DD');
           if (!forecastDateSet.has(dayStr)) continue;
 
-          const breakHour = pickBreakHour({ dayStr, startHour, reqMap, covMap });
+          const breakHour = pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap });
 
           schedByEmp[e + 1].push({ day: dayStr, hour: startHour, breakHour });
 
@@ -195,7 +236,8 @@ export default function StaffingPage() {
             covMap[k] = (covMap[k] ?? 0) + 1;
           }
           const lk = addHourKey(dayStr, breakHour);
-          covMap[lk] = (covMap[lk] ?? 0); // lunch tracking optional
+          lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
+
         }
       }
     }
