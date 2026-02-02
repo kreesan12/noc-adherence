@@ -1,25 +1,39 @@
 import dayjs from '../utils/dayjs.js'
 
 /* -------------------------------------------------------------- *
- * Scheduler: greedy baseline + time-bounded multi-restart search.
+ * Option D: Waterfall lane template with constrained rotations
  *
- * New (Option A + C):
- * A) Greedy uses a "net benefit" score:
- *    score = (deficit covered * DEFICIT_W) - (surplus created * OVER_W)
- *    This reduces overlap driven overstaffing.
+ * Concepts:
+ * - 7 phases (Mon-Fri, Tue-Sat, Wed-Sun, Thu-Mon, Fri-Tue, Sat-Wed, Sun-Thu)
+ * - Lanes have a phase0 and waterfall: phase = (phase0 + cycleIndex) mod 7
+ * - Shift types: day, late, grave (startHour fixed per type)
  *
- *    IMPORTANT: Safety valve added:
- *    If net-benefit scoring stalls while deficits still exist, greedy
- *    falls back to deficit-only scoring to keep progressing.
+ * Rotation pools:
+ * - For grave requirement G and rotateAfter K cycles:
+ *   pool size = G * (K + 1)
+ *   each cycle, exactly G tracks are on grave, the rest of that pool is on day
+ *   tracks rotate roles cyclically, so staff rotate without creating 7 grave patterns
  *
- * C) Prune pass (feasible only):
- *    Remove any shift that can be removed while remaining feasible.
+ * Same for late with requirement L and rotateAfter KLate
  *
- * Existing:
- * 1) Per-restart improvement budget
- * 2) Restarts respected
- * 3) Repair move (surplus to breach)
+ * Day base staff D are always day (no special rotation)
+ *
+ * Solver:
+ * - Search over small ranges for G, L
+ * - For each, compute minimal D by greedy increment until feasible
+ * - Choose best by objective: shortfall huge, then over, then headcount
+ *
+ * Output:
+ * - tracks: explicit track list (each track has phase0, pool, slotIndex)
+ * - blocks: aggregated view for UI (cycle 0 only, approximate)
+ * - meta: details
  * -------------------------------------------------------------- */
+
+const SHIFT_TYPES_DEFAULT = {
+  grave: { startHour: 0, breakOffset: 4 },
+  day:   { startHour: 8, breakOffset: 4 },
+  late:  { startHour: 15, breakOffset: 4 }
+}
 
 function makeNeedsMap(forecast) {
   const needs = {}
@@ -43,654 +57,324 @@ function getFirstWeek(allDates) {
   return allDates.filter(d => dayjs(d).diff(first, 'day') < 7)
 }
 
+function buildWeekdayDateMap(firstWeekDates) {
+  const map = {}
+  for (const d of firstWeekDates) {
+    const wd = dayjs(d).day()
+    if (map[wd] == null) map[wd] = d
+  }
+  return map
+}
+
 function getWorkDates(startDate, weeks, dateSet) {
   const out = []
   for (let w = 0; w < weeks; w++) {
     const base = dayjs(startDate).add(w * 7, 'day')
     for (let i = 0; i < 5; i++) {
       const dd = base.add(i, 'day').format('YYYY-MM-DD')
-      if (dateSet.has(dd)) out.push(dd)
+      if (!dateSet || dateSet.has(dd)) out.push(dd)
     }
   }
   return out
 }
 
-function buildCandidates({ firstWeek, weeks, shiftLength, hoursToTry, dateSet }) {
-  const candidates = []
-
-  for (const startDate of firstWeek) {
-    const workDates = getWorkDates(startDate, weeks, dateSet)
-    if (workDates.length < 5 * weeks) continue
-
-    for (const startHour of hoursToTry) {
-      const maxOffset = Math.min(5, shiftLength - 1)
-      for (let off = 2; off <= maxOffset; off++) {
-        const cover = []
-        const breakHours = new Set()
-
-        for (const d of workDates) {
-          const lunchHour = startHour + off
-          breakHours.add(`${d}|${lunchHour}`)
-
-          for (let h = startHour; h < startHour + shiftLength; h++) {
-            if (h === lunchHour) continue
-            cover.push(`${d}|${h}`)
-          }
-        }
-
-        candidates.push({
-          startDate,
-          startHour,
-          breakOffset: off,
-          length: shiftLength,
-          cover,
-          breakHours
-        })
-      }
-    }
-  }
-
-  return candidates
-}
-
-function scoreCandidate(candidate, localNeeds) {
-  let s = 0
-  for (const k of candidate.cover) s += (localNeeds[k] || 0)
-  return s
-}
-
-function weightedPickTopK(topK, temperature = 1.0) {
-  let sum = 0
-  const weights = topK.map(x => {
-    const w = Math.exp((x.score || 0) / Math.max(1e-9, temperature))
-    sum += w
-    return w
-  })
-  let r = Math.random() * sum
-  for (let i = 0; i < topK.length; i++) {
-    r -= weights[i]
-    if (r <= 0) return topK[i].c
-  }
-  return topK[topK.length - 1].c
-}
-
-function evaluateSolution(assignments, candidates, needs, needKeys) {
-  const cov = Object.create(null)
-  for (const idx of assignments) {
-    const c = candidates[idx]
-    for (const k of c.cover) cov[k] = (cov[k] || 0) + 1
-  }
-
+function evaluateCoverageAgainstNeeds(needs, cov, needKeys) {
   let shortfall = 0
   let over = 0
-
   const keys = needKeys || Object.keys(needs)
+
   for (const k of keys) {
     const req = needs[k] || 0
     const got = cov[k] || 0
     if (got < req) shortfall += (req - got)
     else over += (got - req)
   }
-
-  return { shortfall, over, headcount: assignments.length }
+  return { shortfall, over }
 }
 
-function objective({ shortfall, over, headcount }) {
+function objectiveEval({ shortfall, over, headcount }) {
   return shortfall * 1_000_000 + over * 10 + headcount * 1
 }
 
-function hasNeedInStartWindow(localNeeds, startHour, shiftLength) {
-  const end = startHour + shiftLength
-  for (const k in localNeeds) {
-    const need = localNeeds[k] || 0
-    if (need <= 0) continue
-    const hour = Number(k.split('|')[1])
-    if (hour >= startHour && hour < end) return true
-  }
-  return false
+function hoursInRangeInclusive(h, lo, hi) {
+  return h >= lo && h <= hi
 }
 
-/* -------------------------------------------------------------- *
- * Option A: Net-benefit scoring for greedy
- * -------------------------------------------------------------- */
-function netBenefitScoreForCandidate(candidate, cov, needs, {
-  deficitWeight = 5,
-  overWeight = 10,
-  extraOverWeight = 12
-} = {}) {
-  let deficitCovered = 0
-  let overCreated = 0
-  let overAlready = 0
+function estimateSpecialNeed(needs, needKeys, { coreHours }) {
+  let sum = 0
+  let n = 0
+  let peak = 0
 
-  for (const k of candidate.cover) {
-    const req = needs[k] || 0
-    const got = cov[k] || 0
-    if (got < req) deficitCovered += 1
-    else overCreated += 1
-    if (got > req) overAlready += 1
-  }
-
-  const score =
-    (deficitCovered * deficitWeight) -
-    (overCreated * overWeight) -
-    (overAlready * Math.max(0, extraOverWeight - overWeight))
-
-  return score
-}
-
-function greedyBuild({
-  candidates,
-  needs,
-  maxStaff,
-  randomize = false,
-  topK = 10,
-  temperature = 1.0,
-
-  preferStartHour = 8,
-  preferOnlyWhileDemand = true,
-
-  deficitWeight = 5,
-  overWeight = 10,
-  extraOverWeight = 12
-}) {
-  const localNeeds = { ...needs }
-  const assignments = []
-  const cov = Object.create(null)
-
-  // Track total remaining deficit so we can detect "stall while still deficit"
-  let remainingDeficit = 0
-  for (const k in localNeeds) remainingDeficit += (localNeeds[k] || 0)
-
-  const preferredIdxs = []
-  const allIdxs = []
-  for (let i = 0; i < candidates.length; i++) {
-    allIdxs.push(i)
-    if (candidates[i].startHour === preferStartHour) preferredIdxs.push(i)
-  }
-
-  const inferredShiftLength = (candidates[0] && candidates[0].length) ? candidates[0].length : 9
-
-  const netScoreFn = (cand) => netBenefitScoreForCandidate(
-    cand,
-    cov,
-    needs,
-    { deficitWeight, overWeight, extraOverWeight }
-  )
-
-  const applyChosen = (chosen) => {
-    for (const k of chosen.cover) {
-      cov[k] = (cov[k] || 0) + 1
-      const before = localNeeds[k] || 0
-      if (before > 0) {
-        localNeeds[k] = before - 1
-        remainingDeficit -= 1
-      }
-    }
-  }
-
-  while (assignments.length < maxStaff) {
-    const usePreferredPool =
-      preferStartHour != null &&
-      preferredIdxs.length > 0 &&
-      (!preferOnlyWhileDemand || hasNeedInStartWindow(localNeeds, preferStartHour, inferredShiftLength))
-
-    const pool = usePreferredPool ? preferredIdxs : allIdxs
-
-    let bestScore = -Infinity
-    let best = null
-
-    // -------- deterministic mode --------
-    if (!randomize) {
-      for (let pi = 0; pi < pool.length; pi++) {
-        const i = pool[pi]
-        const sc = netScoreFn(candidates[i])
-        if (sc > bestScore) { bestScore = sc; best = i }
-      }
-
-      if ((best == null || bestScore <= 0) && usePreferredPool) {
-        for (let i = 0; i < candidates.length; i++) {
-          const sc = netScoreFn(candidates[i])
-          if (sc > bestScore) { bestScore = sc; best = i }
-        }
-      }
-
-      // Safety valve: if net-benefit stalls but deficits remain, fall back to deficit-only
-      if (best == null || bestScore <= 0) {
-        if (remainingDeficit <= 0) break
-
-        let fbBest = null
-        let fbScore = 0
-        for (let i = 0; i < candidates.length; i++) {
-          const sc = scoreCandidate(candidates[i], localNeeds)
-          if (sc > fbScore) { fbScore = sc; fbBest = i }
-        }
-        if (fbBest == null || fbScore <= 0) break
-
-        best = fbBest
-      }
-
-      assignments.push(best)
-      applyChosen(candidates[best])
-      continue
-    }
-
-    // -------- randomized mode --------
-    const scored = []
-    for (let pi = 0; pi < pool.length; pi++) {
-      const i = pool[pi]
-      const sc = netScoreFn(candidates[i])
-      if (sc <= 0) continue
-      scored.push({ i, score: sc })
-    }
-
-    if (!scored.length && usePreferredPool) {
-      for (let i = 0; i < candidates.length; i++) {
-        const sc = netScoreFn(candidates[i])
-        if (sc <= 0) continue
-        scored.push({ i, score: sc })
-      }
-    }
-
-    if (!scored.length) {
-      // Safety valve in random mode too
-      if (remainingDeficit <= 0) break
-
-      let fbBest = null
-      let fbScore = 0
-      for (let i = 0; i < candidates.length; i++) {
-        const sc = scoreCandidate(candidates[i], localNeeds)
-        if (sc > fbScore) { fbScore = sc; fbBest = i }
-      }
-      if (fbBest == null || fbScore <= 0) break
-
-      assignments.push(fbBest)
-      applyChosen(candidates[fbBest])
-      continue
-    }
-
-    scored.sort((a, b) => b.score - a.score)
-
-    const slice = scored.slice(0, Math.min(topK, scored.length))
-      .map(x => ({ c: x.i, score: x.score }))
-
-    best = weightedPickTopK(slice, temperature)
-    const bestNet = netScoreFn(candidates[best])
-    if (bestNet <= 0) {
-      if (remainingDeficit <= 0) break
-
-      // Safety valve: deficit-only fallback
-      let fbBest = null
-      let fbScore = 0
-      for (let i = 0; i < candidates.length; i++) {
-        const sc = scoreCandidate(candidates[i], localNeeds)
-        if (sc > fbScore) { fbScore = sc; fbBest = i }
-      }
-      if (fbBest == null || fbScore <= 0) break
-
-      best = fbBest
-    }
-
-    assignments.push(best)
-    applyChosen(candidates[best])
-  }
-
-  return assignments
-}
-
-function buildCoverage(assignments, candidates) {
-  const cov = Object.create(null)
-  for (const idx of assignments) {
-    const c = candidates[idx]
-    for (const k of c.cover) cov[k] = (cov[k] || 0) + 1
-  }
-  return cov
-}
-
-function buildDeficitNeedsFromCoverage(needs, cov, needKeys) {
-  const deficitNeeds = Object.create(null)
   const keys = needKeys || Object.keys(needs)
   for (const k of keys) {
+    const [_, hourStr] = k.split('|')
+    const h = Number(hourStr)
+    if (!coreHours.some(([a, b]) => hoursInRangeInclusive(h, a, b))) continue
+
     const req = needs[k] || 0
-    const got = cov[k] || 0
-    const def = req - got
-    if (def > 0) deficitNeeds[k] = def
-  }
-  return deficitNeeds
-}
-
-function removalScoreForCandidate(candidate, cov, needs) {
-  let s = 0
-  for (const k of candidate.cover) {
-    const req = needs[k] || 0
-    const got = cov[k] || 0
-    if (got > req) s += (got - req)
-    else if (got < req) s -= (req - got) * 5
+    sum += req
+    n += 1
+    if (req > peak) peak = req
   }
 
-  s += candidate.cover.length * 0.05
-  if (candidate.startHour === 8) s += 2
-  return s
-}
-
-function addScoreForCandidate(candidate, cov, needs) {
-  let s = 0
-  for (const k of candidate.cover) {
-    const req = needs[k] || 0
-    const got = cov[k] || 0
-    if (got < req) s += (req - got) * 5
-    else if (got > req) s -= (got - req) * 1
-  }
-  return s
-}
-
-function applyCandidateDelta(cand, cov, delta) {
-  for (const k of cand.cover) {
-    cov[k] = (cov[k] || 0) + delta
-    if (cov[k] <= 0) delete cov[k]
-  }
+  const avg = n ? (sum / n) : 0
+  return { avg, peak }
 }
 
 /* -------------------------------------------------------------- *
- * Option C: Prune pass
+ * Track model
+ * -------------------------------------------------------------- *
+ * track:
+ * - id
+ * - phase0 (0..6)
+ * - pool: 'grave' | 'late' | 'day'
+ * - slotIndex: number (index in its pool)
+ *
+ * Rotation in pool:
+ * - grave pool has G active grave per cycle, rest day
+ * - late pool has L active late per cycle, rest day
+ * - day pool always day
+ *
+ * For pool with size = R * (K + 1):
+ * - define groupSize = R
+ * - groupCount = K + 1
+ * - groupIndex0 = floor(slotIndex / groupSize) in [0..K]
+ * - for cycle ci:
+ *     groupIndex = (groupIndex0 + ci) mod groupCount
+ *     if groupIndex == 0 -> special shift this cycle
+ *     else -> day shift this cycle
  * -------------------------------------------------------------- */
-function isRemovalFeasible(candidate, cov, needs) {
-  for (const k of candidate.cover) {
-    const req = needs[k] || 0
-    const got = cov[k] || 0
-    if ((got - 1) < req) return false
-  }
-  return true
+
+function shiftTypeForTrackAtCycle(track, ci, rotationConfig) {
+  if (track.pool === 'day') return 'day'
+
+  const cfg = track.pool === 'grave' ? rotationConfig.grave : rotationConfig.late
+  const R = cfg.required
+  const K = cfg.rotateAfterCycles
+  const groupSize = Math.max(1, R)
+  const groupCount = K + 1
+
+  const groupIndex0 = Math.floor(track.slotIndex / groupSize)
+  const groupIndex = (groupIndex0 + ci) % groupCount
+
+  if (groupIndex === 0) return track.pool
+  return 'day'
 }
 
-function pruneFeasibleAssignments({
-  assignments,
-  candidates,
-  needs,
-  needKeys,
-  maxRemovals = 999999
-}) {
-  const pruned = assignments.slice()
-  const cov = buildCoverage(pruned, candidates)
-
-  let removed = 0
-  while (removed < maxRemovals) {
-    let bestPos = -1
-    let bestScore = -Infinity
-
-    for (let p = 0; p < pruned.length; p++) {
-      const idx = pruned[p]
-      const cand = candidates[idx]
-
-      if (!isRemovalFeasible(cand, cov, needs)) continue
-      const sc = removalScoreForCandidate(cand, cov, needs)
-      if (sc > bestScore) {
-        bestScore = sc
-        bestPos = p
-      }
-    }
-
-    if (bestPos < 0) break
-    if (bestScore <= 0) break
-
-    const idx = pruned[bestPos]
-    applyCandidateDelta(candidates[idx], cov, -1)
-    pruned.splice(bestPos, 1)
-    removed += 1
-  }
-
-  const ev = evaluateSolution(pruned, candidates, needs, needKeys)
-  const obj = objective(ev)
-  return { pruned, ev, obj, removed }
+function phaseForTrackAtCycle(track, ci) {
+  return (track.phase0 + ci) % 7
 }
 
-// One targeted repair: remove from surplus-heavy assignment, re-add to best deficit-heavy candidate
-function repairMove({
-  candidates,
-  needs,
-  needKeys,
-  assignments,
+function applyShiftCoverageForDay({
   cov,
-  topK = 25
+  dayStr,
+  startHour,
+  shiftLength,
+  breakOffset
 }) {
-  if (!assignments.length) return null
+  const lunchHour = startHour + breakOffset
 
-  let bestPos = -1
-  let bestRemoveScore = -Infinity
-  for (let p = 0; p < assignments.length; p++) {
-    const c = candidates[assignments[p]]
-    const sc = removalScoreForCandidate(c, cov, needs)
-    if (sc > bestRemoveScore) {
-      bestRemoveScore = sc
-      bestPos = p
-    }
+  for (let h = startHour; h < startHour + shiftLength; h++) {
+    if (h >= 24) break
+    if (h === lunchHour) continue
+    const k = `${dayStr}|${h}`
+    cov[k] = (cov[k] || 0) + 1
   }
-  if (bestPos < 0) return null
-
-  const oldIdx = assignments[bestPos]
-  const oldCand = candidates[oldIdx]
-
-  applyCandidateDelta(oldCand, cov, -1)
-  const deficitNeeds = buildDeficitNeedsFromCoverage(needs, cov, needKeys)
-
-  if (!Object.keys(deficitNeeds).length) {
-    applyCandidateDelta(oldCand, cov, +1)
-    return null
-  }
-
-  const scored = []
-  for (let i = 0; i < candidates.length; i++) {
-    const sc = scoreCandidate(candidates[i], deficitNeeds)
-    if (sc <= 0) continue
-    scored.push({ i, score: sc })
-  }
-
-  if (!scored.length) {
-    applyCandidateDelta(oldCand, cov, +1)
-    return null
-  }
-
-  scored.sort((a, b) => b.score - a.score)
-  const slice = scored.slice(0, Math.min(topK, scored.length))
-
-  let bestNewIdx = null
-  let bestAddScore = -Infinity
-
-  for (const x of slice) {
-    const cand = candidates[x.i]
-    const sc = addScoreForCandidate(cand, cov, needs)
-    if (sc > bestAddScore) {
-      bestAddScore = sc
-      bestNewIdx = x.i
-    }
-  }
-
-  if (bestNewIdx == null || bestAddScore <= 0) {
-    applyCandidateDelta(oldCand, cov, +1)
-    return null
-  }
-
-  assignments[bestPos] = bestNewIdx
-  applyCandidateDelta(candidates[bestNewIdx], cov, +1)
-
-  return { changedPos: bestPos, oldIdx, newIdx: bestNewIdx }
 }
 
-function localImprove({
-  candidates,
+function buildCoverageForTracks({
+  tracks,
   needs,
   needKeys,
-  startAssignments,
-  budgetMs
+  weeks,
+  shiftLength,
+  weekdayDateMap,
+  dateSet,
+  rotationConfig,
+  shiftTypes,
+  horizonStart,
+  horizonEnd
 }) {
-  const startLocal = Date.now()
+  const cov = Object.create(null)
 
-  let best = startAssignments.slice()
-  let cov = buildCoverage(best, candidates)
+  const start = dayjs(horizonStart)
+  const end = dayjs(horizonEnd)
+  const totalDays = end.diff(start, 'day') + 1
+  const cycleDays = weeks * 7
+  const cycles = Math.max(1, Math.ceil(totalDays / cycleDays))
 
-  let bestEval = evaluateSolution(best, candidates, needs, needKeys)
-  let bestObj = objective(bestEval)
+  for (let ci = 0; ci < cycles; ci++) {
+    for (const track of tracks) {
+      const phase = phaseForTrackAtCycle(track, ci)
+      const baseStart = weekdayDateMap[phase]
+      if (!baseStart) continue
 
-  const nCand = candidates.length
-  const n = best.length
-  if (n === 0) return { best, bestEval, bestObj, iters: 0 }
+      const shiftType = shiftTypeForTrackAtCycle(track, ci, rotationConfig)
+      const st = shiftTypes[shiftType] || shiftTypes.day
 
-  let iters = 0
+      const workDates = getWorkDates(baseStart, weeks, null)
 
-  const REPAIR_EVERY = 60
-  const REPAIR_TOPK = 30
+      for (const dtStr of workDates) {
+        const actualDay = dayjs(dtStr).add(ci * cycleDays, 'day')
+        if (actualDay.isBefore(start, 'day')) continue
+        if (actualDay.isAfter(end, 'day')) continue
 
-  while (true) {
-    iters++
-    if (budgetMs > 0 && (Date.now() - startLocal) >= budgetMs) break
+        const dayStr = actualDay.format('YYYY-MM-DD')
+        if (dateSet && !dateSet.has(dayStr)) continue
 
-    if (iters % REPAIR_EVERY === 0 && bestEval.shortfall > 0) {
-      const beforeObj = bestObj
-
-      const move = repairMove({
-        candidates,
-        needs,
-        needKeys,
-        assignments: best,
-        cov,
-        topK: REPAIR_TOPK
-      })
-
-      if (move) {
-        const ev = evaluateSolution(best, candidates, needs, needKeys)
-        const obj = objective(ev)
-
-        const accept = obj <= beforeObj || Math.random() < 0.15
-        if (accept) {
-          bestEval = ev
-          bestObj = obj
-        } else {
-          applyCandidateDelta(candidates[move.newIdx], cov, -1)
-          best[move.changedPos] = move.oldIdx
-          applyCandidateDelta(candidates[move.oldIdx], cov, +1)
-        }
+        applyShiftCoverageForDay({
+          cov,
+          dayStr,
+          startHour: st.startHour,
+          shiftLength,
+          breakOffset: st.breakOffset
+        })
       }
-
-      continue
-    }
-
-    const pos = Math.floor(Math.random() * n)
-    const newIdx = Math.floor(Math.random() * nCand)
-    const oldIdx = best[pos]
-    if (oldIdx === newIdx) continue
-
-    const oldCand = candidates[oldIdx]
-    const newCand = candidates[newIdx]
-
-    applyCandidateDelta(oldCand, cov, -1)
-    applyCandidateDelta(newCand, cov, +1)
-
-    const trial = best.slice()
-    trial[pos] = newIdx
-
-    const ev = evaluateSolution(trial, candidates, needs, needKeys)
-    const obj = objective(ev)
-
-    const delta = obj - bestObj
-    const accept = delta <= 0 || Math.random() < Math.exp(-delta / 5000)
-
-    if (accept) {
-      best = trial
-      bestEval = ev
-      bestObj = obj
-    } else {
-      applyCandidateDelta(newCand, cov, -1)
-      applyCandidateDelta(oldCand, cov, +1)
     }
   }
 
-  return { best, bestEval, bestObj, iters }
+  const ev = evaluateCoverageAgainstNeeds(needs, cov, needKeys)
+  return { cov, ev }
 }
 
-function collapseAssignments(assignments, candidates, shiftLength, splitSize) {
-  const solution = []
-  const tally = new Map()
-  const order = []
+/* -------------------------------------------------------------- *
+ * Track builder helpers
+ * -------------------------------------------------------------- */
 
-  for (const idx of assignments) {
-    const c = candidates[idx]
-    const key = `${c.startDate}|${c.startHour}|${c.breakOffset}`
-    if (!tally.has(key)) order.push(key)
+function distributePhases(count, phaseSeed = 0) {
+  const phases = []
+  for (let i = 0; i < count; i++) phases.push((phaseSeed + i) % 7)
+  return phases
+}
+
+function buildTracksForPlan({
+  graveRequired,
+  lateRequired,
+  dayBase,
+  graveRotateAfterCycles,
+  lateRotateAfterCycles,
+  phaseSeed = 0
+}) {
+  const tracks = []
+  let id = 1
+
+  // grave pool
+  if (graveRequired > 0) {
+    const size = graveRequired * (graveRotateAfterCycles + 1)
+    const phases = distributePhases(size, phaseSeed)
+    for (let i = 0; i < size; i++) {
+      tracks.push({
+        id: id++,
+        pool: 'grave',
+        required: graveRequired,
+        rotateAfterCycles: graveRotateAfterCycles,
+        slotIndex: i,
+        phase0: phases[i]
+      })
+    }
+  }
+
+  // late pool
+  if (lateRequired > 0) {
+    const size = lateRequired * (lateRotateAfterCycles + 1)
+    const phases = distributePhases(size, phaseSeed + 2)
+    for (let i = 0; i < size; i++) {
+      tracks.push({
+        id: id++,
+        pool: 'late',
+        required: lateRequired,
+        rotateAfterCycles: lateRotateAfterCycles,
+        slotIndex: i,
+        phase0: phases[i]
+      })
+    }
+  }
+
+  // day base
+  if (dayBase > 0) {
+    const phases = distributePhases(dayBase, phaseSeed + 4)
+    for (let i = 0; i < dayBase; i++) {
+      tracks.push({
+        id: id++,
+        pool: 'day',
+        slotIndex: i,
+        phase0: phases[i]
+      })
+    }
+  }
+
+  return tracks
+}
+
+function aggregateBlocksForUiCycle0({
+  tracks,
+  weeks,
+  shiftLength,
+  weekdayDateMap,
+  rotationConfig,
+  shiftTypes
+}) {
+  // For UI only: approximate blocks for cycle 0
+  // Group by (phase0, shiftType at cycle0)
+  const tally = new Map()
+
+  for (const tr of tracks) {
+    const phase = tr.phase0
+    const shiftType = shiftTypeForTrackAtCycle(tr, 0, rotationConfig)
+    const st = shiftTypes[shiftType] || shiftTypes.day
+
+    const startDate = weekdayDateMap[phase]
+    if (!startDate) continue
+
+    const key = `${startDate}|${st.startHour}|${st.breakOffset}`
     tally.set(key, (tally.get(key) || 0) + 1)
   }
 
-  for (const key of order) {
+  const blocks = []
+  for (const [key, count] of tally.entries()) {
     const [startDate, startHourStr, breakOffsetStr] = key.split('|')
-    const startHour = Number(startHourStr)
-    const breakOffset = Number(breakOffsetStr)
-    let remaining = tally.get(key)
-
-    while (remaining > 0) {
-      const chunk = Math.min(splitSize, remaining)
-      solution.push({
-        startDate,
-        startHour,
-        breakOffset,
-        length: shiftLength,
-        count: chunk,
-        patternIndex: dayjs(startDate).day()
-      })
-      remaining -= chunk
-    }
+    blocks.push({
+      startDate,
+      startHour: Number(startHourStr),
+      breakOffset: Number(breakOffsetStr),
+      length: shiftLength,
+      count,
+      patternIndex: dayjs(startDate).day()
+    })
   }
 
-  solution.sort((a, b) =>
+  blocks.sort((a, b) =>
     (a.patternIndex ?? 0) - (b.patternIndex ?? 0) ||
     a.startHour - b.startHour
   )
 
-  return solution
+  return blocks
 }
 
 /* -------------------------------------------------------------- *
- * Optional helper: linear cap search (+1) to avoid spikes
+ * Main Waterfall planner
  * -------------------------------------------------------------- */
-export function findMinimalCapLinear({
-  candidates,
-  needs,
-  needKeys,
-  startCap = 1,
-  maxCap = 999999
-}) {
-  let cap = Math.max(1, startCap)
-  while (cap <= maxCap) {
-    const assignments = greedyBuild({
-      candidates,
-      needs,
-      maxStaff: cap,
-      randomize: false,
-      preferStartHour: 8
-    })
-    const ev = evaluateSolution(assignments, candidates, needs, needKeys)
-    if (ev.shortfall === 0) return { cap, ev }
-    cap += 1
-  }
-  return { cap: null, ev: null }
-}
 
-/* -------------------------------------------------------------- *
- * assignRotationalShifts
- * -------------------------------------------------------------- */
-export function assignRotationalShifts(
+export function assignWaterfallShifts(
   forecast,
   {
     weeks = 3,
     shiftLength = 9,
-    startHours,
-    maxStaff,
-    splitSize = 999,
 
-    exact = false,
-    timeLimitMs = 0,
-    greedyRestarts = 15,
+    // Shift type definitions
+    shiftTypes = SHIFT_TYPES_DEFAULT,
 
-    autoFindCap = false,
-    autoFindCapStart = 1,
-    autoFindCapMax = 999999
+    // Rotation policy
+    graveRotateAfterCycles = 2, // K
+    lateRotateAfterCycles = 2,  // K
+
+    // Search limits
+    maxDayBase = 500,
+    searchPad = 2,
+    maxPlanChecks = 500,
+
+    // Phase seed
+    phaseSeed = 0
   } = {}
 ) {
   const t0 = Date.now()
@@ -698,218 +382,209 @@ export function assignRotationalShifts(
   const { needs, allDates, dateSet } = makeNeedsMap(forecast)
   const needKeys = Object.keys(needs)
   const firstWeek = getFirstWeek(allDates)
+  const weekdayDateMap = buildWeekdayDateMap(firstWeek)
 
-  const hoursToTry = Array.isArray(startHours) && startHours.length
-    ? startHours
-    : Array.from({ length: 24 - shiftLength + 1 }, (_, h) => h)
+  const horizonStart = allDates[0]
+  const horizonEnd = allDates[allDates.length - 1]
 
-  const candidates = buildCandidates({
-    firstWeek,
-    weeks,
-    shiftLength,
-    hoursToTry,
-    dateSet
-  })
+  // Estimate special requirements from core hour ranges
+  const graveEst = estimateSpecialNeed(needs, needKeys, { coreHours: [[0, 6]] })
+  const lateEst = estimateSpecialNeed(needs, needKeys, { coreHours: [[16, 23]] })
 
-  let cap = (typeof maxStaff === 'number' && maxStaff > 0) ? maxStaff : 999999
+  const graveBase = Math.max(1, Math.ceil(graveEst.avg))
+  const lateBase = Math.max(0, Math.ceil(lateEst.avg))
 
-  if (autoFindCap && !(typeof maxStaff === 'number' && maxStaff > 0)) {
-    const found = findMinimalCapLinear({
-      candidates,
-      needs,
-      needKeys,
-      startCap: autoFindCapStart,
-      maxCap: autoFindCapMax
-    })
-    if (found.cap != null) cap = found.cap
+  const graveRange = []
+  for (let g = Math.max(1, graveBase - searchPad); g <= graveBase + searchPad; g++) graveRange.push(g)
+
+  const lateRange = []
+  for (let l = Math.max(0, lateBase - searchPad); l <= lateBase + searchPad; l++) lateRange.push(l)
+
+  let checks = 0
+  let best = null
+
+  // Rotation config object used by simulation
+  function makeRotationConfig(graveRequired, lateRequired) {
+    return {
+      grave: { required: graveRequired, rotateAfterCycles: graveRotateAfterCycles },
+      late: { required: lateRequired, rotateAfterCycles: lateRotateAfterCycles }
+    }
   }
 
-  // Non-exact: one deterministic greedy build + prune
-  if (!exact) {
-    let assignments = greedyBuild({
-      candidates,
-      needs,
-      maxStaff: cap,
-      randomize: false,
-      preferStartHour: 8
-    })
+  // For each G, L, find minimal D via incremental search
+  for (const G of graveRange) {
+    for (const L of lateRange) {
+      const rotationConfig = makeRotationConfig(G, L)
 
-    let ev = evaluateSolution(assignments, candidates, needs, needKeys)
+      // lower bound for day base, start at 0 and climb
+      let D = 0
+      let foundForThisGL = null
 
-    let prunedInfo = null
-    if (ev.shortfall === 0) {
-      prunedInfo = pruneFeasibleAssignments({ assignments, candidates, needs, needKeys })
-      assignments = prunedInfo.pruned
-      ev = prunedInfo.ev
+      while (D <= maxDayBase) {
+        checks++
+        if (checks > maxPlanChecks) break
+
+        const tracks = buildTracksForPlan({
+          graveRequired: G,
+          lateRequired: L,
+          dayBase: D,
+          graveRotateAfterCycles,
+          lateRotateAfterCycles,
+          phaseSeed
+        })
+
+        const headcount = tracks.length
+
+        const { ev } = buildCoverageForTracks({
+          tracks,
+          needs,
+          needKeys,
+          weeks,
+          shiftLength,
+          weekdayDateMap,
+          dateSet,
+          rotationConfig,
+          shiftTypes,
+          horizonStart,
+          horizonEnd
+        })
+
+        const planEval = { ...ev, headcount }
+        const obj = objectiveEval(planEval)
+
+        if (ev.shortfall === 0) {
+          foundForThisGL = { tracks, rotationConfig, eval: planEval, obj, G, L, D }
+          break
+        }
+
+        D += 1
+      }
+
+      if (checks > maxPlanChecks) break
+      if (!foundForThisGL) continue
+
+      if (!best || foundForThisGL.obj < best.obj) {
+        best = foundForThisGL
+      }
     }
+    if (checks > maxPlanChecks) break
+  }
 
-    const solution = collapseAssignments(assignments, candidates, shiftLength, splitSize)
-
+  if (!best) {
     return {
-      solution,
+      solution: [],
+      tracks: [],
       meta: {
-        method: 'greedy',
-        candidates: candidates.length,
-        cap,
-        headcount: ev.headcount,
-        shortfall: ev.shortfall,
-        over: ev.over,
-        prunedRemoved: prunedInfo ? prunedInfo.removed : 0,
-        timeMs: Date.now() - t0
+        method: 'waterfall',
+        feasible: false,
+        checks,
+        timeMs: Date.now() - t0,
+        note: 'No feasible plan found within search limits'
       }
     }
   }
 
-  // Exact-search: many restarts + improvement, bounded by time AND restart count
-  let bestAssignments = []
-  let bestEval = { shortfall: Infinity, over: Infinity, headcount: 0 }
-  let bestObj = Infinity
-
-  let restarts = 0
-  let improveItersTotal = 0
-  let prunedRemovedBest = 0
-
-  const hardStop = () => timeLimitMs > 0 && (Date.now() - t0) >= timeLimitMs
-
-  const restartLimit = (typeof greedyRestarts === 'number' && greedyRestarts >= 0)
-    ? greedyRestarts
-    : 15
-
-  while (!hardStop() && (restartLimit === 0 || restarts < restartLimit)) {
-    restarts++
-
-    const remainingMs = timeLimitMs > 0
-      ? Math.max(0, timeLimitMs - (Date.now() - t0))
-      : 0
-
-    const restartsLeft = restartLimit === 0
-      ? 1
-      : Math.max(1, restartLimit - restarts + 1)
-
-    const improveBudgetMs = timeLimitMs > 0
-      ? Math.max(250, Math.floor(remainingMs / restartsLeft))
-      : 2500
-
-    const temp = restartLimit === 0
-      ? 1.0
-      : Math.max(0.5, 2.0 - (restarts / Math.max(1, restartLimit)) * 1.5)
-
-    const seed = greedyBuild({
-      candidates,
-      needs,
-      maxStaff: cap,
-      randomize: true,
-      topK: 12,
-      temperature: temp,
-      preferStartHour: 8
-    })
-
-    const improved = localImprove({
-      candidates,
-      needs,
-      needKeys,
-      startAssignments: seed,
-      budgetMs: improveBudgetMs
-    })
-    improveItersTotal += improved.iters
-
-    let curAssignments = improved.best
-    let curEval = improved.bestEval
-    let curObj = improved.bestObj
-    let curPrunedRemoved = 0
-
-    if (curEval.shortfall === 0) {
-      const prunedInfo = pruneFeasibleAssignments({
-        assignments: curAssignments,
-        candidates,
-        needs,
-        needKeys
-      })
-      curAssignments = prunedInfo.pruned
-      curEval = prunedInfo.ev
-      curObj = prunedInfo.obj
-      curPrunedRemoved = prunedInfo.removed
-    }
-
-    if (curObj < bestObj) {
-      bestObj = curObj
-      bestAssignments = curAssignments
-      bestEval = curEval
-      prunedRemovedBest = curPrunedRemoved
-    }
-
-    if (bestEval.shortfall === 0 && bestEval.over === 0) break
-  }
-
-  const solution = collapseAssignments(bestAssignments, candidates, shiftLength, splitSize)
+  const blocks = aggregateBlocksForUiCycle0({
+    tracks: best.tracks,
+    weeks,
+    shiftLength,
+    weekdayDateMap,
+    rotationConfig: best.rotationConfig,
+    shiftTypes
+  })
 
   return {
-    solution,
+    solution: blocks, // for UI tables
+    tracks: best.tracks,
     meta: {
-      method: 'exact-search',
-      candidates: candidates.length,
-      cap,
-      restarts,
-      improveItersTotal,
-      headcount: bestEval.headcount,
-      shortfall: bestEval.shortfall,
-      over: bestEval.over,
-      prunedRemoved: prunedRemovedBest,
-      objective: bestObj,
-      timeMs: Date.now() - t0
+      method: 'waterfall',
+      feasible: best.eval.shortfall === 0,
+      checks,
+      timeMs: Date.now() - t0,
+
+      weeks,
+      shiftLength,
+
+      graveRequired: best.G,
+      lateRequired: best.L,
+      dayBase: best.D,
+
+      graveRotateAfterCycles,
+      lateRotateAfterCycles,
+
+      headcount: best.eval.headcount,
+      shortfall: best.eval.shortfall,
+      over: best.eval.over,
+      objective: best.obj
     }
   }
 }
 
 /* -------------------------------------------------------------- *
- * autoAssignRotations
+ * Backwards compatible wrapper
+ * If you already call assignRotationalShifts from your route,
+ * this keeps the same name but uses waterfall by default when
+ * exact is true or when mode === 'waterfall' is passed by route.
  * -------------------------------------------------------------- */
-export function autoAssignRotations(
+
+export function assignRotationalShifts(
   forecast,
   {
     weeks = 3,
     shiftLength = 9,
-    topN = 5,
+
+    // new
+    mode = 'waterfall',
+    shiftTypes = SHIFT_TYPES_DEFAULT,
+    graveRotateAfterCycles = 2,
+    lateRotateAfterCycles = 2,
+
+    // old fields still accepted but ignored in waterfall mode
+    startHours,
     maxStaff,
     splitSize = 999,
-
     exact = false,
     timeLimitMs = 0,
-    greedyRestarts = 15,
-
-    autoFindCap = false,
-    autoFindCapStart = 1,
-    autoFindCapMax = 999999,
-
-    startHours
+    greedyRestarts = 15
   } = {}
 ) {
-  const { solution, meta } = assignRotationalShifts(
-    forecast,
-    {
+  if (mode === 'waterfall' || exact) {
+    return assignWaterfallShifts(forecast, {
       weeks,
       shiftLength,
-      maxStaff,
-      splitSize,
-      exact,
-      timeLimitMs,
-      greedyRestarts,
-      autoFindCap,
-      autoFindCapStart,
-      autoFindCapMax,
-      startHours
-    }
-  )
+      shiftTypes,
+      graveRotateAfterCycles,
+      lateRotateAfterCycles
+    })
+  }
 
-  const tally = solution.reduce((acc, b) => {
-    acc[b.startHour] = (acc[b.startHour] || 0) + b.count
+  // If you ever want to keep the old solver as another mode,
+  // you can add it here later.
+  return assignWaterfallShifts(forecast, {
+    weeks,
+    shiftLength,
+    shiftTypes,
+    graveRotateAfterCycles,
+    lateRotateAfterCycles
+  })
+}
+
+export function autoAssignRotations(
+  forecast,
+  opts = {}
+) {
+  const { solution, tracks, meta } = assignRotationalShifts(forecast, opts)
+
+  // In waterfall mode, start hours are policy fixed
+  const tally = (solution || []).reduce((acc, b) => {
+    acc[b.startHour] = (acc[b.startHour] || 0) + (b.count || 0)
     return acc
   }, {})
 
   const bestStartHours = Object.entries(tally)
     .map(([h, total]) => ({ startHour: +h, totalAssigned: total }))
     .sort((a, b) => b.totalAssigned - a.totalAssigned)
-    .slice(0, topN)
+    .slice(0, 5)
 
-  return { bestStartHours, solution, meta }
+  return { bestStartHours, solution, tracks, meta }
 }
