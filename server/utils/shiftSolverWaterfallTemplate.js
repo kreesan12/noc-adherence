@@ -30,9 +30,15 @@ import dayjs from '../utils/dayjs.js'
 */
 
 const BUCKETS = {
-  b1: { name: 'Bucket 1', hours: (h) => h >= 0 && h <= 8,  startHour: 0  },
-  b2: { name: 'Bucket 2', hours: (h) => h >= 8 && h <= 16, startHour: 8  },
-  b3: { name: 'Bucket 3', hours: (h) => h >= 15 && h <= 23, startHour: 15 }
+  // Averages:
+  // b1: 00:00–07:59  => 0..7
+  // b2: 08:00–16:59  => 8..16
+  // b3: 17:00–23:59  => 17..23
+  //
+  // Shift starts stay: 00:00, 08:00, 15:00
+  b1: { name: 'Bucket 1', hours: (h) => h >= 0  && h < 8,  startHour: 0  },
+  b2: { name: 'Bucket 2', hours: (h) => h >= 8  && h < 17, startHour: 8  },
+  b3: { name: 'Bucket 3', hours: (h) => h >= 17 && h < 24, startHour: 15 }
 }
 
 const PHASES_MON_TO_SUN = [1, 2, 3, 4, 5, 6, 0] // dayjs: 0 Sun, 1 Mon, ...
