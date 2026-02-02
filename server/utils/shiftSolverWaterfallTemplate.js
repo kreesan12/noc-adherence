@@ -234,23 +234,37 @@ export function solveWaterfallTemplate(
   const a3 = avgForBucket(needs, BUCKETS.b3.hours).avg
 
   let b1 = ceilInt(a1)
-  let b2 = ceilInt(a2)
+  let b2Main = ceilInt(a2)   // Mon -> Fri (the “nice” day shift)
   let b3 = ceilInt(a3)
 
   // Nice to have: bucket 2 must be largest so Mon to Fri is the nicest shift
   const maxOther = Math.max(b1, b3)
   let forcedBucket2 = false
-  if (b2 < maxOther) {
-    b2 = maxOther
+  if (b2Main < maxOther) {
+    b2Main = maxOther
     forcedBucket2 = true
   }
 
-  // Phase counts based on bucket mapping
+  // Half the day shifts that are NOT Mon->Fri:
+  // Your b2 phases are: Mon(1), Sat(6), Sun(0)
+  // Mon gets full b2Main. Sat/Sun get half (rounded up).
+  const b2Other = ceilInt(b2Main / 2)
+
+  // Phase counts based on bucket mapping (with split b2 counts)
   const phaseCounts = {}
   for (const phase of PHASES_MON_TO_SUN) {
     const bk = PHASE_TO_BUCKET[phase]
-    phaseCounts[phase] = (bk === 'b1') ? b1 : (bk === 'b2') ? b2 : b3
+
+    if (bk === 'b1') {
+      phaseCounts[phase] = b1
+    } else if (bk === 'b3') {
+      phaseCounts[phase] = b3
+    } else {
+      // bk === 'b2'
+      phaseCounts[phase] = (phase === 1) ? b2Main : b2Other
+    }
   }
+
 
   const slots = buildSlots(phaseCounts)
   const headcount = slots.length
@@ -319,7 +333,7 @@ export function solveWaterfallTemplate(
       slots,
       phaseCounts,
       phaseToBucket: PHASE_TO_BUCKET,
-      bucketCounts: { b1, b2, b3 },
+      bucketCounts: { b1, b2Main, b2Other, b3 },
       bucketAvgs: { b1: a1, b2: a2, b3: a3 },
       bucketStartHours: { b1: BUCKETS.b1.startHour, b2: BUCKETS.b2.startHour, b3: BUCKETS.b3.startHour },
       weeks,

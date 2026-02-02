@@ -33,8 +33,8 @@ export default function StaffingPage() {
   const [ticketAht, setTicketAht] = useState(240);
   const [sl, setSL] = useState(0.8);
   const [threshold, setThreshold] = useState(20);
-  const [shrinkage, setShrinkage] = useState(0.3);
-  const [weeks, setWeeks] = useState(3);
+  const [shrinkage, setShrinkage] = useState(0.1);
+  const [weeks, setWeeks] = useState(1);
 
   const [forecast, setForecast] = useState([]);
   const [blocks, setBlocks] = useState([]);
