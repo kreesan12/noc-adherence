@@ -25,6 +25,7 @@ const MAX_ITERS      = 50;
 const START_HOURS_FIXED = [0, 8, 9, 11, 13, 15]; // 00:00, 06:00, 09:00, 11:00, 13:00, 15:00
 
 
+
 export default function StaffingPage() {
   /* STATE */
   const [roles,  setRoles]  = useState([]);
@@ -46,6 +47,8 @@ export default function StaffingPage() {
   const [useFixedStaff, setUseFixedStaff] = useState(false);
   const [fixedStaff, setFixedStaff] = useState(0);
   const [excludeAuto, setExcludeAuto] = useState(true);
+  const [countLunchAsCoverage, setCountLunchAsCoverage] = useState(false);
+
 
   // Solver UI + controls
   const [useExact, setUseExact] = useState(false);
@@ -219,7 +222,7 @@ export default function StaffingPage() {
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
         for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
-          if (h === breakHour) continue;
+          if (!countLunchAsCoverage && h === breakHour) continue;
           const k = `${day}|${h}`;
           schedMap[k] = (schedMap[k] ?? 0) + 1;
         }
@@ -242,7 +245,7 @@ export default function StaffingPage() {
       maxSch: allSch.length ? Math.max(...allSch) : 0,
       maxDef: allDef.length ? Math.max(...allDef) : 0
     };
-  }, [personSchedule, forecast]);
+    }, [personSchedule, forecast, countLunchAsCoverage]);
 
   const hasShortfall = def => Object.values(def).some(v => v < 0);
 
@@ -758,6 +761,16 @@ logLine(`Done. Final headcount ${best.headCnt}`);
             </Table>
           </Box>
         )}
+
+        <FormControlLabel
+          control={
+            <Switch
+              checked={countLunchAsCoverage}
+              onChange={e => setCountLunchAsCoverage(e.target.checked)}
+            />
+          }
+          label="Heatmaps: include lunch hour as coverage"
+        />
 
         {/* SCHEDULED HEATMAP */}
         {forecast.length > 0 && (
