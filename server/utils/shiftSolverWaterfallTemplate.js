@@ -38,14 +38,15 @@ const BUCKETS = {
 const PHASES_MON_TO_SUN = [1, 2, 3, 4, 5, 6, 0] // dayjs: 0 Sun, 1 Mon, ...
 
 const PHASE_TO_BUCKET = {
-  1: 'b2', // Mon
+  1: 'b2', // Mon (Bucket 2 full)
   2: 'b1', // Tue
-  3: 'b3', // Wed
+  3: 'b2', // Wed (Bucket 2 half)
   4: 'b1', // Thu
   5: 'b3', // Fri
-  6: 'b2', // Sat
-  0: 'b2'  // Sun
+  6: 'b2', // Sat (Bucket 2 half)
+  0: 'b3'  // Sun
 }
+
 
 function makeNeedsMap(forecast) {
   const needs = {}
@@ -250,7 +251,6 @@ export function solveWaterfallTemplate(
   // Mon gets full b2Main. Sat/Sun get half (rounded up).
   const b2Other = ceilInt(b2Main / 2)
 
-  // Phase counts based on bucket mapping (with split b2 counts)
   const phaseCounts = {}
   for (const phase of PHASES_MON_TO_SUN) {
     const bk = PHASE_TO_BUCKET[phase]
@@ -261,10 +261,11 @@ export function solveWaterfallTemplate(
       phaseCounts[phase] = b3
     } else {
       // bk === 'b2'
+      // Full only for Monday phase (1)
+      // Half only for Wednesday phase (3) and Saturday phase (6)
       phaseCounts[phase] = (phase === 1) ? b2Main : b2Other
     }
   }
-
 
   const slots = buildSlots(phaseCounts)
   const headcount = slots.length
