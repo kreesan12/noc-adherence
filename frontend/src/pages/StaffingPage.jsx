@@ -22,7 +22,7 @@ import * as XLSX from 'xlsx';
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
 const MAX_ITERS      = 50;
-const START_HOURS_FIXED = [0, 6, 9, 11, 13, 15]; // 00:00, 06:00, 09:00, 11:00, 13:00, 15:00
+const START_HOURS_FIXED = [0, 8, 9, 11, 13, 15]; // 00:00, 06:00, 09:00, 11:00, 13:00, 15:00
 
 
 export default function StaffingPage() {

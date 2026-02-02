@@ -141,43 +141,98 @@ function objective({ shortfall, over, headcount }) {
   return shortfall * 1_000_000 + over * 10 + headcount * 1
 }
 
+function hasNeedInStartWindow(localNeeds, startHour, shiftLength) {
+  // If there is any unmet need in the startHour..(startHour+shiftLength-1) window
+  // (we do not exclude lunch here, this is only to decide whether to keep prioritising the window)
+  const end = startHour + shiftLength
+  for (const k in localNeeds) {
+    const need = localNeeds[k] || 0
+    if (need <= 0) continue
+    const parts = k.split('|')
+    const hour = Number(parts[1])
+    if (hour >= startHour && hour < end) return true
+  }
+  return false
+}
+
 function greedyBuild({
   candidates,
   needs,
   maxStaff,
   randomize = false,
   topK = 10,
-  temperature = 1.0
+  temperature = 1.0,
+
+  // Prefer building 08:00-17:00 first while there is still unmet need in that window
+  preferStartHour = 8,
+  preferOnlyWhileDemand = true
 }) {
   const localNeeds = { ...needs }
   const assignments = []
 
+  // Pre-split candidate pools for speed
+  const preferredIdxs = []
+  const allIdxs = []
+  for (let i = 0; i < candidates.length; i++) {
+    allIdxs.push(i)
+    if (candidates[i].startHour === preferStartHour) preferredIdxs.push(i)
+  }
+
+  const inferredShiftLength = (candidates[0] && candidates[0].length) ? candidates[0].length : 9
+
   while (assignments.length < maxStaff) {
+    const usePreferredPool =
+      preferStartHour != null &&
+      preferredIdxs.length > 0 &&
+      (!preferOnlyWhileDemand || hasNeedInStartWindow(localNeeds, preferStartHour, inferredShiftLength))
+
+    const pool = usePreferredPool ? preferredIdxs : allIdxs
+
     let bestScore = 0
     let best = null
 
     if (!randomize) {
-      for (let i = 0; i < candidates.length; i++) {
+      for (let pi = 0; pi < pool.length; pi++) {
+        const i = pool[pi]
         const sc = scoreCandidate(candidates[i], localNeeds)
         if (sc > bestScore) { bestScore = sc; best = i }
       }
+
+      // If preferred pool produced nothing, fall back to full pool once
+      if ((best == null || bestScore === 0) && usePreferredPool) {
+        for (let i = 0; i < candidates.length; i++) {
+          const sc = scoreCandidate(candidates[i], localNeeds)
+          if (sc > bestScore) { bestScore = sc; best = i }
+        }
+      }
+
       if (best == null || bestScore === 0) break
       assignments.push(best)
     } else {
       const scored = []
-      for (let i = 0; i < candidates.length; i++) {
+      for (let pi = 0; pi < pool.length; pi++) {
+        const i = pool[pi]
         const sc = scoreCandidate(candidates[i], localNeeds)
         if (sc <= 0) continue
         scored.push({ i, score: sc })
       }
+
+      // Fallback to full pool if preferred pool has no useful candidates
+      if (!scored.length && usePreferredPool) {
+        for (let i = 0; i < candidates.length; i++) {
+          const sc = scoreCandidate(candidates[i], localNeeds)
+          if (sc <= 0) continue
+          scored.push({ i, score: sc })
+        }
+      }
+
       if (!scored.length) break
       scored.sort((a, b) => b.score - a.score)
 
       const slice = scored.slice(0, Math.min(topK, scored.length))
         .map(x => ({ c: x.i, score: x.score }))
 
-      const picked = weightedPickTopK(slice, temperature)
-      best = picked
+      best = weightedPickTopK(slice, temperature)
       bestScore = scoreCandidate(candidates[best], localNeeds)
       if (bestScore === 0) break
       assignments.push(best)
@@ -222,8 +277,13 @@ function removalScoreForCandidate(candidate, cov, needs) {
     if (got > req) s += (got - req)
     else if (got < req) s -= (req - got) * 5
   }
-  // Prefer removing broader shifts when they sit on surplus (e.g. 8 to 5)
+
+  // Prefer removing broader shifts when they sit on surplus
   s += candidate.cover.length * 0.05
+
+  // Slight bias: be a bit more willing to remove 08:00 starts when trimming surplus
+  if (candidate.startHour === 8) s += 2
+
   return s
 }
 
@@ -479,7 +539,8 @@ export function findMinimalCapLinear({
       candidates,
       needs,
       maxStaff: cap,
-      randomize: false
+      randomize: false,
+      preferStartHour: 8
     })
     const ev = evaluateSolution(assignments, candidates, needs, needKeys)
     if (ev.shortfall === 0) return { cap, ev }
@@ -547,7 +608,8 @@ export function assignRotationalShifts(
       candidates,
       needs,
       maxStaff: cap,
-      randomize: false
+      randomize: false,
+      preferStartHour: 8
     })
 
     const solution = collapseAssignments(assignments, candidates, shiftLength, splitSize)
@@ -612,7 +674,8 @@ export function assignRotationalShifts(
       maxStaff: cap,
       randomize: true,
       topK: 12,
-      temperature: temp
+      temperature: temp,
+      preferStartHour: 8
     })
 
     const improved = localImprove({
