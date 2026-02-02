@@ -4,13 +4,16 @@ import dayjs from '../utils/dayjs.js'
  * Scheduler: greedy baseline + time-bounded multi-restart search.
  *
  * New (Option A + C):
- * A) Greedy now uses a "net benefit" score:
+ * A) Greedy uses a "net benefit" score:
  *    score = (deficit covered * DEFICIT_W) - (surplus created * OVER_W)
- *    This stops greedy from adding shifts that mainly create overlap/surplus.
+ *    This reduces overlap driven overstaffing.
  *
- * C) After a feasible solution is found, we run a pruning pass:
- *    remove any shift that can be removed while remaining feasible.
- *    This directly reduces overstaffing and headcount without extra server calls.
+ *    IMPORTANT: Safety valve added:
+ *    If net-benefit scoring stalls while deficits still exist, greedy
+ *    falls back to deficit-only scoring to keep progressing.
+ *
+ * C) Prune pass (feasible only):
+ *    Remove any shift that can be removed while remaining feasible.
  *
  * Existing:
  * 1) Per-restart improvement budget
@@ -60,7 +63,7 @@ function buildCandidates({ firstWeek, weeks, shiftLength, hoursToTry, dateSet })
     if (workDates.length < 5 * weeks) continue
 
     for (const startHour of hoursToTry) {
-      const maxOffset = Math.min(5, shiftLength - 1) // lunch within 5h and inside shift
+      const maxOffset = Math.min(5, shiftLength - 1)
       for (let off = 2; off <= maxOffset; off++) {
         const cover = []
         const breakHours = new Set()
@@ -141,8 +144,7 @@ function hasNeedInStartWindow(localNeeds, startHour, shiftLength) {
   for (const k in localNeeds) {
     const need = localNeeds[k] || 0
     if (need <= 0) continue
-    const parts = k.split('|')
-    const hour = Number(parts[1])
+    const hour = Number(k.split('|')[1])
     if (hour >= startHour && hour < end) return true
   }
   return false
@@ -158,20 +160,13 @@ function netBenefitScoreForCandidate(candidate, cov, needs, {
 } = {}) {
   let deficitCovered = 0
   let overCreated = 0
+  let overAlready = 0
 
   for (const k of candidate.cover) {
     const req = needs[k] || 0
     const got = cov[k] || 0
-
     if (got < req) deficitCovered += 1
     else overCreated += 1
-  }
-
-  // Heavier penalty if we are already above requirement for many of these hours
-  let overAlready = 0
-  for (const k of candidate.cover) {
-    const req = needs[k] || 0
-    const got = cov[k] || 0
     if (got > req) overAlready += 1
   }
 
@@ -191,20 +186,21 @@ function greedyBuild({
   topK = 10,
   temperature = 1.0,
 
-  // Prefer building 08:00-17:00 first while there is still unmet need in that window
   preferStartHour = 8,
   preferOnlyWhileDemand = true,
 
-  // Net-benefit weights
   deficitWeight = 5,
   overWeight = 10,
   extraOverWeight = 12
 }) {
-  const localNeeds = { ...needs } // still used to decide "is there demand left in preferred window"
+  const localNeeds = { ...needs }
   const assignments = []
-  const cov = Object.create(null) // live coverage while building
+  const cov = Object.create(null)
 
-  // Pre-split candidate pools for speed
+  // Track total remaining deficit so we can detect "stall while still deficit"
+  let remainingDeficit = 0
+  for (const k in localNeeds) remainingDeficit += (localNeeds[k] || 0)
+
   const preferredIdxs = []
   const allIdxs = []
   for (let i = 0; i < candidates.length; i++) {
@@ -214,12 +210,23 @@ function greedyBuild({
 
   const inferredShiftLength = (candidates[0] && candidates[0].length) ? candidates[0].length : 9
 
-  const scoreFn = (cand) => netBenefitScoreForCandidate(
+  const netScoreFn = (cand) => netBenefitScoreForCandidate(
     cand,
     cov,
     needs,
     { deficitWeight, overWeight, extraOverWeight }
   )
+
+  const applyChosen = (chosen) => {
+    for (const k of chosen.cover) {
+      cov[k] = (cov[k] || 0) + 1
+      const before = localNeeds[k] || 0
+      if (before > 0) {
+        localNeeds[k] = before - 1
+        remainingDeficit -= 1
+      }
+    }
+  }
 
   while (assignments.length < maxStaff) {
     const usePreferredPool =
@@ -232,60 +239,99 @@ function greedyBuild({
     let bestScore = -Infinity
     let best = null
 
+    // -------- deterministic mode --------
     if (!randomize) {
       for (let pi = 0; pi < pool.length; pi++) {
         const i = pool[pi]
-        const sc = scoreFn(candidates[i])
+        const sc = netScoreFn(candidates[i])
         if (sc > bestScore) { bestScore = sc; best = i }
       }
 
-      // If preferred pool is active but yields nothing useful, fall back once
       if ((best == null || bestScore <= 0) && usePreferredPool) {
         for (let i = 0; i < candidates.length; i++) {
-          const sc = scoreFn(candidates[i])
+          const sc = netScoreFn(candidates[i])
           if (sc > bestScore) { bestScore = sc; best = i }
         }
       }
 
-      if (best == null || bestScore <= 0) break
+      // Safety valve: if net-benefit stalls but deficits remain, fall back to deficit-only
+      if (best == null || bestScore <= 0) {
+        if (remainingDeficit <= 0) break
+
+        let fbBest = null
+        let fbScore = 0
+        for (let i = 0; i < candidates.length; i++) {
+          const sc = scoreCandidate(candidates[i], localNeeds)
+          if (sc > fbScore) { fbScore = sc; fbBest = i }
+        }
+        if (fbBest == null || fbScore <= 0) break
+
+        best = fbBest
+      }
+
       assignments.push(best)
-    } else {
-      const scored = []
-      for (let pi = 0; pi < pool.length; pi++) {
-        const i = pool[pi]
-        const sc = scoreFn(candidates[i])
+      applyChosen(candidates[best])
+      continue
+    }
+
+    // -------- randomized mode --------
+    const scored = []
+    for (let pi = 0; pi < pool.length; pi++) {
+      const i = pool[pi]
+      const sc = netScoreFn(candidates[i])
+      if (sc <= 0) continue
+      scored.push({ i, score: sc })
+    }
+
+    if (!scored.length && usePreferredPool) {
+      for (let i = 0; i < candidates.length; i++) {
+        const sc = netScoreFn(candidates[i])
         if (sc <= 0) continue
         scored.push({ i, score: sc })
       }
+    }
 
-      // Fallback to full pool if preferred pool has no useful candidates
-      if (!scored.length && usePreferredPool) {
-        for (let i = 0; i < candidates.length; i++) {
-          const sc = scoreFn(candidates[i])
-          if (sc <= 0) continue
-          scored.push({ i, score: sc })
-        }
+    if (!scored.length) {
+      // Safety valve in random mode too
+      if (remainingDeficit <= 0) break
+
+      let fbBest = null
+      let fbScore = 0
+      for (let i = 0; i < candidates.length; i++) {
+        const sc = scoreCandidate(candidates[i], localNeeds)
+        if (sc > fbScore) { fbScore = sc; fbBest = i }
       }
+      if (fbBest == null || fbScore <= 0) break
 
-      if (!scored.length) break
-      scored.sort((a, b) => b.score - a.score)
-
-      const slice = scored.slice(0, Math.min(topK, scored.length))
-        .map(x => ({ c: x.i, score: x.score }))
-
-      best = weightedPickTopK(slice, temperature)
-      bestScore = scoreFn(candidates[best])
-      if (bestScore <= 0) break
-      assignments.push(best)
+      assignments.push(fbBest)
+      applyChosen(candidates[fbBest])
+      continue
     }
 
-    // Apply chosen candidate to cov and localNeeds
-    const chosen = candidates[assignments[assignments.length - 1]]
+    scored.sort((a, b) => b.score - a.score)
 
-    for (const k of chosen.cover) {
-      cov[k] = (cov[k] || 0) + 1
-      localNeeds[k] = Math.max(0, (localNeeds[k] || 0) - 1)
+    const slice = scored.slice(0, Math.min(topK, scored.length))
+      .map(x => ({ c: x.i, score: x.score }))
+
+    best = weightedPickTopK(slice, temperature)
+    const bestNet = netScoreFn(candidates[best])
+    if (bestNet <= 0) {
+      if (remainingDeficit <= 0) break
+
+      // Safety valve: deficit-only fallback
+      let fbBest = null
+      let fbScore = 0
+      for (let i = 0; i < candidates.length; i++) {
+        const sc = scoreCandidate(candidates[i], localNeeds)
+        if (sc > fbScore) { fbScore = sc; fbBest = i }
+      }
+      if (fbBest == null || fbScore <= 0) break
+
+      best = fbBest
     }
+
+    assignments.push(best)
+    applyChosen(candidates[best])
   }
 
   return assignments
@@ -313,7 +359,6 @@ function buildDeficitNeedsFromCoverage(needs, cov, needKeys) {
 }
 
 function removalScoreForCandidate(candidate, cov, needs) {
-  // Higher is better to remove
   let s = 0
   for (const k of candidate.cover) {
     const req = needs[k] || 0
@@ -322,17 +367,12 @@ function removalScoreForCandidate(candidate, cov, needs) {
     else if (got < req) s -= (req - got) * 5
   }
 
-  // Prefer removing broader shifts when they sit on surplus
   s += candidate.cover.length * 0.05
-
-  // Slight bias: be a bit more willing to remove 08:00 starts when trimming surplus
   if (candidate.startHour === 8) s += 2
-
   return s
 }
 
 function addScoreForCandidate(candidate, cov, needs) {
-  // Higher is better to add
   let s = 0
   for (const k of candidate.cover) {
     const req = needs[k] || 0
@@ -352,7 +392,6 @@ function applyCandidateDelta(cand, cov, delta) {
 
 /* -------------------------------------------------------------- *
  * Option C: Prune pass
- * Remove any assignment that can be removed without creating shortfall.
  * -------------------------------------------------------------- */
 function isRemovalFeasible(candidate, cov, needs) {
   for (const k of candidate.cover) {
@@ -415,7 +454,6 @@ function repairMove({
 }) {
   if (!assignments.length) return null
 
-  // Pick position to change: best to remove from surplus-heavy coverage
   let bestPos = -1
   let bestRemoveScore = -Infinity
   for (let p = 0; p < assignments.length; p++) {
@@ -431,17 +469,14 @@ function repairMove({
   const oldIdx = assignments[bestPos]
   const oldCand = candidates[oldIdx]
 
-  // Remove old, then compute deficits
   applyCandidateDelta(oldCand, cov, -1)
   const deficitNeeds = buildDeficitNeedsFromCoverage(needs, cov, needKeys)
 
-  // If no deficit, undo and stop (we are feasible already)
   if (!Object.keys(deficitNeeds).length) {
     applyCandidateDelta(oldCand, cov, +1)
     return null
   }
 
-  // Find best candidate to add based on deficit coverage, then refine with addScore
   const scored = []
   for (let i = 0; i < candidates.length; i++) {
     const sc = scoreCandidate(candidates[i], deficitNeeds)
@@ -469,13 +504,11 @@ function repairMove({
     }
   }
 
-  // If the best add does not help, undo
   if (bestNewIdx == null || bestAddScore <= 0) {
     applyCandidateDelta(oldCand, cov, +1)
     return null
   }
 
-  // Apply new
   assignments[bestPos] = bestNewIdx
   applyCandidateDelta(candidates[bestNewIdx], cov, +1)
 
@@ -510,7 +543,6 @@ function localImprove({
     iters++
     if (budgetMs > 0 && (Date.now() - startLocal) >= budgetMs) break
 
-    // Occasionally do a targeted repair move:
     if (iters % REPAIR_EVERY === 0 && bestEval.shortfall > 0) {
       const beforeObj = bestObj
 
@@ -527,13 +559,11 @@ function localImprove({
         const ev = evaluateSolution(best, candidates, needs, needKeys)
         const obj = objective(ev)
 
-        // Accept if it improves, else sometimes keep to escape local traps
         const accept = obj <= beforeObj || Math.random() < 0.15
         if (accept) {
           bestEval = ev
           bestObj = obj
         } else {
-          // revert
           applyCandidateDelta(candidates[move.newIdx], cov, -1)
           best[move.changedPos] = move.oldIdx
           applyCandidateDelta(candidates[move.oldIdx], cov, +1)
@@ -543,13 +573,11 @@ function localImprove({
       continue
     }
 
-    // Default random swap move:
     const pos = Math.floor(Math.random() * n)
     const newIdx = Math.floor(Math.random() * nCand)
     const oldIdx = best[pos]
     if (oldIdx === newIdx) continue
 
-    // Apply swap to coverage incrementally
     const oldCand = candidates[oldIdx]
     const newCand = candidates[newIdx]
 
@@ -569,9 +597,7 @@ function localImprove({
       best = trial
       bestEval = ev
       bestObj = obj
-      // cov already matches accepted state
     } else {
-      // revert cov
       applyCandidateDelta(newCand, cov, -1)
       applyCandidateDelta(oldCand, cov, +1)
     }
@@ -662,7 +688,6 @@ export function assignRotationalShifts(
     timeLimitMs = 0,
     greedyRestarts = 15,
 
-    // Optional: avoid external cap search spikes by doing +1 search here
     autoFindCap = false,
     autoFindCapStart = 1,
     autoFindCapMax = 999999
@@ -711,7 +736,6 @@ export function assignRotationalShifts(
 
     let ev = evaluateSolution(assignments, candidates, needs, needKeys)
 
-    // Option C prune
     let prunedInfo = null
     if (ev.shortfall === 0) {
       prunedInfo = pruneFeasibleAssignments({ assignments, candidates, needs, needKeys })
@@ -747,8 +771,6 @@ export function assignRotationalShifts(
 
   const hardStop = () => timeLimitMs > 0 && (Date.now() - t0) >= timeLimitMs
 
-  // greedyRestarts:
-  //   0 => unlimited (timeLimitMs must be > 0, or this could run forever)
   const restartLimit = (typeof greedyRestarts === 'number' && greedyRestarts >= 0)
     ? greedyRestarts
     : 15
@@ -796,7 +818,6 @@ export function assignRotationalShifts(
     let curObj = improved.bestObj
     let curPrunedRemoved = 0
 
-    // Option C prune (only when feasible)
     if (curEval.shortfall === 0) {
       const prunedInfo = pruneFeasibleAssignments({
         assignments: curAssignments,
@@ -856,7 +877,6 @@ export function autoAssignRotations(
     timeLimitMs = 0,
     greedyRestarts = 15,
 
-    // pass through optional cap search
     autoFindCap = false,
     autoFindCapStart = 1,
     autoFindCapMax = 999999,

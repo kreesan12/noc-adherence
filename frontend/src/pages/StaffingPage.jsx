@@ -22,9 +22,7 @@ import * as XLSX from 'xlsx';
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
 const MAX_ITERS      = 50;
-const START_HOURS_FIXED = [0, 8, 9, 11, 13, 15]; // 00:00, 06:00, 09:00, 11:00, 13:00, 15:00
-
-
+const START_HOURS_FIXED = [0, 8, 9, 11, 13, 15]; // 00:00, 08:00, 09:00, 11:00, 13:00, 15:00
 
 export default function StaffingPage() {
   /* STATE */
@@ -47,8 +45,9 @@ export default function StaffingPage() {
   const [useFixedStaff, setUseFixedStaff] = useState(false);
   const [fixedStaff, setFixedStaff] = useState(0);
   const [excludeAuto, setExcludeAuto] = useState(true);
-  const [countLunchAsCoverage, setCountLunchAsCoverage] = useState(false);
 
+  // Heatmaps only
+  const [countLunchAsCoverage, setCountLunchAsCoverage] = useState(false);
 
   // Solver UI + controls
   const [useExact, setUseExact] = useState(false);
@@ -85,7 +84,6 @@ export default function StaffingPage() {
   }, []);
 
   /* HELPERS */
-
   function logLine(msg) {
     const ts = dayjs().format('HH:mm:ss');
     setSolverLog(prev => [`[${ts}] ${msg}`, ...prev].slice(0, 400));
@@ -151,7 +149,7 @@ export default function StaffingPage() {
 
             const day = d.format('YYYY-MM-DD');
 
-            // choose lunch hour (2..5 hours into shift)
+            // choose lunch hour (2..5 hours into shift) to avoid creating shortfall
             const candidates = [];
             for (let off = 2; off <= 5; off++) {
               const h = block.startHour + off;
@@ -245,7 +243,7 @@ export default function StaffingPage() {
       maxSch: allSch.length ? Math.max(...allSch) : 0,
       maxDef: allDef.length ? Math.max(...allDef) : 0
     };
-    }, [personSchedule, forecast, countLunchAsCoverage]);
+  }, [personSchedule, forecast, countLunchAsCoverage]);
 
   const hasShortfall = def => Object.values(def).some(v => v < 0);
 
@@ -299,6 +297,18 @@ export default function StaffingPage() {
 
     const forecastDateSet = new Set(forecast.map(d => d.date));
 
+    // Realistic lower bound for cap scanning:
+    // 1) peak hourly requirement
+    // 2) total required hours divided by hours per staff per cycle
+    const reqValues = Object.values(reqMap).map(v => Number(v || 0));
+    const peakReq = reqValues.length ? Math.max(...reqValues) : 1;
+    const totalReq = reqValues.reduce((a, b) => a + b, 0);
+    const hoursPerStaffPerCycle = weeks * 5 * (SHIFT_LENGTH - 1); // lunch excluded
+    const lbByTotal = hoursPerStaffPerCycle > 0 ? Math.ceil(totalReq / hoursPerStaffPerCycle) : 1;
+    const startCapLB = Math.max(1, peakReq, lbByTotal);
+
+    logLine(`Cap scan lower bound: ${startCapLB} (peak ${peakReq}, total-hours ${lbByTotal})`);
+
     const solve = async (cap, exactMode, phaseLabel) => {
       if (cancelRef.current) throw new Error('Cancelled');
 
@@ -307,26 +317,22 @@ export default function StaffingPage() {
 
       logLine(`Testing cap ${cap} (${phaseLabel})`);
 
-const body = {
-  staffing: forecast,
-  weeks,
-  shiftLength: SHIFT_LENGTH,
-  topN: 5,
-  maxStaff: cap,
+      const body = {
+        staffing: forecast,
+        weeks,
+        shiftLength: SHIFT_LENGTH,
+        topN: 5,
+        maxStaff: cap,
 
-  // tighten start times (reduces permutations)
-  startHours: START_HOURS_FIXED,
+        startHours: START_HOURS_FIXED,
 
-  // solver knobs
-  exact: Boolean(exactMode),
-  timeLimitMs: exactMode ? Math.max(0, Math.floor(Number(timeLimitMinutes) * 60 * 1000)) : 0,
-  greedyRestarts: exactMode ? Number(greedyRestarts) : 0,
-  splitSize: Number(splitSize),
+        exact: Boolean(exactMode),
+        timeLimitMs: exactMode ? Math.max(0, Math.floor(Number(timeLimitMinutes) * 60 * 1000)) : 0,
+        greedyRestarts: exactMode ? Number(greedyRestarts) : 0,
+        splitSize: Number(splitSize),
 
-  // this becomes irrelevant when startHours is provided, but safe to keep
-  latestStartHour: Number(latestStartHour)
-};
-
+        latestStartHour: Number(latestStartHour)
+      };
 
       const t0 = performance.now();
       const { data } = await api.post('/erlang/staff/schedule', body);
@@ -341,7 +347,7 @@ const body = {
 
       const sched = buildSchedule(data.solution || [], reqMap, forecastDateSet);
 
-      // compute deficit
+      // compute deficit (feasibility always excludes lunch)
       const cov = {};
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
@@ -388,76 +394,88 @@ const body = {
         return;
       }
 
-      // Expansion: ALWAYS greedy (fast) to find an upper bound
-// Phase 1: Greedy scan from 1 upward (+1) until feasible H is found
-setSolverPhase('Greedy scan (+1)');
-let H = null;
-let plan = null;
+      // Phase 1: Greedy scan to find first feasible cap
+      setSolverPhase('Greedy scan (+1)');
+      let H = null;
+      let plan = null;
 
-const MAX_CAP = 10000; // safety ceiling
-let cap = 1;
+      const MAX_CAP = 10000;
+      let cap = Math.min(MAX_CAP, startCapLB);
 
-while (cap <= MAX_CAP) {
-  setSolverIter(cap); // just to show progress
-  plan = await solve(cap, false, `Greedy scan (+1) (${cap}/${MAX_CAP})`);
+      // Stall detector: stop if headcount does not change across several caps
+      let lastHeadCnt = null;
+      let stallCount = 0;
+      const STALL_LIMIT = 10;
 
-  if (plan.feasible) {
-    H = cap;
-    setSolverBestFeasible(plan.headCnt);
-    logLine(`First feasible headcount found at cap ${H} (greedy)`);
-    break;
-  }
+      while (cap <= MAX_CAP) {
+        setSolverIter(cap);
+        plan = await solve(cap, false, `Greedy scan (+1) (${cap}/${MAX_CAP})`);
 
-  cap += 1;
-}
+        if (plan.headCnt === lastHeadCnt) stallCount += 1;
+        else stallCount = 0;
+        lastHeadCnt = plan.headCnt;
 
-if (H == null || !plan?.feasible) {
-  setSolverPhase('Failed');
-  logLine(`Could not find a feasible cap up to ${MAX_CAP}.`);
-  return;
-}
+        if (plan.feasible) {
+          H = cap;
+          setSolverBestFeasible(plan.headCnt);
+          logLine(`First feasible cap found at ${H} (greedy)`);
+          break;
+        }
 
-// Phase 2: Try to push down: H-1, H-2, ... until it fails
-let best = plan;
+        if (stallCount >= STALL_LIMIT) {
+          setSolverPhase('Failed');
+          logLine(`Scan stalled: headcount stayed at ${plan.headCnt} for ${STALL_LIMIT} caps. Stopping.`);
+          return;
+        }
 
-if (useExact) {
-  setSolverPhase('Tightening cap (exact)');
-  let iter = 0;
+        cap += 1;
+      }
 
-  for (let c = H - 1; c >= 1; c--) {
-    iter++;
-    setSolverIter(iter);
+      if (H == null || !plan?.feasible) {
+        setSolverPhase('Failed');
+        logLine(`Could not find a feasible cap up to ${MAX_CAP}.`);
+        return;
+      }
 
-    const phaseLabel = `Tighten cap (exact) ${c}`;
-    const cur = await solve(c, true, phaseLabel);
+      // Phase 2: Tighten downwards (exact optional)
+      let best = plan;
 
-    if (cur.feasible) {
-      best = cur;
-      setSolverBestFeasible(best.headCnt);
-      logLine(`Feasible at ${c}, trying ${c - 1}`);
-    } else {
-      logLine(`Not feasible at ${c}, stopping tighten`);
-      break;
-    }
+      if (useExact) {
+        setSolverPhase('Tightening cap (exact)');
+        let iter = 0;
 
-    if (iter >= MAX_ITERS) {
-      logLine(`Reached tighten iteration limit (${MAX_ITERS}), stopping tighten`);
-      break;
-    }
-  }
-} else {
-  logLine('Exact optimiser disabled, using greedy feasible cap only.');
-}
+        for (let c = H - 1; c >= 1; c--) {
+          iter++;
+          setSolverIter(iter);
 
-// Commit best plan found
-setBlocks(best.solution);
-setBestStart(best.bestStart);
-setPersonSchedule(best.schedule);
-setFixedStaff(best.headCnt);
+          const phaseLabel = `Tighten cap (exact) ${c}`;
+          const cur = await solve(c, true, phaseLabel);
 
-setSolverPhase('Done');
-logLine(`Done. Final headcount ${best.headCnt}`);
+          if (cur.feasible) {
+            best = cur;
+            setSolverBestFeasible(best.headCnt);
+            logLine(`Feasible at ${c}, trying ${c - 1}`);
+          } else {
+            logLine(`Not feasible at ${c}, stopping tighten`);
+            break;
+          }
 
+          if (iter >= MAX_ITERS) {
+            logLine(`Reached tighten iteration limit (${MAX_ITERS}), stopping tighten`);
+            break;
+          }
+        }
+      } else {
+        logLine('Exact optimiser disabled, using greedy feasible cap only.');
+      }
+
+      setBlocks(best.solution);
+      setBestStart(best.bestStart);
+      setPersonSchedule(best.schedule);
+      setFixedStaff(best.headCnt);
+
+      setSolverPhase('Done');
+      logLine(`Done. Final headcount ${best.headCnt}`);
     } catch (err) {
       console.error(err);
       setSolverPhase('Error');
