@@ -4,9 +4,9 @@ import dayjs from '../utils/dayjs.js'
   Waterfall Template Solver
 
   Buckets:
-    B1 00:00 to 08:00  (hours 0..7)
+    B1 00:00 to 09:00  (hours 0..8)
     B2 08:00 to 17:00  (hours 8..16)
-    B3 18:00 to 00:00  (hours 18..23)
+    B3 15:00 to 00:00  (hours 15..23)
 
   Fixed phase plan (start weekday):
     Mon -> B2
@@ -30,9 +30,9 @@ import dayjs from '../utils/dayjs.js'
 */
 
 const BUCKETS = {
-  b1: { name: 'Bucket 1', hours: (h) => h >= 0 && h <= 7,  startHour: 0  },
+  b1: { name: 'Bucket 1', hours: (h) => h >= 0 && h <= 8,  startHour: 0  },
   b2: { name: 'Bucket 2', hours: (h) => h >= 8 && h <= 16, startHour: 8  },
-  b3: { name: 'Bucket 3', hours: (h) => h >= 18 && h <= 23, startHour: 18 }
+  b3: { name: 'Bucket 3', hours: (h) => h >= 15 && h <= 23, startHour: 15 }
 }
 
 const PHASES_MON_TO_SUN = [1, 2, 3, 4, 5, 6, 0] // dayjs: 0 Sun, 1 Mon, ...
