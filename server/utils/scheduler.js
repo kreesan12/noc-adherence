@@ -3,24 +3,19 @@ import dayjs from '../utils/dayjs.js'
 /* -------------------------------------------------------------- *
  * Scheduler: greedy baseline + time-bounded multi-restart search.
  *
- * IMPORTANT FIXES:
- * 1) Per-restart improvement budget:
- *    localImprove() gets a restart-local budget so restart #1
- *    cannot consume the entire global time limit.
+ * New (Option A + C):
+ * A) Greedy now uses a "net benefit" score:
+ *    score = (deficit covered * DEFICIT_W) - (surplus created * OVER_W)
+ *    This stops greedy from adding shifts that mainly create overlap/surplus.
  *
- * 2) Restarts are respected:
- *    If timeLimitMs > 0 -> stop by time, but also stop when
- *    restarts reach greedyRestarts (unless greedyRestarts = 0).
+ * C) After a feasible solution is found, we run a pruning pass:
+ *    remove any shift that can be removed while remaining feasible.
+ *    This directly reduces overstaffing and headcount without extra server calls.
  *
- * 3) Repair move (surplus to breach):
- *    During local improvement, occasionally perform a targeted move
- *    that removes coverage from the most overstaffed portions and
- *    reallocates it to the biggest shortfalls.
- *
- * NOTE:
- * "exact" here means: explore many randomized greedy builds
- * + stochastic local improvement for as long as allowed.
- * It is not literal enumeration of all combinations.
+ * Existing:
+ * 1) Per-restart improvement budget
+ * 2) Restarts respected
+ * 3) Repair move (surplus to breach)
  * -------------------------------------------------------------- */
 
 function makeNeedsMap(forecast) {
@@ -142,8 +137,6 @@ function objective({ shortfall, over, headcount }) {
 }
 
 function hasNeedInStartWindow(localNeeds, startHour, shiftLength) {
-  // If there is any unmet need in the startHour..(startHour+shiftLength-1) window
-  // (we do not exclude lunch here, this is only to decide whether to keep prioritising the window)
   const end = startHour + shiftLength
   for (const k in localNeeds) {
     const need = localNeeds[k] || 0
@@ -153,6 +146,41 @@ function hasNeedInStartWindow(localNeeds, startHour, shiftLength) {
     if (hour >= startHour && hour < end) return true
   }
   return false
+}
+
+/* -------------------------------------------------------------- *
+ * Option A: Net-benefit scoring for greedy
+ * -------------------------------------------------------------- */
+function netBenefitScoreForCandidate(candidate, cov, needs, {
+  deficitWeight = 5,
+  overWeight = 10,
+  extraOverWeight = 12
+} = {}) {
+  let deficitCovered = 0
+  let overCreated = 0
+
+  for (const k of candidate.cover) {
+    const req = needs[k] || 0
+    const got = cov[k] || 0
+
+    if (got < req) deficitCovered += 1
+    else overCreated += 1
+  }
+
+  // Heavier penalty if we are already above requirement for many of these hours
+  let overAlready = 0
+  for (const k of candidate.cover) {
+    const req = needs[k] || 0
+    const got = cov[k] || 0
+    if (got > req) overAlready += 1
+  }
+
+  const score =
+    (deficitCovered * deficitWeight) -
+    (overCreated * overWeight) -
+    (overAlready * Math.max(0, extraOverWeight - overWeight))
+
+  return score
 }
 
 function greedyBuild({
@@ -165,10 +193,16 @@ function greedyBuild({
 
   // Prefer building 08:00-17:00 first while there is still unmet need in that window
   preferStartHour = 8,
-  preferOnlyWhileDemand = true
+  preferOnlyWhileDemand = true,
+
+  // Net-benefit weights
+  deficitWeight = 5,
+  overWeight = 10,
+  extraOverWeight = 12
 }) {
-  const localNeeds = { ...needs }
+  const localNeeds = { ...needs } // still used to decide "is there demand left in preferred window"
   const assignments = []
+  const cov = Object.create(null) // live coverage while building
 
   // Pre-split candidate pools for speed
   const preferredIdxs = []
@@ -180,6 +214,13 @@ function greedyBuild({
 
   const inferredShiftLength = (candidates[0] && candidates[0].length) ? candidates[0].length : 9
 
+  const scoreFn = (cand) => netBenefitScoreForCandidate(
+    cand,
+    cov,
+    needs,
+    { deficitWeight, overWeight, extraOverWeight }
+  )
+
   while (assignments.length < maxStaff) {
     const usePreferredPool =
       preferStartHour != null &&
@@ -188,31 +229,31 @@ function greedyBuild({
 
     const pool = usePreferredPool ? preferredIdxs : allIdxs
 
-    let bestScore = 0
+    let bestScore = -Infinity
     let best = null
 
     if (!randomize) {
       for (let pi = 0; pi < pool.length; pi++) {
         const i = pool[pi]
-        const sc = scoreCandidate(candidates[i], localNeeds)
+        const sc = scoreFn(candidates[i])
         if (sc > bestScore) { bestScore = sc; best = i }
       }
 
-      // If preferred pool produced nothing, fall back to full pool once
-      if ((best == null || bestScore === 0) && usePreferredPool) {
+      // If preferred pool is active but yields nothing useful, fall back once
+      if ((best == null || bestScore <= 0) && usePreferredPool) {
         for (let i = 0; i < candidates.length; i++) {
-          const sc = scoreCandidate(candidates[i], localNeeds)
+          const sc = scoreFn(candidates[i])
           if (sc > bestScore) { bestScore = sc; best = i }
         }
       }
 
-      if (best == null || bestScore === 0) break
+      if (best == null || bestScore <= 0) break
       assignments.push(best)
     } else {
       const scored = []
       for (let pi = 0; pi < pool.length; pi++) {
         const i = pool[pi]
-        const sc = scoreCandidate(candidates[i], localNeeds)
+        const sc = scoreFn(candidates[i])
         if (sc <= 0) continue
         scored.push({ i, score: sc })
       }
@@ -220,7 +261,7 @@ function greedyBuild({
       // Fallback to full pool if preferred pool has no useful candidates
       if (!scored.length && usePreferredPool) {
         for (let i = 0; i < candidates.length; i++) {
-          const sc = scoreCandidate(candidates[i], localNeeds)
+          const sc = scoreFn(candidates[i])
           if (sc <= 0) continue
           scored.push({ i, score: sc })
         }
@@ -233,13 +274,16 @@ function greedyBuild({
         .map(x => ({ c: x.i, score: x.score }))
 
       best = weightedPickTopK(slice, temperature)
-      bestScore = scoreCandidate(candidates[best], localNeeds)
-      if (bestScore === 0) break
+      bestScore = scoreFn(candidates[best])
+      if (bestScore <= 0) break
       assignments.push(best)
     }
 
+    // Apply chosen candidate to cov and localNeeds
     const chosen = candidates[assignments[assignments.length - 1]]
+
     for (const k of chosen.cover) {
+      cov[k] = (cov[k] || 0) + 1
       localNeeds[k] = Math.max(0, (localNeeds[k] || 0) - 1)
     }
   }
@@ -304,6 +348,60 @@ function applyCandidateDelta(cand, cov, delta) {
     cov[k] = (cov[k] || 0) + delta
     if (cov[k] <= 0) delete cov[k]
   }
+}
+
+/* -------------------------------------------------------------- *
+ * Option C: Prune pass
+ * Remove any assignment that can be removed without creating shortfall.
+ * -------------------------------------------------------------- */
+function isRemovalFeasible(candidate, cov, needs) {
+  for (const k of candidate.cover) {
+    const req = needs[k] || 0
+    const got = cov[k] || 0
+    if ((got - 1) < req) return false
+  }
+  return true
+}
+
+function pruneFeasibleAssignments({
+  assignments,
+  candidates,
+  needs,
+  needKeys,
+  maxRemovals = 999999
+}) {
+  const pruned = assignments.slice()
+  const cov = buildCoverage(pruned, candidates)
+
+  let removed = 0
+  while (removed < maxRemovals) {
+    let bestPos = -1
+    let bestScore = -Infinity
+
+    for (let p = 0; p < pruned.length; p++) {
+      const idx = pruned[p]
+      const cand = candidates[idx]
+
+      if (!isRemovalFeasible(cand, cov, needs)) continue
+      const sc = removalScoreForCandidate(cand, cov, needs)
+      if (sc > bestScore) {
+        bestScore = sc
+        bestPos = p
+      }
+    }
+
+    if (bestPos < 0) break
+    if (bestScore <= 0) break
+
+    const idx = pruned[bestPos]
+    applyCandidateDelta(candidates[idx], cov, -1)
+    pruned.splice(bestPos, 1)
+    removed += 1
+  }
+
+  const ev = evaluateSolution(pruned, candidates, needs, needKeys)
+  const obj = objective(ev)
+  return { pruned, ev, obj, removed }
 }
 
 // One targeted repair: remove from surplus-heavy assignment, re-add to best deficit-heavy candidate
@@ -524,7 +622,6 @@ function collapseAssignments(assignments, candidates, shiftLength, splitSize) {
 
 /* -------------------------------------------------------------- *
  * Optional helper: linear cap search (+1) to avoid spikes
- * This is only used if you call it or enable autoFindCap.
  * -------------------------------------------------------------- */
 export function findMinimalCapLinear({
   candidates,
@@ -602,9 +699,9 @@ export function assignRotationalShifts(
     if (found.cap != null) cap = found.cap
   }
 
-  // Non-exact: one deterministic greedy build
+  // Non-exact: one deterministic greedy build + prune
   if (!exact) {
-    const assignments = greedyBuild({
+    let assignments = greedyBuild({
       candidates,
       needs,
       maxStaff: cap,
@@ -612,8 +709,17 @@ export function assignRotationalShifts(
       preferStartHour: 8
     })
 
+    let ev = evaluateSolution(assignments, candidates, needs, needKeys)
+
+    // Option C prune
+    let prunedInfo = null
+    if (ev.shortfall === 0) {
+      prunedInfo = pruneFeasibleAssignments({ assignments, candidates, needs, needKeys })
+      assignments = prunedInfo.pruned
+      ev = prunedInfo.ev
+    }
+
     const solution = collapseAssignments(assignments, candidates, shiftLength, splitSize)
-    const ev = evaluateSolution(assignments, candidates, needs, needKeys)
 
     return {
       solution,
@@ -624,6 +730,7 @@ export function assignRotationalShifts(
         headcount: ev.headcount,
         shortfall: ev.shortfall,
         over: ev.over,
+        prunedRemoved: prunedInfo ? prunedInfo.removed : 0,
         timeMs: Date.now() - t0
       }
     }
@@ -636,6 +743,7 @@ export function assignRotationalShifts(
 
   let restarts = 0
   let improveItersTotal = 0
+  let prunedRemovedBest = 0
 
   const hardStop = () => timeLimitMs > 0 && (Date.now() - t0) >= timeLimitMs
 
@@ -656,14 +764,10 @@ export function assignRotationalShifts(
       ? 1
       : Math.max(1, restartLimit - restarts + 1)
 
-    // Per-restart improvement budget:
-    // - If time-limited: split remaining time roughly across remaining restarts
-    // - If not time-limited: cap each restart improvement to keep moving
     const improveBudgetMs = timeLimitMs > 0
       ? Math.max(250, Math.floor(remainingMs / restartsLeft))
       : 2500
 
-    // diversify: more random early, greedier later
     const temp = restartLimit === 0
       ? 1.0
       : Math.max(0.5, 2.0 - (restarts / Math.max(1, restartLimit)) * 1.5)
@@ -687,16 +791,32 @@ export function assignRotationalShifts(
     })
     improveItersTotal += improved.iters
 
-    const ev = improved.bestEval
-    const obj = improved.bestObj
+    let curAssignments = improved.best
+    let curEval = improved.bestEval
+    let curObj = improved.bestObj
+    let curPrunedRemoved = 0
 
-    if (obj < bestObj) {
-      bestObj = obj
-      bestAssignments = improved.best
-      bestEval = ev
+    // Option C prune (only when feasible)
+    if (curEval.shortfall === 0) {
+      const prunedInfo = pruneFeasibleAssignments({
+        assignments: curAssignments,
+        candidates,
+        needs,
+        needKeys
+      })
+      curAssignments = prunedInfo.pruned
+      curEval = prunedInfo.ev
+      curObj = prunedInfo.obj
+      curPrunedRemoved = prunedInfo.removed
     }
 
-    // quick exit if perfectly feasible and no over at all
+    if (curObj < bestObj) {
+      bestObj = curObj
+      bestAssignments = curAssignments
+      bestEval = curEval
+      prunedRemovedBest = curPrunedRemoved
+    }
+
     if (bestEval.shortfall === 0 && bestEval.over === 0) break
   }
 
@@ -713,6 +833,7 @@ export function assignRotationalShifts(
       headcount: bestEval.headcount,
       shortfall: bestEval.shortfall,
       over: bestEval.over,
+      prunedRemoved: prunedRemovedBest,
       objective: bestObj,
       timeMs: Date.now() - t0
     }
