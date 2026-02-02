@@ -394,88 +394,91 @@ export default function StaffingPage() {
         return;
       }
 
-      // Phase 1: Greedy scan to find first feasible cap
-      setSolverPhase('Greedy scan (+1)');
-      let H = null;
-      let plan = null;
+// Phase 1: Find any feasible cap (fast ramp-up)
+setSolverPhase('Find feasible cap');
+const MAX_CAP = 10000;
 
-      const MAX_CAP = 10000;
-      let cap = Math.min(MAX_CAP, startCapLB);
+let plan = null;
 
-      // Stall detector: stop if headcount does not change across several caps
-      let lastHeadCnt = null;
-      let stallCount = 0;
-      const STALL_LIMIT = 10;
+// Use your computed lower bound as the start
+let L = Math.max(1, Math.min(MAX_CAP, startCapLB));
+let cap = L;
 
-      while (cap <= MAX_CAP) {
-        setSolverIter(cap);
-        plan = await solve(cap, false, `Greedy scan (+1) (${cap}/${MAX_CAP})`);
+// Ramp up faster than +1 to avoid long scans
+while (cap <= MAX_CAP) {
+  setSolverIter(cap);
+  plan = await solve(cap, false, `Find feasible cap (${cap}/${MAX_CAP})`);
 
-        if (plan.headCnt === lastHeadCnt) stallCount += 1;
-        else stallCount = 0;
-        lastHeadCnt = plan.headCnt;
+  if (plan.feasible) {
+    logLine(`Feasible found at cap ${cap} (greedy). Returned headcount=${plan.headCnt}.`);
 
-        if (plan.feasible) {
-          H = cap;
-          setSolverBestFeasible(plan.headCnt);
-          logLine(`First feasible cap found at ${H} (greedy)`);
-          break;
-        }
+    // Important: if the solver returns headCnt << cap, we can tighten immediately.
+    // This becomes our initial upper bound for searching the minimal feasible cap.
+    break;
+  }
 
-        if (stallCount >= STALL_LIMIT) {
-          setSolverPhase('Failed');
-          logLine(`Scan stalled: headcount stayed at ${plan.headCnt} for ${STALL_LIMIT} caps. Stopping.`);
-          return;
-        }
+  // ramp: 1..20 step +1, then multiply by 1.5
+  if (cap < 20) cap += 1;
+  else cap = Math.min(MAX_CAP, Math.floor(cap * 1.5));
+}
 
-        cap += 1;
-      }
+if (!plan?.feasible) {
+  setSolverPhase('Failed');
+  logLine(`Could not find a feasible cap up to ${MAX_CAP}.`);
+  return;
+}
 
-      if (H == null || !plan?.feasible) {
-        setSolverPhase('Failed');
-        logLine(`Could not find a feasible cap up to ${MAX_CAP}.`);
-        return;
-      }
+// Phase 2: Binary search minimal feasible cap using GREEDY (fast)
+setSolverPhase('Tightening cap (binary search)');
 
-      // Phase 2: Tighten downwards (exact optional)
-      let best = plan;
+// Lower bound can still be your heuristic LB, but allow going below it,
+// because LB-by-total can be too conservative when overlaps help.
+let lo = 1;
 
-      if (useExact) {
-        setSolverPhase('Tightening cap (exact)');
-        let iter = 0;
+// Upper bound: cap that worked, but tighter if returned headCnt is smaller
+let hi = Math.max(1, Math.min(plan.headCnt || cap, cap));
 
-        for (let c = H - 1; c >= 1; c--) {
-          iter++;
-          setSolverIter(iter);
+let best = plan;
 
-          const phaseLabel = `Tighten cap (exact) ${c}`;
-          const cur = await solve(c, true, phaseLabel);
+// Safety: prevent infinite loops if something odd happens
+let bsIters = 0;
+const BS_MAX_ITERS = 40;
 
-          if (cur.feasible) {
-            best = cur;
-            setSolverBestFeasible(best.headCnt);
-            logLine(`Feasible at ${c}, trying ${c - 1}`);
-          } else {
-            logLine(`Not feasible at ${c}, stopping tighten`);
-            break;
-          }
+while (lo < hi && bsIters < BS_MAX_ITERS) {
+  bsIters += 1;
+  const mid = Math.floor((lo + hi) / 2);
 
-          if (iter >= MAX_ITERS) {
-            logLine(`Reached tighten iteration limit (${MAX_ITERS}), stopping tighten`);
-            break;
-          }
-        }
-      } else {
-        logLine('Exact optimiser disabled, using greedy feasible cap only.');
-      }
+  setSolverIter(mid);
+  const cur = await solve(mid, false, `Tighten cap (greedy) mid=${mid}`);
 
-      setBlocks(best.solution);
-      setBestStart(best.bestStart);
-      setPersonSchedule(best.schedule);
-      setFixedStaff(best.headCnt);
+  if (cur.feasible) {
+    best = cur;
 
-      setSolverPhase('Done');
-      logLine(`Done. Final headcount ${best.headCnt}`);
+    // tighten upper bound again using returned headCnt if it helps
+    const newHi = Math.max(1, Math.min(mid, cur.headCnt || mid));
+    hi = newHi;
+
+    logLine(`Feasible at ${mid}; tightening hi -> ${hi}`);
+  } else {
+    lo = mid + 1;
+    logLine(`Not feasible at ${mid}; tightening lo -> ${lo}`);
+  }
+}
+
+// Optional Phase 3: If exact is enabled, you can try to improve at the best cap
+// (This keeps runtime sane, because you only do exact at the final tight cap)
+if (useExact) {
+  setSolverPhase('Polish (exact)');
+
+  const polished = await solve(best.headCnt || hi, true, `Polish exact at cap ${best.headCnt || hi}`);
+  if (polished.feasible) {
+    best = polished;
+    logLine(`Exact polish improved/confirmed at cap ${best.headCnt}`);
+  } else {
+    logLine('Exact polish not feasible; keeping greedy-tightened result.');
+  }
+}
+
     } catch (err) {
       console.error(err);
       setSolverPhase('Error');
