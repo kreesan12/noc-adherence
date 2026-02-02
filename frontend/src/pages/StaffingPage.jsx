@@ -21,8 +21,12 @@ import * as XLSX from 'xlsx';
 /* CONSTANTS */
 const HORIZON_MONTHS = 6;
 const SHIFT_LENGTH   = 9;
-const MAX_ITERS      = 50;
-const START_HOURS_FIXED = [0, 8, 9, 11, 13, 15]; // 00:00, 08:00, 09:00, 11:00, 13:00, 15:00
+
+const SHIFT_TYPES = {
+  grave: { startHour: 0, breakOffset: 4 },
+  day:   { startHour: 8, breakOffset: 4 },
+  late:  { startHour: 15, breakOffset: 4 }
+};
 
 export default function StaffingPage() {
   /* STATE */
@@ -45,20 +49,15 @@ export default function StaffingPage() {
   const [useFixedStaff, setUseFixedStaff] = useState(false);
   const [fixedStaff, setFixedStaff] = useState(0);
   const [excludeAuto, setExcludeAuto] = useState(true);
-
-  // Heatmaps only
   const [countLunchAsCoverage, setCountLunchAsCoverage] = useState(false);
 
-  // Solver UI + controls
-  const [useExact, setUseExact] = useState(false);
-  const [latestStartHour, setLatestStartHour] = useState(15);
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState(30);
-  const [greedyRestarts, setGreedyRestarts] = useState(60);
-  const [splitSize, setSplitSize] = useState(999);
+  // Waterfall rotation controls
+  const [graveRotateAfterCycles, setGraveRotateAfterCycles] = useState(2);
+  const [lateRotateAfterCycles, setLateRotateAfterCycles] = useState(2);
 
+  // Solver UI
   const [solverRunning, setSolverRunning] = useState(false);
   const [solverPhase, setSolverPhase] = useState('Idle');
-  const [solverIter, setSolverIter] = useState(0);
   const [solverCap, setSolverCap] = useState(null);
   const [solverHeadcount, setSolverHeadcount] = useState(null);
   const [solverBestFeasible, setSolverBestFeasible] = useState(null);
@@ -104,94 +103,132 @@ export default function StaffingPage() {
     timerRef.current = null;
   }
 
-  // Rotation-aware work dates: weeks * 5 workdays, filtered to forecast dateSet
-  function getWorkDates(startDateStr, weeksCount, dateSet) {
+  function hasShortfall(def) {
+    return Object.values(def).some(v => v < 0);
+  }
+
+  function buildWeekdayDateMapFromForecastDates(forecastDates) {
+    const map = {};
+    const firstWeek = forecastDates.slice(0, 7);
+    firstWeek.forEach(d => {
+      const wd = dayjs(d).day();
+      if (map[wd] == null) map[wd] = d;
+    });
+    return map;
+  }
+
+  function getWorkDates(startDateStr, weeksCount) {
     const out = [];
     for (let w = 0; w < weeksCount; w++) {
       const base = dayjs(startDateStr).add(w * 7, 'day');
       for (let d = 0; d < 5; d++) {
-        const dd = base.add(d, 'day').format('YYYY-MM-DD');
-        if (!dateSet || dateSet.has(dd)) out.push(dd);
+        out.push(base.add(d, 'day').format('YYYY-MM-DD'));
       }
     }
     return out;
   }
 
-  // Build schedule from solver solution (must match solver assumptions)
-  function buildSchedule(solution, reqMap, forecastDateSet) {
+  function shiftTypeForTrackAtCycle(track, ci) {
+    if (track.pool === 'day') return 'day';
+
+    const required = track.required ?? 1;
+    const rotateAfter = track.rotateAfterCycles ?? 2;
+    const groupSize = Math.max(1, required);
+    const groupCount = rotateAfter + 1;
+
+    const groupIndex0 = Math.floor((track.slotIndex ?? 0) / groupSize);
+    const groupIndex = (groupIndex0 + ci) % groupCount;
+
+    if (groupIndex === 0) return track.pool;
+    return 'day';
+  }
+
+  function phaseForTrackAtCycle(track, ci) {
+    const p0 = track.phase0 ?? 0;
+    return (p0 + ci) % 7;
+  }
+
+  function buildScheduleFromTracks(tracks, reqMap, forecastDateSet) {
     const schedByEmp = {};
-    const totalEmp = solution.reduce((s, b) => s + b.count, 0);
-    const queue = Array.from({ length: totalEmp }, (_, i) => i + 1);
-    queue.forEach(id => (schedByEmp[id] = []));
+    const totalEmp = tracks.length;
+    const empIds = Array.from({ length: totalEmp }, (_, i) => i + 1);
+    empIds.forEach(id => (schedByEmp[id] = []));
 
     const coverMap = {};
     const lunchMap = {};
 
-    const horizonEnd = dayjs(startDate).add(HORIZON_MONTHS, 'month');
-    const cycles = Math.ceil((horizonEnd.diff(startDate, 'day') + 1) / (weeks * 7));
+    const allForecastDates = Array.from(forecastDateSet).sort();
+    const horizonStart = allForecastDates[0];
+    const horizonEnd = allForecastDates[allForecastDates.length - 1];
 
-    const sorted = [...solution].sort(
-      (a, b) => (a.patternIndex ?? 0) - (b.patternIndex ?? 0) || a.startHour - b.startHour
-    );
+    const weekdayMap = buildWeekdayDateMapFromForecastDates(allForecastDates);
+    const start = dayjs(horizonStart);
+    const end = dayjs(horizonEnd);
+
+    const cycleDays = weeks * 7;
+    const totalDays = end.diff(start, 'day') + 1;
+    const cycles = Math.max(1, Math.ceil(totalDays / cycleDays));
 
     for (let ci = 0; ci < cycles; ci++) {
-      let offset = 0;
+      for (let ti = 0; ti < tracks.length; ti++) {
+        const track = tracks[ti];
+        const empId = ti + 1;
 
-      sorted.forEach(block => {
-        const group = queue.slice(offset, offset + block.count);
+        const phase = phaseForTrackAtCycle(track, ci);
+        const baseStartDate = weekdayMap[phase];
+        if (!baseStartDate) continue;
 
-        group.forEach(empId => {
-          const workDates = getWorkDates(block.startDate, weeks, forecastDateSet);
+        const shiftType = shiftTypeForTrackAtCycle(track, ci);
+        const st = SHIFT_TYPES[shiftType] ?? SHIFT_TYPES.day;
 
-          workDates.forEach(dtStr => {
-            const d = dayjs(dtStr).add(ci * weeks * 7, 'day');
-            if (d.isAfter(horizonEnd, 'day')) return;
+        const workDates = getWorkDates(baseStartDate, weeks);
 
-            const day = d.format('YYYY-MM-DD');
+        workDates.forEach(dtStr => {
+          const d = dayjs(dtStr).add(ci * cycleDays, 'day');
+          if (d.isBefore(start, 'day')) return;
+          if (d.isAfter(end, 'day')) return;
 
-            // choose lunch hour (2..5 hours into shift) to avoid creating shortfall
-            const candidates = [];
-            for (let off = 2; off <= 5; off++) {
-              const h = block.startHour + off;
-              if (h >= block.startHour + SHIFT_LENGTH) break;
+          const day = d.format('YYYY-MM-DD');
+          if (!forecastDateSet.has(day)) return;
 
-              const k = `${day}|${h}`;
-              const onDuty = coverMap[k] ?? 0;
-              const lunches = lunchMap[k] ?? 0;
-              const required = reqMap[k] ?? 0;
+          // Pick lunch hour that hurts the least (same logic you had)
+          const candidates = [];
+          for (let off = 2; off <= 5; off++) {
+            const h = st.startHour + off;
+            if (h >= st.startHour + SHIFT_LENGTH) break;
+            if (h >= 24) break;
 
-              const projected = onDuty - lunches - 1;
-              const surplus = projected - required;
+            const k = `${day}|${h}`;
+            const onDuty = coverMap[k] ?? 0;
+            const lunches = lunchMap[k] ?? 0;
+            const required = reqMap[k] ?? 0;
 
-              if (surplus >= 0) candidates.push({ h, surplus, lunches });
-            }
+            const projected = onDuty - lunches - 1;
+            const surplus = projected - required;
 
-            const breakHour = candidates.length
-              ? candidates.sort((a, b) =>
-                  a.surplus - b.surplus ||
-                  a.lunches - b.lunches ||
-                  a.h - b.h
-                )[0].h
-              : (block.breakOffset != null
-                  ? block.startHour + block.breakOffset
-                  : block.startHour + Math.floor(block.length / 2)
-                );
+            if (surplus >= 0) candidates.push({ h, surplus, lunches });
+          }
 
-            schedByEmp[empId].push({ day, hour: block.startHour, breakHour });
+          const breakHour = candidates.length
+            ? candidates.sort((a, b) =>
+                a.surplus - b.surplus ||
+                a.lunches - b.lunches ||
+                a.h - b.h
+              )[0].h
+            : (st.startHour + (st.breakOffset ?? 4));
 
-            for (let h = block.startHour; h < block.startHour + SHIFT_LENGTH; h++) {
-              const k = `${day}|${h}`;
-              coverMap[k] = (coverMap[k] ?? 0) + 1;
-            }
-            const lk = `${day}|${breakHour}`;
-            lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
-          });
+          schedByEmp[empId].push({ day, hour: st.startHour, breakHour });
+
+          // Apply coverage maps
+          for (let h = st.startHour; h < st.startHour + SHIFT_LENGTH; h++) {
+            if (h >= 24) break;
+            const k = `${day}|${h}`;
+            coverMap[k] = (coverMap[k] ?? 0) + 1;
+          }
+          const lk = `${day}|${breakHour}`;
+          lunchMap[lk] = (lunchMap[lk] ?? 0) + 1;
         });
-
-        offset += block.count;
-      });
-
-      queue.unshift(queue.pop());
+      }
     }
 
     return schedByEmp;
@@ -220,6 +257,7 @@ export default function StaffingPage() {
     Object.values(personSchedule).forEach(arr =>
       arr.forEach(({ day, hour, breakHour }) => {
         for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
+          if (h >= 24) break;
           if (!countLunchAsCoverage && h === breakHour) continue;
           const k = `${day}|${h}`;
           schedMap[k] = (schedMap[k] ?? 0) + 1;
@@ -245,8 +283,6 @@ export default function StaffingPage() {
     };
   }, [personSchedule, forecast, countLunchAsCoverage]);
 
-  const hasShortfall = def => Object.values(def).some(v => v < 0);
-
   /* FORECAST */
   const calcForecast = async () => {
     const start = startDate.format('YYYY-MM-DD');
@@ -271,14 +307,13 @@ export default function StaffingPage() {
     setPersonSchedule({});
   };
 
-  /* ASSIGN SHIFTS */
+  /* ASSIGN SHIFTS (single backend call, Option D waterfall) */
   const assignToStaff = async () => {
     if (!forecast.length) { alert('Run Forecast first'); return; }
 
     cancelRef.current = false;
     setSolverRunning(true);
     setSolverPhase('Starting');
-    setSolverIter(0);
     setSolverCap(null);
     setSolverHeadcount(null);
     setSolverBestFeasible(null);
@@ -294,44 +329,23 @@ export default function StaffingPage() {
         reqMap[`${d.date}|${hour}`] = requiredAgents;
       })
     );
-
     const forecastDateSet = new Set(forecast.map(d => d.date));
 
-    // Realistic lower bound for cap scanning:
-    // 1) peak hourly requirement
-    // 2) total required hours divided by hours per staff per cycle
-    const reqValues = Object.values(reqMap).map(v => Number(v || 0));
-    const peakReq = reqValues.length ? Math.max(...reqValues) : 1;
-    const totalReq = reqValues.reduce((a, b) => a + b, 0);
-    const hoursPerStaffPerCycle = weeks * 5 * (SHIFT_LENGTH - 1); // lunch excluded
-    const lbByTotal = hoursPerStaffPerCycle > 0 ? Math.ceil(totalReq / hoursPerStaffPerCycle) : 1;
-    const startCapLB = Math.max(1, peakReq, lbByTotal);
+    try {
+      if (useFixedStaff && fixedStaff > 0) {
+        logLine(`Fixed staff is enabled (${fixedStaff}). Note: waterfall mode ignores cap for now.`);
+      }
 
-    logLine(`Cap scan lower bound: ${startCapLB} (peak ${peakReq}, total-hours ${lbByTotal})`);
-
-    const solve = async (cap, exactMode, phaseLabel) => {
-      if (cancelRef.current) throw new Error('Cancelled');
-
-      setSolverPhase(phaseLabel);
-      setSolverCap(cap);
-
-      logLine(`Testing cap ${cap} (${phaseLabel})`);
+      setSolverPhase('Solving (waterfall backend)');
+      logLine(`Calling backend waterfall solver (weeks ${weeks}, grave rotate ${graveRotateAfterCycles}, late rotate ${lateRotateAfterCycles})`);
 
       const body = {
         staffing: forecast,
+        mode: 'waterfall',
         weeks,
         shiftLength: SHIFT_LENGTH,
-        topN: 5,
-        maxStaff: cap,
-
-        startHours: START_HOURS_FIXED,
-
-        exact: Boolean(exactMode),
-        timeLimitMs: exactMode ? Math.max(0, Math.floor(Number(timeLimitMinutes) * 60 * 1000)) : 0,
-        greedyRestarts: exactMode ? Number(greedyRestarts) : 0,
-        splitSize: Number(splitSize),
-
-        latestStartHour: Number(latestStartHour)
+        graveRotateAfterCycles: Number(graveRotateAfterCycles),
+        lateRotateAfterCycles: Number(lateRotateAfterCycles)
       };
 
       const t0 = performance.now();
@@ -340,18 +354,27 @@ export default function StaffingPage() {
 
       setSolverLastCallMs(dt);
 
-      const headCnt = (data.solution || []).reduce((s, b) => s + (b.count || 0), 0);
+      const meta = data?.meta || {};
+      const tracks = data?.tracks || [];
+      const blocksOut = data?.solution || [];
+
+      const headCnt = tracks.length || (blocksOut.reduce((s, b) => s + (b.count || 0), 0));
       setSolverHeadcount(headCnt);
+      setSolverBestFeasible(meta?.feasible ? headCnt : null);
+      setSolverFeasible(Boolean(meta?.feasible));
 
-      logLine(`Returned headcount ${headCnt} in ${dt} ms (${data?.meta?.method || (exactMode ? 'exact' : 'greedy')})`);
+      logLine(`Backend returned in ${dt} ms`);
+      logLine(`Meta: feasible ${meta?.feasible ? 'yes' : 'no'}, headcount ${meta?.headcount ?? headCnt}, over ${meta?.over ?? '-'}, checks ${meta?.checks ?? '-'}`);
 
-      const sched = buildSchedule(data.solution || [], reqMap, forecastDateSet);
+      // Build schedule from tracks
+      const sched = buildScheduleFromTracks(tracks, reqMap, forecastDateSet);
 
-      // compute deficit (feasibility always excludes lunch)
+      // compute feasibility from built schedule (lunch excluded)
       const cov = {};
       Object.values(sched).forEach(arr =>
         arr.forEach(({ day, hour, breakHour }) => {
           for (let h = hour; h < hour + SHIFT_LENGTH; h++) {
+            if (h >= 24) break;
             if (h === breakHour) continue;
             const k = `${day}|${h}`;
             cov[k] = (cov[k] ?? 0) + 1;
@@ -366,118 +389,16 @@ export default function StaffingPage() {
 
       const feasible = !hasShortfall(def);
       setSolverFeasible(feasible);
+      if (feasible) logLine('Feasibility check passed on frontend');
+      else logLine('Feasibility check failed on frontend');
 
-      if (feasible) logLine(`Feasible at cap ${cap}`);
-      else logLine(`Not feasible at cap ${cap}`);
+      setBlocks(blocksOut);
+      setBestStart(data.bestStartHours || []);
+      setPersonSchedule(sched);
+      setFixedStaff(headCnt);
 
-      return {
-        solution: data.solution || [],
-        bestStart: data.bestStartHours || [],
-        schedule: sched,
-        deficit: def,
-        headCnt,
-        feasible,
-        meta: data.meta
-      };
-    };
-
-    try {
-      // Fixed-cap path
-      if (useFixedStaff && fixedStaff > 0) {
-        const plan = await solve(Number(fixedStaff), useExact, 'Fixed cap');
-        setBlocks(plan.solution);
-        setBestStart(plan.bestStart);
-        setPersonSchedule(plan.schedule);
-        setSolverBestFeasible(plan.feasible ? plan.headCnt : null);
-        setSolverPhase('Done');
-        logLine(`Done. Final headcount ${plan.headCnt}`);
-        return;
-      }
-
-// Phase 1: Find any feasible cap (fast ramp-up)
-setSolverPhase('Find feasible cap');
-const MAX_CAP = 10000;
-
-let plan = null;
-
-// Use your computed lower bound as the start
-let L = Math.max(1, Math.min(MAX_CAP, startCapLB));
-let cap = L;
-
-// Ramp up faster than +1 to avoid long scans
-while (cap <= MAX_CAP) {
-  setSolverIter(cap);
-  plan = await solve(cap, false, `Find feasible cap (${cap}/${MAX_CAP})`);
-
-  if (plan.feasible) {
-    logLine(`Feasible found at cap ${cap} (greedy). Returned headcount=${plan.headCnt}.`);
-
-    // Important: if the solver returns headCnt << cap, we can tighten immediately.
-    // This becomes our initial upper bound for searching the minimal feasible cap.
-    break;
-  }
-
-  // ramp: 1..20 step +1, then multiply by 1.5
-  if (cap < 20) cap += 1;
-  else cap = Math.min(MAX_CAP, Math.floor(cap * 1.5));
-}
-
-if (!plan?.feasible) {
-  setSolverPhase('Failed');
-  logLine(`Could not find a feasible cap up to ${MAX_CAP}.`);
-  return;
-}
-
-// Phase 2: Binary search minimal feasible cap using GREEDY (fast)
-setSolverPhase('Tightening cap (binary search)');
-
-// Lower bound can still be your heuristic LB, but allow going below it,
-// because LB-by-total can be too conservative when overlaps help.
-let lo = 1;
-
-// Upper bound: cap that worked, but tighter if returned headCnt is smaller
-let hi = Math.max(1, Math.min(plan.headCnt || cap, cap));
-
-let best = plan;
-
-// Safety: prevent infinite loops if something odd happens
-let bsIters = 0;
-const BS_MAX_ITERS = 40;
-
-while (lo < hi && bsIters < BS_MAX_ITERS) {
-  bsIters += 1;
-  const mid = Math.floor((lo + hi) / 2);
-
-  setSolverIter(mid);
-  const cur = await solve(mid, false, `Tighten cap (greedy) mid=${mid}`);
-
-  if (cur.feasible) {
-    best = cur;
-
-    // tighten upper bound again using returned headCnt if it helps
-    const newHi = Math.max(1, Math.min(mid, cur.headCnt || mid));
-    hi = newHi;
-
-    logLine(`Feasible at ${mid}; tightening hi -> ${hi}`);
-  } else {
-    lo = mid + 1;
-    logLine(`Not feasible at ${mid}; tightening lo -> ${lo}`);
-  }
-}
-
-// Optional Phase 3: If exact is enabled, you can try to improve at the best cap
-// (This keeps runtime sane, because you only do exact at the final tight cap)
-if (useExact) {
-  setSolverPhase('Polish (exact)');
-
-  const polished = await solve(best.headCnt || hi, true, `Polish exact at cap ${best.headCnt || hi}`);
-  if (polished.feasible) {
-    best = polished;
-    logLine(`Exact polish improved/confirmed at cap ${best.headCnt}`);
-  } else {
-    logLine('Exact polish not feasible; keeping greedy-tightened result.');
-  }
-}
+      setSolverPhase('Done');
+      logLine(`Done. Final headcount ${headCnt}`);
 
     } catch (err) {
       console.error(err);
@@ -576,59 +497,26 @@ if (useExact) {
           <Typography variant="h6" gutterBottom>Solver Controls</Typography>
 
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={useExact}
-                  onChange={e => setUseExact(e.target.checked)}
-                  disabled={solverRunning}
-                />
-              }
-              label="Use exact optimiser (slow)"
-            />
-
             <TextField
-              label="Latest start hour (0..15)"
-              type="number"
-              size="small"
-              sx={{ width: 180 }}
-              value={latestStartHour}
-              onChange={e => setLatestStartHour(+e.target.value)}
-              disabled={solverRunning}
-              inputProps={{ min: 0, max: 15 }}
-            />
-
-            <TextField
-              label="Time limit (minutes, 0 = none)"
+              label="Grave rotate after cycles"
               type="number"
               size="small"
               sx={{ width: 220 }}
-              value={timeLimitMinutes}
-              onChange={e => setTimeLimitMinutes(+e.target.value)}
-              disabled={solverRunning || !useExact}
+              value={graveRotateAfterCycles}
+              onChange={e => setGraveRotateAfterCycles(+e.target.value)}
+              disabled={solverRunning}
               inputProps={{ min: 0 }}
             />
 
             <TextField
-              label="Greedy restarts (0 = unlimited)"
+              label="Late rotate after cycles"
               type="number"
               size="small"
               sx={{ width: 220 }}
-              value={greedyRestarts}
-              onChange={e => setGreedyRestarts(+e.target.value)}
-              disabled={solverRunning || !useExact}
-              inputProps={{ min: 0 }}
-            />
-
-            <TextField
-              label="Split size"
-              type="number"
-              size="small"
-              sx={{ width: 120 }}
-              value={splitSize}
-              onChange={e => setSplitSize(+e.target.value)}
+              value={lateRotateAfterCycles}
+              onChange={e => setLateRotateAfterCycles(+e.target.value)}
               disabled={solverRunning}
-              inputProps={{ min: 1 }}
+              inputProps={{ min: 0 }}
             />
 
             <Button
@@ -719,7 +607,7 @@ if (useExact) {
           />
 
           <Button variant="contained" onClick={calcForecast}>
-            Calculate 6-Month Forecast
+            Calculate 6 Month Forecast
           </Button>
 
           <FormControlLabel sx={{ ml: 2 }}
@@ -738,7 +626,7 @@ if (useExact) {
             disabled={!forecast.length || solverRunning}
             onClick={assignToStaff}
           >
-            Draft schedule & assign agents
+            Draft schedule &amp; assign agents
           </Button>
 
           <Button variant="contained" color="secondary" sx={{ ml: 2 }}
@@ -831,7 +719,7 @@ if (useExact) {
         {/* DEFICIT HEATMAP */}
         {forecast.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Under-/Over-Staffing Heatmap</Typography>
+            <Typography variant="h6">Under or Over Staffing Heatmap</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -869,7 +757,7 @@ if (useExact) {
         {/* BLOCKS TABLE */}
         {blocks.length > 0 && (
           <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Assigned Shift-Block Types</Typography>
+            <Typography variant="h6">Assigned Shift Block Types (cycle 0 view)</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -901,7 +789,7 @@ if (useExact) {
         {Object.keys(personSchedule).length > 0 && (
           <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>
-              6-Month Staff Calendar (rotating every {weeks} weeks)
+              6 Month Staff Calendar (waterfall lanes, rotates every {weeks} weeks)
             </Typography>
 
             <Button variant="outlined" onClick={exportExcel} sx={{ mb: 2 }}>
@@ -914,7 +802,7 @@ if (useExact) {
               <Typography variant="subtitle1">
                 {useFixedStaff
                   ? `Staff cap set to ${fixedStaff}.`
-                  : `Full-coverage schedule uses ${Object.keys(personSchedule).length} agents
+                  : `Full coverage schedule uses ${Object.keys(personSchedule).length} agents
                   (${excludeAuto ? 'automation excluded' : 'automation included'}).`}
               </Typography>
             </Box>
