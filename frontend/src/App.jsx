@@ -133,7 +133,7 @@ function SideNav() {
         { label:'Overtime Capturing', path:'/overtime/capture', icon:<LanOutlinedIcon/> },
         { label:'Overtime Superivor Section', path:'/overtime/supervisor', icon:<LanOutlinedIcon/> },
         { label:'Overtime Manager Section', path:'/overtime/manager', icon:<LanOutlinedIcon/> },
-        { label:'Signatures', path:'/settings/signature', icon:<LanOutlinedIcon/> },      
+        { label:'Signatures Section', path:'/settings/signature', icon:<LanOutlinedIcon/> },      
       ],
     },
     {
