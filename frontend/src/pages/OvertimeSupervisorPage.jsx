@@ -13,14 +13,14 @@ export default function OvertimeSupervisorPage() {
   const [loading, setLoading] = useState(false)
 
   async function loadCurrentPeriod() {
-    const p = await axios.get("/api/overtime/period/current")
+    const p = await api.get("/api/overtime/period/current")
     setPeriod(p.data)
   }
 
   async function loadEntries(periodId) {
     setLoading(true)
     try {
-      const r = await axios.get(`/api/overtime/period/${periodId}/supervisor`)
+      const r = await api.get(`/api/overtime/period/${periodId}/supervisor`)
       setRows(r.data)
     } finally {
       setLoading(false)
@@ -29,12 +29,12 @@ export default function OvertimeSupervisorPage() {
 
   async function generateFixed() {
     if (!period) return
-    await axios.post(`/api/overtime/period/${period.id}/generate-fixed`)
+    await api.post(`/api/overtime/period/${period.id}/generate-fixed`)
     await loadEntries(period.id)
   }
 
   async function approve(id) {
-    await axios.post(`/api/overtime/entry/${id}/supervisor-approve`)
+    await api.post(`/api/overtime/entry/${id}/supervisor-approve`)
     await loadEntries(period.id)
   }
 
@@ -49,7 +49,7 @@ export default function OvertimeSupervisorPage() {
       notes: row.notes,
       editReason: "Supervisor adjustment",
     }
-    await axios.patch(`/api/overtime/entry/${row.id}/supervisor-edit`, patch)
+    await api.patch(`/api/overtime/entry/${row.id}/supervisor-edit`, patch)
     await loadEntries(period.id)
     return row
   }

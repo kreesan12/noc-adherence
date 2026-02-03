@@ -13,14 +13,14 @@ export default function OvertimeManagerPage() {
   const [loading, setLoading] = useState(false)
 
   async function loadCurrentPeriod() {
-    const p = await axios.get("/api/overtime/period/current")
+    const p = await api.get("/api/overtime/period/current")
     setPeriod(p.data)
   }
 
   async function loadQueue(periodId) {
     setLoading(true)
     try {
-      const r = await axios.get(`/api/overtime/period/${periodId}/manager`)
+      const r = await api.get(`/api/overtime/period/${periodId}/manager`)
       setRows(r.data)
     } finally {
       setLoading(false)
@@ -28,7 +28,7 @@ export default function OvertimeManagerPage() {
   }
 
   async function approve(id) {
-    await axios.post(`/api/overtime/entry/${id}/manager-approve`)
+    await api.post(`/api/overtime/entry/${id}/manager-approve`)
     await loadQueue(period.id)
   }
 

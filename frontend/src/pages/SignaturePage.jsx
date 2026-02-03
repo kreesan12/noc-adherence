@@ -17,9 +17,9 @@ export default function SignaturePage() {
     const userType = window.__USER__?.type
 
     if (userType === "supervisor") {
-      await axios.put("/api/signatures/supervisor/me", { imageDataUrl: dataUrl })
+      await api.put("/api/signatures/supervisor/me", { imageDataUrl: dataUrl })
     } else if (userType === "manager") {
-      await axios.put("/api/signatures/manager/me", { imageDataUrl: dataUrl })
+      await api.put("/api/signatures/manager/me", { imageDataUrl: dataUrl })
     } else {
       alert("Only supervisors and managers can save signatures")
       return
