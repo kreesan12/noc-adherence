@@ -33,6 +33,8 @@ import nldServices from './routes/nldServices.js'
 import nodes from './routes/nodes.js'
 import overtimeRoutes from "./routes/overtimeRoutes.js"
 import overtimeExportRoutes from "./routes/overtimeExportRoutes.js"
+import overtimeRoutes from './routes/overtime.js'
+
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -125,11 +127,13 @@ app.use("/api/overtime",
   overtimeRoutes(prisma)
 )
 
+app.use('/api/overtime', overtimeRoutes(prisma))
 
 app.use("/api/overtime", 
   verifyToken, authRole('supervisor'),
   overtimeExportRoutes(prisma)
 )
+
 
 /* ---------- Mount in attendance WITH audit middleware ---------- */
 app.use(

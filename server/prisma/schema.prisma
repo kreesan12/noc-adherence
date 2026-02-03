@@ -8,47 +8,47 @@ datasource db {
 }
 
 model Supervisor {
-  id        Int      @id @default(autoincrement())
-  fullName  String
-  email     String   @unique
-  hash      String
-  role      String   @default("supervisor")
+  id       Int    @id @default(autoincrement())
+  fullName String
+  email    String @unique
+  hash     String
+  role     String @default("supervisor")
 
   /// one-to-many: a supervisor **has many** agents
-  agents    Agent[]  @relation("AgentSupervisor")
+  agents Agent[] @relation("AgentSupervisor")
 
   /// existing back-relations
   auditLogs      AuditLog[]      @relation("SupervisorAuditEntries")
   attendanceLogs AttendanceLog[] @relation("SupervisorAttendance")
 
-  overtimeEntries OvertimeEntry[]   @relation("SupervisorOvertimeEntries")
-  signature       StoredSignature?  @relation("SupervisorSignature")
+  overtimeEntries OvertimeEntry[]  @relation("SupervisorOvertimeEntries")
+  signature       StoredSignature? @relation("SupervisorSignature")
 }
 
 model Agent {
-  id          Int      @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   fullName    String
-  email       String?  @unique
+  email       String? @unique
   hash        String?
   phone       String?
   role        String?
-  standbyFlag Boolean  @default(false)
+  standbyFlag Boolean @default(false)
 
   /// HR metadata
-  employeeNo  String?   @map("employee_no")
-  startDate   DateTime? @map("start_date")
-  address     String?
-  province    String?
+  employeeNo String?   @map("employee_no")
+  startDate  DateTime? @map("start_date")
+  address    String?
+  province   String?
 
   /// FK to Supervisor (nullable = can be un-assigned)
-  supervisorId Int?     @map("supervisor_id")
-  supervisor   Supervisor? @relation("AgentSupervisor", fields:[supervisorId], references:[id])
+  supervisorId Int?        @map("supervisor_id")
+  supervisor   Supervisor? @relation("AgentSupervisor", fields: [supervisorId], references: [id])
 
   /// existing back-relations
-  engagements   Engagement[]
-  shifts        Shift[]
-  leave         Leave[]
-  auditEntries  AuditLog[] @relation("AgentAuditEntries")
+  engagements  Engagement[]
+  shifts       Shift[]
+  leave        Leave[]
+  auditEntries AuditLog[]   @relation("AgentAuditEntries")
 
   overtimeEntries OvertimeEntry[]
   overtimeCreated OvertimeEntry[] @relation("OvertimeCreatedBy")
@@ -57,38 +57,38 @@ model Agent {
 }
 
 model Shift {
-  id         Int       @id @default(autoincrement())
-  agentId    Int?
-  agent      Agent?    @relation(fields: [agentId], references: [id])
+  id      Int    @id @default(autoincrement())
+  agentId Int?
+  agent   Agent? @relation(fields: [agentId], references: [id])
 
-  shiftDate  DateTime  @db.Date
-  startAt    DateTime
-  endAt      DateTime
+  shiftDate DateTime @db.Date
+  startAt   DateTime
+  endAt     DateTime
 
   breakStart DateTime?
   breakEnd   DateTime?
 
-  generatedBy String?  @default("solver")
+  generatedBy String? @default("solver")
 
   // leave auto-flag (Feature 3)
-  leaveId   Int?                                       // ← NEW
-  leave     Leave?     @relation(fields: [leaveId], references: [id])
+  leaveId Int? // ← NEW
+  leave   Leave? @relation(fields: [leaveId], references: [id])
 
   attendance AttendanceLog?
 }
 
 model Leave {
-  id          Int      @id @default(autoincrement())
-  agentId     Int
-  agent       Agent    @relation(fields: [agentId], references: [id])
+  id      Int   @id @default(autoincrement())
+  agentId Int
+  agent   Agent @relation(fields: [agentId], references: [id])
 
-  reason      String
-  startsAt    DateTime
-  endsAt      DateTime
-  createdAt   DateTime @default(now())
-  createdBy   String
+  reason    String
+  startsAt  DateTime
+  endsAt    DateTime
+  createdAt DateTime @default(now())
+  createdBy String
 
-  shifts      Shift[]                               // ← NEW
+  shifts Shift[] // ← NEW
 }
 
 model Duty {
@@ -110,55 +110,55 @@ model AttendanceLog {
   overtimeStart DateTime?
   overtimeEnd   DateTime?
 
-  dutyId       Int?
-  duty         Duty?       @relation(fields: [dutyId], references: [id])
+  dutyId Int?
+  duty   Duty? @relation(fields: [dutyId], references: [id])
 
   supervisorId Int?
   supervisor   Supervisor? @relation("SupervisorAttendance", fields: [supervisorId], references: [id])
 }
 
 model VolumeForecast {
-  id              Int      @id @default(autoincrement())
-  role            String
-  date            DateTime @db.Date
-  hour            Int
-  expectedCalls   Int
-  expectedTickets Int
-  priority1         Int      @default(0)
-  autoDfaLogged     Int      @map("auto_dfa_logged")    @default(0)
-  autoMntLogged     Int      @map("auto_mnt_logged")    @default(0)
-  autoOutageLinked  Int      @map("auto_outage_linked") @default(0)
-  autoMntSolved     Int       @default(0)
+  id               Int      @id @default(autoincrement())
+  role             String
+  date             DateTime @db.Date
+  hour             Int
+  expectedCalls    Int
+  expectedTickets  Int
+  priority1        Int      @default(0)
+  autoDfaLogged    Int      @default(0) @map("auto_dfa_logged")
+  autoMntLogged    Int      @default(0) @map("auto_mnt_logged")
+  autoOutageLinked Int      @default(0) @map("auto_outage_linked")
+  autoMntSolved    Int      @default(0)
 }
 
 model VolumeActual {
-  id      Int      @id @default(autoincrement())
-  role    String
-  date    DateTime @db.Date
-  hour    Int
-  calls   Int
-  tickets Int
-  priority1          Int       @default(0)
-  autoDfaLogged      Int       @map("auto_dfa_logged")     @default(0)
-  autoMntLogged      Int       @map("auto_mnt_logged")     @default(0)
-  autoOutageLinked   Int       @map("auto_outage_linked")  @default(0)
-  autoMntSolved      Int       @default(0)
+  id               Int      @id @default(autoincrement())
+  role             String
+  date             DateTime @db.Date
+  hour             Int
+  calls            Int
+  tickets          Int
+  priority1        Int      @default(0)
+  autoDfaLogged    Int      @default(0) @map("auto_dfa_logged")
+  autoMntLogged    Int      @default(0) @map("auto_mnt_logged")
+  autoOutageLinked Int      @default(0) @map("auto_outage_linked")
+  autoMntSolved    Int      @default(0)
 
   @@unique([date, hour])
 }
 
 model AuditLog {
-  id          Int      @id @default(autoincrement())
-  action      String
-  actor       String
-  payload     Json
-  createdAt   DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  action    String
+  actor     String
+  payload   Json
+  createdAt DateTime @default(now())
 
   // bidirectional links – optional
-  agentId      Int?                                           // ← NEW
-  agent        Agent?      @relation("AgentAuditEntries",       fields: [agentId],      references: [id])
+  agentId Int? // ← NEW
+  agent   Agent? @relation("AgentAuditEntries", fields: [agentId], references: [id])
 
-  supervisorId Int?                                           // ← NEW
+  supervisorId Int? // ← NEW
   supervisor   Supervisor? @relation("SupervisorAuditEntries", fields: [supervisorId], references: [id])
 }
 
@@ -172,15 +172,15 @@ model Team {
 }
 
 model Engagement {
-  id        Int      @id @default(autoincrement())
-  agentId   Int
-  agent     Agent    @relation(fields:[agentId], references:[id])
+  id      Int   @id @default(autoincrement())
+  agentId Int
+  agent   Agent @relation(fields: [agentId], references: [id])
 
-  teamId    Int
-  team      Team     @relation(fields:[teamId], references:[id])
+  teamId Int
+  team   Team @relation(fields: [teamId], references: [id])
 
-  startDate DateTime           @db.Date        // first day on team
-  endDate   DateTime?          @db.Date        // null means still active
+  startDate DateTime  @db.Date // first day on team
+  endDate   DateTime? @db.Date // null means still active
   note      String?
 
   createdAt DateTime @default(now())
@@ -200,33 +200,33 @@ enum VacancyStatus {
 }
 
 model Vacancy {
-  id        Int   @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
   // FKs
-  teamId    Int   @map("team_id")
-  team      Team  @relation(fields: [teamId], references: [id])
+  teamId Int  @map("team_id")
+  team   Team @relation(fields: [teamId], references: [id])
 
   // Core dates
-  openFrom  DateTime @map("open_from")
-  closedAt  DateTime? @map("closed_at")
+  openFrom DateTime  @map("open_from")
+  closedAt DateTime? @map("closed_at")
 
   // Status tracking
-  status    VacancyStatus @default(OPEN)
+  status VacancyStatus @default(OPEN)
 
   // Candidate offer pipeline
-  candidateName    String?   @map("candidate_name")
-  candidateEmail   String?   @map("candidate_email")
-  offerSentAt      DateTime? @map("offer_sent_at")
-  offerAcceptedAt  DateTime? @map("offer_accepted_at")
-  startDate        DateTime? @map("start_date")
+  candidateName   String?   @map("candidate_name")
+  candidateEmail  String?   @map("candidate_email")
+  offerSentAt     DateTime? @map("offer_sent_at")
+  offerAcceptedAt DateTime? @map("offer_accepted_at")
+  startDate       DateTime? @map("start_date")
 
   // Optional free-text
-  reason     String?  @db.VarChar(250)
+  reason String? @db.VarChar(250)
 
-  @@map("Vacancy")          // ← actual table name
   @@index([teamId])
   @@index([status])
   @@index([openFrom])
+  @@map("Vacancy") // ← actual table name
 }
 
 enum Status {
@@ -240,32 +240,32 @@ enum Status {
 }
 
 model Circuit {
-  id               Int      @id @default(autoincrement())
-  circuitId        String   @unique @map("circuit_id")
-  nodeA            String   @map("node_a")
-  nodeB            String   @map("node_b")
-  nodeALat         Float?   @map("node_a_lat")
-  nodeALon         Float?   @map("node_a_lon")
-  nodeBLat         Float?   @map("node_b_lat")
-  nodeBLon         Float?   @map("node_b_lon")
-  techType         String   @map("tech_type")
-  currentRxSiteA   Float?   @map("current_rx_site_a")
-  currentRxSiteB   Float?   @map("current_rx_site_b")
-  nldGroup         String?  @map("nld_group")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt      @map("updated_at")
+  id             Int      @id @default(autoincrement())
+  circuitId      String   @unique @map("circuit_id")
+  nodeA          String   @map("node_a")
+  nodeB          String   @map("node_b")
+  nodeALat       Float?   @map("node_a_lat")
+  nodeALon       Float?   @map("node_a_lon")
+  nodeBLat       Float?   @map("node_b_lat")
+  nodeBLon       Float?   @map("node_b_lon")
+  techType       String   @map("tech_type")
+  currentRxSiteA Float?   @map("current_rx_site_a")
+  currentRxSiteB Float?   @map("current_rx_site_b")
+  nldGroup       String?  @map("nld_group")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  levelHistory     CircuitLevelHistory[]
-  lightEvents      LightLevelEvent[]
-  dailyLevels      DailyLightLevel[]
+  levelHistory CircuitLevelHistory[]
+  lightEvents  LightLevelEvent[]
+  dailyLevels  DailyLightLevel[]
 }
 
 model Node {
-  code     String  @id            @map("code")        // e.g. RIV, NEWG, CATO
-  name     String                  @map("name")       // human name e.g. Riverhorse
-  nldGroup String?                 @map("nld_group")  // e.g. NLD1
-  lat      Float                   @map("lat")
-  lon      Float                   @map("lon")
+  code     String  @id @map("code") // e.g. RIV, NEWG, CATO
+  name     String  @map("name") // human name e.g. Riverhorse
+  nldGroup String? @map("nld_group") // e.g. NLD1
+  lat      Float   @map("lat")
+  lon      Float   @map("lon")
 
   @@map("Node")
 }
@@ -283,21 +283,21 @@ model CircuitLevelHistory {
 }
 
 model LightLevelEvent {
-  id            Int      @id @default(autoincrement())
-  circuit       Circuit  @relation(fields: [circuitId], references: [id])
-  circuitId     Int      @map("circuit_id")
-  ticketId      Int?     @map("ticket_id")
-  impactType    String?  @map("impact_type")
-  eventDate     DateTime?@map("event_date")
-  sideAPrev     Float?   @map("side_a_prev")
-  sideACurr     Float?   @map("side_a_curr")
-  sideBPrev     Float?   @map("side_b_prev")
-  sideBCurr     Float?   @map("side_b_curr")
-  sideADelta    Float?   @map("side_a_delta")
-  sideBDelta    Float?   @map("side_b_delta")
-  impactHours   Float?   @map("impact_hours")
-  sourceEmailId String?  @map("source_email_id")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id            Int       @id @default(autoincrement())
+  circuit       Circuit   @relation(fields: [circuitId], references: [id])
+  circuitId     Int       @map("circuit_id")
+  ticketId      Int?      @map("ticket_id")
+  impactType    String?   @map("impact_type")
+  eventDate     DateTime? @map("event_date")
+  sideAPrev     Float?    @map("side_a_prev")
+  sideACurr     Float?    @map("side_a_curr")
+  sideBPrev     Float?    @map("side_b_prev")
+  sideBCurr     Float?    @map("side_b_curr")
+  sideADelta    Float?    @map("side_a_delta")
+  sideBDelta    Float?    @map("side_b_delta")
+  impactHours   Float?    @map("impact_hours")
+  sourceEmailId String?   @map("source_email_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
 }
 
 model DailyLightLevel {
@@ -315,7 +315,7 @@ model DailyLightLevel {
 
   @@unique([circuitId, side, sampleTime], map: "uq_daily_circuit_side_time")
   @@index([parsedCode])
-  @@map("daily_light_level") 
+  @@map("daily_light_level")
 }
 
 // NEW ENUM
@@ -325,46 +325,46 @@ enum ManagerRole {
 }
 
 model Manager {
-  id         Int       @id @default(autoincrement())
-  fullName   String    @map("full_name")    // ← map to full_name
-  email      String    @unique
-  password   String                             // column is already “password”
-  role       ManagerRole @default(manager)
-  createdAt  DateTime  @default(now()) @map("created_at")
-  lastLogin  DateTime?                @map("last_login")
+  id        Int         @id @default(autoincrement())
+  fullName  String      @map("full_name") // ← map to full_name
+  email     String      @unique
+  password  String // column is already “password”
+  role      ManagerRole @default(manager)
+  createdAt DateTime    @default(now()) @map("created_at")
+  lastLogin DateTime?   @map("last_login")
 
-  overtimeEntries OvertimeEntry[]   @relation("ManagerOvertimeEntries")
-  signature       StoredSignature?  @relation("ManagerSignature")
+  overtimeEntries OvertimeEntry[]  @relation("ManagerOvertimeEntries")
+  signature       StoredSignature? @relation("ManagerSignature")
 
-  @@map("Manager")   // table name stays quoted-capitalised
+  @@map("Manager") // table name stays quoted-capitalised
 }
 
 model NldService {
-  id            Int      @id @default(autoincrement())
-  customer      String
-  frg           String
-  serviceType   String   @map("service_type")
-  capacity      String
-  nldRoute      String   @map("nld_route")
-  deployment    String
-  protection    Boolean
-  priPath       String?  @map("pri_path")
-  secPath       String?  @map("sec_path")
-  stag          String?
-  ctag          String?
+  id          Int     @id @default(autoincrement())
+  customer    String
+  frg         String
+  serviceType String  @map("service_type")
+  capacity    String
+  nldRoute    String  @map("nld_route")
+  deployment  String
+  protection  Boolean
+  priPath     String? @map("pri_path")
+  secPath     String? @map("sec_path")
+  stag        String?
+  ctag        String?
 
-  sideAName     String   @map("side_a_name")
-  sideAIC       String?  @map("side_a_ic")
-  sideASO       String?  @map("side_a_so")
-  sideAHandoff  String?  @map("side_a_handoff")
+  sideAName    String  @map("side_a_name")
+  sideAIC      String? @map("side_a_ic")
+  sideASO      String? @map("side_a_so")
+  sideAHandoff String? @map("side_a_handoff")
 
-  sideBName     String   @map("side_b_name")
-  sideBIC       String?  @map("side_b_ic")
-  sideBSO       String?  @map("side_b_so")
-  sideBHandoff  String?  @map("side_b_handoff")
+  sideBName    String  @map("side_b_name")
+  sideBIC      String? @map("side_b_ic")
+  sideBSO      String? @map("side_b_so")
+  sideBHandoff String? @map("side_b_handoff")
 
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt      @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("NldService")
 }
@@ -384,81 +384,80 @@ enum OvertimeStatus {
 
 model OvertimePeriod {
   id        Int      @id @default(autoincrement())
-  key       String   @unique            // eg 2026_01_15__2026_02_14
-  label     String                      // eg Jan to Feb 2026
+  key       String   @unique // eg 2026_01_15__2026_02_14
+  label     String // eg Jan to Feb 2026
   startDate DateTime @db.Date
   endDate   DateTime @db.Date
   createdAt DateTime @default(now())
 
-  entries   OvertimeEntry[]
+  entries OvertimeEntry[]
 
   @@map("OvertimePeriod")
 }
 
 model PublicHoliday {
-  id        Int      @id @default(autoincrement())
-  date      DateTime @db.Date @unique
-  name      String
-  isActive  Boolean  @default(true)
+  id       Int      @id @default(autoincrement())
+  date     DateTime @unique @db.Date
+  name     String
+  isActive Boolean  @default(true)
 
   @@map("PublicHoliday")
 }
 
 model OvertimeEntry {
-  id          Int            @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  periodId    Int            @map("period_id")
-  period      OvertimePeriod @relation(fields: [periodId], references: [id])
+  periodId Int            @map("period_id")
+  period   OvertimePeriod @relation(fields: [periodId], references: [id])
 
-  agentId     Int            @map("agent_id")
-  agent       Agent          @relation(fields: [agentId], references: [id])
+  agentId Int   @map("agent_id")
+  agent   Agent @relation(fields: [agentId], references: [id])
 
-  source      OvertimeSource
-  status      OvertimeStatus @default(DRAFT)
+  source OvertimeSource
+  status OvertimeStatus @default(DRAFT)
 
-  workDate    DateTime       @db.Date @map("work_date")
-  startAt     DateTime       @map("start_at")
-  endAt       DateTime       @map("end_at")
+  workDate DateTime @map("work_date") @db.Date
+  startAt  DateTime @map("start_at")
+  endAt    DateTime @map("end_at")
 
-  totalHours  Decimal        @map("total_hours") @db.Decimal(6,2)
-  rate        Decimal        @map("rate")        @db.Decimal(4,2)
+  totalHours Decimal @map("total_hours") @db.Decimal(6, 2)
+  rate       Decimal @map("rate") @db.Decimal(4, 2)
 
-  reason      String?        @db.Text
-  notes       String?        @db.Text
+  reason String? @db.Text
+  notes  String? @db.Text
 
-  createdByAgentId Int?      @map("created_by_agent_id")
-  createdByAgent   Agent?    @relation("OvertimeCreatedBy", fields: [createdByAgentId], references: [id])
+  createdByAgentId Int?   @map("created_by_agent_id")
+  createdByAgent   Agent? @relation("OvertimeCreatedBy", fields: [createdByAgentId], references: [id])
 
-  supervisorId Int?          @map("supervisor_id")
-  supervisor   Supervisor?   @relation("SupervisorOvertimeEntries", fields: [supervisorId], references: [id])
+  supervisorId Int?        @map("supervisor_id")
+  supervisor   Supervisor? @relation("SupervisorOvertimeEntries", fields: [supervisorId], references: [id])
 
-  managerId    Int?          @map("manager_id")
-  manager      Manager?      @relation("ManagerOvertimeEntries", fields: [managerId], references: [id])
+  managerId Int?     @map("manager_id")
+  manager   Manager? @relation("ManagerOvertimeEntries", fields: [managerId], references: [id])
 
   supervisorApprovedAt DateTime? @map("supervisor_approved_at")
   managerApprovedAt    DateTime? @map("manager_approved_at")
 
-  editedRequiresManager Boolean  @default(false) @map("edited_requires_manager")
+  editedRequiresManager Boolean @default(false) @map("edited_requires_manager")
 
-  versions    OvertimeEntryVersion[]
+  versions OvertimeEntryVersion[]
 
   @@index([periodId, agentId])
   @@index([workDate])
   @@map("OvertimeEntry")
 }
 
-
 model OvertimeEntryVersion {
-  id        Int      @id @default(autoincrement())
-  entryId   Int      @map("entry_id")
-  entry     OvertimeEntry @relation(fields: [entryId], references: [id])
+  id      Int           @id @default(autoincrement())
+  entryId Int           @map("entry_id")
+  entry   OvertimeEntry @relation(fields: [entryId], references: [id])
 
-  editedAt  DateTime @default(now()) @map("edited_at")
-  editedBy  String   @map("edited_by")        // store email or id string
-  reason    String?  @db.Text
+  editedAt DateTime @default(now()) @map("edited_at")
+  editedBy String   @map("edited_by") // store email or id string
+  reason   String?  @db.Text
 
-  before    Json
-  after     Json
+  before Json
+  after  Json
 
   @@index([entryId])
   @@map("OvertimeEntryVersion")
@@ -470,18 +469,17 @@ enum SignatureRole {
 }
 
 model StoredSignature {
-  id           Int           @id @default(autoincrement())
-  role         SignatureRole
+  id   Int           @id @default(autoincrement())
+  role SignatureRole
 
-  supervisorId Int?          @unique @map("supervisor_id")
-  supervisor   Supervisor?   @relation("SupervisorSignature", fields: [supervisorId], references: [id])
+  supervisorId Int?        @unique @map("supervisor_id")
+  supervisor   Supervisor? @relation("SupervisorSignature", fields: [supervisorId], references: [id])
 
-  managerId    Int?          @unique @map("manager_id")
-  manager      Manager?      @relation("ManagerSignature", fields: [managerId], references: [id])
+  managerId Int?     @unique @map("manager_id")
+  manager   Manager? @relation("ManagerSignature", fields: [managerId], references: [id])
 
-  imageDataUrl String        @db.Text @map("image_data_url")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  imageDataUrl String   @map("image_data_url") @db.Text
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("StoredSignature")
 }
-
