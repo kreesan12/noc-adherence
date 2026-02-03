@@ -20,6 +20,9 @@ model Supervisor {
   /// existing back-relations
   auditLogs      AuditLog[]      @relation("SupervisorAuditEntries")
   attendanceLogs AttendanceLog[] @relation("SupervisorAttendance")
+
+  overtimeEntries OvertimeEntry[]   @relation("SupervisorOvertimeEntries")
+  signature       StoredSignature?  @relation("SupervisorSignature")
 }
 
 model Agent {
@@ -330,6 +333,9 @@ model Manager {
   createdAt  DateTime  @default(now()) @map("created_at")
   lastLogin  DateTime?                @map("last_login")
 
+  overtimeEntries OvertimeEntry[]   @relation("ManagerOvertimeEntries")
+  signature       StoredSignature?  @relation("ManagerSignature")
+
   @@map("Manager")   // table name stays quoted-capitalised
 }
 
@@ -413,8 +419,9 @@ model OvertimeEntry {
   workDate    DateTime       @db.Date @map("work_date")
   startAt     DateTime       @map("start_at")
   endAt       DateTime       @map("end_at")
-  totalHours  Decimal        @map("total_hours") @db.Numeric(6,2)
-  rate        Decimal        @db.Numeric(4,2)
+
+  totalHours  Decimal        @map("total_hours") @db.Decimal(6,2)
+  rate        Decimal        @map("rate")        @db.Decimal(4,2)
 
   reason      String?        @db.Text
   notes       String?        @db.Text
@@ -423,10 +430,10 @@ model OvertimeEntry {
   createdByAgent   Agent?    @relation("OvertimeCreatedBy", fields: [createdByAgentId], references: [id])
 
   supervisorId Int?          @map("supervisor_id")
-  supervisor   Supervisor?   @relation(fields: [supervisorId], references: [id])
+  supervisor   Supervisor?   @relation("SupervisorOvertimeEntries", fields: [supervisorId], references: [id])
 
   managerId    Int?          @map("manager_id")
-  manager      Manager?      @relation(fields: [managerId], references: [id])
+  manager      Manager?      @relation("ManagerOvertimeEntries", fields: [managerId], references: [id])
 
   supervisorApprovedAt DateTime? @map("supervisor_approved_at")
   managerApprovedAt    DateTime? @map("manager_approved_at")
@@ -439,6 +446,7 @@ model OvertimeEntry {
   @@index([workDate])
   @@map("OvertimeEntry")
 }
+
 
 model OvertimeEntryVersion {
   id        Int      @id @default(autoincrement())
@@ -466,13 +474,14 @@ model StoredSignature {
   role         SignatureRole
 
   supervisorId Int?          @unique @map("supervisor_id")
-  supervisor   Supervisor?   @relation(fields: [supervisorId], references: [id])
+  supervisor   Supervisor?   @relation("SupervisorSignature", fields: [supervisorId], references: [id])
 
   managerId    Int?          @unique @map("manager_id")
-  manager      Manager?      @relation(fields: [managerId], references: [id])
+  manager      Manager?      @relation("ManagerSignature", fields: [managerId], references: [id])
 
-  imageDataUrl String        @db.Text @map("image_data_url")  // png data url
+  imageDataUrl String        @db.Text @map("image_data_url")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
   @@map("StoredSignature")
 }
+
