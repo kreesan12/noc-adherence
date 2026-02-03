@@ -47,6 +47,9 @@ model Agent {
   leave         Leave[]
   auditEntries  AuditLog[] @relation("AgentAuditEntries")
 
+  overtimeEntries OvertimeEntry[]
+  overtimeCreated OvertimeEntry[] @relation("OvertimeCreatedBy")
+
   @@map("Agent")
 }
 
@@ -358,4 +361,118 @@ model NldService {
   updatedAt     DateTime @updatedAt      @map("updated_at")
 
   @@map("NldService")
+}
+
+enum OvertimeSource {
+  FIXED
+  MANUAL
+}
+
+enum OvertimeStatus {
+  DRAFT
+  SUBMITTED
+  SUPERVISOR_APPROVED
+  MANAGER_APPROVED
+  REJECTED
+}
+
+model OvertimePeriod {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique            // eg 2026_01_15__2026_02_14
+  label     String                      // eg Jan to Feb 2026
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  createdAt DateTime @default(now())
+
+  entries   OvertimeEntry[]
+
+  @@map("OvertimePeriod")
+}
+
+model PublicHoliday {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @db.Date @unique
+  name      String
+  isActive  Boolean  @default(true)
+
+  @@map("PublicHoliday")
+}
+
+model OvertimeEntry {
+  id          Int            @id @default(autoincrement())
+
+  periodId    Int            @map("period_id")
+  period      OvertimePeriod @relation(fields: [periodId], references: [id])
+
+  agentId     Int            @map("agent_id")
+  agent       Agent          @relation(fields: [agentId], references: [id])
+
+  source      OvertimeSource
+  status      OvertimeStatus @default(DRAFT)
+
+  workDate    DateTime       @db.Date @map("work_date")
+  startAt     DateTime       @map("start_at")
+  endAt       DateTime       @map("end_at")
+  totalHours  Decimal        @map("total_hours") @db.Numeric(6,2)
+  rate        Decimal        @db.Numeric(4,2)
+
+  reason      String?        @db.Text
+  notes       String?        @db.Text
+
+  createdByAgentId Int?      @map("created_by_agent_id")
+  createdByAgent   Agent?    @relation("OvertimeCreatedBy", fields: [createdByAgentId], references: [id])
+
+  supervisorId Int?          @map("supervisor_id")
+  supervisor   Supervisor?   @relation(fields: [supervisorId], references: [id])
+
+  managerId    Int?          @map("manager_id")
+  manager      Manager?      @relation(fields: [managerId], references: [id])
+
+  supervisorApprovedAt DateTime? @map("supervisor_approved_at")
+  managerApprovedAt    DateTime? @map("manager_approved_at")
+
+  editedRequiresManager Boolean  @default(false) @map("edited_requires_manager")
+
+  versions    OvertimeEntryVersion[]
+
+  @@index([periodId, agentId])
+  @@index([workDate])
+  @@map("OvertimeEntry")
+}
+
+model OvertimeEntryVersion {
+  id        Int      @id @default(autoincrement())
+  entryId   Int      @map("entry_id")
+  entry     OvertimeEntry @relation(fields: [entryId], references: [id])
+
+  editedAt  DateTime @default(now()) @map("edited_at")
+  editedBy  String   @map("edited_by")        // store email or id string
+  reason    String?  @db.Text
+
+  before    Json
+  after     Json
+
+  @@index([entryId])
+  @@map("OvertimeEntryVersion")
+}
+
+enum SignatureRole {
+  supervisor
+  manager
+}
+
+model StoredSignature {
+  id           Int           @id @default(autoincrement())
+  role         SignatureRole
+
+  supervisorId Int?          @unique @map("supervisor_id")
+  supervisor   Supervisor?   @relation(fields: [supervisorId], references: [id])
+
+  managerId    Int?          @unique @map("manager_id")
+  manager      Manager?      @relation(fields: [managerId], references: [id])
+
+  imageDataUrl String        @db.Text @map("image_data_url")  // png data url
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@map("StoredSignature")
 }
