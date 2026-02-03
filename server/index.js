@@ -131,7 +131,7 @@ app.use("/api/overtime",
   overtimeExportRoutes(prisma)
 )
 
-/* ---------- Mount attendance WITH audit middleware ---------- */
+/* ---------- Mount in attendance WITH audit middleware ---------- */
 app.use(
   '/api/attendance',
   verifyToken, authRole('supervisor'), audit(prisma),

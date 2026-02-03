@@ -9,7 +9,7 @@ export default function SignaturePage() {
   async function save() {
     const dataUrl = ref.current.getTrimmedCanvas().toDataURL("image/png")
 
-    // choose endpoint based on logged in user type
+    // choose endpoint based on logged in user type - a
     // replace this with your actual auth user object
     const userType = window.__USER__?.type
 
