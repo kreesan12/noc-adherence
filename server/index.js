@@ -14,7 +14,6 @@ import { initWhatsApp, sendSlaAlert, getStatus as getWhatsAppStatus } from './wh
 //import { startSlaAckWatcher } from './slaAckWatcher.js'
 import { startNldOutageWatcher } from './nldOutageWatcher.js'   // <-- new import
 
-
 import rosterRoutes     from './routes/roster.js'
 import scheduleRoutes   from './routes/schedule.js'
 import volumeRoutes     from './routes/volume.js'
@@ -25,16 +24,16 @@ import supervisorRoutes from './routes/supervisors.js'
 import erlangRoutes     from './routes/erlang.js'
 import shiftRoutes      from './routes/shifts.js'
 import leaveRoutes      from './routes/leave.js'
-import workforceRouter from './routes/workforce.js'
+import workforceRouter  from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
 import managersRoutes    from './routes/managers.js'
-import nldsRoutes from './routes/nlds.js'
-import nldServices from './routes/nldServices.js'
-import nodes from './routes/nodes.js'
-import overtimeRoutes from "./routes/overtimeRoutes.js"
-import overtimeExportRoutes from "./routes/overtimeExportRoutes.js"
-import overtimeRoutes from './routes/overtime.js'
+import nldsRoutes        from './routes/nlds.js'
+import nldServices       from './routes/nldServices.js'
+import nodes             from './routes/nodes.js'
 
+// ✅ Overtime (single source of truth)
+import overtimeRoutes       from './routes/overtime.js'
+import overtimeExportRoutes from './routes/overtimeExportRoutes.js'
 
 dotenv.config()
 const prisma = new PrismaClient()
@@ -122,18 +121,21 @@ app.use(
   supervisorRoutes(prisma)
 )
 
-app.use("/api/overtime", 
-  verifyToken, authRole('supervisor'),
+/* ✅ Overtime (protected) */
+app.use(
+  '/api/overtime',
+  verifyToken,
+  authRole('supervisor'),
   overtimeRoutes(prisma)
 )
 
-app.use('/api/overtime', overtimeRoutes(prisma))
-
-app.use("/api/overtime", 
-  verifyToken, authRole('supervisor'),
+/* ✅ Overtime export (protected, separate namespace to avoid collisions) */
+app.use(
+  '/api/overtime/export',
+  verifyToken,
+  authRole('supervisor'),
   overtimeExportRoutes(prisma)
 )
-
 
 /* ---------- Mount in attendance WITH audit middleware ---------- */
 app.use(
@@ -154,16 +156,18 @@ app.use(
   '/api/shifts',
   verifyToken, authRole('supervisor'),
   shiftRoutes(prisma)
-);
+)
 
 app.use('/api', nldServices)
 app.use('/api', nodes)
 
 app.use('/api/engineering', engineeringRoutes)
 
-app.use('/api/managers',
+app.use(
+  '/api/managers',
   verifyToken, authRole('admin'),   /* only admins can change managers */
-  managersRoutes(prisma))           // ← matches the import name
+  managersRoutes(prisma)
+)
 
 /* ---------- Global error handler ---------- */
 app.use((err, _req, res, _next) => {
