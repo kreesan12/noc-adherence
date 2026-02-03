@@ -125,7 +125,6 @@ app.use(
 app.use(
   '/api/overtime',
   verifyToken,
-  authRole('supervisor'),
   overtimeRoutes(prisma)
 )
 
