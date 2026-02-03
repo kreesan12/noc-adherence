@@ -271,117 +271,126 @@ export default prisma => {
   ----------------------------------------------------------- */
 
   // POST /api/overtime/period/:periodId/generate-fixed
-  r.post('/period/:periodId/generate-fixed', async (req, res) => {
-    if (!isSupervisor(req.user)) return res.status(403).json({ error: 'Forbidden' })
+  // POST /api/overtime/period/:periodId/generate-fixed
+r.post('/period/:periodId/generate-fixed', async (req, res) => {
+  const periodId = Number(req.params.periodId)
 
-    const periodId = Number(req.params.periodId)
-    const period = await prisma.overtimePeriod.findUnique({ where: { id: periodId } })
-    if (!period) return res.status(404).json({ error: 'Period not found' })
+  const period = await prisma.overtimePeriod.findUnique({ where: { id: periodId } })
+  if (!period) return res.status(404).json({ error: 'Period not found' })
 
-    const holidaySet = await getHolidaySet(prisma)
+  // Load public holidays once
+  const holidays = await prisma.publicHoliday.findMany({
+    where: { isActive: true },
+    select: { date: true },
+  })
+  const holidaySet = new Set(holidays.map(h => dayjs(h.date).format('YYYY-MM-DD')))
 
-    // Pull shifts inside the period
-    const shifts = await prisma.shift.findMany({
-      where: {
-        shiftDate: {
-          gte: period.startDate,
-          lte: period.endDate
-        },
-        agentId: { not: null }
+  // Pull shifts in the period
+  const shifts = await prisma.shift.findMany({
+    where: {
+      agentId: { not: null },
+      shiftDate: {
+        gte: period.startDate,
+        lte: period.endDate,
       },
-      include: {
-        agent: { select: { id: true, supervisorId: true } }
-      }
-    })
+    },
+    include: {
+      agent: { select: { id: true, supervisorId: true } },
+    },
+    orderBy: [{ shiftDate: 'asc' }, { startAt: 'asc' }],
+  })
 
-    // Only generate for agents under this supervisor unless admin
-    const allowedShifts = isSupervisor(req.user) && req.user.role !== 'admin'
-      ? shifts.filter(s => s.agent?.supervisorId === req.user.id)
-      : shifts
+  let created = 0
+  let skipped = 0
 
-    // For each shift, decide if it is Sunday or holiday
-    let created = 0
-    let skipped = 0
+  for (const s of shifts) {
+    const d = dayjs(s.shiftDate).format('YYYY-MM-DD')
+    const isSunday = dayjs(s.shiftDate).day() === 0
+    const isHoliday = holidaySet.has(d)
 
-    for (const sh of allowedShifts) {
-      const workDateIso = dayjs(sh.shiftDate).format('YYYY-MM-DD')
-      const { fixedRate } = dayTypeAndRates(workDateIso, holidaySet)
-
-      // only Sunday or holiday qualify for FIXED
-      if (!fixedRate || fixedRate <= 0) {
-        skipped++
-        continue
-      }
-
-      const totalHours = calcHoursBetween(sh.startAt, sh.endAt, sh.breakStart, sh.breakEnd)
-
-      // prevent duplicates for same shift window
-      const exists = await prisma.overtimeEntry.findFirst({
-        where: {
-          periodId: period.id,
-          agentId: sh.agentId,
-          source: 'FIXED',
-          workDate: new Date(workDateIso),
-          startAt: sh.startAt,
-          endAt: sh.endAt
-        }
-      })
-
-      if (exists) {
-        skipped++
-        continue
-      }
-
-      await prisma.overtimeEntry.create({
-        data: {
-          periodId: period.id,
-          agentId: sh.agentId,
-          source: 'FIXED',
-          status: 'SUBMITTED',
-          workDate: new Date(workDateIso),
-          startAt: sh.startAt,
-          endAt: sh.endAt,
-          totalHours,
-          rate: fixedRate,
-          supervisorId: req.user.id,
-          createdByAgentId: req.user.id
-        }
-      })
-
-      created++
+    // Only Sunday or Public Holiday qualify for FIXED overtime
+    if (!isSunday && !isHoliday) {
+      skipped++
+      continue
     }
 
-    res.json({ ok: true, created, skipped })
-  })
+    const rate = isHoliday ? 1.0 : 0.5
+
+    // hours as decimal
+    const totalHours = dayjs(s.endAt).diff(dayjs(s.startAt), 'minute') / 60
+
+    // Idempotency check: avoid duplicates for same agent + date + start/end + source FIXED
+    const exists = await prisma.overtimeEntry.findFirst({
+      where: {
+        periodId,
+        agentId: s.agentId,
+        source: 'FIXED',
+        workDate: s.shiftDate,
+        startAt: s.startAt,
+        endAt: s.endAt,
+      },
+      select: { id: true },
+    })
+
+    if (exists) {
+      skipped++
+      continue
+    }
+
+    await prisma.overtimeEntry.create({
+      data: {
+        periodId,
+        agentId: s.agentId,
+        supervisorId: s.agent?.supervisorId ?? null,
+        source: 'FIXED',
+        status: 'SUBMITTED',
+        workDate: s.shiftDate,
+        startAt: s.startAt,
+        endAt: s.endAt,
+        totalHours,
+        rate,
+        reason: isHoliday ? 'Public holiday shift' : 'Sunday shift',
+      },
+    })
+
+    created++
+  }
+
+  res.json({ ok: true, created, skipped })
+})
 
   /* -----------------------------------------------------------
      SUPERVISOR VIEW AND ACTIONS
   ----------------------------------------------------------- */
 
   // GET /api/overtime/period/:periodId/supervisor
-  r.get('/period/:periodId/supervisor', async (req, res) => {
-    if (!isSupervisor(req.user)) return res.status(403).json({ error: 'Forbidden' })
+// GET /api/overtime/period/:periodId/supervisor
+// Shows ALL entries in the period, not only logged-in supervisor's agents.
+// Optional filter: ?supervisorId=123 or ?agentId=456 or ?status=SUBMITTED
+r.get('/period/:periodId/supervisor', async (req, res) => {
+  const periodId = Number(req.params.periodId)
 
-    const periodId = Number(req.params.periodId)
-    const supervisorId = req.user.id
+  const supervisorId = req.query.supervisorId ? Number(req.query.supervisorId) : undefined
+  const agentId = req.query.agentId ? Number(req.query.agentId) : undefined
+  const status = req.query.status ? String(req.query.status) : undefined
 
-    const agents = await prisma.agent.findMany({
-      where: { supervisorId },
-      select: { id: true }
-    })
-    const agentIds = agents.map(a => a.id)
+  const where = { periodId }
+  if (supervisorId) where.supervisorId = supervisorId
+  if (agentId) where.agentId = agentId
+  if (status) where.status = status
 
-    const entries = await prisma.overtimeEntry.findMany({
-      where: {
-        periodId,
-        agentId: { in: agentIds }
-      },
-      include: { agent: true },
-      orderBy: [{ agentId: 'asc' }, { workDate: 'asc' }, { startAt: 'asc' }]
-    })
-
-    res.json(entries)
+  const entries = await prisma.overtimeEntry.findMany({
+    where,
+    include: {
+      agent: { select: { id: true, fullName: true, supervisorId: true } },
+      supervisor: { select: { id: true, fullName: true } }
+    },
+    orderBy: [{ agentId: 'asc' }, { workDate: 'asc' }, { startAt: 'asc' }],
   })
+
+  res.json(entries)
+})
+
 
   // PATCH /api/overtime/entries/:id  (supervisor edit)
   // If supervisor edits, force manager re approval
