@@ -124,6 +124,11 @@ function SideNav() {
         ...(user.role === 'admin'
           ? [{ label:'Managers', path:'/managers', icon:<ManageAccountsIcon/> }]
           : []),
+
+        { label:'Overtime Capturing', path:'/overtime/capture', icon:<LanOutlinedIcon/> },
+        { label:'Overtime Superivor', path:'/overtime/supervisor', icon:<LanOutlinedIcon/> },
+        { label:'Overtime Manager', path:'/overtime/manager', icon:<LanOutlinedIcon/> },
+        { label:'Signatures', path:'/settings/signature', icon:<LanOutlinedIcon/> },      
       ],
     },
     {
@@ -246,6 +251,11 @@ export default function App() {
                 <Route path="/nld-uptime"       element={<NldUptimePage/>}/>
                 <Route path="/nld-admin"       element={<CircuitEditorPage/>}/>
                 <Route path="/engineering/nld-services" element={<NldServicesPage />} />
+                <Route path="/overtime/capture" element={<OvertimeCapturePage />} />
+                <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />} />
+                <Route path="/overtime/manager" element={<OvertimeManagerPage />} />
+                <Route path="/settings/signature" element={<SignaturePage />} />
+
               </Route>
 
               {/* Fallback */}
