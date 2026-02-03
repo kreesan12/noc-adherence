@@ -25,7 +25,7 @@ export default function OvertimeCapturePage() {
   async function submit() {
     setSaving(true)
     try {
-      await api.post("/api/overtime/manual", {
+      await api.post("/overtime/manual", {
         workDate,
         startAt: toIso(workDate, startTime),
         endAt: toIso(workDate, endTime),
