@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { Box, Button, Chip, Stack, Typography } from "@mui/material"
 import { DataGrid } from "@mui/x-data-grid"
-import dayjs from "../utils/dayjs"
+import dayjs from "../lib/dayjs.js"
 import axios from "../utils/axios"
 
 export default function OvertimeSupervisorPage() {
