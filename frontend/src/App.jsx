@@ -52,6 +52,11 @@ import NldMapPage from './pages/NldMapPage'
 import NldUptimePage from './pages/NldUptimePage'
 import CircuitEditorPage from './pages/CircuitEditorPage'
 import NldServicesPage from './pages/NldServicesPage.jsx'
+import OvertimeCapturePage from './pages/OvertimeCapturePage'
+import OvertimeSupervisorPage from './pages/OvertimeSupervisorPage'
+import OvertimeManagerPage from './pages/OvertimeManagerPage'
+import SignaturePage from './pages/SignaturePage'
+
 
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
