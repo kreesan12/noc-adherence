@@ -1,7 +1,8 @@
 import React, { useRef } from "react"
 import { Box, Button, Card, CardContent, Stack, Typography } from "@mui/material"
 import SignatureCanvas from "react-signature-canvas"
-import axios from "../utils/axios"
+import api from "../api"
+
 
 export default function SignaturePage() {
   const ref = useRef(null)
