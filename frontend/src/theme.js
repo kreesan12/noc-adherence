@@ -17,7 +17,7 @@ export default createTheme({
     divider: alpha('#111827', 0.08)
   },
 
-  shape: { borderRadius: 14 },
+  shape: { borderRadius: 10 },
 
   typography: {
     fontFamily: [
@@ -83,7 +83,7 @@ export default createTheme({
 
     MuiDialog: {
       styleOverrides: {
-        paper: { borderRadius: 18 }
+        paper: { borderRadius: 12 }
       }
     }
   }

@@ -20,7 +20,7 @@ export default createTheme({
     error: { main: '#DC2626' }
   },
 
-  shape: { borderRadius: 18 },
+  shape: { borderRadius: 10 },
 
   typography: {
     fontFamily: [
@@ -60,7 +60,7 @@ export default createTheme({
       defaultProps: { disableElevation: true },
       styleOverrides: {
         root: {
-          borderRadius: 16,
+          borderRadius: 12,
           paddingInline: 14,
           paddingBlock: 12
         }
