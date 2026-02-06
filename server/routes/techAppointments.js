@@ -7,13 +7,9 @@ export default function techAppointmentsRoutes(prisma) {
   const r = Router()
 
   function requireTechUser(req) {
-    // For now we treat any logged in user as allowed.
-    // Later add a real TECH role check and map user to technicianId.
     return req.user?.id != null ? String(req.user.id) : null
   }
 
-  // Temporary mapping: tech passes technicianId explicitly
-  // Later: map req.user.id to a Technician row
   r.get('/my', async (req, res) => {
     const technicianId = (req.query.technicianId || '').toString().trim()
     const from = (req.query.from || '').toString().trim()
@@ -56,7 +52,8 @@ export default function techAppointmentsRoutes(prisma) {
       status,
       lat,
       lng,
-      payload
+      payload,
+      eventTime
     } = req.body || {}
 
     if (!clientEventId) throw new Error('clientEventId required')
@@ -64,7 +61,6 @@ export default function techAppointmentsRoutes(prisma) {
 
     const actorId = requireTechUser(req)
 
-    // idempotency
     const existing = await prisma.appointmentEvent.findUnique({
       where: { clientEventId }
     })
@@ -72,6 +68,11 @@ export default function techAppointmentsRoutes(prisma) {
 
     const appt = await prisma.appointment.findUnique({ where: { id: apptId } })
     if (!appt) throw new Error('Appointment not found')
+
+    const mergedPayload = {
+      ...(payload || {}),
+      ...(eventTime ? { eventTime } : {})
+    }
 
     const createEvent = await prisma.appointmentEvent.create({
       data: {
@@ -83,7 +84,7 @@ export default function techAppointmentsRoutes(prisma) {
         actorId,
         lat: lat != null ? Number(lat) : null,
         lng: lng != null ? Number(lng) : null,
-        payload: payload || null
+        payload: Object.keys(mergedPayload).length ? mergedPayload : null
       }
     })
 
@@ -116,7 +117,6 @@ export default function techAppointmentsRoutes(prisma) {
     res.json({ ok: true, event: createEvent, appointment: updated })
   })
 
-  // Photo upload placeholder, base64 in body, save URL later
   r.post('/:id/photo', async (req, res) => {
     const apptId = req.params.id
     const { clientEventId, dataUrl } = req.body || {}
@@ -128,7 +128,6 @@ export default function techAppointmentsRoutes(prisma) {
     const existing = await prisma.appointmentEvent.findUnique({ where: { clientEventId } })
     if (existing) return res.json({ ok: true, deduped: true })
 
-    // store the dataUrl temporarily in fileUrl (not ideal long term)
     const asset = await prisma.appointmentAsset.create({
       data: {
         id: `asset_${nanoid(12)}`,
@@ -153,7 +152,6 @@ export default function techAppointmentsRoutes(prisma) {
     res.json({ ok: true, asset })
   })
 
-  // Signature capture placeholder
   r.post('/:id/signature', async (req, res) => {
     const apptId = req.params.id
     const { clientEventId, dataUrl, signedByName } = req.body || {}
@@ -204,7 +202,6 @@ export default function techAppointmentsRoutes(prisma) {
     res.json({ ok: true, asset })
   })
 
-  // Submit job card
   r.post('/:id/job-card', async (req, res) => {
     const apptId = req.params.id
     const {
@@ -256,7 +253,6 @@ export default function techAppointmentsRoutes(prisma) {
       }
     })
 
-    // Optional status update
     const status =
       outcome === 'SUCCESSFUL' ? 'COMPLETED' :
       Boolean(civilsRequired) ? 'CIVILS_REQUIRED' :

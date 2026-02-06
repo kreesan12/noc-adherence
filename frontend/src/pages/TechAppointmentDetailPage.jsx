@@ -1,5 +1,5 @@
 // frontend/src/pages/TechAppointmentDetailPage.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box, Paper, Typography, Button, TextField, Alert, Divider,
   Stack, Chip, MenuItem, Select, FormControl, InputLabel
@@ -25,7 +25,7 @@ async function getGpsOnce() {
   return new Promise(resolve => {
     if (!navigator.geolocation) return resolve(null)
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
       () => resolve(null),
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 20000 }
     )
@@ -50,6 +50,27 @@ const UNSUCCESSFUL_REASONS = [
   { code: 'OTHER', label: 'Other' }
 ]
 
+// GPS ping settings
+const GPS_PING_INTERVAL_MS = 30_000
+const GPS_MIN_MOVEMENT_METERS = 35
+const GPS_MAX_AGE_MS = 30_000
+
+function haversineMeters(a, b) {
+  if (!a || !b) return null
+  const R = 6371e3
+  const toRad = x => (x * Math.PI) / 180
+  const dLat = toRad(b.lat - a.lat)
+  const dLon = toRad(b.lng - a.lng)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+  const s =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s))
+  return R * c
+}
+
 export default function TechAppointmentDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -66,6 +87,16 @@ export default function TechAppointmentDetailPage() {
 
   const [queueCount, setQueueCount] = useState(0)
   const [apptQueueCount, setApptQueueCount] = useState(0)
+
+  // Live tracking UI state
+  const [tracking, setTracking] = useState(false)
+  const [lastPingAt, setLastPingAt] = useState(null)
+
+  // Refs for interval + movement check
+  const pingTimerRef = useRef(null)
+  const isPingingRef = useRef(false)
+  const lastSentLocRef = useRef(null)
+  const lastSentAtRef = useRef(0)
 
   async function refreshQueueCounts() {
     const c = await countQueuedEvents()
@@ -88,10 +119,10 @@ export default function TechAppointmentDetailPage() {
 
   useEffect(() => {
     load().catch(e => {
-      const status = e?.response?.status
+      const statusCode = e?.response?.status
       const m = e?.response?.data?.error || e?.message || 'Failed to load appointment'
       setErr(m)
-      if (status === 401 || status === 403) {
+      if (statusCode === 401 || statusCode === 403) {
         localStorage.removeItem('techToken')
         localStorage.removeItem('techId')
         localStorage.removeItem('techName')
@@ -155,6 +186,91 @@ export default function TechAppointmentDetailPage() {
       setBusy(false)
     }
   }
+
+  async function sendGpsPingOnce() {
+    if (isPingingRef.current) return
+    isPingingRef.current = true
+    try {
+      const gps = await getGpsOnce()
+      if (!gps?.lat || !gps?.lng) return
+
+      const now = Date.now()
+      const prev = lastSentLocRef.current
+      const movedM = haversineMeters(prev, { lat: gps.lat, lng: gps.lng })
+      const recentlySent = now - (lastSentAtRef.current || 0) < GPS_MAX_AGE_MS
+
+      // Skip noisy duplicate updates unless movement is meaningful or enough time passed
+      if (prev && movedM != null && movedM < GPS_MIN_MOVEMENT_METERS && recentlySent) return
+
+      await enqueueEvent({
+        clientEventId: makeClientEventId('cev_gps'),
+        appointmentId: id,
+        eventType: 'GPS_PING',
+        status: null,
+        lat: gps.lat,
+        lng: gps.lng,
+        payload: { source: 'tech_gps', accuracy: gps.accuracy },
+        eventTime: new Date().toISOString()
+      })
+
+      lastSentLocRef.current = { lat: gps.lat, lng: gps.lng }
+      lastSentAtRef.current = now
+      setLastPingAt(new Date().toISOString())
+
+      if (navigator.onLine) {
+        await safeFlushQueue()
+        await refreshQueueCounts()
+      } else {
+        await refreshQueueCounts()
+      }
+    } catch {
+      // keep silent, do not spam tech with GPS noise
+    } finally {
+      isPingingRef.current = false
+    }
+  }
+
+  function stopTracking() {
+    if (pingTimerRef.current) {
+      clearInterval(pingTimerRef.current)
+      pingTimerRef.current = null
+    }
+  }
+
+  function startTracking() {
+    stopTracking()
+    // ping immediately, then interval
+    sendGpsPingOnce()
+    pingTimerRef.current = setInterval(() => {
+      sendGpsPingOnce()
+    }, GPS_PING_INTERVAL_MS)
+  }
+
+  // Start or stop tracking based on toggle and status
+  useEffect(() => {
+    const shouldAllow =
+      status === 'EN_ROUTE' ||
+      status === 'ARRIVED' ||
+      status === 'NEAR_SITE' ||
+      status === 'IN_PROGRESS'
+
+    if (!shouldAllow) {
+      setTracking(false)
+      stopTracking()
+      return
+    }
+
+    if (tracking) startTracking()
+    else stopTracking()
+
+    return () => stopTracking()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracking, status, id])
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => stopTracking()
+  }, [])
 
   async function doSubmitJobCard(outcome) {
     setErr('')
@@ -252,6 +368,12 @@ export default function TechAppointmentDetailPage() {
     )
   }
 
+  const trackingAllowed =
+    status === 'EN_ROUTE' ||
+    status === 'ARRIVED' ||
+    status === 'NEAR_SITE' ||
+    status === 'IN_PROGRESS'
+
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto' }}>
       <Stack spacing={1.5} sx={{ mb: 2 }}>
@@ -264,6 +386,12 @@ export default function TechAppointmentDetailPage() {
           <Chip size="small" color={navigator.onLine ? 'success' : 'warning'} label={navigator.onLine ? 'Online' : 'Offline'} />
           <Chip size="small" variant="outlined" label={`Queued: ${queueCount}`} />
           <Chip size="small" variant="outlined" label={`Here: ${apptQueueCount}`} />
+          <Chip
+            size="small"
+            color={tracking ? 'success' : 'default'}
+            variant="outlined"
+            label={tracking ? 'Tracking: ON' : 'Tracking: OFF'}
+          />
         </Stack>
 
         {err && <Alert severity="error">{err}</Alert>}
@@ -290,10 +418,39 @@ export default function TechAppointmentDetailPage() {
           <Button variant="outlined" onClick={callCustomer} disabled={!ticket.customerPhone || busy} sx={{ borderRadius: 3 }}>
             Call customer
           </Button>
-          <Button variant="outlined" onClick={async () => { await safeFlushQueue(); await refreshQueueCounts(); await load() }} disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button
+            variant="outlined"
+            onClick={async () => { await safeFlushQueue(); await refreshQueueCounts(); await load() }}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
             Sync now
           </Button>
+
+          <Button
+            variant={tracking ? 'contained' : 'outlined'}
+            color={tracking ? 'success' : 'primary'}
+            onClick={() => setTracking(v => !v)}
+            disabled={busy || !trackingAllowed}
+            sx={{ borderRadius: 3 }}
+          >
+            {tracking ? 'Stop live tracking' : 'Start live tracking'}
+          </Button>
+
+          <Button
+            variant="outlined"
+            onClick={async () => { await sendGpsPingOnce(); await refreshQueueCounts() }}
+            disabled={busy || !trackingAllowed}
+            sx={{ borderRadius: 3 }}
+          >
+            Ping now
+          </Button>
         </Stack>
+
+        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75, mt: 1 }}>
+          Live tracking sends GPS pings about every {Math.round(GPS_PING_INTERVAL_MS / 1000)} seconds while EN_ROUTE, ARRIVED, NEAR_SITE, or IN_PROGRESS.
+          {lastPingAt ? ` Last ping: ${dayjs(lastPingAt).format('HH:mm:ss')}.` : ''}
+        </Typography>
 
         <Divider sx={{ my: 2 }} />
 
@@ -302,19 +459,45 @@ export default function TechAppointmentDetailPage() {
         </Typography>
 
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })} disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button
+            variant="outlined"
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
             Near site
           </Button>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })} disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button
+            variant="outlined"
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
             Arrived
           </Button>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })} disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button
+            variant="outlined"
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
             Start work
           </Button>
-          <Button color="success" variant="contained" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })} disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button
+            color="success"
+            variant="contained"
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
             Mark complete
           </Button>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })} disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button
+            variant="outlined"
+            onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
             Request assistance
           </Button>
         </Stack>

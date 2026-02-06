@@ -46,7 +46,6 @@ function estimateTravelMinutes(km, region = 'DEFAULT') {
 }
 
 function slotWindow(slotNumber) {
-  // keep it simple and consistent
   const windows = {
     1: { start: '08:00', end: '10:00' },
     2: { start: '10:00', end: '12:00' },
@@ -56,36 +55,6 @@ function slotWindow(slotNumber) {
   }
   return windows[slotNumber] || null
 }
-
-/* ------------------------------------------------------------------
-   Router
-------------------------------------------------------------------- */
-
-export default function rocAppointmentsRoutes(prisma) {
-  const r = Router()
-
-  /* --------------------------------------------------------------
-     GET technicians
-     /api/roc-appointments/technicians
-  --------------------------------------------------------------- */
-  r.get('/technicians', async (_req, res) => {
-    const techs = await prisma.technician.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' }
-    })
-    res.json(techs)
-  })
-
-
-
-/* --------------------------------------------------------------
-   GET tickets
-   /api/roc-appointments/tickets?search=TEST
-   Optional:
-     unassignedOnly=1   (default true)
-     includeAssigned=1  (include assignedTo info)
-     geocode=1          (attempt geocode + persist lat/lng if missing)
---------------------------------------------------------------- */
 
 // Simple in memory limiter (ok for small scale). Replace with Redis later if needed.
 const rateBucket = new Map()
@@ -109,8 +78,6 @@ function toBool(v, def = false) {
 }
 
 async function geocodeAddress(address) {
-  // OpenStreetMap Nominatim. Add a real User Agent header.
-  // Note: OSM usage policy applies. For heavier use, proxy/caching is mandatory.
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`
   const r = await fetch(url, {
     headers: {
@@ -132,129 +99,124 @@ function normalizeSearch(search) {
   return search.trim()
 }
 
-r.get("/tickets", async (req, res) => {
-  try {
-    if (!rateLimit(req)) {
-      return res.status(429).json({ error: "Too many requests. Please try again shortly." })
-    }
+/* ------------------------------------------------------------------
+   Router
+------------------------------------------------------------------- */
 
-    const raw = (req.query.search || "").toString()
-    const search = normalizeSearch(raw)
-    const unassignedOnly = toBool(req.query.unassignedOnly, true)     // default true
-    const includeAssigned = toBool(req.query.includeAssigned, false)  // default false
-    const doGeocode = toBool(req.query.geocode, false)                // default false
+export default function rocAppointmentsRoutes(prisma) {
+  const r = Router()
 
-    // Base text search
-    const textWhere = search
-      ? {
-          OR: [
-            { externalRef: { contains: search, mode: "insensitive" } },
-            { customerName: { contains: search, mode: "insensitive" } },
-            { customerPhone: { contains: search, mode: "insensitive" } },
-            { address: { contains: search, mode: "insensitive" } }
-          ]
-        }
-      : {}
-
-    // Unassigned = no appointments exist for this ticket (strict)
-    // If you want "not assigned for this date only" tell me and I’ll adjust.
-    const assignWhere = unassignedOnly
-      ? { appointments: { none: {} } }
-      : {}
-
-    const where = { ...textWhere, ...assignWhere }
-
-    // Include assignment info if requested (for top "check assignment")
-    // Grab most recent appointment + technician.
-    const include = includeAssigned
-      ? {
-          appointments: {
-            take: 1,
-            orderBy: [{ appointmentDate: "desc" }, { createdAt: "desc" }],
-            include: { technician: { select: { id: true, name: true } } }
-          }
-        }
-      : undefined
-
-    const tickets = await prisma.ticket.findMany({
-      where,
-      take: 50,
-      orderBy: [{ updatedAt: "desc" }],
-      include
+  /* --------------------------------------------------------------
+     GET technicians
+     /api/roc-appointments/technicians
+  --------------------------------------------------------------- */
+  r.get('/technicians', async (_req, res) => {
+    const techs = await prisma.technician.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' }
     })
+    res.json(techs)
+  })
 
-    // Optional geocode pass (best effort). Only for results missing lat/lng.
-    // You can remove this if you prefer a separate "Geocode" button.
-    let finalTickets = tickets
+  /* --------------------------------------------------------------
+     GET tickets
+     /api/roc-appointments/tickets?search=TEST
+     Optional:
+       unassignedOnly=1   (default true)
+       includeAssigned=1  (include assignedTo info)
+       geocode=1          (attempt geocode + persist lat/lng if missing)
+  --------------------------------------------------------------- */
+  r.get("/tickets", async (req, res) => {
+    try {
+      if (!rateLimit(req)) {
+        return res.status(429).json({ error: "Too many requests. Please try again shortly." })
+      }
 
-    if (doGeocode) {
-      finalTickets = await Promise.all(
-        tickets.map(async (t) => {
-          if (t.lat != null && t.lng != null) return t
-          if (!t.address) return t
+      const raw = (req.query.search || "").toString()
+      const search = normalizeSearch(raw)
+      const unassignedOnly = toBool(req.query.unassignedOnly, true)
+      const includeAssigned = toBool(req.query.includeAssigned, false)
+      const doGeocode = toBool(req.query.geocode, false)
 
-          // small dedupe key
-          const hash = crypto.createHash("md5").update(t.address).digest("hex")
-
-          // If you have addressHash/addressUpdatedAt columns, use them here.
-          // For now: geocode if missing coords.
-          const geo = await geocodeAddress(t.address)
-          if (!geo) return t
-
-          const updated = await prisma.ticket.update({
-            where: { id: t.id },
-            data: { lat: geo.lat, lng: geo.lng }
-          })
-
-          return { ...t, lat: updated.lat, lng: updated.lng }
-        })
-      )
-    }
-
-    // Shape response to include assignedTo object if requested
-    const shaped = finalTickets.map(t => {
-      if (!includeAssigned) return t
-      const appt = Array.isArray(t.appointments) ? t.appointments[0] : null
-      const assignedTo = appt
+      const textWhere = search
         ? {
-            techId: appt.technicianId,
-            techName: appt.technician?.name || "",
-            date: appt.appointmentDate ? dayjs(appt.appointmentDate).format("YYYY-MM-DD") : null,
-            slotNumber: appt.slotNumber || null
+            OR: [
+              { externalRef: { contains: search, mode: "insensitive" } },
+              { customerName: { contains: search, mode: "insensitive" } },
+              { customerPhone: { contains: search, mode: "insensitive" } },
+              { address: { contains: search, mode: "insensitive" } }
+            ]
           }
-        : null
+        : {}
 
-      // Remove appointments array if you don’t want it in UI
-      const { appointments, ...rest } = t
-      return { ...rest, assignedTo }
-    })
+      const assignWhere = unassignedOnly
+        ? { appointments: { none: {} } }
+        : {}
 
-    res.json(shaped)
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ error: e?.message || "Failed to search tickets" })
-  }
-})
+      const where = { ...textWhere, ...assignWhere }
 
+      const include = includeAssigned
+        ? {
+            appointments: {
+              take: 1,
+              orderBy: [{ appointmentDate: "desc" }, { createdAt: "desc" }],
+              include: { technician: { select: { id: true, name: true } } }
+            }
+          }
+        : undefined
 
+      const tickets = await prisma.ticket.findMany({
+        where,
+        take: 50,
+        orderBy: [{ updatedAt: "desc" }],
+        include
+      })
 
+      let finalTickets = tickets
 
+      if (doGeocode) {
+        finalTickets = await Promise.all(
+          tickets.map(async (t) => {
+            if (t.lat != null && t.lng != null) return t
+            if (!t.address) return t
 
+            crypto.createHash("md5").update(t.address).digest("hex")
 
+            const geo = await geocodeAddress(t.address)
+            if (!geo) return t
 
+            const updated = await prisma.ticket.update({
+              where: { id: t.id },
+              data: { lat: geo.lat, lng: geo.lng }
+            })
 
+            return { ...t, lat: updated.lat, lng: updated.lng }
+          })
+        )
+      }
 
+      const shaped = finalTickets.map(t => {
+        if (!includeAssigned) return t
+        const appt = Array.isArray(t.appointments) ? t.appointments[0] : null
+        const assignedTo = appt
+          ? {
+              techId: appt.technicianId,
+              techName: appt.technician?.name || "",
+              date: appt.appointmentDate ? dayjs(appt.appointmentDate).format("YYYY-MM-DD") : null,
+              slotNumber: appt.slotNumber || null
+            }
+          : null
 
+        const { appointments, ...rest } = t
+        return { ...rest, assignedTo }
+      })
 
-
-
-
-
-
-
-
-
-
+      res.json(shaped)
+    } catch (e) {
+      console.error(e)
+      res.status(500).json({ error: e?.message || "Failed to search tickets" })
+    }
+  })
 
   /* --------------------------------------------------------------
      GET appointments by date range
@@ -308,7 +270,6 @@ r.get("/tickets", async (req, res) => {
     const winStart = windowStartTime || slotWin?.start || null
     const winEnd = windowEndTime || slotWin?.end || null
 
-    // Guard collision: one tech, one day, one slot
     if (technicianId && slot) {
       const { start, end } = toDateOnlyRange(dayjs(dt).format('YYYY-MM-DD'))
       const existing = await prisma.appointment.findFirst({
@@ -382,7 +343,6 @@ r.get("/tickets", async (req, res) => {
     }
 
     const slotWin = slot ? slotWindow(slot) : null
-
     const actorId = req.user?.id != null ? String(req.user.id) : null
 
     const updated = await prisma.appointment.update({
@@ -425,7 +385,6 @@ r.get("/tickets", async (req, res) => {
   /* --------------------------------------------------------------
      POST swap appointments
      /api/roc-appointments/appointments/swap
-     body: { appointmentIdA, appointmentIdB }
   --------------------------------------------------------------- */
   r.post('/appointments/swap', async (req, res) => {
     const { appointmentIdA, appointmentIdB } = req.body || {}
@@ -564,6 +523,10 @@ r.get("/tickets", async (req, res) => {
   /* --------------------------------------------------------------
      GET route summary per tech and date
      /api/roc-appointments/route-summary?technicianId=...&date=YYYY-MM-DD
+
+     ✅ UPDATED:
+       Adds liveLocation from latest appointmentEvent that includes lat/lng
+       for any appointment belonging to this tech for that date.
   --------------------------------------------------------------- */
   r.get('/route-summary', async (req, res) => {
     const technicianId = (req.query.technicianId || '').toString().trim()
@@ -581,6 +544,32 @@ r.get("/tickets", async (req, res) => {
       orderBy: [{ slotNumber: 'asc' }]
     })
 
+    // ✅ Find latest live location for this tech on this day:
+    // We look at appointment events for today's appointments that have lat/lng.
+    const apptIds = appts.map(a => a.id)
+    let liveLocation = null
+
+    if (apptIds.length) {
+      const latestEvent = await prisma.appointmentEvent.findFirst({
+        where: {
+          appointmentId: { in: apptIds },
+          lat: { not: null },
+          lng: { not: null }
+        },
+        orderBy: { createdAt: 'desc' }
+      })
+
+      if (latestEvent) {
+        liveLocation = {
+          lat: latestEvent.lat,
+          lng: latestEvent.lng,
+          updatedAt: latestEvent.createdAt,
+          appointmentId: latestEvent.appointmentId,
+          sourceEventType: latestEvent.eventType
+        }
+      }
+    }
+
     const legs = []
     let prev = { lat: tech.homeLat, lng: tech.homeLng, label: 'Home' }
     let totalMinutes = 0
@@ -593,6 +582,9 @@ r.get("/tickets", async (req, res) => {
       legs.push({
         from: prev.label,
         to: `Slot ${a.slotNumber ?? ''}`,
+        appointmentId: a.id,
+        slotNumber: a.slotNumber ?? null,
+        status: a.status ?? null,
         ticketId: a.ticketId,
         externalRef: t?.externalRef ?? null,
         address: t?.address ?? null,
@@ -607,6 +599,7 @@ r.get("/tickets", async (req, res) => {
     res.json({
       technicianId,
       date,
+      liveLocation,
       legs,
       totals: {
         totalKm,
