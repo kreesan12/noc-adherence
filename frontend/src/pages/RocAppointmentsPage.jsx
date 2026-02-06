@@ -4,7 +4,7 @@ import {
   Box, Paper, Typography, FormControl, InputLabel, Select, MenuItem,
   TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, Divider, Alert, Stack, Chip, IconButton,
-  CircularProgress, Checkbox, Tooltip, Switch, FormControlLabel
+  CircularProgress
 } from '@mui/material'
 import dayjs from 'dayjs'
 import AddIcon from '@mui/icons-material/Add'
@@ -13,10 +13,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import MapIcon from '@mui/icons-material/Map'
-import NearMeIcon from '@mui/icons-material/NearMe'
-import MyLocationIcon from '@mui/icons-material/MyLocation'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
-import { Loader } from '@googlemaps/js-api-loader'
+import CloseIcon from '@mui/icons-material/Close'
 
 import {
   DndContext,
@@ -24,7 +21,8 @@ import {
   useDroppable,
   PointerSensor,
   useSensor,
-  useSensors
+  useSensors,
+  closestCenter
 } from '@dnd-kit/core'
 
 import {
@@ -49,40 +47,223 @@ function slotWindow(slotNumber) {
   return SLOTS.find(s => s.n === slotNumber) || null
 }
 
-function safeText(s) {
-  return (s == null) ? '' : String(s)
-}
+/* ------------------------------------------------------------------ */
+/* Google Maps: safe loader (NO @googlemaps/js-api-loader dependency)  */
+/* ------------------------------------------------------------------ */
+let __gmapsPromise = null
+function loadGoogleMaps() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('No window'))
+  if (window.google?.maps) return Promise.resolve(window.google)
 
-function parseMaybeNumber(v) {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
-}
+  if (__gmapsPromise) return __gmapsPromise
 
-function getGoogleMapsKey() {
-  // Prefer Vite env, fallback to plain env if you run CRA style
-  return (
-    (import.meta?.env?.VITE_GOOGLE_MAPS_API_KEY) ||
-    (import.meta?.env?.VITE_GOOGLE_MAPS_KEY) ||
-    (process?.env?.REACT_APP_GOOGLE_MAPS_API_KEY) ||
-    ''
-  )
-}
+  const key = import.meta.env?.VITE_GOOGLE_MAPS_API_KEY
+  if (!key) {
+    __gmapsPromise = Promise.reject(new Error('Missing VITE_GOOGLE_MAPS_API_KEY'))
+    return __gmapsPromise
+  }
 
-function getGpsOnce(timeoutMs = 8000) {
-  return new Promise(resolve => {
-    if (!navigator.geolocation) return resolve(null)
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 15000 }
-    )
+  __gmapsPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-google-maps="1"]')
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.google))
+      existing.addEventListener('error', () => reject(new Error('Failed to load Google Maps')))
+      return
+    }
+
+    const s = document.createElement('script')
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places`
+    s.async = true
+    s.defer = true
+    s.dataset.googleMaps = '1'
+    s.onload = () => resolve(window.google)
+    s.onerror = () => reject(new Error('Failed to load Google Maps'))
+    document.head.appendChild(s)
   })
+
+  return __gmapsPromise
+}
+
+function RouteDialog({ open, onClose, tech, date, appts, route }) {
+  const mapRef = useRef(null)
+  const mapObjRef = useRef(null)
+  const dirRendererRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [ready, setReady] = useState(false)
+
+  const stops = useMemo(() => {
+    const items = (appts || [])
+      .filter(a => a?.slotNumber != null)
+      .slice()
+      .sort((a, b) => (a.slotNumber || 999) - (b.slotNumber || 999))
+      .map(a => ({
+        slotNumber: a.slotNumber,
+        lat: a.ticket?.lat,
+        lng: a.ticket?.lng,
+        address: a.ticket?.address || '',
+        ref: a.ticket?.externalRef || a.ticketId
+      }))
+      .filter(x => x.lat != null && x.lng != null)
+
+    return items
+  }, [appts])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function init() {
+      setErr('')
+      setReady(false)
+      if (!open) return
+
+      try {
+        setBusy(true)
+        await loadGoogleMaps()
+        if (cancelled) return
+
+        const g = window.google
+        if (!mapRef.current) return
+
+        // Create map once
+        if (!mapObjRef.current) {
+          mapObjRef.current = new g.maps.Map(mapRef.current, {
+            zoom: 11,
+            center: { lat: tech?.homeLat || -33.9249, lng: tech?.homeLng || 18.4241 },
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: true
+          })
+        }
+
+        // Clear previous directions renderer
+        if (dirRendererRef.current) {
+          dirRendererRef.current.setMap(null)
+          dirRendererRef.current = null
+        }
+
+        // Nothing to route
+        if (!stops.length) {
+          mapObjRef.current.setCenter({ lat: tech?.homeLat || -33.9249, lng: tech?.homeLng || 18.4241 })
+          mapObjRef.current.setZoom(11)
+          setReady(true)
+          return
+        }
+
+        const home = tech?.homeLat != null && tech?.homeLng != null
+          ? { lat: tech.homeLat, lng: tech.homeLng }
+          : null
+
+        const origin = home || { lat: stops[0].lat, lng: stops[0].lng }
+        const destination = { lat: stops[stops.length - 1].lat, lng: stops[stops.length - 1].lng }
+        const waypoints = stops.slice(0, -1).map(s => ({
+          location: new g.maps.LatLng(s.lat, s.lng),
+          stopover: true
+        }))
+
+        const ds = new g.maps.DirectionsService()
+        const dr = new g.maps.DirectionsRenderer({
+          suppressMarkers: false,
+          preserveViewport: false
+        })
+        dr.setMap(mapObjRef.current)
+        dirRendererRef.current = dr
+
+        ds.route(
+          {
+            origin,
+            destination,
+            waypoints,
+            optimizeWaypoints: false,
+            travelMode: g.maps.TravelMode.DRIVING
+          },
+          (result, status) => {
+            if (cancelled) return
+            if (status !== 'OK' || !result) {
+              setErr(`Directions failed: ${status}`)
+              setReady(true)
+              return
+            }
+            dr.setDirections(result)
+            setReady(true)
+          }
+        )
+      } catch (e) {
+        if (cancelled) return
+        setErr(e?.message || 'Failed to load route map')
+      } finally {
+        if (!cancelled) setBusy(false)
+      }
+    }
+
+    init()
+    return () => { cancelled = true }
+  }, [open, tech, date, stops])
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontWeight: 950 }} noWrap>
+            Route: {tech?.name || '-'}  •  {date}
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>
+            Stops: {stops.length}{route?.totals ? `  •  ~${Math.round(route.totals.totalKm || 0)} km  •  ~${Math.round(route.totals.totalMinutes || 0)} mins` : ''}
+          </Typography>
+        </Box>
+        <IconButton onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+
+      <DialogContent>
+        {err ? <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert> : null}
+
+        {!import.meta.env?.VITE_GOOGLE_MAPS_API_KEY ? (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Missing VITE_GOOGLE_MAPS_API_KEY. Add it to your frontend env to enable the route map.
+          </Alert>
+        ) : null}
+
+        <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          <Box
+            ref={mapRef}
+            sx={{
+              height: { xs: 340, md: 520 },
+              width: '100%',
+              bgcolor: 'background.default'
+            }}
+          />
+        </Paper>
+
+        {!busy && ready && stops.length === 0 ? (
+          <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>
+            No geocoded stops for this technician on this date (tickets need lat/lng).
+          </Typography>
+        ) : null}
+
+        {busy ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+            <CircularProgress size={18} />
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              Loading map…
+            </Typography>
+          </Stack>
+        ) : null}
+      </DialogContent>
+
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  )
 }
 
 // -------- DND helpers ----------
 function DraggableTicket({ ticket, disabled }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `ticket:${ticket.id}`,
+    disabled,
     data: { type: 'ticket', ticket }
   })
 
@@ -95,17 +276,26 @@ function DraggableTicket({ ticket, disabled }) {
     <Paper
       ref={disabled ? null : setNodeRef}
       variant="outlined"
+      {...(!disabled ? { ...listeners, ...attributes } : {})}
       sx={{
         p: 1.25,
         borderRadius: 2,
         mb: 1,
         cursor: disabled ? 'default' : 'grab',
         userSelect: 'none',
+        touchAction: 'none',
         ...style
       }}
     >
       <Stack direction="row" spacing={1} alignItems="flex-start">
-        <DragIndicatorIcon sx={{ opacity: 0.5, mt: 0.2 }} />
+        <IconButton
+          size="small"
+          disabled={disabled}
+          sx={{ mt: 0.2, cursor: disabled ? 'default' : 'grab' }}
+        >
+          <DragIndicatorIcon sx={{ opacity: 0.6 }} />
+        </IconButton>
+
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography sx={{ fontWeight: 900 }} noWrap>
             {ticket.externalRef || ticket.id}
@@ -123,10 +313,6 @@ function DraggableTicket({ ticket, disabled }) {
             </Typography>
           ) : null}
         </Box>
-
-        {!disabled ? (
-          <Box {...listeners} {...attributes} />
-        ) : null}
       </Stack>
     </Paper>
   )
@@ -146,192 +332,13 @@ function DroppableSlot({ techId, slotNumber, children, disabled }) {
       sx={{
         p: 1.25,
         borderRadius: 2,
-        minHeight: 150,
+        minHeight: 140,
         bgcolor: isOver ? 'rgba(25,118,210,0.08)' : 'background.paper',
         borderColor: isOver ? 'primary.main' : 'divider',
         transition: 'all 120ms ease'
       }}
     >
       {children}
-    </Paper>
-  )
-}
-
-// -------- Map helpers ----------
-function buildStopsFromAppointments(dayAppts) {
-  // Prefer anything geocodable. Addresses are enough for Google Directions.
-  // Keep stable order by slotNumber.
-  const appts = [...(dayAppts || [])].filter(a => a && a.ticket)
-  appts.sort((a, b) => (a.slotNumber || 999) - (b.slotNumber || 999))
-
-  const stops = appts
-    .map(a => {
-      const t = a.ticket || {}
-      const addr = safeText(t.address).trim()
-      const lat = parseMaybeNumber(t.lat || t.latitude || t.gpsLat)
-      const lng = parseMaybeNumber(t.lng || t.longitude || t.gpsLng)
-      return {
-        appointmentId: a.id,
-        slotNumber: a.slotNumber || null,
-        status: a.status || '',
-        ref: t.externalRef || a.ticketId,
-        customerName: t.customerName || '',
-        address: addr,
-        lat,
-        lng
-      }
-    })
-    .filter(x => x.address || (x.lat != null && x.lng != null))
-
-  return stops
-}
-
-function makeDirectionsRequestFromStops(stops, originOverride) {
-  if (!stops || stops.length === 0) return null
-
-  const toLoc = (s) => {
-    if (s.lat != null && s.lng != null) return { location: { lat: s.lat, lng: s.lng }, stopover: true }
-    return { location: s.address, stopover: true }
-  }
-
-  // If we have an originOverride (live location or ROC operator location), use that as origin.
-  // Otherwise, origin is the first stop, destination is last stop.
-  const origin = originOverride
-    ? originOverride
-    : (stops[0].lat != null && stops[0].lng != null ? { lat: stops[0].lat, lng: stops[0].lng } : stops[0].address)
-
-  if (stops.length === 1) {
-    const destination = stops[0].lat != null && stops[0].lng != null ? { lat: stops[0].lat, lng: stops[0].lng } : stops[0].address
-    return {
-      origin,
-      destination,
-      travelMode: 'DRIVING'
-    }
-  }
-
-  const destinationStop = stops[stops.length - 1]
-  const destination = destinationStop.lat != null && destinationStop.lng != null
-    ? { lat: destinationStop.lat, lng: destinationStop.lng }
-    : destinationStop.address
-
-  const middle = stops.slice(0, stops.length - 1)
-  // If no originOverride, skip the first stop in waypoints because it is origin already.
-  const waypoints = originOverride ? middle.map(toLoc) : middle.slice(1).map(toLoc)
-
-  return {
-    origin,
-    destination,
-    waypoints,
-    optimizeWaypoints: false,
-    travelMode: 'DRIVING'
-  }
-}
-
-function MapPanel({
-  title,
-  subtitle,
-  stops,
-  originOverride,
-  height = 360
-}) {
-  const mapRef = useRef(null)
-  const mapObjRef = useRef(null)
-  const rendererRef = useRef(null)
-  const loaderRef = useRef(null)
-  const [mapErr, setMapErr] = useState('')
-  const [ready, setReady] = useState(false)
-
-  const apiKey = getGoogleMapsKey()
-
-  const build = useCallback(async () => {
-    setMapErr('')
-    setReady(false)
-
-    if (!apiKey) {
-      setMapErr('Google Maps API key is missing. Set VITE_GOOGLE_MAPS_API_KEY.')
-      return
-    }
-    if (!mapRef.current) return
-
-    try {
-      if (!loaderRef.current) {
-        loaderRef.current = new Loader({
-          apiKey,
-          version: 'weekly',
-          libraries: ['places']
-        })
-      }
-      const google = await loaderRef.current.load()
-
-      if (!mapObjRef.current) {
-        mapObjRef.current = new google.maps.Map(mapRef.current, {
-          center: { lat: -33.9249, lng: 18.4241 },
-          zoom: 11,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: true
-        })
-      }
-
-      if (!rendererRef.current) {
-        rendererRef.current = new google.maps.DirectionsRenderer({
-          map: mapObjRef.current,
-          suppressMarkers: false,
-          preserveViewport: false
-        })
-      }
-
-      const req = makeDirectionsRequestFromStops(stops, originOverride)
-      if (!req) {
-        setMapErr('No stops to map for this day.')
-        setReady(true)
-        return
-      }
-
-      const svc = new google.maps.DirectionsService()
-      svc.route(req, (res, status) => {
-        if (status !== 'OK' || !res) {
-          setMapErr(`Directions failed: ${status}`)
-          setReady(true)
-          return
-        }
-        rendererRef.current.setDirections(res)
-        setReady(true)
-      })
-    } catch (e) {
-      setMapErr(e?.message || 'Failed to load map')
-      setReady(true)
-    }
-  }, [apiKey, stops, originOverride])
-
-  useEffect(() => {
-    build()
-  }, [build])
-
-  return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3 }}>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-        <MapIcon sx={{ opacity: 0.7 }} />
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography sx={{ fontWeight: 900 }} noWrap>
-            {title}
-          </Typography>
-          {subtitle ? (
-            <Typography variant="caption" sx={{ opacity: 0.75 }} noWrap>
-              {subtitle}
-            </Typography>
-          ) : null}
-        </Box>
-        <Chip size="small" variant="outlined" label={ready ? 'Ready' : 'Loading'} />
-      </Stack>
-
-      {mapErr ? (
-        <Alert severity="warning" sx={{ mb: 1 }}>
-          {mapErr}
-        </Alert>
-      ) : null}
-
-      <Box ref={mapRef} sx={{ width: '100%', height, borderRadius: 2, overflow: 'hidden' }} />
     </Paper>
   )
 }
@@ -363,22 +370,11 @@ export default function RocAppointmentsPage() {
   const [pickedTicket, setPickedTicket] = useState(null)
   const [suggested, setSuggested] = useState(null)
 
-  // Focus + maps
-  const [focusedTechId, setFocusedTechId] = useState(null)
-  const [useRocLocationAsOrigin, setUseRocLocationAsOrigin] = useState(false)
-  const [rocOrigin, setRocOrigin] = useState(null)
-
-  // Slot detail dialog
-  const [slotOpen, setSlotOpen] = useState(false)
-  const [slotTechId, setSlotTechId] = useState(null)
-  const [slotAppt, setSlotAppt] = useState(null)
-
-  // Live tracking
-  const [trackLive, setTrackLive] = useState(false)
+  // Route dialog
+  const [routeOpen, setRouteOpen] = useState(false)
+  const [routeTechId, setRouteTechId] = useState(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-
-  const techMap = useMemo(() => Object.fromEntries(techs.map(t => [t.id, t])), [techs])
 
   const regions = useMemo(() => {
     const set = new Set()
@@ -391,14 +387,12 @@ export default function RocAppointmentsPage() {
     return techs.filter(t => (t.region || '') === region)
   }, [techs, region])
 
-  const allFilteredTechIds = useMemo(() => filteredTechs.map(t => t.id), [filteredTechs])
-
   // default tech selection when region changes
   useEffect(() => {
     if (!techs.length) return
-    const defaults = (region === 'ALL' ? techs : techs.filter(t => (t.region || '') === region)).map(t => t.id)
+    const defaults = (region === 'ALL' ? techs : techs.filter(t => (t.region || '') === region))
+      .map(t => t.id)
     setTechIds(defaults)
-    setFocusedTechId(null)
   }, [region, techs])
 
   useEffect(() => {
@@ -466,49 +460,6 @@ export default function RocAppointmentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [techIds, date])
 
-  // Optional: when focused tech is set, capture ROC operator location if toggled
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      if (!useRocLocationAsOrigin) return
-      const gps = await getGpsOnce()
-      if (!alive) return
-      setRocOrigin(gps)
-    })()
-    return () => { alive = false }
-  }, [useRocLocationAsOrigin])
-
-  // Live tracking loop: refresh routeSummary for focused tech and for open slot dialog tech
-  useEffect(() => {
-    if (!trackLive) return
-    const tid = slotOpen ? slotTechId : focusedTechId
-    if (!tid) return
-
-    let t = null
-    let stopped = false
-
-    async function tick() {
-      try {
-        const rs = await routeSummary({ technicianId: tid, date })
-        if (stopped) return
-        setSched(prev => {
-          const cur = prev?.[tid] || { appts: [], route: null }
-          return { ...prev, [tid]: { ...cur, route: rs.data || null } }
-        })
-      } catch {
-        // ignore live errors so the UI stays calm
-      } finally {
-        if (!stopped) t = setTimeout(tick, 8000)
-      }
-    }
-
-    tick()
-    return () => {
-      stopped = true
-      if (t) clearTimeout(t)
-    }
-  }, [trackLive, focusedTechId, slotOpen, slotTechId, date])
-
   async function computeSuggestionForTech(technicianId, ticketId) {
     const r = await suggestSlot({ technicianId: technicianId, date, ticketId })
     return r.data
@@ -546,73 +497,33 @@ export default function RocAppointmentsPage() {
     await loadSchedules()
   }
 
+  const techMap = useMemo(() => Object.fromEntries(techs.map(t => [t.id, t])), [techs])
+
   function openCreateModal() {
     setCreateOpen(true)
     setPickedTicket(null)
     setSuggested(null)
   }
 
-  function openSlotDialog(tid, appt) {
-    setSlotTechId(tid)
-    setSlotAppt(appt)
-    setSlotOpen(true)
-  }
-
-  function closeSlotDialog() {
-    setSlotOpen(false)
-    setSlotTechId(null)
-    setSlotAppt(null)
-  }
-
   async function onPickTicketForModal(t) {
     setPickedTicket(t)
-    setSuggested(null)
-
     try {
+      setSuggested(null)
       if (!techIds.length) return
 
-      // We rank by:
-      // - backend suggestion score (lower is better) if returned
-      // - open slots count (more open slots is better)
-      // - route minutes/km proxy (lower is better) if available from routeSummary
-      //
-      // This avoids backend changes while still being useful.
       const ranked = await Promise.all(
         techIds.map(async tid => {
           const s = await computeSuggestionForTech(tid, t.id).catch(() => null)
           const best = s?.rankedSlots?.[0]
-
-          const day = sched?.[tid]?.appts || []
-          const occupied = new Set(day.filter(a => a.slotNumber).map(a => Number(a.slotNumber)))
-          const openSlots = SLOTS.filter(x => !occupied.has(Number(x.n))).length
-
-          const r = sched?.[tid]?.route || null
-          const routeMins = parseMaybeNumber(r?.totals?.totalMinutes)
-          const routeKm = parseMaybeNumber(r?.totals?.totalKm)
-
-          const suggestionScore = (best?.score != null) ? Number(best.score) : Number.MAX_SAFE_INTEGER
-          // Compose a soft score. Lower is better.
-          // Weight open slots as a negative contribution.
-          const composite =
-            suggestionScore +
-            (routeMins != null ? routeMins * 0.35 : 0) +
-            (routeKm != null ? routeKm * 0.15 : 0) +
-            (openSlots * -22)
-
           return {
             techId: tid,
             techName: techMap[tid]?.name || tid,
             recommendedSlotNumber: s?.recommendedSlotNumber ?? null,
-            suggestionScore: Number.isFinite(suggestionScore) ? suggestionScore : null,
-            openSlots,
-            routeMins,
-            routeKm,
-            composite
+            score: best?.score ?? Number.MAX_SAFE_INTEGER
           }
         })
       )
-
-      ranked.sort((a, b) => a.composite - b.composite)
+      ranked.sort((a, b) => a.score - b.score)
       setSuggested({ ranked })
     } catch {
       // ignore
@@ -658,46 +569,15 @@ export default function RocAppointmentsPage() {
     return arr
   }, [techIds, techMap])
 
-  const focusedStops = useMemo(() => {
-    if (!focusedTechId) return []
-    const day = sched?.[focusedTechId]?.appts || []
-    return buildStopsFromAppointments(day)
-  }, [focusedTechId, sched])
-
-  const focusedRoute = useMemo(() => (focusedTechId ? (sched?.[focusedTechId]?.route || null) : null), [focusedTechId, sched])
-
-  const focusedLiveLocation = useMemo(() => {
-    // Ready for backend support: routeSummary can provide liveLocation: {lat,lng,updatedAt}
-    const ll = focusedRoute?.liveLocation || focusedRoute?.lastKnownLocation || null
-    const lat = parseMaybeNumber(ll?.lat)
-    const lng = parseMaybeNumber(ll?.lng)
-    if (lat == null || lng == null) return null
-    return { lat, lng, updatedAt: ll?.updatedAt || ll?.time || null }
-  }, [focusedRoute])
-
-  const focusedOriginOverride = useMemo(() => {
-    if (focusedLiveLocation) return { lat: focusedLiveLocation.lat, lng: focusedLiveLocation.lng }
-    if (useRocLocationAsOrigin && rocOrigin) return { lat: rocOrigin.lat, lng: rocOrigin.lng }
-    return null
-  }, [focusedLiveLocation, useRocLocationAsOrigin, rocOrigin])
-
-  function handleTechMultiChange(e) {
-    const val = e.target.value
-    // MUI multiple select can return string[] or value[]
-    const arr = Array.isArray(val) ? val : []
-    if (arr.includes('__ALL__')) {
-      setTechIds(allFilteredTechIds)
-      return
-    }
-    if (arr.includes('__NONE__')) {
-      setTechIds([])
-      return
-    }
-    setTechIds(arr.filter(x => x !== '__ALL__' && x !== '__NONE__'))
-  }
+  const routeTech = routeTechId ? techMap[routeTechId] : null
+  const routePayload = routeTechId ? (sched?.[routeTechId] || {}) : {}
 
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={onDragEnd}
+    >
       <Box sx={{ p: 2 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }} spacing={2}>
           <Box>
@@ -707,12 +587,7 @@ export default function RocAppointmentsPage() {
             <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
               <Chip size="small" label={`Date: ${date}`} />
               <Chip size="small" label={`Techs: ${techIdsResolved.length}`} />
-              <Chip
-                size="small"
-                color={loading ? 'warning' : 'success'}
-                label={loading ? 'Loading…' : 'Ready'}
-              />
-              {focusedTechId ? <Chip size="small" variant="outlined" label={`Focus: ${techMap[focusedTechId]?.name || focusedTechId}`} /> : null}
+              <Chip size="small" color={loading ? 'warning' : 'success'} label={loading ? 'Loading…' : 'Ready'} />
             </Stack>
           </Box>
 
@@ -740,13 +615,13 @@ export default function RocAppointmentsPage() {
               </Select>
             </FormControl>
 
-            <FormControl sx={{ minWidth: 340, flex: 1 }} size="small">
+            <FormControl sx={{ minWidth: 320, flex: 1 }} size="small">
               <InputLabel>Technicians</InputLabel>
               <Select
                 multiple
                 value={techIds}
                 label="Technicians"
-                onChange={handleTechMultiChange}
+                onChange={e => setTechIds(e.target.value)}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                     {selected.slice(0, 6).map(id => (
@@ -756,18 +631,8 @@ export default function RocAppointmentsPage() {
                   </Box>
                 )}
               >
-                <MenuItem value="__ALL__">
-                  <Checkbox checked={techIds.length > 0 && techIds.length === allFilteredTechIds.length} />
-                  Select all (in region)
-                </MenuItem>
-                <MenuItem value="__NONE__">
-                  <Checkbox checked={techIds.length === 0} />
-                  Clear selection
-                </MenuItem>
-                <Divider />
                 {filteredTechs.map(t => (
                   <MenuItem key={t.id} value={t.id}>
-                    <Checkbox checked={techIds.includes(t.id)} />
                     {t.name} {t.region ? `(${t.region})` : ''}
                   </MenuItem>
                 ))}
@@ -785,80 +650,6 @@ export default function RocAppointmentsPage() {
             />
           </Stack>
         </Paper>
-
-        {/* Focus map panel */}
-        {focusedTechId ? (
-          <Box sx={{ mb: 2 }}>
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="h6" sx={{ fontWeight: 950 }} noWrap>
-                      Route view
-                    </Typography>
-                    <Tooltip title="Shows directions across today’s stops. Origin is live location if available, else the first stop.">
-                      <InfoOutlinedIcon sx={{ opacity: 0.6 }} fontSize="small" />
-                    </Tooltip>
-                  </Stack>
-
-                  <Typography variant="body2" sx={{ opacity: 0.75 }}>
-                    {techMap[focusedTechId]?.name || focusedTechId}  •  {date}
-                  </Typography>
-
-                  <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                    {focusedRoute?.totals ? (
-                      <>
-                        <Chip size="small" label={`Travel mins ~${Math.round(focusedRoute.totals.totalMinutes || 0)}`} />
-                        <Chip size="small" label={`Km ~${Math.round(focusedRoute.totals.totalKm || 0)}`} />
-                      </>
-                    ) : (
-                      <Chip size="small" variant="outlined" label="No route summary yet" />
-                    )}
-
-                    {focusedLiveLocation ? (
-                      <Chip
-                        size="small"
-                        color="success"
-                        icon={<NearMeIcon />}
-                        label={`Live: ${focusedLiveLocation.updatedAt ? dayjs(focusedLiveLocation.updatedAt).format('HH:mm') : 'now'}`}
-                      />
-                    ) : (
-                      <Chip size="small" variant="outlined" icon={<NearMeIcon />} label="Live location unavailable" />
-                    )}
-                  </Stack>
-                </Box>
-
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: { md: 'auto' } }}>
-                  <FormControlLabel
-                    control={<Switch checked={trackLive} onChange={e => setTrackLive(e.target.checked)} />}
-                    label="Track live"
-                  />
-                  <FormControlLabel
-                    control={<Switch checked={useRocLocationAsOrigin} onChange={e => setUseRocLocationAsOrigin(e.target.checked)} />}
-                    label="Use my location"
-                  />
-                  <Button
-                    variant="outlined"
-                    startIcon={<ClearIcon />}
-                    onClick={() => { setFocusedTechId(null); setTrackLive(false); setUseRocLocationAsOrigin(false); setRocOrigin(null) }}
-                  >
-                    Exit focus
-                  </Button>
-                </Stack>
-              </Stack>
-
-              <Divider sx={{ my: 2 }} />
-
-              <MapPanel
-                title="Directions for the day"
-                subtitle={focusedStops.length ? `${focusedStops.length} stop(s)` : 'No stops'}
-                stops={focusedStops}
-                originOverride={focusedOriginOverride}
-                height={420}
-              />
-            </Paper>
-          </Box>
-        ) : null}
 
         {/* Main layout */}
         <Box
@@ -907,7 +698,7 @@ export default function RocAppointmentsPage() {
                 ) : unassigned.length === 0 ? (
                   <Typography variant="body2" sx={{ opacity: 0.75 }}>No unassigned tickets found.</Typography>
                 ) : (
-                  unassigned.map(t => <DraggableTicket key={t.id} ticket={t} />)
+                  unassigned.map(t => <DraggableTicket key={t.id} ticket={t} disabled={false} />)
                 )}
               </Box>
             </Paper>
@@ -974,14 +765,6 @@ export default function RocAppointmentsPage() {
                 const route = sched?.[tid]?.route || null
                 const apptBySlot = Object.fromEntries(day.filter(a => a.slotNumber).map(a => [a.slotNumber, a]))
 
-                const occupiedCount = day.filter(a => a.slotNumber).length
-                const openCount = Math.max(0, SLOTS.length - occupiedCount)
-
-                const live = route?.liveLocation || route?.lastKnownLocation || null
-                const liveLat = parseMaybeNumber(live?.lat)
-                const liveLng = parseMaybeNumber(live?.lng)
-                const hasLive = liveLat != null && liveLng != null
-
                 return (
                   <Paper key={tid} variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
@@ -993,22 +776,13 @@ export default function RocAppointmentsPage() {
                           {t?.region ? `Region: ${t.region}` : 'Region: -'}
                         </Typography>
 
-                        <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                          <Chip size="small" variant="outlined" label={`Open slots: ${openCount}`} />
-                          {route?.totals ? (
-                            <>
-                              <Chip size="small" label={`Travel mins ~${Math.round(route.totals.totalMinutes || 0)}`} />
-                              <Chip size="small" label={`Km ~${Math.round(route.totals.totalKm || 0)}`} />
-                            </>
-                          ) : null}
-                          <Chip
-                            size="small"
-                            variant={hasLive ? 'filled' : 'outlined'}
-                            color={hasLive ? 'success' : 'default'}
-                            icon={<NearMeIcon />}
-                            label={hasLive ? 'Live' : 'No live'}
-                          />
-                        </Stack>
+                        {route?.totals ? (
+                          <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                            <Chip size="small" label={`Travel mins ~${Math.round(route.totals.totalMinutes || 0)}`} />
+                            <Chip size="small" label={`Km ~${Math.round(route.totals.totalKm || 0)}`} />
+                            <Chip size="small" variant="outlined" label={`Stops: ${day.length}`} />
+                          </Stack>
+                        ) : null}
                       </Box>
 
                       <Stack direction="row" spacing={1}>
@@ -1017,15 +791,23 @@ export default function RocAppointmentsPage() {
                           variant="outlined"
                           startIcon={<MapIcon />}
                           onClick={() => {
-                            setTechIds([tid])
-                            setFocusedTechId(tid)
-                            setTrackLive(false)
-                            setUseRocLocationAsOrigin(false)
-                            setRocOrigin(null)
+                            setRouteTechId(tid)
+                            setRouteOpen(true)
                           }}
+                          disabled={loading}
+                        >
+                          Route
+                        </Button>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => setTechIds([tid])}
+                          disabled={techIdsResolved.length === 1}
                         >
                           Focus
                         </Button>
+
                         <Button size="small" variant="outlined" onClick={loadSchedules} disabled={loading}>
                           Sync
                         </Button>
@@ -1041,19 +823,12 @@ export default function RocAppointmentsPage() {
 
                         return (
                           <DroppableSlot key={s.n} techId={tid} slotNumber={s.n} disabled={Boolean(a)}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                              <Box>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                                  {s.label}
-                                </Typography>
-                                <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                                  {s.start} to {s.end}
-                                </Typography>
-                              </Box>
-                              {a?.status ? (
-                                <Chip size="small" label={a.status} />
-                              ) : null}
-                            </Stack>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                              {s.label}
+                            </Typography>
+                            <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                              {s.start} to {s.end}
+                            </Typography>
 
                             <Divider sx={{ my: 1 }} />
 
@@ -1062,14 +837,7 @@ export default function RocAppointmentsPage() {
                                 Drop ticket here
                               </Typography>
                             ) : (
-                              <Box
-                                sx={{
-                                  cursor: 'pointer',
-                                  borderRadius: 2,
-                                  '&:hover': { bgcolor: 'rgba(25,118,210,0.06)' }
-                                }}
-                                onClick={() => openSlotDialog(tid, a)}
-                              >
+                              <>
                                 <Typography sx={{ fontWeight: 900 }} noWrap>
                                   {ticket.externalRef || a.ticketId}
                                 </Typography>
@@ -1086,30 +854,15 @@ export default function RocAppointmentsPage() {
                                       key={x.n}
                                       size="small"
                                       variant="outlined"
-                                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); moveSlot({ technicianId: tid, fromSlot: s.n, toSlot: x.n }) }}
+                                      onClick={() => moveSlot({ technicianId: tid, fromSlot: s.n, toSlot: x.n })}
                                       disabled={loading}
                                       sx={{ textTransform: 'none' }}
                                     >
                                       Move to {x.n}
                                     </Button>
                                   ))}
-
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    startIcon={<MapIcon />}
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                      setTechIds([tid])
-                                      setFocusedTechId(tid)
-                                    }}
-                                    sx={{ textTransform: 'none' }}
-                                  >
-                                    Route
-                                  </Button>
                                 </Stack>
-                              </Box>
+                              </>
                             )}
                           </DroppableSlot>
                         )
@@ -1121,6 +874,16 @@ export default function RocAppointmentsPage() {
             )}
           </Box>
         </Box>
+
+        {/* Route dialog */}
+        <RouteDialog
+          open={routeOpen}
+          onClose={() => setRouteOpen(false)}
+          tech={routeTech}
+          date={date}
+          appts={routePayload?.appts || []}
+          route={routePayload?.route || null}
+        />
 
         {/* Create modal */}
         <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="md" fullWidth>
@@ -1163,14 +926,9 @@ export default function RocAppointmentsPage() {
 
             <Divider sx={{ my: 2 }} />
 
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
-                Suggest tech (open slots + proximity proxy)
-              </Typography>
-              <Tooltip title="Ranking uses backend slot suggestion score plus how many open slots the tech still has, plus route mins and km if available.">
-                <InfoOutlinedIcon sx={{ opacity: 0.6 }} fontSize="small" />
-              </Tooltip>
-            </Stack>
+            <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
+              Quick suggestion across selected techs
+            </Typography>
 
             {!pickedTicket ? (
               <Typography variant="body2" sx={{ opacity: 0.7, mt: 1 }}>
@@ -1182,35 +940,14 @@ export default function RocAppointmentsPage() {
               </Typography>
             ) : (
               <List dense>
-                {suggested.ranked.slice(0, 8).map((x) => (
-                  <ListItem
-                    key={x.techId}
-                    disableGutters
-                    secondaryAction={
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<MyLocationIcon />}
-                        onClick={() => {
-                          setTechIds([x.techId])
-                          setFocusedTechId(x.techId)
-                          setCreateOpen(false)
-                        }}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        View
-                      </Button>
-                    }
-                  >
+                {suggested.ranked.slice(0, 5).map((x) => (
+                  <ListItem key={x.techId} disableGutters>
                     <ListItemText
                       primary={`${x.techName}`}
                       secondary={
-                        [
-                          x.recommendedSlotNumber ? `Suggested slot ${x.recommendedSlotNumber}` : 'No slot suggestion',
-                          `Open slots: ${x.openSlots}`,
-                          x.routeMins != null ? `Route mins ~${Math.round(x.routeMins)}` : null,
-                          x.routeKm != null ? `Km ~${Math.round(x.routeKm)}` : null
-                        ].filter(Boolean).join('  •  ')
+                        x.recommendedSlotNumber
+                          ? `Recommended slot ${x.recommendedSlotNumber} (score ~${x.score})`
+                          : `No slot suggestion`
                       }
                     />
                   </ListItem>
@@ -1222,7 +959,7 @@ export default function RocAppointmentsPage() {
 
             <Typography variant="subtitle2">Choose technician + slot</Typography>
             <Typography variant="caption" sx={{ opacity: 0.75 }}>
-              Slot buttons create the appointment for the first selected technician only (drag drop is better for multi tech mode).
+              Slot buttons create the appointment for the first selected technician only (drag-drop is better for multi-tech mode).
             </Typography>
 
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
@@ -1251,75 +988,6 @@ export default function RocAppointmentsPage() {
 
           <DialogActions>
             <Button onClick={() => setCreateOpen(false)}>Close</Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Slot detail dialog (ROC map + status) */}
-        <Dialog open={slotOpen} onClose={closeSlotDialog} maxWidth="md" fullWidth>
-          <DialogTitle>Slot details</DialogTitle>
-          <DialogContent>
-            {!slotAppt ? (
-              <Typography>Loading…</Typography>
-            ) : (
-              <>
-                {(() => {
-                  const t = techMap[slotTechId] || {}
-                  const ticket = slotAppt.ticket || {}
-                  const techName = t.name || slotTechId
-                  const ref = ticket.externalRef || slotAppt.ticketId
-                  const addr = ticket.address || ''
-
-                  const day = sched?.[slotTechId]?.appts || []
-                  const stops = buildStopsFromAppointments(day)
-                  const route = sched?.[slotTechId]?.route || null
-                  const ll = route?.liveLocation || route?.lastKnownLocation || null
-                  const lat = parseMaybeNumber(ll?.lat)
-                  const lng = parseMaybeNumber(ll?.lng)
-                  const liveOrigin = (lat != null && lng != null) ? { lat, lng } : null
-
-                  return (
-                    <Box>
-                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }} alignItems="center">
-                        <Chip size="small" label={`Tech: ${techName}`} />
-                        <Chip size="small" label={`Slot: ${slotAppt.slotNumber || '-'}`} />
-                        <Chip size="small" variant="outlined" label={`Status: ${slotAppt.status || '-'}`} />
-                        <Chip size="small" variant="outlined" label={`Ref: ${ref}`} />
-                      </Stack>
-
-                      <Typography sx={{ fontWeight: 950, mt: 1 }}>
-                        {ticket.customerName || ''}
-                      </Typography>
-                      <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                        {addr}
-                      </Typography>
-
-                      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2, flexWrap: 'wrap' }}>
-                        <FormControlLabel
-                          control={<Switch checked={trackLive} onChange={e => setTrackLive(e.target.checked)} />}
-                          label="Track live location"
-                        />
-                        <Tooltip title="Live location requires route-summary to include a liveLocation field. If missing, the route still renders.">
-                          <InfoOutlinedIcon sx={{ opacity: 0.6 }} fontSize="small" />
-                        </Tooltip>
-                      </Stack>
-
-                      <Divider sx={{ my: 2 }} />
-
-                      <MapPanel
-                        title="Route and directions"
-                        subtitle={liveOrigin ? 'Origin is live tech location' : 'Origin is first stop'}
-                        stops={stops}
-                        originOverride={liveOrigin}
-                        height={380}
-                      />
-                    </Box>
-                  )
-                })()}
-              </>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={closeSlotDialog}>Close</Button>
           </DialogActions>
         </Dialog>
       </Box>
