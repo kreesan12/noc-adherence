@@ -257,6 +257,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage/>}/>
 
               {/* Public (tech app) */}
+              <Route path="/tech" element={<TechApp/>}/>
               <Route path="/tech/login" element={<TechLoginPage/>}/>
               <Route path="/tech/my-day" element={<TechMyDayPage/>}/>
               <Route path="/tech/appointments/:id" element={<TechAppointmentDetailPage/>}/>
