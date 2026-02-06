@@ -4,7 +4,7 @@ import {
   Box, Paper, Typography, Button, Stack, Chip
 } from '@mui/material'
 import dayjs from 'dayjs'
-import { fetchMyAppointments } from './techApi'
+import { listMyAppointments } from '../api/techAppointments'
 import { enqueueEvent, makeClientEventId } from './offlineQueue'
 import { flushQueue } from './sync'
 import { useNavigate } from 'react-router-dom'
@@ -40,10 +40,11 @@ export default function TechApp() {
     try {
       const from = dayjs().startOf('day').toISOString()
       const to = dayjs().endOf('day').toISOString()
-      const data = await fetchMyAppointments({ from, to })
-      setAppts(data || [])
+      const techId = localStorage.getItem('techId') || ''
+      const r = await listMyAppointments({ technicianId: techId, from, to, mine: true })
+      setAppts(r.data || [])
     } catch (e) {
-      setErr(String(e?.message || e))
+      setErr(e?.response?.data?.error || e.message)
     } finally {
       setBusy(false)
     }

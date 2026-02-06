@@ -1,7 +1,7 @@
 // frontend/src/techApp/TechLoginPage.jsx
 import { useState } from 'react'
 import { Box, Paper, Typography, TextField, Button } from '@mui/material'
-import { techLogin } from './techApi'
+import { techLogin } from '../api/techAuth'
 import { useNavigate } from 'react-router-dom'
 
 export default function TechLoginPage() {
@@ -15,12 +15,14 @@ export default function TechLoginPage() {
     setErr('')
     setBusy(true)
     try {
-      const data = await techLogin({ phone, pin })
-      localStorage.setItem('techToken', data.token)
-      localStorage.setItem('techName', data.tech?.name || '')
+     const r = await techLogin({ phone, pin })
+     const data = r.data
+     localStorage.setItem('techToken', data.token)
+     localStorage.setItem('techName', data.tech?.name || '')
+     if (data.tech?.id) localStorage.setItem('techId', data.tech.id)
       nav('/tech', { replace: true })
     } catch (e) {
-      setErr(String(e?.message || e))
+      setErr(e?.response?.data?.error || e?.response?.data || e.message)
     } finally {
       setBusy(false)
     }
