@@ -1,8 +1,20 @@
 // frontend/src/pages/TechAppointmentDetailPage.jsx
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Box, Paper, Typography, Button, TextField, Alert, Divider,
-  Stack, Chip, MenuItem, Select, FormControl, InputLabel
+  Box,
+  Paper,
+  Typography,
+  Button,
+  TextField,
+  Alert,
+  Divider,
+  Stack,
+  Chip,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  IconButton
 } from '@mui/material'
 import dayjs from 'dayjs'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -19,6 +31,20 @@ import {
   listQueuedEventsForAppointment
 } from '../utils/techOfflineQueue'
 import { safeFlushQueue } from '../utils/techSync'
+
+// Icons
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import NavigationIcon from '@mui/icons-material/Navigation'
+import PhoneIcon from '@mui/icons-material/Phone'
+import SyncIcon from '@mui/icons-material/Sync'
+import NearMeIcon from '@mui/icons-material/NearMe'
+import PlaceIcon from '@mui/icons-material/Place'
+import PlayCircleIcon from '@mui/icons-material/PlayCircle'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import HelpIcon from '@mui/icons-material/Help'
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
+import DrawIcon from '@mui/icons-material/Draw'
+import TimelineIcon from '@mui/icons-material/Timeline'
 
 async function getGpsOnce() {
   return new Promise(resolve => {
@@ -50,6 +76,19 @@ function fileToDataUrl(file) {
     r.onerror = reject
     r.readAsDataURL(file)
   })
+}
+
+function statusMeta(status) {
+  const s = String(status || '').toUpperCase()
+  if (s === 'COMPLETED') return { label: 'Completed', color: 'success', variant: 'filled' }
+  if (s === 'IN_PROGRESS') return { label: 'In progress', color: 'info', variant: 'filled' }
+  if (s === 'ARRIVED') return { label: 'Arrived', color: 'primary', variant: 'filled' }
+  if (s === 'NEAR_SITE') return { label: 'Near site', color: 'primary', variant: 'outlined' }
+  if (s === 'EN_ROUTE') return { label: 'En route', color: 'warning', variant: 'filled' }
+  if (s === 'CIVILS_REQUIRED') return { label: 'Civils required', color: 'warning', variant: 'outlined' }
+  if (s === 'UNSUCCESSFUL') return { label: 'Unsuccessful', color: 'error', variant: 'filled' }
+  if (s === 'SCHEDULED') return { label: 'Scheduled', color: 'default', variant: 'outlined' }
+  return { label: status || '-', color: 'default', variant: 'outlined' }
 }
 
 const UNSUCCESSFUL_REASONS = [
@@ -90,7 +129,6 @@ export default function TechAppointmentDetailPage() {
     const r = await getAppointment(id)
     setAppt(r.data)
 
-    // best-effort flush then refresh UI
     await safeFlushQueue()
     await refreshQueueCounts()
 
@@ -122,7 +160,8 @@ export default function TechAppointmentDetailPage() {
   }, [id])
 
   const ticket = appt?.ticket || {}
-  const status = appt?.status || ''
+  const meta = statusMeta(appt?.status)
+  const online = navigator.onLine
 
   const timeline = useMemo(() => {
     const ev = Array.isArray(appt?.events) ? [...appt.events] : []
@@ -153,13 +192,13 @@ export default function TechAppointmentDetailPage() {
 
       await refreshQueueCounts()
 
-      if (navigator.onLine) {
+      if (online) {
         await safeFlushQueue()
         await refreshQueueCounts()
         await load()
-        setMsg('Sent')
+        setMsg('Saved')
       } else {
-        setMsg('Queued (offline). Will sync when online.')
+        setMsg('Queued offline. Will sync when online.')
       }
     } catch (e) {
       const m = e?.response?.data?.error || e?.message || 'Failed to queue/send event'
@@ -174,8 +213,7 @@ export default function TechAppointmentDetailPage() {
     setMsg('')
     setBusy(true)
     try {
-      // Job card is online-only for now (you can queue this later if you want)
-      if (!navigator.onLine) {
+      if (!online) {
         setErr('You are offline. Please submit the job card when you are back online.')
         return
       }
@@ -207,7 +245,7 @@ export default function TechAppointmentDetailPage() {
     setMsg('')
     setBusy(true)
     try {
-      if (!navigator.onLine) {
+      if (!online) {
         setErr('You are offline. Photo upload requires internet for now.')
         return
       }
@@ -235,7 +273,7 @@ export default function TechAppointmentDetailPage() {
     setMsg('')
     setBusy(true)
     try {
-      if (!navigator.onLine) {
+      if (!online) {
         setErr('You are offline. Signature upload requires internet for now.')
         return
       }
@@ -263,112 +301,212 @@ export default function TechAppointmentDetailPage() {
 
   if (!appt) {
     return (
-      <Box sx={{ p: 2, maxWidth: 780, mx: 'auto' }}>
-        {err ? <Alert severity="error">{err}</Alert> : <Typography>Loading…</Typography>}
+      <Box sx={{ p: 2, maxWidth: 860, mx: 'auto' }}>
+        {err ? <Alert severity="error" sx={{ borderRadius: 3 }}>{err}</Alert> : <Typography>Loading…</Typography>}
       </Box>
     )
   }
 
   return (
-    <Box sx={{ p: 2, maxWidth: 780, mx: 'auto' }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }} spacing={2}>
-        <Box>
-          <Typography variant="h5" sx={{ fontWeight: 800 }}>
-            Appointment
-          </Typography>
-          <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-            <Chip size="small" label={`Status: ${status || '-'}`} variant="outlined" />
-            <Chip size="small" color={navigator.onLine ? 'success' : 'warning'} label={navigator.onLine ? 'Online' : 'Offline'} />
-            <Chip size="small" variant="outlined" label={`Queued total: ${queueCount}`} />
-            <Chip size="small" variant="outlined" label={`Queued here: ${apptQueueCount}`} />
+    <Box sx={{ p: { xs: 1.5, sm: 2 }, maxWidth: 860, mx: 'auto' }}>
+      {/* Top bar */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          borderRadius: 4,
+          border: '1px solid',
+          borderColor: 'divider',
+          position: 'sticky',
+          top: 12,
+          zIndex: 2,
+          bgcolor: 'background.paper'
+        }}
+      >
+        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.5}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+            <IconButton onClick={() => nav('/tech/my-day')} aria-label="Back">
+              <ArrowBackIcon />
+            </IconButton>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.2 }}>
+                {ticket.externalRef || appt.ticketId}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ticket.customerName || ''}
+              </Typography>
+            </Box>
           </Stack>
-        </Box>
 
-        <Button variant="text" onClick={() => nav('/tech/my-day')}>
-          Back to list
-        </Button>
-      </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <Chip size="small" label={meta.label} color={meta.color} variant={meta.variant} sx={{ fontWeight: 900 }} />
+            <Chip size="small" label={online ? 'Online' : 'Offline'} color={online ? 'success' : 'warning'} sx={{ fontWeight: 900 }} />
+            <Chip size="small" variant="outlined" label={`Queued ${queueCount}`} sx={{ fontWeight: 800 }} />
+            <Chip size="small" variant="outlined" label={`Here ${apptQueueCount}`} sx={{ fontWeight: 800 }} />
+          </Stack>
+        </Stack>
+      </Paper>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-      {msg && <Alert severity="info" sx={{ mb: 2 }}>{msg}</Alert>}
+      {/* Alerts */}
+      <Box sx={{ mt: 2 }}>
+        {err && <Alert severity="error" sx={{ borderRadius: 3, mb: 1.5 }}>{err}</Alert>}
+        {msg && <Alert severity="info" sx={{ borderRadius: 3, mb: 1.5 }}>{msg}</Alert>}
+      </Box>
 
-      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
-        <Typography sx={{ fontWeight: 900 }}>
-          {ticket.externalRef || appt.ticketId}
-        </Typography>
-        <Typography variant="body2" sx={{ opacity: 0.85 }}>
-          {ticket.customerName || ''}
-        </Typography>
-        {ticket.customerPhone ? (
-          <Typography variant="body2" sx={{ opacity: 0.85 }}>
-            {ticket.customerPhone}
+      {/* Customer card */}
+      <Paper variant="outlined" sx={{ p: 2.2, borderRadius: 4, mb: 1.5 }}>
+        <Stack spacing={0.6}>
+          <Typography sx={{ fontWeight: 900 }}>{ticket.customerName || 'Customer'}</Typography>
+          {ticket.customerPhone ? (
+            <Typography variant="body2" sx={{ opacity: 0.85, fontWeight: 700 }}>
+              {ticket.customerPhone}
+            </Typography>
+          ) : null}
+          {ticket.address ? (
+            <Typography variant="body2" sx={{ opacity: 0.85 }}>
+              {ticket.address}
+            </Typography>
+          ) : null}
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>
+            {ticket.lat != null && ticket.lng != null ? `GPS ${ticket.lat}, ${ticket.lng}` : 'GPS not set'}
           </Typography>
-        ) : null}
-        <Typography variant="body2" sx={{ mt: 1 }}>
-          {ticket.address || ''}
-        </Typography>
-
-        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
-          <Button variant="contained" onClick={() => openNavigation(ticket)} disabled={busy}>
-            Open navigation
-          </Button>
-          <Button variant="outlined" onClick={callCustomer} disabled={!ticket.customerPhone || busy}>
-            Call customer
-          </Button>
-          <Button variant="outlined" onClick={async () => { await safeFlushQueue(); await refreshQueueCounts(); await load() }} disabled={busy}>
-            Sync now
-          </Button>
         </Stack>
 
         <Divider sx={{ my: 2 }} />
 
-        <Typography variant="subtitle2" sx={{ opacity: 0.8, mb: 1 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Button
+            variant="contained"
+            startIcon={<NavigationIcon />}
+            onClick={() => openNavigation(ticket)}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
+            Open navigation
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<PhoneIcon />}
+            onClick={callCustomer}
+            disabled={!ticket.customerPhone || busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
+            Call customer
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<SyncIcon />}
+            onClick={async () => {
+              await safeFlushQueue()
+              await refreshQueueCounts()
+              await load()
+            }}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
+            Sync
+          </Button>
+        </Stack>
+      </Paper>
+
+      {/* Actions */}
+      <Paper variant="outlined" sx={{ p: 2.2, borderRadius: 4, mb: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ opacity: 0.8, fontWeight: 900 }}>
           Actions
         </Typography>
 
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })} disabled={busy}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            startIcon={<NearMeIcon />}
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Near site
           </Button>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })} disabled={busy}>
+
+          <Button
+            variant="outlined"
+            startIcon={<PlaceIcon />}
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Arrived
           </Button>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })} disabled={busy}>
+
+          <Button
+            variant="outlined"
+            startIcon={<PlayCircleIcon />}
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Start work
           </Button>
-          <Button color="success" variant="contained" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })} disabled={busy}>
+
+          <Button
+            color="success"
+            variant="contained"
+            startIcon={<CheckCircleIcon />}
+            onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Mark complete
           </Button>
-          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })} disabled={busy}>
+
+          <Button
+            variant="outlined"
+            startIcon={<HelpIcon />}
+            onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Request assistance
           </Button>
         </Stack>
       </Paper>
 
-      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
-        <Typography variant="h6" sx={{ fontWeight: 800 }} gutterBottom>
+      {/* Photos and signature */}
+      <Paper variant="outlined" sx={{ p: 2.2, borderRadius: 4, mb: 1.5 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
           Photos and signature
         </Typography>
 
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-          <Button variant="outlined" component="label" disabled={busy}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            component="label"
+            startIcon={<PhotoCameraIcon />}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Upload photo
             <input hidden type="file" accept="image/*" capture="environment" onChange={onPickPhoto} />
           </Button>
 
-          <Button variant="outlined" component="label" disabled={busy}>
+          <Button
+            variant="outlined"
+            component="label"
+            startIcon={<DrawIcon />}
+            disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
             Upload signature
             <input hidden type="file" accept="image/*" capture="user" onChange={onPickSignature} />
           </Button>
         </Stack>
 
-        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75, mt: 1 }}>
-          Photo and signature uploads are online-only for now. Status actions remain offline-safe.
+        <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, mt: 1 }}>
+          Uploads require internet for now. Status actions remain offline safe.
         </Typography>
       </Paper>
 
-      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
-        <Typography variant="h6" sx={{ fontWeight: 800 }} gutterBottom>
+      {/* Close out */}
+      <Paper variant="outlined" sx={{ p: 2.2, borderRadius: 4, mb: 1.5 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
           Close out
         </Typography>
 
@@ -379,9 +517,10 @@ export default function TechAppointmentDetailPage() {
           fullWidth
           multiline
           minRows={3}
+          sx={{ mt: 1.5 }}
         />
 
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2, flexWrap: 'wrap' }}>
           <FormControl sx={{ minWidth: 260 }} size="small">
             <InputLabel>Unsuccessful reason</InputLabel>
             <Select
@@ -414,14 +553,15 @@ export default function TechAppointmentDetailPage() {
             size="small"
             sx={{ width: 200 }}
           />
-        </Box>
+        </Stack>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 2 }}>
           <Button
             color="success"
             variant="contained"
             onClick={() => doSubmitJobCard('SUCCESSFUL')}
             disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
           >
             Submit successful
           </Button>
@@ -430,16 +570,21 @@ export default function TechAppointmentDetailPage() {
             variant="contained"
             onClick={() => doSubmitJobCard('UNSUCCESSFUL')}
             disabled={busy}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
           >
             Submit unsuccessful
           </Button>
         </Stack>
       </Paper>
 
-      <Paper sx={{ p: 2, borderRadius: 3 }} variant="outlined">
-        <Typography variant="h6" sx={{ fontWeight: 800 }} gutterBottom>
-          Timeline
-        </Typography>
+      {/* Timeline */}
+      <Paper variant="outlined" sx={{ p: 2.2, borderRadius: 4 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+          <TimelineIcon />
+          <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+            Timeline
+          </Typography>
+        </Stack>
 
         {timeline.length === 0 ? (
           <Typography variant="body2" sx={{ opacity: 0.75 }}>
@@ -448,13 +593,26 @@ export default function TechAppointmentDetailPage() {
         ) : (
           <Stack spacing={1}>
             {timeline.slice(0, 12).map(ev => (
-              <Paper key={ev.id} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
-                <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                  {ev.eventType}
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                  {dayjs(ev.createdAt || ev.eventTime || new Date()).format('YYYY-MM-DD HH:mm')}
-                  {ev.actorType ? `  •  ${ev.actorType}` : ''}
+              <Paper
+                key={ev.id}
+                variant="outlined"
+                sx={{
+                  p: 1.4,
+                  borderRadius: 3,
+                  bgcolor: 'rgba(0,0,0,0.02)'
+                }}
+              >
+                <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
+                  <Typography sx={{ fontWeight: 900 }}>
+                    {ev.eventType}
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.75, fontWeight: 700 }}>
+                    {dayjs(ev.createdAt || ev.eventTime || new Date()).format('YYYY-MM-DD HH:mm')}
+                  </Typography>
+                </Stack>
+
+                <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                  {ev.actorType ? `Actor ${ev.actorType}` : ''}
                 </Typography>
               </Paper>
             ))}

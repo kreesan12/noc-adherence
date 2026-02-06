@@ -1,14 +1,35 @@
 // frontend/src/pages/TechMyDayPage.jsx
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Box, Paper, Typography, TextField, Button,
-  List, ListItem, ListItemText, Alert, Chip, Stack
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Alert,
+  Chip,
+  Stack,
+  IconButton,
+  Divider,
+  Skeleton
 } from '@mui/material'
 import dayjs from 'dayjs'
 import { listMyAppointments } from '../api/techAppointments'
 import { Link, useNavigate } from 'react-router-dom'
 import { enqueueEvent, makeClientEventId, countQueuedEvents } from '../utils/techOfflineQueue'
 import { safeFlushQueue } from '../utils/techSync'
+
+// Icons
+import RefreshIcon from '@mui/icons-material/Refresh'
+import LogoutIcon from '@mui/icons-material/Logout'
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
+import AssignmentIcon from '@mui/icons-material/Assignment'
+import LocationOnIcon from '@mui/icons-material/LocationOn'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
+import CloudOffIcon from '@mui/icons-material/CloudOff'
+import CloudDoneIcon from '@mui/icons-material/CloudDone'
+import BadgeIcon from '@mui/icons-material/Badge'
 
 async function getGpsOnce() {
   return new Promise(resolve => {
@@ -19,6 +40,19 @@ async function getGpsOnce() {
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 20000 }
     )
   })
+}
+
+function statusMeta(status) {
+  const s = String(status || '').toUpperCase()
+  if (s === 'COMPLETED') return { label: 'Completed', color: 'success', variant: 'filled' }
+  if (s === 'IN_PROGRESS') return { label: 'In progress', color: 'info', variant: 'filled' }
+  if (s === 'ARRIVED') return { label: 'Arrived', color: 'primary', variant: 'filled' }
+  if (s === 'NEAR_SITE') return { label: 'Near site', color: 'primary', variant: 'outlined' }
+  if (s === 'EN_ROUTE') return { label: 'En route', color: 'warning', variant: 'filled' }
+  if (s === 'CIVILS_REQUIRED') return { label: 'Civils required', color: 'warning', variant: 'outlined' }
+  if (s === 'UNSUCCESSFUL') return { label: 'Unsuccessful', color: 'error', variant: 'filled' }
+  if (s === 'SCHEDULED') return { label: 'Scheduled', color: 'default', variant: 'outlined' }
+  return { label: status || '-', color: 'default', variant: 'outlined' }
 }
 
 export default function TechMyDayPage() {
@@ -52,7 +86,6 @@ export default function TechMyDayPage() {
 
     setLoading(true)
     try {
-      // try to flush any pending events first when online
       await safeFlushQueue()
       await refreshQueueCount()
 
@@ -104,7 +137,6 @@ export default function TechMyDayPage() {
     try {
       const gps = await getGpsOnce()
 
-      // Always queue first (so it’s offline-safe even if signal drops mid-click)
       await enqueueEvent({
         clientEventId: makeClientEventId('cev_travel'),
         appointmentId: apptId,
@@ -118,11 +150,9 @@ export default function TechMyDayPage() {
 
       await refreshQueueCount()
 
-      // If online, try flush immediately
       await safeFlushQueue()
       await refreshQueueCount()
 
-      setInfo('Start travel captured. Opening appointment…')
       nav(`/tech/appointments/${apptId}`)
     } catch (e) {
       const msg = e?.response?.data?.error || e?.message || 'Failed to start travel'
@@ -150,39 +180,65 @@ export default function TechMyDayPage() {
     return s
   }, [items])
 
+  const online = navigator.onLine
+
   return (
-    <Box sx={{ p: 2, maxWidth: 780, mx: 'auto' }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }} spacing={2}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 800 }} gutterBottom>
-            Tech Appointments
-          </Typography>
-          <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: 'wrap' }}>
-            <Chip size="small" label={techName ? `Logged in as ${techName}` : `Technician ${techId || '-'}`} />
-            <Chip size="small" color={navigator.onLine ? 'success' : 'warning'} label={navigator.onLine ? 'Online' : 'Offline'} />
-            <Chip size="small" variant="outlined" label={`Queued: ${queueCount}`} />
+    <Box sx={{ p: { xs: 1.5, sm: 2 }, maxWidth: 860, mx: 'auto' }}>
+      {/* Header */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          borderRadius: 4,
+          border: '1px solid',
+          borderColor: 'divider',
+          background: 'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(245,247,250,1) 100%)'
+        }}
+      >
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h5" sx={{ fontWeight: 900, letterSpacing: 0.2 }}>
+              Tech Appointments
+            </Typography>
+
+            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+              <Chip
+                size="small"
+                icon={<BadgeIcon />}
+                label={techName ? techName : (techId ? `Tech ${techId}` : 'Technician')}
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                size="small"
+                icon={online ? <CloudDoneIcon /> : <CloudOffIcon />}
+                color={online ? 'success' : 'warning'}
+                label={online ? 'Online' : 'Offline'}
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`Queued ${queueCount}`}
+                sx={{ fontWeight: 700 }}
+              />
+            </Stack>
+          </Box>
+
+          <Stack direction="row" spacing={1}>
+            <IconButton onClick={load} disabled={loading} aria-label="Refresh">
+              <RefreshIcon />
+            </IconButton>
+            <IconButton onClick={logout} color="error" aria-label="Logout">
+              <LogoutIcon />
+            </IconButton>
           </Stack>
-        </Box>
-
-        <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-          <Button variant="outlined" onClick={load} disabled={loading}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </Button>
-          <Button variant="outlined" color="error" onClick={logout}>
-            Logout
-          </Button>
         </Stack>
-      </Stack>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
-      {info && <Alert severity="info" sx={{ mb: 2 }}>{info}</Alert>}
+        <Divider sx={{ my: 2 }} />
 
-      <Paper sx={{ p: 2, mb: 2, borderRadius: 3 }} variant="outlined">
-        <Typography variant="subtitle2" sx={{ opacity: 0.8, mb: 1 }}>
-          Date range
-        </Typography>
-
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+        {/* Date range */}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <Chip size="small" icon={<CalendarMonthIcon />} label="Date range" variant="outlined" />
           <TextField
             label="From"
             type="date"
@@ -190,7 +246,7 @@ export default function TechMyDayPage() {
             onChange={e => setFrom(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
-            sx={{ minWidth: 240 }}
+            sx={{ maxWidth: 240 }}
           />
           <TextField
             label="To"
@@ -199,73 +255,158 @@ export default function TechMyDayPage() {
             onChange={e => setTo(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
-            sx={{ minWidth: 240 }}
+            sx={{ maxWidth: 240 }}
           />
-        </Box>
+          <Box sx={{ flex: 1 }} />
+          <Button
+            variant="contained"
+            onClick={load}
+            disabled={loading}
+            startIcon={<RefreshIcon />}
+            sx={{ borderRadius: 999, px: 2.2, fontWeight: 800 }}
+          >
+            {loading ? 'Loading' : 'Refresh'}
+          </Button>
+        </Stack>
       </Paper>
 
-      <Paper sx={{ p: 2, borderRadius: 3 }} variant="outlined">
-        <Typography variant="h6" gutterBottom sx={{ fontWeight: 800 }}>
-          My list ({sorted.length})
-        </Typography>
+      {/* Alerts */}
+      <Box sx={{ mt: 2 }}>
+        {err && <Alert severity="error" sx={{ borderRadius: 3, mb: 1.5 }}>{err}</Alert>}
+        {info && <Alert severity="info" sx={{ borderRadius: 3, mb: 1.5 }}>{info}</Alert>}
+      </Box>
 
-        <List disablePadding>
+      {/* List */}
+      <Box sx={{ mt: 1.5 }}>
+        <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+            Today view
+          </Typography>
+          <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 700 }}>
+            {sorted.length} appointment{sorted.length === 1 ? '' : 's'}
+          </Typography>
+        </Stack>
+
+        {loading && sorted.length === 0 ? (
+          <Stack spacing={1.2}>
+            {[1, 2, 3].map(x => (
+              <Paper key={x} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+                <Skeleton variant="text" width="60%" height={26} />
+                <Skeleton variant="text" width="35%" height={20} />
+                <Skeleton variant="text" width="80%" height={20} />
+                <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                  <Skeleton variant="rounded" width={120} height={34} />
+                  <Skeleton variant="rounded" width={100} height={34} />
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : null}
+
+        {!loading && sorted.length === 0 ? (
+          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+            <Typography sx={{ fontWeight: 800 }}>No appointments in this range</Typography>
+            <Typography variant="body2" sx={{ opacity: 0.75, mt: 0.5 }}>
+              Adjust your dates, then refresh.
+            </Typography>
+          </Paper>
+        ) : null}
+
+        <Stack spacing={1.2}>
           {sorted.map(a => {
             const t = a.ticket || {}
+            const meta = statusMeta(a.status)
             const primary = `${dayjs(a.appointmentDate).format('YYYY-MM-DD')}  Slot ${a.slotNumber || ''}  ${t.externalRef || a.ticketId}`
-            const secondary = `${t.customerName || ''}${t.address ? `  •  ${t.address}` : ''}`
+            const subtitle = t.customerName || ''
+            const address = t.address || ''
 
             return (
-              <Paper key={a.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 1.2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'center' }}>
+              <Paper
+                key={a.id}
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 3,
+                  borderColor: 'divider',
+                  transition: 'transform 120ms ease, box-shadow 120ms ease',
+                  '&:active': { transform: 'scale(0.995)' }
+                }}
+              >
+                <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                  <Box
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 2.5,
+                      display: 'grid',
+                      placeItems: 'center',
+                      bgcolor: 'rgba(0,0,0,0.04)',
+                      flex: '0 0 auto'
+                    }}
+                  >
+                    <AssignmentIcon />
+                  </Box>
+
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <ListItem
-                      disableGutters
-                      component={Link}
-                      to={`/tech/appointments/${a.id}`}
-                      sx={{ textDecoration: 'none', color: 'inherit', px: 0, py: 0 }}
-                    >
-                      <ListItemText
-                        primary={primary}
-                        secondary={secondary}
-                        primaryTypographyProps={{ sx: { fontWeight: 800 } }}
+                    <Typography sx={{ fontWeight: 900, lineHeight: 1.2 }}>
+                      {primary}
+                    </Typography>
+
+                    <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.4, fontWeight: 700 }}>
+                      {subtitle}
+                    </Typography>
+
+                    {address ? (
+                      <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mt: 0.6 }}>
+                        <LocationOnIcon sx={{ fontSize: 18, opacity: 0.7 }} />
+                        <Typography variant="body2" sx={{ opacity: 0.78, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {address}
+                        </Typography>
+                      </Stack>
+                    ) : null}
+
+                    <Stack direction="row" spacing={1} sx={{ mt: 1.2, flexWrap: 'wrap' }}>
+                      <Chip
+                        size="small"
+                        label={meta.label}
+                        color={meta.color}
+                        variant={meta.variant}
+                        sx={{ fontWeight: 800 }}
                       />
-                    </ListItem>
-                    <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                      <Chip size="small" label={`Status: ${a.status || '-'}`} variant="outlined" />
                     </Stack>
                   </Box>
 
-                  <Stack spacing={1} alignItems="flex-end">
+                  <Stack spacing={1} alignItems="flex-end" sx={{ flex: '0 0 auto' }}>
                     <Button
                       variant="contained"
+                      startIcon={<DirectionsCarIcon />}
                       disabled={loading}
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); startTravel(a.id) }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        startTravel(a.id)
+                      }}
+                      sx={{ borderRadius: 999, fontWeight: 900, px: 2 }}
                     >
                       Start travel
                     </Button>
 
                     <Button
-                      variant="text"
                       component={Link}
                       to={`/tech/appointments/${a.id}`}
-                      sx={{ textTransform: 'none' }}
+                      variant="text"
+                      endIcon={<ChevronRightIcon />}
+                      sx={{ fontWeight: 900, textTransform: 'none' }}
                     >
                       Open
                     </Button>
                   </Stack>
-                </Box>
+                </Stack>
               </Paper>
             )
           })}
-        </List>
-
-        {!loading && sorted.length === 0 && (
-          <Typography variant="body2" sx={{ opacity: 0.8 }}>
-            No appointments in this range.
-          </Typography>
-        )}
-      </Paper>
+        </Stack>
+      </Box>
     </Box>
   )
 }
