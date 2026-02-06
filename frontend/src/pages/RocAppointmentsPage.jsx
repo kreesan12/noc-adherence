@@ -57,7 +57,8 @@ function loadGoogleMaps() {
 
   if (__gmapsPromise) return __gmapsPromise
 
-  const key = import.meta.env?.VITE_GOOGLE_MAPS_API_KEY
+  const key = import.meta.env?.VITE_GOOGLE_MAPS_EMBED_KEY
+
   if (!key) {
     __gmapsPromise = Promise.reject(new Error('Missing VITE_GOOGLE_MAPS_API_KEY'))
     return __gmapsPromise
