@@ -95,16 +95,20 @@ export default function techAppointmentsRoutes(prisma) {
         data: {
           status,
           updatedByUserId: actorId,
-          events: {
-            create: {
-              id: `evt_${nanoid(12)}`,
-              appointmentId: apptId,
-              eventType: 'STATUS_CHANGED',
-              actorType: 'SYSTEM',
-              actorId: actorId,
-              payload: { from: appt.status, to: status, source: 'tech_event' }
-            }
-          }
+          ...(eventType === 'STATUS_CHANGED'
+            ? {}
+            : {
+                events: {
+                  create: {
+                    id: `evt_${nanoid(12)}`,
+                    appointmentId: apptId,
+                    eventType: 'STATUS_CHANGED',
+                    actorType: 'SYSTEM',
+                    actorId: actorId,
+                    payload: { from: appt.status, to: status, source: 'tech_event' }
+                  }
+                }
+              })
         }
       })
     }
