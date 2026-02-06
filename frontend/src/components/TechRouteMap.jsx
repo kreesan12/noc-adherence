@@ -5,7 +5,7 @@ import MyLocationIcon from '@mui/icons-material/MyLocation'
 import DirectionsIcon from '@mui/icons-material/Directions'
 import { loadGoogleMaps } from '../utils/googleMapsLoader'
 
-const GOOGLE_MAPS_KEY = 'AIzaSyAhsSZ2GSs2gEWJDvWII8RdCT0qYj5l7fA' // ✅ swap after testing
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY
 
 function getGpsOnce() {
   return new Promise(resolve => {
