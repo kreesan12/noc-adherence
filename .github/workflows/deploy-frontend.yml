@@ -35,6 +35,8 @@ jobs:
       # 3️⃣  Install deps & build React bundle
       - name: Install & build
         working-directory: frontend
+        env:
+          VITE_GOOGLE_MAPS_EMBED_KEY: ${{ secrets.VITE_GOOGLE_MAPS_EMBED_KEY }}
         run: |
           npm ci
           npm run build               # → outputs to frontend/build
