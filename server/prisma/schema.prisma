@@ -484,19 +484,6 @@ model StoredSignature {
   @@map("StoredSignature")
 }
 
-enum AppointmentStatus {
-  SCHEDULED
-  ACCEPTED
-  EN_ROUTE
-  NEAR_SITE
-  ARRIVED
-  IN_PROGRESS
-  COMPLETED
-  UNSUCCESSFUL
-  CIVILS_REQUIRED
-  CANCELLED
-}
-
 enum AppointmentEventType {
   CREATED
   ASSIGNED
@@ -654,3 +641,18 @@ model JobCard {
 
   @@map("job_cards")
 }
+
+enum AppointmentStatus {
+  UNASSIGNED
+  SCHEDULED
+  EN_ROUTE
+  NEAR_SITE
+  ARRIVED
+  IN_PROGRESS
+  COMPLETED
+  UNSUCCESSFUL
+  CANCELLED
+
+  @@map("AppointmentStatus")
+}
+
