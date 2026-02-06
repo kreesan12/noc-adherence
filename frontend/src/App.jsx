@@ -255,8 +255,11 @@ export default function App() {
             <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage/>}/>
+
+              {/* Public (tech app) */}
               <Route path="/tech/login" element={<TechLoginPage/>}/>
-              <Route path="/tech" element={<TechApp/>}/>  
+              <Route path="/tech/my-day" element={<TechMyDayPage/>}/>
+              <Route path="/tech/appointments/:id" element={<TechAppointmentDetailPage/>}/>
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>
@@ -281,8 +284,6 @@ export default function App() {
                 <Route path="/overtime/manager" element={<OvertimeManagerPage />} />
                 <Route path="/settings/signature" element={<SignaturePage />} />
                 <Route path="/roc-appointments" element={<RocAppointmentsPage/>} />
-                <Route path="/tech" element={<TechMyDayPage/>} />
-                <Route path="/tech/appointments/:id" element={<TechAppointmentDetailPage/>} />
               </Route>
 
               {/* Fallback */}
