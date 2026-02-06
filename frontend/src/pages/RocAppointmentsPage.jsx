@@ -4,7 +4,7 @@ import {
   Box, Paper, Typography, FormControl, InputLabel, Select, MenuItem,
   TextField, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   List, ListItem, ListItemText, Divider, Alert, Stack, Chip, IconButton,
-  CircularProgress
+  CircularProgress, Switch, FormControlLabel
 } from '@mui/material'
 import dayjs from 'dayjs'
 import AddIcon from '@mui/icons-material/Add'
@@ -14,6 +14,7 @@ import ClearIcon from '@mui/icons-material/Clear'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import MapIcon from '@mui/icons-material/Map'
 import CloseIcon from '@mui/icons-material/Close'
+import MyLocationIcon from '@mui/icons-material/MyLocation'
 
 import {
   DndContext,
@@ -49,6 +50,7 @@ function slotWindow(slotNumber) {
 
 /* ------------------------------------------------------------------ */
 /* Google Maps: safe loader (NO @googlemaps/js-api-loader dependency)  */
+/* Uses VITE_GOOGLE_MAPS_EMBED_KEY                                     */
 /* ------------------------------------------------------------------ */
 let __gmapsPromise = null
 function loadGoogleMaps() {
@@ -58,9 +60,8 @@ function loadGoogleMaps() {
   if (__gmapsPromise) return __gmapsPromise
 
   const key = import.meta.env?.VITE_GOOGLE_MAPS_EMBED_KEY
-
   if (!key) {
-    __gmapsPromise = Promise.reject(new Error('Missing VITE_GOOGLE_MAPS_API_KEY'))
+    __gmapsPromise = Promise.reject(new Error('Missing VITE_GOOGLE_MAPS_EMBED_KEY'))
     return __gmapsPromise
   }
 
@@ -85,10 +86,21 @@ function loadGoogleMaps() {
   return __gmapsPromise
 }
 
+function formatLiveTs(updatedAt) {
+  if (!updatedAt) return null
+  const dt = new Date(updatedAt)
+  if (Number.isNaN(dt.getTime())) return null
+  return dayjs(dt).format('HH:mm:ss')
+}
+
+/* ------------------------------------------------------------------ */
+/* Route for the day dialog                                            */
+/* ------------------------------------------------------------------ */
 function RouteDialog({ open, onClose, tech, date, appts, route }) {
   const mapRef = useRef(null)
   const mapObjRef = useRef(null)
   const dirRendererRef = useRef(null)
+
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [ready, setReady] = useState(false)
@@ -126,18 +138,16 @@ function RouteDialog({ open, onClose, tech, date, appts, route }) {
         const g = window.google
         if (!mapRef.current) return
 
-        // Create map once
-        if (!mapObjRef.current) {
-          mapObjRef.current = new g.maps.Map(mapRef.current, {
-            zoom: 11,
-            center: { lat: tech?.homeLat || -33.9249, lng: tech?.homeLng || 18.4241 },
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: true
-          })
-        }
+        // Create a fresh map every open (dialog remount key handles most cases)
+        mapObjRef.current = new g.maps.Map(mapRef.current, {
+          zoom: 11,
+          center: { lat: tech?.homeLat || -33.9249, lng: tech?.homeLng || 18.4241 },
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: true
+        })
 
-        // Clear previous directions renderer
+        // Clear previous renderer
         if (dirRendererRef.current) {
           dirRendererRef.current.setMap(null)
           dirRendererRef.current = null
@@ -147,6 +157,12 @@ function RouteDialog({ open, onClose, tech, date, appts, route }) {
         if (!stops.length) {
           mapObjRef.current.setCenter({ lat: tech?.homeLat || -33.9249, lng: tech?.homeLng || 18.4241 })
           mapObjRef.current.setZoom(11)
+
+          // force a resize after paint
+          requestAnimationFrame(() => {
+            try { g.maps.event.trigger(mapObjRef.current, 'resize') } catch {}
+          })
+
           setReady(true)
           return
         }
@@ -186,6 +202,12 @@ function RouteDialog({ open, onClose, tech, date, appts, route }) {
               return
             }
             dr.setDirections(result)
+
+            // resize after route rendered
+            requestAnimationFrame(() => {
+              try { g.maps.event.trigger(mapObjRef.current, 'resize') } catch {}
+            })
+
             setReady(true)
           }
         )
@@ -206,10 +228,11 @@ function RouteDialog({ open, onClose, tech, date, appts, route }) {
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
         <Box sx={{ minWidth: 0 }}>
           <Typography sx={{ fontWeight: 950 }} noWrap>
-            Route: {tech?.name || '-'}  •  {date}
+            Route for the day: {tech?.name || '-'}  •  {date}
           </Typography>
           <Typography variant="caption" sx={{ opacity: 0.75 }}>
-            Stops: {stops.length}{route?.totals ? `  •  ~${Math.round(route.totals.totalKm || 0)} km  •  ~${Math.round(route.totals.totalMinutes || 0)} mins` : ''}
+            Stops: {stops.length}
+            {route?.totals ? `  •  ~${Math.round(route.totals.totalKm || 0)} km  •  ~${Math.round(route.totals.totalMinutes || 0)} mins` : ''}
           </Typography>
         </Box>
         <IconButton onClick={onClose}>
@@ -220,9 +243,9 @@ function RouteDialog({ open, onClose, tech, date, appts, route }) {
       <DialogContent>
         {err ? <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert> : null}
 
-        {!import.meta.env?.VITE_GOOGLE_MAPS_API_KEY ? (
+        {!import.meta.env?.VITE_GOOGLE_MAPS_EMBED_KEY ? (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            Missing VITE_GOOGLE_MAPS_API_KEY. Add it to your frontend env to enable the route map.
+            Missing VITE_GOOGLE_MAPS_EMBED_KEY. Add it to your frontend env to enable the route map.
           </Alert>
         ) : null}
 
@@ -242,6 +265,253 @@ function RouteDialog({ open, onClose, tech, date, appts, route }) {
             No geocoded stops for this technician on this date (tickets need lat/lng).
           </Typography>
         ) : null}
+
+        {busy ? (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+            <CircularProgress size={18} />
+            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+              Loading map…
+            </Typography>
+          </Stack>
+        ) : null}
+      </DialogContent>
+
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Appointment ticket dialog + live tracking                           */
+/* Polls route-summary for route.liveLocation (if backend adds it)     */
+/* ------------------------------------------------------------------ */
+function AppointmentDialog({ open, onClose, tech, date, appt, routePoller }) {
+  const mapRef = useRef(null)
+  const mapObjRef = useRef(null)
+  const dirRendererRef = useRef(null)
+  const liveMarkerRef = useRef(null)
+
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [track, setTrack] = useState(false)
+  const [live, setLive] = useState(null)
+
+  const ticket = appt?.ticket || {}
+  const hasTicketGeo = ticket?.lat != null && ticket?.lng != null
+
+  // Init map & draw directions (tech home -> ticket)
+  useEffect(() => {
+    let cancelled = false
+
+    async function init() {
+      setErr('')
+      if (!open) return
+      if (!appt) return
+
+      try {
+        setBusy(true)
+        await loadGoogleMaps()
+        if (cancelled) return
+
+        const g = window.google
+        if (!mapRef.current) return
+
+        mapObjRef.current = new g.maps.Map(mapRef.current, {
+          zoom: 12,
+          center: { lat: ticket?.lat || tech?.homeLat || -33.9249, lng: ticket?.lng || tech?.homeLng || 18.4241 },
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: true
+        })
+
+        if (dirRendererRef.current) {
+          dirRendererRef.current.setMap(null)
+          dirRendererRef.current = null
+        }
+
+        // Live marker (if available)
+        liveMarkerRef.current = new g.maps.Marker({
+          map: mapObjRef.current,
+          title: 'Live location',
+          visible: false
+        })
+
+        // If no ticket geo, just center on tech home
+        if (!hasTicketGeo) {
+          mapObjRef.current.setCenter({ lat: tech?.homeLat || -33.9249, lng: tech?.homeLng || 18.4241 })
+          mapObjRef.current.setZoom(11)
+          requestAnimationFrame(() => {
+            try { g.maps.event.trigger(mapObjRef.current, 'resize') } catch {}
+          })
+          return
+        }
+
+        const origin = (tech?.homeLat != null && tech?.homeLng != null)
+          ? { lat: tech.homeLat, lng: tech.homeLng }
+          : { lat: ticket.lat, lng: ticket.lng }
+
+        const destination = { lat: ticket.lat, lng: ticket.lng }
+
+        const ds = new g.maps.DirectionsService()
+        const dr = new g.maps.DirectionsRenderer({
+          suppressMarkers: false,
+          preserveViewport: false
+        })
+        dr.setMap(mapObjRef.current)
+        dirRendererRef.current = dr
+
+        ds.route(
+          {
+            origin,
+            destination,
+            travelMode: g.maps.TravelMode.DRIVING
+          },
+          (result, status) => {
+            if (cancelled) return
+            if (status !== 'OK' || !result) {
+              setErr(`Directions failed: ${status}`)
+              return
+            }
+            dr.setDirections(result)
+            requestAnimationFrame(() => {
+              try { g.maps.event.trigger(mapObjRef.current, 'resize') } catch {}
+            })
+          }
+        )
+      } catch (e) {
+        if (cancelled) return
+        setErr(e?.message || 'Failed to load ticket map')
+      } finally {
+        if (!cancelled) setBusy(false)
+      }
+    }
+
+    init()
+    return () => { cancelled = true }
+  }, [open, appt, tech, hasTicketGeo])
+
+  // Poll route-summary for liveLocation (if present)
+  useEffect(() => {
+    if (!open) return
+    if (!track) return
+    if (!tech?.id) return
+    if (!routePoller) return
+
+    let cancelled = false
+    let t = null
+
+    async function tick() {
+      try {
+        const data = await routePoller()
+        if (cancelled) return
+        const ll = data?.liveLocation || null
+        setLive(ll)
+
+        // update marker
+        const g = window.google
+        if (g?.maps && mapObjRef.current && liveMarkerRef.current) {
+          if (ll?.lat != null && ll?.lng != null) {
+            liveMarkerRef.current.setPosition(new g.maps.LatLng(Number(ll.lat), Number(ll.lng)))
+            liveMarkerRef.current.setVisible(true)
+          } else {
+            liveMarkerRef.current.setVisible(false)
+          }
+        }
+      } catch {
+        // ignore polling errors, don’t crash dialog
+      } finally {
+        if (!cancelled) t = setTimeout(tick, 10_000)
+      }
+    }
+
+    tick()
+    return () => {
+      cancelled = true
+      if (t) clearTimeout(t)
+    }
+  }, [open, track, tech, routePoller])
+
+  // When track toggles off, hide marker + clear live state
+  useEffect(() => {
+    const g = window.google
+    if (!track) {
+      setLive(null)
+      if (g?.maps && liveMarkerRef.current) {
+        liveMarkerRef.current.setVisible(false)
+      }
+    }
+  }, [track])
+
+  const liveLabel = useMemo(() => {
+    if (!track) return 'Off'
+    if (!live) return 'Unavailable'
+    const ts = formatLiveTs(live.updatedAt)
+    return ts ? `${ts}` : 'Live'
+  }, [track, live])
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontWeight: 950 }} noWrap>
+            {ticket?.externalRef || appt?.ticketId || 'Ticket'}
+            {appt?.slotNumber ? `  •  Slot ${appt.slotNumber}` : ''}
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>
+            {tech?.name || '-'}  •  {date}  •  Status: {appt?.status || '-'}
+          </Typography>
+        </Box>
+        <IconButton onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+
+      <DialogContent>
+        {err ? <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert> : null}
+
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }} alignItems={{ md: 'center' }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 900 }} noWrap>
+              {ticket?.customerName || ''}
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.85 }} noWrap>
+              {ticket?.address || ''}
+            </Typography>
+            {!hasTicketGeo ? (
+              <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                Ticket has no lat/lng. Enable geocoding to show directions.
+              </Typography>
+            ) : null}
+          </Box>
+
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+            <Chip size="small" variant="outlined" label={`Live: ${liveLabel}`} />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={track}
+                  onChange={(e) => setTrack(e.target.checked)}
+                  icon={<MyLocationIcon />}
+                  checkedIcon={<MyLocationIcon />}
+                />
+              }
+              label="Track live location"
+            />
+          </Stack>
+        </Stack>
+
+        <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          <Box
+            ref={mapRef}
+            sx={{
+              height: { xs: 320, md: 520 },
+              width: '100%',
+              bgcolor: 'background.default'
+            }}
+          />
+        </Paper>
 
         {busy ? (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
@@ -374,6 +644,13 @@ export default function RocAppointmentsPage() {
   // Route dialog
   const [routeOpen, setRouteOpen] = useState(false)
   const [routeTechId, setRouteTechId] = useState(null)
+  const [routeNonce, setRouteNonce] = useState(0)
+
+  // Appointment dialog (per slot)
+  const [apptOpen, setApptOpen] = useState(false)
+  const [apptTechId, setApptTechId] = useState(null)
+  const [apptId, setApptId] = useState(null)
+  const [apptNonce, setApptNonce] = useState(0)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -572,6 +849,13 @@ export default function RocAppointmentsPage() {
 
   const routeTech = routeTechId ? techMap[routeTechId] : null
   const routePayload = routeTechId ? (sched?.[routeTechId] || {}) : {}
+
+  const apptTech = apptTechId ? techMap[apptTechId] : null
+  const apptPayload = apptTechId ? (sched?.[apptTechId] || {}) : {}
+  const apptObj = useMemo(() => {
+    const list = apptPayload?.appts || []
+    return list.find(a => a.id === apptId) || null
+  }, [apptPayload, apptId])
 
   return (
     <DndContext
@@ -793,11 +1077,12 @@ export default function RocAppointmentsPage() {
                           startIcon={<MapIcon />}
                           onClick={() => {
                             setRouteTechId(tid)
+                            setRouteNonce(n => n + 1) // force remount each open
                             setRouteOpen(true)
                           }}
                           disabled={loading}
                         >
-                          Route
+                          Route for the day
                         </Button>
 
                         <Button
@@ -838,7 +1123,20 @@ export default function RocAppointmentsPage() {
                                 Drop ticket here
                               </Typography>
                             ) : (
-                              <>
+                              <Box
+                                onClick={() => {
+                                  setApptTechId(tid)
+                                  setApptId(a.id)
+                                  setApptNonce(n => n + 1) // force remount each open
+                                  setApptOpen(true)
+                                }}
+                                sx={{
+                                  cursor: 'pointer',
+                                  borderRadius: 2,
+                                  p: 0.5,
+                                  '&:hover': { bgcolor: 'rgba(25,118,210,0.06)' }
+                                }}
+                              >
                                 <Typography sx={{ fontWeight: 900 }} noWrap>
                                   {ticket.externalRef || a.ticketId}
                                 </Typography>
@@ -850,12 +1148,25 @@ export default function RocAppointmentsPage() {
                                 </Typography>
 
                                 <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                                  <Chip size="small" variant="outlined" label={`Status: ${a.status || '-'}`} />
+                                  {ticket.lat != null && ticket.lng != null ? (
+                                    <Chip size="small" variant="outlined" label="Geo: yes" />
+                                  ) : (
+                                    <Chip size="small" variant="outlined" label="Geo: no" />
+                                  )}
+                                </Stack>
+
+                                <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
                                   {SLOTS.filter(x => x.n !== s.n && !apptBySlot[x.n]).slice(0, 2).map(x => (
                                     <Button
                                       key={x.n}
                                       size="small"
                                       variant="outlined"
-                                      onClick={() => moveSlot({ technicianId: tid, fromSlot: s.n, toSlot: x.n })}
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        moveSlot({ technicianId: tid, fromSlot: s.n, toSlot: x.n })
+                                      }}
                                       disabled={loading}
                                       sx={{ textTransform: 'none' }}
                                     >
@@ -863,7 +1174,11 @@ export default function RocAppointmentsPage() {
                                     </Button>
                                   ))}
                                 </Stack>
-                              </>
+
+                                <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.7 }}>
+                                  Click to open ticket map and tracking
+                                </Typography>
+                              </Box>
                             )}
                           </DroppableSlot>
                         )
@@ -876,14 +1191,29 @@ export default function RocAppointmentsPage() {
           </Box>
         </Box>
 
-        {/* Route dialog */}
+        {/* Route for day dialog (key forces a fresh mount each open) */}
         <RouteDialog
+          key={`route-${routeTechId || 'x'}-${routeNonce}`}
           open={routeOpen}
           onClose={() => setRouteOpen(false)}
           tech={routeTech}
           date={date}
           appts={routePayload?.appts || []}
           route={routePayload?.route || null}
+        />
+
+        {/* Appointment dialog (per slot) */}
+        <AppointmentDialog
+          key={`appt-${apptId || 'x'}-${apptNonce}`}
+          open={apptOpen}
+          onClose={() => setApptOpen(false)}
+          tech={apptTech}
+          date={date}
+          appt={apptObj}
+          routePoller={apptTech?.id ? async () => {
+            const r = await routeSummary({ technicianId: apptTech.id, date })
+            return r.data
+          } : null}
         />
 
         {/* Create modal */}
