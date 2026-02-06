@@ -1,25 +1,17 @@
 // frontend/src/pages/TechAppointmentDetailPage.jsx
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Box,
-  Paper,
-  Typography,
-  Button,
-  TextField,
-  Alert,
-  Divider,
-  Stack,
-  Chip,
-  MenuItem,
-  Select,
-  FormControl,
-  InputLabel,
-  IconButton,
-  Collapse
+  Box, Paper, Typography, Button, TextField, Alert, Divider,
+  Stack, Chip, MenuItem, Select, FormControl, InputLabel
 } from '@mui/material'
 import dayjs from 'dayjs'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getAppointment, submitJobCard, uploadPhoto, uploadSignature } from '../api/techAppointments'
+import {
+  getAppointment,
+  submitJobCard,
+  uploadPhoto,
+  uploadSignature
+} from '../api/techAppointments'
 import {
   enqueueEvent,
   makeClientEventId,
@@ -27,22 +19,7 @@ import {
   listQueuedEventsForAppointment
 } from '../utils/techOfflineQueue'
 import { safeFlushQueue } from '../utils/techSync'
-
-// Icons
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import NavigationIcon from '@mui/icons-material/Navigation'
-import PhoneIcon from '@mui/icons-material/Phone'
-import SyncIcon from '@mui/icons-material/Sync'
-import NearMeIcon from '@mui/icons-material/NearMe'
-import PlaceIcon from '@mui/icons-material/Place'
-import PlayCircleIcon from '@mui/icons-material/PlayCircle'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import HelpIcon from '@mui/icons-material/Help'
-import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
-import DrawIcon from '@mui/icons-material/Draw'
-import TimelineIcon from '@mui/icons-material/Timeline'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import TechRouteMap from '../components/TechRouteMap'
 
 async function getGpsOnce() {
   return new Promise(resolve => {
@@ -55,16 +32,6 @@ async function getGpsOnce() {
   })
 }
 
-function openNavigation(ticket) {
-  const lat = ticket?.lat
-  const lng = ticket?.lng
-  const address = ticket?.address || ''
-  const url = (lat != null && lng != null)
-    ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`
-    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
@@ -72,19 +39,6 @@ function fileToDataUrl(file) {
     r.onerror = reject
     r.readAsDataURL(file)
   })
-}
-
-function statusMeta(status) {
-  const s = String(status || '').toUpperCase()
-  if (s === 'COMPLETED') return { label: 'Completed', color: 'success', variant: 'filled' }
-  if (s === 'IN_PROGRESS') return { label: 'In progress', color: 'info', variant: 'filled' }
-  if (s === 'ARRIVED') return { label: 'Arrived', color: 'primary', variant: 'filled' }
-  if (s === 'NEAR_SITE') return { label: 'Near site', color: 'primary', variant: 'outlined' }
-  if (s === 'EN_ROUTE') return { label: 'En route', color: 'warning', variant: 'filled' }
-  if (s === 'CIVILS_REQUIRED') return { label: 'Civils required', color: 'warning', variant: 'outlined' }
-  if (s === 'UNSUCCESSFUL') return { label: 'Unsuccessful', color: 'error', variant: 'filled' }
-  if (s === 'SCHEDULED') return { label: 'Scheduled', color: 'default', variant: 'outlined' }
-  return { label: status || '-', color: 'default', variant: 'outlined' }
 }
 
 const UNSUCCESSFUL_REASONS = [
@@ -112,11 +66,6 @@ export default function TechAppointmentDetailPage() {
 
   const [queueCount, setQueueCount] = useState(0)
   const [apptQueueCount, setApptQueueCount] = useState(0)
-
-  const [showCloseout, setShowCloseout] = useState(false)
-  const [showTimeline, setShowTimeline] = useState(false)
-
-  const online = navigator.onLine
 
   async function refreshQueueCounts() {
     const c = await countQueuedEvents()
@@ -146,7 +95,7 @@ export default function TechAppointmentDetailPage() {
         localStorage.removeItem('techToken')
         localStorage.removeItem('techId')
         localStorage.removeItem('techName')
-        nav('/tech/login')
+        nav('/tech/login', { replace: true })
       }
     })
 
@@ -161,7 +110,7 @@ export default function TechAppointmentDetailPage() {
   }, [id])
 
   const ticket = appt?.ticket || {}
-  const meta = statusMeta(appt?.status)
+  const status = appt?.status || ''
 
   const timeline = useMemo(() => {
     const ev = Array.isArray(appt?.events) ? [...appt.events] : []
@@ -192,17 +141,16 @@ export default function TechAppointmentDetailPage() {
 
       await refreshQueueCounts()
 
-      if (online) {
+      if (navigator.onLine) {
         await safeFlushQueue()
         await refreshQueueCounts()
         await load()
-        setMsg('Saved')
+        setMsg('Sent')
       } else {
-        setMsg('Queued offline. Will sync when online.')
+        setMsg('Queued (offline). Will sync when online.')
       }
     } catch (e) {
-      const m = e?.response?.data?.error || e?.message || 'Failed to queue/send event'
-      setErr(m)
+      setErr(e?.response?.data?.error || e?.message || 'Failed to queue/send event')
     } finally {
       setBusy(false)
     }
@@ -213,7 +161,7 @@ export default function TechAppointmentDetailPage() {
     setMsg('')
     setBusy(true)
     try {
-      if (!online) {
+      if (!navigator.onLine) {
         setErr('You are offline. Please submit the job card when you are back online.')
         return
       }
@@ -229,8 +177,7 @@ export default function TechAppointmentDetailPage() {
       setMsg('Job card submitted')
       await load()
     } catch (e) {
-      const m = e?.response?.data?.error || e?.message || 'Failed to submit job card'
-      setErr(m)
+      setErr(e?.response?.data?.error || e?.message || 'Failed to submit job card')
     } finally {
       setBusy(false)
     }
@@ -245,17 +192,19 @@ export default function TechAppointmentDetailPage() {
     setMsg('')
     setBusy(true)
     try {
-      if (!online) {
+      if (!navigator.onLine) {
         setErr('You are offline. Photo upload requires internet for now.')
         return
       }
       const dataUrl = await fileToDataUrl(f)
-      await uploadPhoto(id, { clientEventId: makeClientEventId('cev_photo'), dataUrl })
+      await uploadPhoto(id, {
+        clientEventId: makeClientEventId('cev_photo'),
+        dataUrl
+      })
       setMsg('Photo uploaded')
       await load()
     } catch (ex) {
-      const m = ex?.response?.data?.error || ex?.message || 'Failed to upload photo'
-      setErr(m)
+      setErr(ex?.response?.data?.error || ex?.message || 'Failed to upload photo')
     } finally {
       setBusy(false)
     }
@@ -270,7 +219,7 @@ export default function TechAppointmentDetailPage() {
     setMsg('')
     setBusy(true)
     try {
-      if (!online) {
+      if (!navigator.onLine) {
         setErr('You are offline. Signature upload requires internet for now.')
         return
       }
@@ -283,8 +232,7 @@ export default function TechAppointmentDetailPage() {
       setMsg('Signature uploaded')
       await load()
     } catch (ex) {
-      const m = ex?.response?.data?.error || ex?.message || 'Failed to upload signature'
-      setErr(m)
+      setErr(ex?.response?.data?.error || ex?.message || 'Failed to upload signature')
     } finally {
       setBusy(false)
     }
@@ -298,347 +246,202 @@ export default function TechAppointmentDetailPage() {
 
   if (!appt) {
     return (
-      <Box sx={{ p: 1.5, maxWidth: 520, mx: 'auto' }}>
-        {err ? <Alert severity="error" sx={{ borderRadius: 3 }}>{err}</Alert> : <Typography>Loading…</Typography>}
+      <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+        {err ? <Alert severity="error">{err}</Alert> : <Typography>Loading…</Typography>}
       </Box>
     )
   }
 
   return (
-    <Box sx={{ p: 1.5, pb: 12, maxWidth: 520, mx: 'auto' }}>
-      {/* Sticky top bar */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 1.25,
-          borderRadius: 4,
-          border: '1px solid',
-          borderColor: 'divider',
-          position: 'sticky',
-          top: 10,
-          zIndex: 2,
-          bgcolor: 'background.paper'
-        }}
-      >
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <IconButton onClick={() => nav('/tech/my-day')} aria-label="Back">
-            <ArrowBackIcon />
-          </IconButton>
+    <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+      <Stack spacing={1.5} sx={{ mb: 2 }}>
+        <Typography variant="h5" sx={{ fontWeight: 950 }}>
+          {ticket.externalRef || appt.ticketId}
+        </Typography>
 
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography sx={{ fontWeight: 950, lineHeight: 1.1 }}>
-              {ticket.externalRef || appt.ticketId}
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {ticket.customerName || ''}
-            </Typography>
-          </Box>
-
-          <Chip size="small" label={meta.label} color={meta.color} variant={meta.variant} sx={{ fontWeight: 900 }} />
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Chip size="small" variant="outlined" label={`Status: ${status || '-'}`} />
+          <Chip size="small" color={navigator.onLine ? 'success' : 'warning'} label={navigator.onLine ? 'Online' : 'Offline'} />
+          <Chip size="small" variant="outlined" label={`Queued: ${queueCount}`} />
+          <Chip size="small" variant="outlined" label={`Here: ${apptQueueCount}`} />
         </Stack>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-          <Chip size="small" label={online ? 'Online' : 'Offline'} color={online ? 'success' : 'warning'} sx={{ fontWeight: 900 }} />
-          <Chip size="small" variant="outlined" label={`Queued ${queueCount}`} sx={{ fontWeight: 800 }} />
-          <Chip size="small" variant="outlined" label={`Here ${apptQueueCount}`} sx={{ fontWeight: 800 }} />
-        </Stack>
-      </Paper>
+        {err && <Alert severity="error">{err}</Alert>}
+        {msg && <Alert severity="info">{msg}</Alert>}
+      </Stack>
 
-      {/* Alerts */}
-      <Box sx={{ mt: 1.5 }}>
-        {err && <Alert severity="error" sx={{ borderRadius: 3, mb: 1 }}>{err}</Alert>}
-        {msg && <Alert severity="info" sx={{ borderRadius: 3, mb: 1 }}>{msg}</Alert>}
-      </Box>
+      {/* ✅ Map with live directions */}
+      <TechRouteMap ticket={ticket} />
 
-      {/* Customer card */}
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 4, mt: 1.5 }}>
-        <Typography sx={{ fontWeight: 950 }}>{ticket.customerName || 'Customer'}</Typography>
+      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+        <Typography sx={{ fontWeight: 900 }}>
+          {ticket.customerName || ''}
+        </Typography>
         {ticket.customerPhone ? (
-          <Typography variant="body2" sx={{ opacity: 0.85, fontWeight: 800, mt: 0.25 }}>
+          <Typography variant="body2" sx={{ opacity: 0.85 }}>
             {ticket.customerPhone}
           </Typography>
         ) : null}
-        {ticket.address ? (
-          <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.6 }}>
-            {ticket.address}
-          </Typography>
-        ) : null}
+        <Typography variant="body2" sx={{ mt: 1 }}>
+          {ticket.address || ''}
+        </Typography>
 
-        <Divider sx={{ my: 1.25 }} />
-
-        <Stack direction="column" spacing={1}>
-          <Button
-            variant="contained"
-            startIcon={<NavigationIcon />}
-            onClick={() => openNavigation(ticket)}
-            disabled={busy}
-            fullWidth
-            sx={{ borderRadius: 999, fontWeight: 900, py: 1.2 }}
-          >
-            Open navigation
+        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={callCustomer} disabled={!ticket.customerPhone || busy} sx={{ borderRadius: 3 }}>
+            Call customer
           </Button>
+          <Button variant="outlined" onClick={async () => { await safeFlushQueue(); await refreshQueueCounts(); await load() }} disabled={busy} sx={{ borderRadius: 3 }}>
+            Sync now
+          </Button>
+        </Stack>
 
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              startIcon={<PhoneIcon />}
-              onClick={callCustomer}
-              disabled={!ticket.customerPhone || busy}
-              fullWidth
-              sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
-            >
-              Call
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<SyncIcon />}
-              onClick={async () => { await safeFlushQueue(); await refreshQueueCounts(); await load() }}
-              disabled={busy}
-              fullWidth
-              sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
-            >
-              Sync
-            </Button>
-          </Stack>
+        <Divider sx={{ my: 2 }} />
+
+        <Typography variant="subtitle2" sx={{ opacity: 0.8, mb: 1 }}>
+          Actions
+        </Typography>
+
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })} disabled={busy} sx={{ borderRadius: 3 }}>
+            Near site
+          </Button>
+          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })} disabled={busy} sx={{ borderRadius: 3 }}>
+            Arrived
+          </Button>
+          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })} disabled={busy} sx={{ borderRadius: 3 }}>
+            Start work
+          </Button>
+          <Button color="success" variant="contained" onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })} disabled={busy} sx={{ borderRadius: 3 }}>
+            Mark complete
+          </Button>
+          <Button variant="outlined" onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })} disabled={busy} sx={{ borderRadius: 3 }}>
+            Request assistance
+          </Button>
         </Stack>
       </Paper>
 
-      {/* Photos and signature */}
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 4, mt: 1.5 }}>
-        <Typography sx={{ fontWeight: 950 }}>Photos and signature</Typography>
-        <Stack direction="column" spacing={1} sx={{ mt: 1 }}>
-          <Button
-            variant="outlined"
-            component="label"
-            startIcon={<PhotoCameraIcon />}
-            disabled={busy}
-            fullWidth
-            sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
-          >
+      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+        <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
+          Photos and signature
+        </Typography>
+
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Button variant="outlined" component="label" disabled={busy} sx={{ borderRadius: 3 }}>
             Upload photo
             <input hidden type="file" accept="image/*" capture="environment" onChange={onPickPhoto} />
           </Button>
 
-          <Button
-            variant="outlined"
-            component="label"
-            startIcon={<DrawIcon />}
-            disabled={busy}
-            fullWidth
-            sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
-          >
+          <Button variant="outlined" component="label" disabled={busy} sx={{ borderRadius: 3 }}>
             Upload signature
             <input hidden type="file" accept="image/*" capture="user" onChange={onPickSignature} />
           </Button>
         </Stack>
 
-        <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, mt: 1 }}>
-          Uploads need internet for now. Status actions are offline safe.
+        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75, mt: 1 }}>
+          Photo and signature uploads are online-only for now. Status actions remain offline-safe.
         </Typography>
       </Paper>
 
-      {/* Close out collapsible */}
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 4, mt: 1.5 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Typography sx={{ fontWeight: 950 }}>Close out</Typography>
-          <Button
-            onClick={() => setShowCloseout(v => !v)}
-            endIcon={showCloseout ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-            sx={{ fontWeight: 900, textTransform: 'none' }}
-          >
-            {showCloseout ? 'Hide' : 'Open'}
-          </Button>
-        </Stack>
+      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+        <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
+          Close out
+        </Typography>
 
-        <Collapse in={showCloseout} timeout="auto" unmountOnExit>
-          <Box sx={{ mt: 1.2 }}>
-            <TextField
-              label="Notes"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              fullWidth
-              multiline
-              minRows={3}
-            />
+        <TextField
+          label="Notes"
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          fullWidth
+          multiline
+          minRows={3}
+        />
 
-            <Stack direction="column" spacing={1.2} sx={{ mt: 1.5 }}>
-              <FormControl size="small" fullWidth>
-                <InputLabel>Unsuccessful reason</InputLabel>
-                <Select
-                  label="Unsuccessful reason"
-                  value={reasonCode}
-                  onChange={e => setReasonCode(e.target.value)}
-                >
-                  {UNSUCCESSFUL_REASONS.map(r => (
-                    <MenuItem key={r.code} value={r.code}>{r.label}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" fullWidth>
-                <InputLabel>Civils required</InputLabel>
-                <Select
-                  label="Civils required"
-                  value={civilsRequired ? 'YES' : 'NO'}
-                  onChange={e => setCivilsRequired(e.target.value === 'YES')}
-                >
-                  <MenuItem value="NO">No</MenuItem>
-                  <MenuItem value="YES">Yes</MenuItem>
-                </Select>
-              </FormControl>
-
-              <TextField
-                label="Customer rating (1-5)"
-                value={customerRating}
-                onChange={e => setCustomerRating(e.target.value)}
-                size="small"
-                fullWidth
-              />
-            </Stack>
-
-            <Stack direction="column" spacing={1} sx={{ mt: 1.5 }}>
-              <Button
-                color="success"
-                variant="contained"
-                onClick={() => doSubmitJobCard('SUCCESSFUL')}
-                disabled={busy}
-                fullWidth
-                sx={{ borderRadius: 999, fontWeight: 900, py: 1.2 }}
-              >
-                Submit successful
-              </Button>
-              <Button
-                color="error"
-                variant="contained"
-                onClick={() => doSubmitJobCard('UNSUCCESSFUL')}
-                disabled={busy}
-                fullWidth
-                sx={{ borderRadius: 999, fontWeight: 900, py: 1.2 }}
-              >
-                Submit unsuccessful
-              </Button>
-            </Stack>
-          </Box>
-        </Collapse>
-      </Paper>
-
-      {/* Timeline collapsible */}
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 4, mt: 1.5 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Stack direction="row" spacing={1} alignItems="center">
-            <TimelineIcon />
-            <Typography sx={{ fontWeight: 950 }}>Timeline</Typography>
-          </Stack>
-          <Button
-            onClick={() => setShowTimeline(v => !v)}
-            endIcon={showTimeline ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-            sx={{ fontWeight: 900, textTransform: 'none' }}
-          >
-            {showTimeline ? 'Hide' : 'Show'}
-          </Button>
-        </Stack>
-
-        <Collapse in={showTimeline} timeout="auto" unmountOnExit>
-          <Stack spacing={1} sx={{ mt: 1.2 }}>
-            {timeline.length === 0 ? (
-              <Typography variant="body2" sx={{ opacity: 0.75 }}>
-                No events yet.
-              </Typography>
-            ) : (
-              timeline.slice(0, 12).map(ev => (
-                <Paper key={ev.id} variant="outlined" sx={{ p: 1.2, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.02)' }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
-                    <Typography sx={{ fontWeight: 900 }}>{ev.eventType}</Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.75, fontWeight: 800 }}>
-                      {dayjs(ev.createdAt || ev.eventTime || new Date()).format('YYYY-MM-DD HH:mm')}
-                    </Typography>
-                  </Stack>
-                  {ev.actorType ? (
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                      {ev.actorType}
-                    </Typography>
-                  ) : null}
-                </Paper>
-              ))
-            )}
-          </Stack>
-        </Collapse>
-      </Paper>
-
-      {/* Sticky bottom action bar (thumb friendly) */}
-      <Paper
-        elevation={8}
-        sx={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          p: 1.2,
-          borderTop: '1px solid',
-          borderColor: 'divider',
-          bgcolor: 'background.paper'
-        }}
-      >
-        <Box sx={{ maxWidth: 520, mx: 'auto' }}>
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              startIcon={<NearMeIcon />}
-              onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })}
-              disabled={busy}
-              fullWidth
-              sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+          <FormControl sx={{ minWidth: 260 }} size="small">
+            <InputLabel>Unsuccessful reason</InputLabel>
+            <Select
+              label="Unsuccessful reason"
+              value={reasonCode}
+              onChange={e => setReasonCode(e.target.value)}
             >
-              Near
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<PlaceIcon />}
-              onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })}
-              disabled={busy}
-              fullWidth
-              sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
-            >
-              Arrived
-            </Button>
-          </Stack>
+              {UNSUCCESSFUL_REASONS.map(r => (
+                <MenuItem key={r.code} value={r.code}>{r.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
-          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<PlayCircleIcon />}
-              onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })}
-              disabled={busy}
-              fullWidth
-              sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
+          <FormControl sx={{ minWidth: 200 }} size="small">
+            <InputLabel>Civils required</InputLabel>
+            <Select
+              label="Civils required"
+              value={civilsRequired ? 'YES' : 'NO'}
+              onChange={e => setCivilsRequired(e.target.value === 'YES')}
             >
-              Start
-            </Button>
-            <Button
-              color="success"
-              variant="contained"
-              startIcon={<CheckCircleIcon />}
-              onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })}
-              disabled={busy}
-              fullWidth
-              sx={{ borderRadius: 999, fontWeight: 900, py: 1.1 }}
-            >
-              Complete
-            </Button>
-          </Stack>
+              <MenuItem value="NO">No</MenuItem>
+              <MenuItem value="YES">Yes</MenuItem>
+            </Select>
+          </FormControl>
 
-          <Button
-            variant="text"
-            startIcon={<HelpIcon />}
-            onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })}
-            disabled={busy}
-            fullWidth
-            sx={{ mt: 0.5, fontWeight: 900, textTransform: 'none' }}
-          >
-            Request assistance
-          </Button>
+          <TextField
+            label="Customer rating (1-5)"
+            value={customerRating}
+            onChange={e => setCustomerRating(e.target.value)}
+            size="small"
+            sx={{ width: 200 }}
+          />
         </Box>
+
+        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+          <Button
+            color="success"
+            variant="contained"
+            onClick={() => doSubmitJobCard('SUCCESSFUL')}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
+            Submit successful
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => doSubmitJobCard('UNSUCCESSFUL')}
+            disabled={busy}
+            sx={{ borderRadius: 3 }}
+          >
+            Submit unsuccessful
+          </Button>
+        </Stack>
       </Paper>
+
+      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+        <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
+          Timeline
+        </Typography>
+
+        {timeline.length === 0 ? (
+          <Typography variant="body2" sx={{ opacity: 0.75 }}>
+            No events yet.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            {timeline.slice(0, 12).map(ev => (
+              <Paper key={ev.id} variant="outlined" sx={{ p: 1.2, borderRadius: 3 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  {ev.eventType}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                  {dayjs(ev.createdAt || ev.eventTime || new Date()).format('YYYY-MM-DD HH:mm')}
+                  {ev.actorType ? `  •  ${ev.actorType}` : ''}
+                </Typography>
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Paper>
+
+      <Button variant="text" onClick={() => nav('/tech/my-day')} sx={{ mt: 2 }}>
+        Back to list
+      </Button>
     </Box>
   )
 }

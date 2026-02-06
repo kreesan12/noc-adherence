@@ -2,6 +2,7 @@
 import { Router } from 'express'
 import dayjs from '../utils/dayjs.js'
 import { nanoid } from 'nanoid'
+import crypto from "crypto"
 
 /* ------------------------------------------------------------------
    Helpers
@@ -75,32 +76,185 @@ export default function rocAppointmentsRoutes(prisma) {
     res.json(techs)
   })
 
-  /* --------------------------------------------------------------
-     GET tickets (simple search or list recent)
-     /api/roc-appointments/tickets?search=TEST
-  --------------------------------------------------------------- */
-  r.get('/tickets', async (req, res) => {
-    const search = (req.query.search || '').toString().trim()
 
-    const where = search
+
+/* --------------------------------------------------------------
+   GET tickets
+   /api/roc-appointments/tickets?search=TEST
+   Optional:
+     unassignedOnly=1   (default true)
+     includeAssigned=1  (include assignedTo info)
+     geocode=1          (attempt geocode + persist lat/lng if missing)
+--------------------------------------------------------------- */
+
+// Simple in memory limiter (ok for small scale). Replace with Redis later if needed.
+const rateBucket = new Map()
+function rateLimit(req, limit = 30, windowMs = 60_000) {
+  const key = req.ip || "unknown"
+  const now = Date.now()
+  const item = rateBucket.get(key) || { count: 0, resetAt: now + windowMs }
+  if (now > item.resetAt) {
+    item.count = 0
+    item.resetAt = now + windowMs
+  }
+  item.count += 1
+  rateBucket.set(key, item)
+  return item.count <= limit
+}
+
+function toBool(v, def = false) {
+  if (v === undefined || v === null || v === "") return def
+  const s = String(v).toLowerCase()
+  return s === "1" || s === "true" || s === "yes"
+}
+
+async function geocodeAddress(address) {
+  // OpenStreetMap Nominatim. Add a real User Agent header.
+  // Note: OSM usage policy applies. For heavier use, proxy/caching is mandatory.
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`
+  const r = await fetch(url, {
+    headers: {
+      "User-Agent": "FrogfootROC/1.0 (support@yourdomain.co.za)",
+      "Accept-Language": "en"
+    }
+  })
+  if (!r.ok) return null
+  const data = await r.json()
+  if (!Array.isArray(data) || !data.length) return null
+  const row = data[0]
+  const lat = Number(row.lat)
+  const lng = Number(row.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  return { lat, lng }
+}
+
+function normalizeSearch(search) {
+  return search.trim()
+}
+
+r.get("/tickets", async (req, res) => {
+  try {
+    if (!rateLimit(req)) {
+      return res.status(429).json({ error: "Too many requests. Please try again shortly." })
+    }
+
+    const raw = (req.query.search || "").toString()
+    const search = normalizeSearch(raw)
+    const unassignedOnly = toBool(req.query.unassignedOnly, true)     // default true
+    const includeAssigned = toBool(req.query.includeAssigned, false)  // default false
+    const doGeocode = toBool(req.query.geocode, false)                // default false
+
+    // Base text search
+    const textWhere = search
       ? {
           OR: [
-            { externalRef: { contains: search, mode: 'insensitive' } },
-            { customerName: { contains: search, mode: 'insensitive' } },
-            { customerPhone: { contains: search, mode: 'insensitive' } },
-            { address: { contains: search, mode: 'insensitive' } }
+            { externalRef: { contains: search, mode: "insensitive" } },
+            { customerName: { contains: search, mode: "insensitive" } },
+            { customerPhone: { contains: search, mode: "insensitive" } },
+            { address: { contains: search, mode: "insensitive" } }
           ]
         }
       : {}
 
+    // Unassigned = no appointments exist for this ticket (strict)
+    // If you want "not assigned for this date only" tell me and I’ll adjust.
+    const assignWhere = unassignedOnly
+      ? { appointments: { none: {} } }
+      : {}
+
+    const where = { ...textWhere, ...assignWhere }
+
+    // Include assignment info if requested (for top "check assignment")
+    // Grab most recent appointment + technician.
+    const include = includeAssigned
+      ? {
+          appointments: {
+            take: 1,
+            orderBy: [{ appointmentDate: "desc" }, { createdAt: "desc" }],
+            include: { technician: { select: { id: true, name: true } } }
+          }
+        }
+      : undefined
+
     const tickets = await prisma.ticket.findMany({
       where,
       take: 50,
-      orderBy: { updatedAt: 'desc' }
+      orderBy: [{ updatedAt: "desc" }],
+      include
     })
 
-    res.json(tickets)
-  })
+    // Optional geocode pass (best effort). Only for results missing lat/lng.
+    // You can remove this if you prefer a separate "Geocode" button.
+    let finalTickets = tickets
+
+    if (doGeocode) {
+      finalTickets = await Promise.all(
+        tickets.map(async (t) => {
+          if (t.lat != null && t.lng != null) return t
+          if (!t.address) return t
+
+          // small dedupe key
+          const hash = crypto.createHash("md5").update(t.address).digest("hex")
+
+          // If you have addressHash/addressUpdatedAt columns, use them here.
+          // For now: geocode if missing coords.
+          const geo = await geocodeAddress(t.address)
+          if (!geo) return t
+
+          const updated = await prisma.ticket.update({
+            where: { id: t.id },
+            data: { lat: geo.lat, lng: geo.lng }
+          })
+
+          return { ...t, lat: updated.lat, lng: updated.lng }
+        })
+      )
+    }
+
+    // Shape response to include assignedTo object if requested
+    const shaped = finalTickets.map(t => {
+      if (!includeAssigned) return t
+      const appt = Array.isArray(t.appointments) ? t.appointments[0] : null
+      const assignedTo = appt
+        ? {
+            techId: appt.technicianId,
+            techName: appt.technician?.name || "",
+            date: appt.appointmentDate ? dayjs(appt.appointmentDate).format("YYYY-MM-DD") : null,
+            slotNumber: appt.slotNumber || null
+          }
+        : null
+
+      // Remove appointments array if you don’t want it in UI
+      const { appointments, ...rest } = t
+      return { ...rest, assignedTo }
+    })
+
+    res.json(shaped)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: e?.message || "Failed to search tickets" })
+  }
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   /* --------------------------------------------------------------
      GET appointments by date range

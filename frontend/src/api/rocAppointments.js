@@ -5,9 +5,12 @@ export function listTechnicians() {
   return api.get('/roc-appointments/technicians')
 }
 
-export function searchTickets(search) {
-  return api.get('/roc-appointments/tickets', { params: { search } })
+export function searchTickets(search, { unassignedOnly = true, includeAssigned = false } = {}) {
+  return api.get('/roc-appointments/tickets', {
+    params: { search, unassignedOnly: unassignedOnly ? '1' : '0', includeAssigned: includeAssigned ? '1' : '0' }
+  })
 }
+
 
 export function listAppointments({ from, to, technicianId }) {
   return api.get('/roc-appointments/appointments', {

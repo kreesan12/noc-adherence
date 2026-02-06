@@ -2,8 +2,12 @@
 import React, { useState, useEffect } from 'react'
 import { CssBaseline, ThemeProvider, styled, Badge } from '@mui/material'
 import theme from './theme'
-import './lib/dayjs.js'            // registers plugins once
-import { listVacancies } from './api/workforce'   // ← make sure the path is correct
+import techTheme from './techTheme'
+import TechShell from './components/TechShell'
+import AppFrame from './components/AppFrame'
+
+import './lib/dayjs.js'
+import { listVacancies } from './api/workforce'
 
 import {
   Box,
@@ -26,16 +30,13 @@ import UploadIcon             from '@mui/icons-material/Upload'
 import WorkHistoryIcon        from '@mui/icons-material/WorkHistory'
 import ExpandLess             from '@mui/icons-material/ExpandLess'
 import ExpandMore             from '@mui/icons-material/ExpandMore'
-import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts';
-import EventBusyIcon          from '@mui/icons-material/EventBusy';
-import PeopleIcon             from '@mui/icons-material/People';
-import LanOutlinedIcon        from '@mui/icons-material/LanOutlined';
+import ManageAccountsIcon     from '@mui/icons-material/ManageAccounts'
+import EventBusyIcon          from '@mui/icons-material/EventBusy'
+import PeopleIcon             from '@mui/icons-material/People'
+import LanOutlinedIcon        from '@mui/icons-material/LanOutlined'
 import MapIcon                from '@mui/icons-material/Map'
 import AvTimerIcon            from '@mui/icons-material/AvTimer'
-import EventNoteIcon from '@mui/icons-material/EventNote'
-import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone'
-import BuildIcon from '@mui/icons-material/Build'
-
+import BuildIcon              from '@mui/icons-material/Build'
 
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
@@ -46,8 +47,8 @@ import LoginPage      from './pages/LoginPage'
 import AgentsPage     from './pages/AgentsPage'
 import StaffingPage   from './pages/StaffingPage'
 import ShiftManager   from './pages/ShiftManager'
-import LeavePlannerPage    from './pages/LeavePlannerPage'   
-import WorkforcePage  from './pages/WorkforcePage'         
+import LeavePlannerPage    from './pages/LeavePlannerPage'
+import WorkforcePage  from './pages/WorkforcePage'
 import NldLightLevelsPage  from './pages/NldLightLevelsPage'
 import NldMappingPage     from './pages/NldMappingPage'
 import ManagersPage       from './pages/ManagersPage'
@@ -60,20 +61,20 @@ import OvertimeSupervisorPage from './pages/OvertimeSupervisorPage'
 import OvertimeManagerPage from './pages/OvertimeManagerPage'
 import SignaturePage from './pages/SignaturePage'
 import RocAppointmentsPage from './pages/RocAppointmentsPage'
+
 import TechMyDayPage from './pages/TechMyDayPage.jsx'
 import TechAppointmentDetailPage from './pages/TechAppointmentDetailPage.jsx'
 import TechLoginPage from './pages/TechLoginPage.jsx'
 
-
 /* ── auth / routing helpers ─────────────────────────────── */
 import { AuthProvider, useAuth } from './context/AuthContext'
-import ProtectedRoute            from './components/ProtectedRoute'
+import ProtectedRoute from './components/ProtectedRoute'
 import UserStatus from './components/UserStatus'
 
 /* ─── Drawer styling ────────────────────────────────────── */
 const DRAWER_WIDTH = 250
 
-const StyledDrawer = styled(Drawer)(({ theme }) => ({
+const StyledDrawer = styled(Drawer)(() => ({
   '& .MuiDrawer-paper': {
     width: DRAWER_WIDTH,
     backdropFilter: 'blur(6px)',
@@ -83,7 +84,6 @@ const StyledDrawer = styled(Drawer)(({ theme }) => ({
   },
 }))
 
-/* helper to highlight the current route */
 function isActive(pathname, itemPath) {
   if (itemPath === '/') return pathname === '/'
   return pathname.startsWith(itemPath)
@@ -93,14 +93,13 @@ function isActive(pathname, itemPath) {
 function SideNav() {
   const { user } = useAuth()
   const location = useLocation()
-  if (!user || location.pathname === '/login') return null
 
-  // --- vacancy badge state + loader ---
+  if (!user || location.pathname === '/login') return null
+  if (location.pathname.startsWith('/tech')) return null // ✅ hide drawer on tech
+
   const [vacancyCount, setVacancyCount] = useState(0)
   useEffect(() => {
-    listVacancies(true).then(res => {
-      setVacancyCount(res.data.length)
-    })
+    listVacancies(true).then(res => setVacancyCount(res.data.length)).catch(() => {})
   }, [])
 
   const sections = [
@@ -130,13 +129,14 @@ function SideNav() {
     {
       title: 'SETTINGS',
       items: [
-        {label: 'Workforce',
-         path:  '/workforce',
-         icon: (
+        {
+          label: 'Workforce',
+          path:  '/workforce',
+          icon: (
             <Badge badgeContent={vacancyCount} color="secondary">
               <PeopleIcon/>
             </Badge>
-              )
+          )
         },
         { label:'Admin',         path:'/agents', icon:<AdminPanelSettingsIcon/> },
         { label:'Upload Roster', path:'/roster', icon:<UploadIcon/> },
@@ -145,9 +145,9 @@ function SideNav() {
           : []),
 
         { label:'Overtime Capturing', path:'/overtime/capture', icon:<LanOutlinedIcon/> },
-        { label:'Overtime Superivor Section', path:'/overtime/supervisor', icon:<LanOutlinedIcon/> },
+        { label:'Overtime Supervisor Section', path:'/overtime/supervisor', icon:<LanOutlinedIcon/> },
         { label:'Overtime Manager Section', path:'/overtime/manager', icon:<LanOutlinedIcon/> },
-        { label:'Signatures Section', path:'/settings/signature', icon:<LanOutlinedIcon/> },      
+        { label:'Signatures Section', path:'/settings/signature', icon:<LanOutlinedIcon/> },
       ],
     },
     {
@@ -158,7 +158,7 @@ function SideNav() {
         { label:'NLD Mapping',      path:'/nld-mapping',      icon:<MapIcon/> },
         { label:'NLD Map',          path:'/nld-map',          icon:<MapIcon/> },
         { label:'NLD Admin',        path:'/nld-admin',        icon:<AdminPanelSettingsIcon/> },
-        { label:'NLD Services',     path:'/engineering/nld-services',     icon:<AdminPanelSettingsIcon/> },
+        { label:'NLD Services',     path:'/engineering/nld-services', icon:<AdminPanelSettingsIcon/> },
       ],
     },
   ]
@@ -181,17 +181,13 @@ function SideNav() {
               bgcolor: 'transparent',
               mt: 1,
             }}
-          >
-            
-          </ListSubheader>
+          />
         }
       >
         {sections.map(section => (
           <Box key={section.title}>
             <ListItemButton
-              onClick={() =>
-                setOpenState(o => ({ ...o, [section.title]: !o[section.title] }))
-              }
+              onClick={() => setOpenState(o => ({ ...o, [section.title]: !o[section.title] }))}
               sx={{ px: 2, py: 1 }}
             >
               <ListItemText
@@ -246,18 +242,29 @@ export default function App() {
         <CssBaseline/>
         <BrowserRouter basename="/noc-adherence">
           <SideNav/>
-          <Box sx={{ ml:`${DRAWER_WIDTH}px`, p:3 }}>
+
+          {/* ✅ AppFrame removes drawer padding on /tech routes and on /login */}
+          <AppFrame drawerWidth={DRAWER_WIDTH}>
             <UserStatus />
+
             <Routes>
               {/* Public */}
-              <Route path="/login" element={<LoginPage/>}/>
+              <Route path="/login" element={<LoginPage/>} />
 
-              {/* Public (tech app) */}
-              <Route path="/tech" element={<Navigate to="/tech/my-day" replace />} />
-              <Route path="/tech/login" element={<TechLoginPage/>}/>
-              <Route path="/tech/my-day" element={<TechMyDayPage/>}/>
-              <Route path="/tech/appointments/:id" element={<TechAppointmentDetailPage/>}/>
-
+              {/* ✅ Tech app uses its own theme + shell */}
+              <Route
+                path="/tech"
+                element={
+                  <ThemeProvider theme={techTheme}>
+                    <TechShell />
+                  </ThemeProvider>
+                }
+              >
+                <Route index element={<Navigate to="/tech/my-day" replace />} />
+                <Route path="login" element={<TechLoginPage/>} />
+                <Route path="my-day" element={<TechMyDayPage/>} />
+                <Route path="appointments/:id" element={<TechAppointmentDetailPage/>} />
+              </Route>
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>
@@ -268,26 +275,25 @@ export default function App() {
                 <Route path="/agents"           element={<AgentsPage/>}/>
                 <Route path="/staffing"         element={<StaffingPage/>}/>
                 <Route path="/shifts"           element={<ShiftManager/>}/>
-                <Route path='/leave-planner'    element={<LeavePlannerPage />} />
-                <Route path="/workforce"        element={<WorkforcePage />} />
-                <Route path="/managers"         element={<ManagersPage />} />
-                <Route path="/engineering/nlds" element={<NldLightLevelsPage/>} />
+                <Route path="/leave-planner"    element={<LeavePlannerPage />}/>
+                <Route path="/workforce"        element={<WorkforcePage />}/>
+                <Route path="/managers"         element={<ManagersPage />}/>
+                <Route path="/engineering/nlds" element={<NldLightLevelsPage/>}/>
                 <Route path="/nld-mapping"      element={<NldMappingPage/>}/>
                 <Route path="/nld-map"          element={<NldMapPage/>}/>
                 <Route path="/nld-uptime"       element={<NldUptimePage/>}/>
-                <Route path="/nld-admin"       element={<CircuitEditorPage/>}/>
-                <Route path="/engineering/nld-services" element={<NldServicesPage />} />
-                <Route path="/overtime/capture" element={<OvertimeCapturePage />} />
-                <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />} />
-                <Route path="/overtime/manager" element={<OvertimeManagerPage />} />
-                <Route path="/settings/signature" element={<SignaturePage />} />
-                <Route path="/roc-appointments" element={<RocAppointmentsPage/>} />
+                <Route path="/nld-admin"        element={<CircuitEditorPage/>}/>
+                <Route path="/engineering/nld-services" element={<NldServicesPage />}/>
+                <Route path="/overtime/capture" element={<OvertimeCapturePage />}/>
+                <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />}/>
+                <Route path="/overtime/manager" element={<OvertimeManagerPage />}/>
+                <Route path="/settings/signature" element={<SignaturePage />}/>
+                <Route path="/roc-appointments" element={<RocAppointmentsPage/>}/>
               </Route>
 
-              {/* Fallback */}
               <Route path="*" element={<Navigate to="/" replace/>}/>
             </Routes>
-          </Box>
+          </AppFrame>
         </BrowserRouter>
       </ThemeProvider>
     </AuthProvider>

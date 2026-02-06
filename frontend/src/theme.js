@@ -1,66 +1,90 @@
 // frontend/src/theme.js
-import { createTheme } from '@mui/material/styles'
+import { createTheme, alpha } from '@mui/material/styles'
 
-// ---------- LIGHT PALETTE ----------
 export default createTheme({
   palette: {
-    mode:    'light',
-
-    // primary buttons / highlights
-    primary:   { main: '#1976d2' },     // MUI blue[700]
-    secondary: { main: '#009688' },     // teal[500]
-
+    mode: 'light',
+    primary: { main: '#0B6E4F' },     // Frogfoot-ish green
+    secondary: { main: '#1E88E5' },   // crisp blue for accents
     background: {
-      default: '#ffffff',               // page background
-      paper:   '#fafafa'                // cards / drawers
+      default: '#F6F8FB',
+      paper: '#FFFFFF'
     },
-
     text: {
-      primary:   '#1a1a1a',             // near-black
-      secondary: '#555555'              // mid-grey
-    }
+      primary: '#111827',
+      secondary: '#4B5563'
+    },
+    divider: alpha('#111827', 0.08)
   },
 
-  shape: { borderRadius: 12 },          // softer corners everywhere
+  shape: { borderRadius: 14 },
 
-  // ---------- Component tweaks ----------
+  typography: {
+    fontFamily: [
+      'Inter',
+      'system-ui',
+      '-apple-system',
+      'Segoe UI',
+      'Roboto',
+      'Helvetica',
+      'Arial',
+      'sans-serif'
+    ].join(','),
+    h4: { fontWeight: 900, letterSpacing: -0.4 },
+    h5: { fontWeight: 900, letterSpacing: -0.3 },
+    h6: { fontWeight: 800, letterSpacing: -0.2 },
+    button: { fontWeight: 800, textTransform: 'none' }
+  },
+
   components: {
     MuiCssBaseline: {
       styleOverrides: {
-        body: {
-          // a very light grey behind the drawer shadow
-          backgroundColor: '#ffffff'
+        body: { backgroundColor: '#F6F8FB' },
+        '#root': { minHeight: '100vh' }
+      }
+    },
+
+    MuiPaper: {
+      defaultProps: { elevation: 0 },
+      styleOverrides: {
+        root: {
+          border: '1px solid rgba(17, 24, 39, 0.08)',
+          backgroundImage: 'none'
         }
       }
     },
-    MuiDrawer: {
+
+    MuiButton: {
+      defaultProps: { disableElevation: true },
       styleOverrides: {
-        paper: {
-          backgroundColor: '#f5f5f5',   // lighter drawer
-          color: '#1a1a1a'
+        root: {
+          borderRadius: 12,
+          paddingInline: 14,
+          paddingBlock: 10
         }
       }
     },
-    MuiDataGrid: {
+
+    MuiTextField: {
+      defaultProps: { size: 'small' }
+    },
+
+    MuiInputBase: {
       styleOverrides: {
-       root: {
-         fontSize: 14,
-         border: 0
-       },
-       columnHeaders: {
-         backgroundColor: '#f0f0f0',
-         color: '#37474f',
-         fontWeight: 600
-       }
+        root: { borderRadius: 12 }
       }
     },
-   MuiAccordion: {
-     styleOverrides: {
-       root: {
-         boxShadow: 'none',
-         '&:before': { display: 'none' }
-       }
-     }
-   }
+
+    MuiChip: {
+      styleOverrides: {
+        root: { borderRadius: 999 }
+      }
+    },
+
+    MuiDialog: {
+      styleOverrides: {
+        paper: { borderRadius: 18 }
+      }
+    }
   }
 })
