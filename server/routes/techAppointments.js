@@ -1,5 +1,6 @@
 // server/routes/techAppointments.js
 import { Router } from 'express'
+import { nanoid } from 'nanoid'
 
 export default function techAppointmentsRoutes(prisma) {
   const r = Router()
@@ -44,6 +45,7 @@ export default function techAppointmentsRoutes(prisma) {
     try {
       const created = await prisma.appointmentEvent.create({
         data: {
+          id: `evt_${nanoid(12)}`,
           appointmentId: apptId,
           eventType,
           actorType: 'TECH',
@@ -93,6 +95,7 @@ export default function techAppointmentsRoutes(prisma) {
     const job = await prisma.jobCard.upsert({
       where: { appointmentId: apptId },
       create: {
+        id: `job_${nanoid(12)}`,
         appointmentId: apptId,
         outcome,
         reasonCode: reasonCode || null,
@@ -115,6 +118,7 @@ export default function techAppointmentsRoutes(prisma) {
 
     await prisma.appointmentEvent.create({
       data: {
+        id: `job_${nanoid(12)}`,
         appointmentId: apptId,
         eventType: 'JOB_CARD_SUBMITTED',
         actorType: 'TECH',

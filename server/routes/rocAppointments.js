@@ -1,5 +1,7 @@
 // server/routes/rocAppointments.js
 import { Router } from 'express'
+import { nanoid } from 'nanoid'
+
 
 export default function rocAppointmentsRoutes(prisma) {
   const r = Router()
@@ -84,6 +86,7 @@ export default function rocAppointmentsRoutes(prisma) {
 
     const appt = await prisma.appointment.create({
       data: {
+        id: `appt_${nanoid(12)}`,
         ticketId,
         technicianId: technicianId || null,
         appointmentDate: new Date(appointmentDate),
@@ -95,6 +98,7 @@ export default function rocAppointmentsRoutes(prisma) {
         updatedByUserId: req.user?.id ? String(req.user.id) : null,
         events: {
           create: {
+            id: `evt_${nanoid(12)}`,
             eventType: 'CREATED',
             actorType: 'ROC',
             actorId: req.user?.id ? String(req.user.id) : null,
@@ -130,6 +134,7 @@ export default function rocAppointmentsRoutes(prisma) {
         updatedByUserId: req.user?.id ? String(req.user.id) : null,
         events: {
           create: {
+            id: `evt_${nanoid(12)}`,
             eventType: 'MOVED',
             actorType: 'ROC',
             actorId: req.user?.id ? String(req.user.id) : null,
