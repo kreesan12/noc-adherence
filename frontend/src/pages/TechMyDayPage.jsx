@@ -23,13 +23,10 @@ import { safeFlushQueue } from '../utils/techSync'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import LogoutIcon from '@mui/icons-material/Logout'
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'
-import AssignmentIcon from '@mui/icons-material/Assignment'
-import LocationOnIcon from '@mui/icons-material/LocationOn'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
+import LocationOnIcon from '@mui/icons-material/LocationOn'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import CloudDoneIcon from '@mui/icons-material/CloudDone'
-import BadgeIcon from '@mui/icons-material/Badge'
 
 async function getGpsOnce() {
   return new Promise(resolve => {
@@ -70,6 +67,8 @@ export default function TechMyDayPage() {
   const techId = localStorage.getItem('techId') || ''
   const techName = localStorage.getItem('techName') || ''
 
+  const online = navigator.onLine
+
   async function refreshQueueCount() {
     const c = await countQueuedEvents()
     setQueueCount(c)
@@ -95,7 +94,6 @@ export default function TechMyDayPage() {
         to,
         mine: true
       })
-
       setItems(r.data || [])
     } catch (e) {
       console.error(e)
@@ -109,7 +107,6 @@ export default function TechMyDayPage() {
         nav('/tech/login')
         return
       }
-
       setErr(msg)
     } finally {
       setLoading(false)
@@ -149,7 +146,6 @@ export default function TechMyDayPage() {
       })
 
       await refreshQueueCount()
-
       await safeFlushQueue()
       await refreshQueueCount()
 
@@ -180,51 +176,50 @@ export default function TechMyDayPage() {
     return s
   }, [items])
 
-  const online = navigator.onLine
-
   return (
-    <Box sx={{ p: { xs: 1.5, sm: 2 }, maxWidth: 860, mx: 'auto' }}>
-      {/* Header */}
+    <Box sx={{ p: 1.5, maxWidth: 520, mx: 'auto' }}>
+      {/* Top header */}
       <Paper
         elevation={0}
         sx={{
-          p: 2,
+          p: 1.5,
           borderRadius: 4,
           border: '1px solid',
           borderColor: 'divider',
-          background: 'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(245,247,250,1) 100%)'
+          position: 'sticky',
+          top: 10,
+          zIndex: 2,
+          bgcolor: 'background.paper'
         }}
       >
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h5" sx={{ fontWeight: 900, letterSpacing: 0.2 }}>
-              Tech Appointments
+            <Typography sx={{ fontWeight: 900, fontSize: 20, lineHeight: 1.1 }}>
+              My Day
             </Typography>
-
-            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={1} sx={{ mt: 0.8, flexWrap: 'wrap' }}>
               <Chip
                 size="small"
-                icon={<BadgeIcon />}
-                label={techName ? techName : (techId ? `Tech ${techId}` : 'Technician')}
-                sx={{ fontWeight: 700 }}
+                label={techName || techId || 'Tech'}
+                sx={{ fontWeight: 800 }}
               />
               <Chip
                 size="small"
                 icon={online ? <CloudDoneIcon /> : <CloudOffIcon />}
                 color={online ? 'success' : 'warning'}
                 label={online ? 'Online' : 'Offline'}
-                sx={{ fontWeight: 700 }}
+                sx={{ fontWeight: 800 }}
               />
               <Chip
                 size="small"
                 variant="outlined"
                 label={`Queued ${queueCount}`}
-                sx={{ fontWeight: 700 }}
+                sx={{ fontWeight: 800 }}
               />
             </Stack>
           </Box>
 
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={0.5}>
             <IconButton onClick={load} disabled={loading} aria-label="Refresh">
               <RefreshIcon />
             </IconButton>
@@ -234,11 +229,10 @@ export default function TechMyDayPage() {
           </Stack>
         </Stack>
 
-        <Divider sx={{ my: 2 }} />
+        <Divider sx={{ my: 1.25 }} />
 
-        {/* Date range */}
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <Chip size="small" icon={<CalendarMonthIcon />} label="Date range" variant="outlined" />
+        {/* Date range (stack on phone) */}
+        <Stack direction="column" spacing={1}>
           <TextField
             label="From"
             type="date"
@@ -246,7 +240,7 @@ export default function TechMyDayPage() {
             onChange={e => setFrom(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
-            sx={{ maxWidth: 240 }}
+            fullWidth
           />
           <TextField
             label="To"
@@ -255,15 +249,15 @@ export default function TechMyDayPage() {
             onChange={e => setTo(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
-            sx={{ maxWidth: 240 }}
+            fullWidth
           />
-          <Box sx={{ flex: 1 }} />
           <Button
             variant="contained"
             onClick={load}
             disabled={loading}
             startIcon={<RefreshIcon />}
-            sx={{ borderRadius: 999, px: 2.2, fontWeight: 800 }}
+            sx={{ borderRadius: 999, fontWeight: 900, py: 1.2 }}
+            fullWidth
           >
             {loading ? 'Loading' : 'Refresh'}
           </Button>
@@ -271,142 +265,137 @@ export default function TechMyDayPage() {
       </Paper>
 
       {/* Alerts */}
-      <Box sx={{ mt: 2 }}>
-        {err && <Alert severity="error" sx={{ borderRadius: 3, mb: 1.5 }}>{err}</Alert>}
-        {info && <Alert severity="info" sx={{ borderRadius: 3, mb: 1.5 }}>{info}</Alert>}
-      </Box>
-
-      {/* List */}
       <Box sx={{ mt: 1.5 }}>
-        <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 900 }}>
-            Today view
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 700 }}>
-            {sorted.length} appointment{sorted.length === 1 ? '' : 's'}
-          </Typography>
-        </Stack>
-
-        {loading && sorted.length === 0 ? (
-          <Stack spacing={1.2}>
-            {[1, 2, 3].map(x => (
-              <Paper key={x} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
-                <Skeleton variant="text" width="60%" height={26} />
-                <Skeleton variant="text" width="35%" height={20} />
-                <Skeleton variant="text" width="80%" height={20} />
-                <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-                  <Skeleton variant="rounded" width={120} height={34} />
-                  <Skeleton variant="rounded" width={100} height={34} />
-                </Stack>
-              </Paper>
-            ))}
-          </Stack>
-        ) : null}
-
-        {!loading && sorted.length === 0 ? (
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
-            <Typography sx={{ fontWeight: 800 }}>No appointments in this range</Typography>
-            <Typography variant="body2" sx={{ opacity: 0.75, mt: 0.5 }}>
-              Adjust your dates, then refresh.
-            </Typography>
-          </Paper>
-        ) : null}
-
-        <Stack spacing={1.2}>
-          {sorted.map(a => {
-            const t = a.ticket || {}
-            const meta = statusMeta(a.status)
-            const primary = `${dayjs(a.appointmentDate).format('YYYY-MM-DD')}  Slot ${a.slotNumber || ''}  ${t.externalRef || a.ticketId}`
-            const subtitle = t.customerName || ''
-            const address = t.address || ''
-
-            return (
-              <Paper
-                key={a.id}
-                variant="outlined"
-                sx={{
-                  p: 2,
-                  borderRadius: 3,
-                  borderColor: 'divider',
-                  transition: 'transform 120ms ease, box-shadow 120ms ease',
-                  '&:active': { transform: 'scale(0.995)' }
-                }}
-              >
-                <Stack direction="row" spacing={1.5} alignItems="flex-start">
-                  <Box
-                    sx={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 2.5,
-                      display: 'grid',
-                      placeItems: 'center',
-                      bgcolor: 'rgba(0,0,0,0.04)',
-                      flex: '0 0 auto'
-                    }}
-                  >
-                    <AssignmentIcon />
-                  </Box>
-
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 900, lineHeight: 1.2 }}>
-                      {primary}
-                    </Typography>
-
-                    <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.4, fontWeight: 700 }}>
-                      {subtitle}
-                    </Typography>
-
-                    {address ? (
-                      <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mt: 0.6 }}>
-                        <LocationOnIcon sx={{ fontSize: 18, opacity: 0.7 }} />
-                        <Typography variant="body2" sx={{ opacity: 0.78, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {address}
-                        </Typography>
-                      </Stack>
-                    ) : null}
-
-                    <Stack direction="row" spacing={1} sx={{ mt: 1.2, flexWrap: 'wrap' }}>
-                      <Chip
-                        size="small"
-                        label={meta.label}
-                        color={meta.color}
-                        variant={meta.variant}
-                        sx={{ fontWeight: 800 }}
-                      />
-                    </Stack>
-                  </Box>
-
-                  <Stack spacing={1} alignItems="flex-end" sx={{ flex: '0 0 auto' }}>
-                    <Button
-                      variant="contained"
-                      startIcon={<DirectionsCarIcon />}
-                      disabled={loading}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        startTravel(a.id)
-                      }}
-                      sx={{ borderRadius: 999, fontWeight: 900, px: 2 }}
-                    >
-                      Start travel
-                    </Button>
-
-                    <Button
-                      component={Link}
-                      to={`/tech/appointments/${a.id}`}
-                      variant="text"
-                      endIcon={<ChevronRightIcon />}
-                      sx={{ fontWeight: 900, textTransform: 'none' }}
-                    >
-                      Open
-                    </Button>
-                  </Stack>
-                </Stack>
-              </Paper>
-            )
-          })}
-        </Stack>
+        {err && <Alert severity="error" sx={{ borderRadius: 3, mb: 1 }}>{err}</Alert>}
+        {info && <Alert severity="info" sx={{ borderRadius: 3, mb: 1 }}>{info}</Alert>}
       </Box>
+
+      {/* List header */}
+      <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mt: 1.5, mb: 1 }}>
+        <Typography sx={{ fontWeight: 900, fontSize: 16 }}>
+          Appointments
+        </Typography>
+        <Typography variant="body2" sx={{ opacity: 0.7, fontWeight: 800 }}>
+          {sorted.length}
+        </Typography>
+      </Stack>
+
+      {/* Loading skeletons */}
+      {loading && sorted.length === 0 ? (
+        <Stack spacing={1.1}>
+          {[1, 2, 3].map(x => (
+            <Paper key={x} variant="outlined" sx={{ p: 1.5, borderRadius: 3 }}>
+              <Skeleton variant="text" width="70%" height={22} />
+              <Skeleton variant="text" width="45%" height={18} />
+              <Skeleton variant="text" width="90%" height={18} />
+              <Skeleton variant="rounded" width="100%" height={44} sx={{ mt: 1 }} />
+            </Paper>
+          ))}
+        </Stack>
+      ) : null}
+
+      {/* Empty */}
+      {!loading && sorted.length === 0 ? (
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+          <Typography sx={{ fontWeight: 900 }}>No appointments</Typography>
+          <Typography variant="body2" sx={{ opacity: 0.75, mt: 0.5 }}>
+            Change the dates and refresh.
+          </Typography>
+        </Paper>
+      ) : null}
+
+      {/* Cards */}
+      <Stack spacing={1.1}>
+        {sorted.map(a => {
+          const t = a.ticket || {}
+          const meta = statusMeta(a.status)
+          const title = `${dayjs(a.appointmentDate).format('YYYY-MM-DD')} • Slot ${a.slotNumber || '-'}`
+          const ref = t.externalRef || a.ticketId
+          const customer = t.customerName || ''
+          const address = t.address || ''
+
+          return (
+            <Paper
+              key={a.id}
+              variant="outlined"
+              sx={{
+                p: 1.5,
+                borderRadius: 4,
+                overflow: 'hidden'
+              }}
+            >
+              <Stack spacing={0.8}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 900, lineHeight: 1.15 }}>
+                      {ref}
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.75, fontWeight: 800 }}>
+                      {title}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small"
+                    label={meta.label}
+                    color={meta.color}
+                    variant={meta.variant}
+                    sx={{ fontWeight: 900 }}
+                  />
+                </Stack>
+
+                {customer ? (
+                  <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                    {customer}
+                  </Typography>
+                ) : null}
+
+                {address ? (
+                  <Stack direction="row" spacing={0.7} alignItems="center">
+                    <LocationOnIcon sx={{ fontSize: 18, opacity: 0.7 }} />
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        opacity: 0.8,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {address}
+                    </Typography>
+                  </Stack>
+                ) : null}
+
+                <Stack direction="column" spacing={1} sx={{ mt: 0.5 }}>
+                  <Button
+                    variant="contained"
+                    startIcon={<DirectionsCarIcon />}
+                    disabled={loading}
+                    onClick={() => startTravel(a.id)}
+                    sx={{ borderRadius: 999, fontWeight: 900, py: 1.2 }}
+                    fullWidth
+                  >
+                    Start travel
+                  </Button>
+
+                  <Button
+                    component={Link}
+                    to={`/tech/appointments/${a.id}`}
+                    variant="outlined"
+                    endIcon={<ChevronRightIcon />}
+                    sx={{ borderRadius: 999, fontWeight: 900, py: 1.05 }}
+                    fullWidth
+                  >
+                    Open
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+          )
+        })}
+      </Stack>
+
+      <Box sx={{ height: 16 }} />
     </Box>
   )
 }
