@@ -30,6 +30,9 @@ import managersRoutes    from './routes/managers.js'
 import nldsRoutes        from './routes/nlds.js'
 import nldServices       from './routes/nldServices.js'
 import nodes             from './routes/nodes.js'
+import rocAppointmentsRoutes  from './routes/rocAppointments.js'
+import techAppointmentsRoutes from './routes/techAppointments.js'
+import techAuthRoutes         from './routes/techAuth.js'
 
 // ✅ Overtime (single source of truth)
 import overtimeRoutes       from './routes/overtime.js'
@@ -83,6 +86,8 @@ app.post('/whatsapp/notify', async (req, res, next) => {
 
 app.use('/api', authRoutes)
 
+app.use('/api', techAuthRoutes(prisma))
+
 /* ---------- Protected business routes ---------- */
 app.use(
   '/api/roster',
@@ -113,6 +118,19 @@ app.use(
   verifyToken, authRole('supervisor'),
   agentsRoutes(prisma)
 )
+
+app.use(
+  '/api/roc-appointments',
+  verifyToken, authRole('supervisor'), audit(prisma),
+  rocAppointmentsRoutes(prisma)
+)
+
+app.use(
+  '/api/tech',
+  verifyToken, authRole('tech','supervisor'),
+  techAppointmentsRoutes(prisma)
+)
+
 
 // Supervisors management (only accessible to supervisors)
 app.use(

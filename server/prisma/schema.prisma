@@ -483,3 +483,168 @@ model StoredSignature {
 
   @@map("StoredSignature")
 }
+
+enum AppointmentStatus {
+  SCHEDULED
+  ACCEPTED
+  EN_ROUTE
+  NEAR_SITE
+  ARRIVED
+  IN_PROGRESS
+  COMPLETED
+  UNSUCCESSFUL
+  CIVILS_REQUIRED
+  CANCELLED
+}
+
+enum AppointmentEventType {
+  CREATED
+  ASSIGNED
+  MOVED
+  STATUS_CHANGED
+  TECH_MESSAGE
+  ASSISTANCE_REQUESTED
+  JOB_CARD_SUBMITTED
+  ASSET_UPLOADED
+}
+
+enum ActorType {
+  ROC
+  TECH
+  SYSTEM
+}
+
+enum AssetType {
+  PHOTO
+  SIGNATURE
+}
+
+enum JobOutcome {
+  SUCCESSFUL
+  UNSUCCESSFUL
+}
+
+model Technician {
+  id                  String   @id @default(cuid())
+  name                String
+  phone               String?  @unique
+  region              String?
+  area                String?
+  vehicleRegistration String?
+  vehicleType         String?
+  homeAddress         String?
+  homeLat             Float?
+  homeLng             Float?
+  isActive            Boolean  @default(true)
+
+  appointments        Appointment[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("technicians")
+}
+
+model Ticket {
+  id            String   @id @default(cuid())
+  externalRef   String?  @unique
+  customerName  String
+  customerPhone String?
+  address       String?
+  lat           Float?
+  lng           Float?
+  notes         String?
+
+  appointments  Appointment[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("tickets")
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  ticketId         String
+  technicianId     String?
+
+  appointmentDate  DateTime
+  slotNumber       Int?
+  windowStartTime  String?
+  windowEndTime    String?
+
+  status           AppointmentStatus @default(SCHEDULED)
+
+  createdByUserId  String?
+  updatedByUserId  String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  ticket           Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  technician       Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+
+  events           AppointmentEvent[]
+  assets           AppointmentAsset[]
+  jobCard          JobCard?
+
+  @@index([appointmentDate])
+  @@index([technicianId, appointmentDate])
+  @@map("appointments")
+}
+
+model AppointmentEvent {
+  id             String               @id @default(cuid())
+  appointmentId  String
+  eventType      AppointmentEventType
+  actorType      ActorType
+  actorId        String?
+  eventTime      DateTime             @default(now())
+
+  lat            Float?
+  lng            Float?
+  payload        Json?
+
+  clientEventId  String?              @unique
+
+  createdAt      DateTime             @default(now())
+
+  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId, eventTime])
+  @@map("appointment_events")
+}
+
+model AppointmentAsset {
+  id             String   @id @default(cuid())
+  appointmentId  String
+  assetType      AssetType
+  fileUrl        String
+
+  createdAt      DateTime @default(now())
+
+  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+  @@map("appointment_assets")
+}
+
+model JobCard {
+  id             String     @id @default(cuid())
+  appointmentId  String     @unique
+
+  outcome        JobOutcome
+  reasonCode     String?
+  notes          String?
+  civilsRequired Boolean    @default(false)
+
+  signedByName   String?
+  signedAt       DateTime?
+  customerRating Int?
+
+  createdAt      DateTime   @default(now())
+
+  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("job_cards")
+}

@@ -32,6 +32,9 @@ import PeopleIcon             from '@mui/icons-material/People';
 import LanOutlinedIcon        from '@mui/icons-material/LanOutlined';
 import MapIcon                from '@mui/icons-material/Map'
 import AvTimerIcon            from '@mui/icons-material/AvTimer'
+import EventNoteIcon from '@mui/icons-material/EventNote'
+import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone'
+
 
 
 /* ── pages ──────────────────────────────────────────────── */
@@ -56,6 +59,10 @@ import OvertimeCapturePage from './pages/OvertimeCapturePage'
 import OvertimeSupervisorPage from './pages/OvertimeSupervisorPage'
 import OvertimeManagerPage from './pages/OvertimeManagerPage'
 import SignaturePage from './pages/SignaturePage'
+import RocAppointmentsPage from './pages/RocAppointmentsPage'
+import TechApp from './techApp/TechApp'
+import TechLoginPage from './techApp/TechLoginPage'
+
 
 
 /* ── auth / routing helpers ─────────────────────────────── */
@@ -103,6 +110,7 @@ function SideNav() {
         { label:'Adherence Tracking', path:'/',                 icon:<DashboardIcon/> },
         { label:'Weekly Schedule',    path:'/schedule',         icon:<CalendarTodayIcon/> },
         { label:'Leave Planner',      path:'/leave-planner',    icon:<EventBusyIcon/> },
+        { label:'ROC Appointments', path:'/roc-appointments', icon:<EventNoteIcon/> },
       ],
     },
     {
@@ -237,6 +245,8 @@ export default function App() {
             <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage/>}/>
+              <Route path="/tech/login" element={<TechLoginPage/>}/>
+              <Route path="/tech" element={<TechApp/>}/>  
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>
@@ -260,6 +270,7 @@ export default function App() {
                 <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />} />
                 <Route path="/overtime/manager" element={<OvertimeManagerPage />} />
                 <Route path="/settings/signature" element={<SignaturePage />} />
+                <Route path="/roc-appointments" element={<RocAppointmentsPage/>}/>
 
               </Route>
 
