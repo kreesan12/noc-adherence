@@ -126,11 +126,10 @@ app.use(
 )
 
 app.use(
-  '/api/tech',
+  '/api/tech-appointments',
   verifyToken, authRole('tech','supervisor'),
   techAppointmentsRoutes(prisma)
 )
-
 
 // Supervisors management (only accessible to supervisors)
 app.use(
