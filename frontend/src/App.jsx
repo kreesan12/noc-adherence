@@ -34,6 +34,8 @@ import MapIcon                from '@mui/icons-material/Map'
 import AvTimerIcon            from '@mui/icons-material/AvTimer'
 import EventNoteIcon from '@mui/icons-material/EventNote'
 import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone'
+import BuildIcon from '@mui/icons-material/Build'
+
 
 
 
@@ -62,6 +64,8 @@ import SignaturePage from './pages/SignaturePage'
 import RocAppointmentsPage from './pages/RocAppointmentsPage'
 import TechApp from './techApp/TechApp'
 import TechLoginPage from './techApp/TechLoginPage'
+import TechMyDayPage from './pages/TechMyDayPage.jsx'
+import TechAppointmentDetailPage from './pages/TechAppointmentDetailPage.jsx'
 
 
 
@@ -105,12 +109,18 @@ function SideNav() {
 
   const sections = [
     {
+      title: 'ROC AND MNT',
+      items: [
+        { label: 'ROC Appointments', path: '/roc-appointments', icon: <BuildIcon/> },
+        { label: 'Tech App', path: '/tech', icon: <BuildIcon/> },
+      ]
+    },
+    {
       title: 'DAILY OPERATIONS',
       items: [
         { label:'Adherence Tracking', path:'/',                 icon:<DashboardIcon/> },
         { label:'Weekly Schedule',    path:'/schedule',         icon:<CalendarTodayIcon/> },
         { label:'Leave Planner',      path:'/leave-planner',    icon:<EventBusyIcon/> },
-        { label:'ROC Appointments', path:'/roc-appointments', icon:<EventNoteIcon/> },
       ],
     },
     {
@@ -270,8 +280,9 @@ export default function App() {
                 <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />} />
                 <Route path="/overtime/manager" element={<OvertimeManagerPage />} />
                 <Route path="/settings/signature" element={<SignaturePage />} />
-                <Route path="/roc-appointments" element={<RocAppointmentsPage/>}/>
-
+                <Route path="/roc-appointments" element={<RocAppointmentsPage/>} />
+                <Route path="/tech" element={<TechMyDayPage/>} />
+                <Route path="/tech/appointments/:id" element={<TechAppointmentDetailPage/>} />
               </Route>
 
               {/* Fallback */}
