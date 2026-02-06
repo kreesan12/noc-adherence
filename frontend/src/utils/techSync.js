@@ -1,5 +1,5 @@
-// frontend/src/techApp/sync.js
-import { listQueuedEvents, removeQueuedEvent, bumpRetry } from './offlineQueue'
+// frontend/src/utils/techSync.js
+import { listQueuedEvents, removeQueuedEvent, bumpRetry } from './techOfflineQueue'
 import { postTechEvent } from '../api/techAppointments'
 
 export async function flushQueue() {
@@ -22,5 +22,14 @@ export async function flushQueue() {
       await bumpRetry(q.id, String(e?.message || e))
       break
     }
+  }
+}
+
+export async function safeFlushQueue() {
+  try {
+    if (!navigator.onLine) return
+    await flushQueue()
+  } catch {
+    // swallow
   }
 }

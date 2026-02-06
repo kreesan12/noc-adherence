@@ -126,7 +126,7 @@ app.use(
 )
 
 app.use(
-  '/api/tech-appointments',
+  '/api/tech',
   verifyToken, authRole('tech','supervisor'),
   techAppointmentsRoutes(prisma)
 )

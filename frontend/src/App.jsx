@@ -37,8 +37,6 @@ import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone'
 import BuildIcon from '@mui/icons-material/Build'
 
 
-
-
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
 import SchedulePage   from './pages/SchedulePage'
@@ -62,11 +60,9 @@ import OvertimeSupervisorPage from './pages/OvertimeSupervisorPage'
 import OvertimeManagerPage from './pages/OvertimeManagerPage'
 import SignaturePage from './pages/SignaturePage'
 import RocAppointmentsPage from './pages/RocAppointmentsPage'
-import TechApp from './techApp/TechApp'
-import TechLoginPage from './techApp/TechLoginPage'
 import TechMyDayPage from './pages/TechMyDayPage.jsx'
 import TechAppointmentDetailPage from './pages/TechAppointmentDetailPage.jsx'
-
+import TechLoginPage from './pages/TechLoginPage.jsx'
 
 
 /* ── auth / routing helpers ─────────────────────────────── */
@@ -257,10 +253,11 @@ export default function App() {
               <Route path="/login" element={<LoginPage/>}/>
 
               {/* Public (tech app) */}
-              <Route path="/tech" element={<TechApp/>}/>
+              <Route path="/tech" element={<Navigate to="/tech/my-day" replace />} />
               <Route path="/tech/login" element={<TechLoginPage/>}/>
               <Route path="/tech/my-day" element={<TechMyDayPage/>}/>
               <Route path="/tech/appointments/:id" element={<TechAppointmentDetailPage/>}/>
+
 
               {/* Protected */}
               <Route element={<ProtectedRoute/>}>

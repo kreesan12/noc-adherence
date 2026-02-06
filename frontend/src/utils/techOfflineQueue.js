@@ -1,4 +1,4 @@
-// frontend/src/techApp/offlineQueue.js
+// frontend/src/utils/techOfflineQueue.js
 import { openDB } from 'idb'
 
 const DB_NAME = 'tech_offline_db'
@@ -15,11 +15,15 @@ async function getDb() {
   })
 }
 
-export function makeClientEventId() {
-  return `${Date.now()}_${Math.random().toString(16).slice(2)}`
+export function makeClientEventId(prefix = 'cev') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`
 }
 
 export async function enqueueEvent(evt) {
+  if (!evt?.clientEventId) throw new Error('clientEventId required')
+  if (!evt?.appointmentId) throw new Error('appointmentId required')
+  if (!evt?.eventType) throw new Error('eventType required')
+
   const db = await getDb()
   const record = {
     id: evt.clientEventId,
@@ -39,6 +43,11 @@ export async function listQueuedEvents() {
   return all
 }
 
+export async function listQueuedEventsForAppointment(appointmentId) {
+  const all = await listQueuedEvents()
+  return all.filter(x => x.appointmentId === appointmentId)
+}
+
 export async function removeQueuedEvent(id) {
   const db = await getDb()
   await db.delete(STORE, id)
@@ -51,4 +60,10 @@ export async function bumpRetry(id, errorText) {
   rec.retryCount = (rec.retryCount || 0) + 1
   rec.lastError = String(errorText || 'unknown').slice(0, 500)
   await db.put(STORE, rec)
+}
+
+export async function countQueuedEvents() {
+  const db = await getDb()
+  const all = await db.getAllKeys(STORE)
+  return all.length
 }
