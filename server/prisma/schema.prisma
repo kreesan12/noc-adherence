@@ -525,31 +525,33 @@ enum JobOutcome {
 }
 
 model Technician {
-  id                  String   @id @default(cuid())
+  id                  String   @id
   name                String
   phone               String?  @unique
   region              String?
   area                String?
-  vehicleRegistration String?
-  vehicleType         String?
-  homeAddress         String?
-  homeLat             Float?
-  homeLng             Float?
-  isActive            Boolean  @default(true)
+
+  vehicleRegistration String?  @map("vehicle_registration")
+  vehicleType         String?  @map("vehicle_type")
+  homeAddress         String?  @map("home_address")
+  homeLat             Float?   @map("home_lat")
+  homeLng             Float?   @map("home_lng")
+  isActive            Boolean  @default(true) @map("is_active")
 
   appointments        Appointment[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("technicians")
 }
 
+
 model Ticket {
-  id            String   @id @default(cuid())
-  externalRef   String?  @unique
-  customerName  String
-  customerPhone String?
+  id            String   @id
+  externalRef   String?  @unique @map("external_ref")
+  customerName  String   @map("customer_name")
+  customerPhone String?  @map("customer_phone")
   address       String?
   lat           Float?
   lng           Float?
@@ -557,32 +559,33 @@ model Ticket {
 
   appointments  Appointment[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("tickets")
 }
 
-model Appointment {
-  id              String            @id @default(cuid())
-  ticketId         String
-  technicianId     String?
 
-  appointmentDate  DateTime
-  slotNumber       Int?
-  windowStartTime  String?
-  windowEndTime    String?
+model Appointment {
+  id              String            @id
+  ticketId         String            @map("ticket_id")
+  technicianId     String?           @map("technician_id")
+
+  appointmentDate  DateTime          @map("appointment_date")
+  slotNumber       Int?              @map("slot_number")
+  windowStartTime  String?           @map("window_start_time")
+  windowEndTime    String?           @map("window_end_time")
 
   status           AppointmentStatus @default(SCHEDULED)
 
-  createdByUserId  String?
-  updatedByUserId  String?
+  createdByUserId  String?           @map("created_by_user_id")
+  updatedByUserId  String?           @map("updated_by_user_id")
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
-  ticket           Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  technician       Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+  ticket           Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  technician       Technician?  @relation(fields: [technicianId], references: [id], onDelete: SetNull)
 
   events           AppointmentEvent[]
   assets           AppointmentAsset[]
@@ -593,21 +596,22 @@ model Appointment {
   @@map("appointments")
 }
 
+
 model AppointmentEvent {
-  id             String               @id @default(cuid())
-  appointmentId  String
-  eventType      AppointmentEventType
-  actorType      ActorType
-  actorId        String?
-  eventTime      DateTime             @default(now())
+  id             String               @id
+  appointmentId  String               @map("appointment_id")
+  eventType      AppointmentEventType @map("event_type")
+  actorType      ActorType            @map("actor_type")
+  actorId        String?              @map("actor_id")
+  eventTime      DateTime             @default(now()) @map("event_time")
 
   lat            Float?
   lng            Float?
   payload        Json?
 
-  clientEventId  String?              @unique
+  clientEventId  String?              @unique @map("client_event_id")
 
-  createdAt      DateTime             @default(now())
+  createdAt      DateTime             @default(now()) @map("created_at")
 
   appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
@@ -615,13 +619,14 @@ model AppointmentEvent {
   @@map("appointment_events")
 }
 
-model AppointmentAsset {
-  id             String   @id @default(cuid())
-  appointmentId  String
-  assetType      AssetType
-  fileUrl        String
 
-  createdAt      DateTime @default(now())
+model AppointmentAsset {
+  id             String    @id
+  appointmentId  String    @map("appointment_id")
+  assetType      AssetType @map("asset_type")
+  fileUrl        String    @map("file_url")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
@@ -629,20 +634,21 @@ model AppointmentAsset {
   @@map("appointment_assets")
 }
 
+
 model JobCard {
-  id             String     @id @default(cuid())
-  appointmentId  String     @unique
+  id             String     @id
+  appointmentId  String     @unique @map("appointment_id")
 
   outcome        JobOutcome
-  reasonCode     String?
+  reasonCode     String?    @map("reason_code")
   notes          String?
-  civilsRequired Boolean    @default(false)
+  civilsRequired Boolean    @default(false) @map("civils_required")
 
-  signedByName   String?
-  signedAt       DateTime?
-  customerRating Int?
+  signedByName   String?    @map("signed_by_name")
+  signedAt       DateTime?  @map("signed_at")
+  customerRating Int?       @map("customer_rating")
 
-  createdAt      DateTime   @default(now())
+  createdAt      DateTime   @default(now()) @map("created_at")
 
   appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
