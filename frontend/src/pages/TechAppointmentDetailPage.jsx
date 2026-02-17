@@ -54,6 +54,8 @@ const UNSUCCESSFUL_REASONS = [
 const GPS_PING_INTERVAL_MS = 30_000
 const GPS_MIN_MOVEMENT_METERS = 35
 const GPS_MAX_AGE_MS = 30_000
+const GPS_FORCE_SEND_MS = 180_000
+
 
 function haversineMeters(a, b) {
   if (!a || !b) return null
@@ -197,10 +199,12 @@ export default function TechAppointmentDetailPage() {
       const now = Date.now()
       const prev = lastSentLocRef.current
       const movedM = haversineMeters(prev, { lat: gps.lat, lng: gps.lng })
-      const recentlySent = now - (lastSentAtRef.current || 0) < GPS_MAX_AGE_MS
 
-      // Skip noisy duplicate updates unless movement is meaningful or enough time passed
-      if (prev && movedM != null && movedM < GPS_MIN_MOVEMENT_METERS && recentlySent) return
+      const tooSoon = now - (lastSentAtRef.current || 0) < GPS_MAX_AGE_MS
+      const force = now - (lastSentAtRef.current || 0) > GPS_FORCE_SEND_MS
+
+      if (!force && prev && movedM != null && movedM < GPS_MIN_MOVEMENT_METERS && tooSoon) return
+
 
       await enqueueEvent({
         clientEventId: makeClientEventId('cev_gps'),

@@ -1,16 +1,23 @@
 // server/nldOutageWatcher.js
+
 import dayjs from 'dayjs'
 
 // ---- Config ----
 const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60)
-const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)
+const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4) // keep for backwards compat/logging
 const POLL_INTERVAL_MS = Number(process.env.NLD_POLL_MS || 5 * 60 * 1000)
 
 // partial NLD metrics
 const PARTIAL_LOOKBACK_HOURS = Number(process.env.NLD_PARTIAL_LOOKBACK_HOURS || 24)
-const CLUSTER_WINDOW_HOURS = Number(process.env.NLD_CLUSTER_WINDOW_HOURS || 6)
+
+// CHANGE: 3 events in last 3 hours
+const CLUSTER_WINDOW_HOURS = Number(process.env.NLD_CLUSTER_WINDOW_HOURS || 3)
 const CLUSTER_MIN_EVENTS = Number(process.env.NLD_CLUSTER_MIN_EVENTS || 3)
+
 const PARTIAL_NOT_LOGGED_MINUTES = Number(process.env.NLD_NOT_LOGGED_MINUTES || 30)
+
+// CHANGE: multi breach tiers (includes your existing 4h)
+const BREACH_THRESHOLDS_HOURS = [4, 6, 8, 12, 16, 20, 24]
 
 // Memory safety: keep “warned” keys bounded using TTL + max keys
 const CACHE_TTL_HOURS = Number(process.env.NLD_CACHE_TTL_HOURS || 72)
@@ -124,16 +131,49 @@ async function fetchOutageTickets () {
   return data.results || []
 }
 
-// Normalise route / NLD strings for fuzzy matching
+// ------------------------------
+// CHANGE: validity + normalization helpers
+// ------------------------------
 function normalizeRoute (str) {
   if (!str) return ''
-  return str
+  return String(str)
     .toLowerCase()
+    // normalize NLD3/4 variants
+    .replace(/\bnld\s*3\s*\/\s*4\b/g, 'nld3/4')
+    // normalize arrows
     .replace(/\s*<[-–]?>\s*/g, ' <> ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
+function isIgnorableNld (raw) {
+  const s = normalizeRoute(raw)
+  if (!s) return true
+  if (s === 'other') return true
+  if (s === 'dfa nld') return true
+  return false
+}
+
+function getEventRouteKey (event) {
+  // prefer NLD route, fallback to partial circuit
+  const rawKey = event?.nldRoute || event?.partialCircuit || ''
+  if (isIgnorableNld(rawKey)) return ''
+  return rawKey
+}
+
+function expandNld3_4Variants (norm) {
+  // If alert comes as NLD3/4, allow matching against NLD3, NLD4, and NLD3/4 on outages
+  const variants = new Set([norm])
+  if (/\bnld3\/4\b/.test(norm)) {
+    variants.add(norm.replace(/\bnld3\/4\b/g, 'nld3'))
+    variants.add(norm.replace(/\bnld3\/4\b/g, 'nld4'))
+  }
+  return Array.from(variants)
+}
+
+// ------------------------------
+// Outage route index (unchanged except uses normalizeRoute above)
+// ------------------------------
 function buildOutageRouteIndex (enrichedOutages) {
   return enrichedOutages.map(o => ({
     ticketId: o.id,
@@ -142,14 +182,21 @@ function buildOutageRouteIndex (enrichedOutages) {
   }))
 }
 
+// CHANGE: matching now supports NLD3/4 variants and ignores DFA NLD / OTHER / blank events
 function hasMatchingOutageForEvent (event, outageIndex) {
-  const eventNorm = normalizeRoute(event.nldRoute || event.partialCircuit || '')
+  const eventKey = getEventRouteKey(event)
+  const eventNorm = normalizeRoute(eventKey)
   if (!eventNorm) return false
+
+  const eventVariants = expandNld3_4Variants(eventNorm)
 
   for (const o of outageIndex) {
     const { nldNorm, subjectNorm } = o
-    if (nldNorm && (nldNorm.includes(eventNorm) || eventNorm.includes(nldNorm))) return true
-    if (subjectNorm && (subjectNorm.includes(eventNorm) || eventNorm.includes(subjectNorm))) return true
+
+    for (const v of eventVariants) {
+      if (nldNorm && (nldNorm.includes(v) || v.includes(nldNorm))) return true
+      if (subjectNorm && (subjectNorm.includes(v) || v.includes(subjectNorm))) return true
+    }
   }
 
   return false
@@ -158,38 +205,37 @@ function hasMatchingOutageForEvent (event, outageIndex) {
 // ---- WhatsApp message builders ----
 function buildRecentMsg (tickets) {
   if (!tickets.length) return null
-  const lines = ['🟡 NEW NLD OUTAGE', '']
+  const lines = ['🟡 New NLD outage logged', '']
 
   tickets.forEach(t => {
-    lines.push(`Ticket #${t.id} – ${t.subject || ''}`)
-    lines.push(`Age       : ${t.ageMinutes.toFixed(0)} min`)
-    lines.push(`Created   : ${t.created_at}`)
-    lines.push(`Updated   : ${t.updated_at}`)
-    lines.push(`Impact    : ${t.subscriberImpact}`)
-    lines.push(`NLD       : ${t.nld || ''}`)
-    lines.push(`Liquid Ref: ${t.liquidRef}`)
-    lines.push(`Liquid Cir: ${t.liquidCircuit}`)
-    lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
+    lines.push(`Ticket #${t.id}: ${t.subject || ''}`)
+    lines.push(`Age: ${t.ageMinutes.toFixed(0)} min`)
+    lines.push(`Impact: ${t.subscriberImpact}`)
+    lines.push(`NLD: ${t.nld || ''}`)
+    if (t.liquidRef) lines.push(`Liquid Ref: ${t.liquidRef}`)
+    if (t.liquidCircuit) lines.push(`Liquid Cir: ${t.liquidCircuit}`)
+    lines.push(`Link: https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
     lines.push('')
   })
 
   return lines.join('\n')
 }
 
+// CHANGE: message builder takes a threshold (single)
 function buildBreachMsg (tickets, breachHours, windowMinutes) {
   if (!tickets.length) return null
-  const lines = [`🔴 NLD outage duration exceeded ${breachHours} hours (outside last ${windowMinutes} minutes)`, '']
+
+  const extra = breachHours >= 8 ? ' 🔥' : ''
+  const lines = [`🔴 NLD outage open >= ${breachHours}h${extra} (not created in last ${windowMinutes} min)`, '']
 
   tickets.forEach(t => {
-    lines.push(`Ticket #${t.id} – ${t.subject || ''}`)
-    lines.push(`Age       : ${t.ageHours.toFixed(1)} h`)
-    lines.push(`Created   : ${t.created_at}`)
-    lines.push(`Updated   : ${t.updated_at}`)
-    lines.push(`Impact    : ${t.subscriberImpact}`)
-    lines.push(`NLD       : ${t.nld || ''}`)
-    lines.push(`Liquid Ref: ${t.liquidRef}`)
-    lines.push(`Liquid Cir: ${t.liquidCircuit}`)
-    lines.push(`Link      : https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
+    lines.push(`Ticket #${t.id}: ${t.subject || ''}`)
+    lines.push(`Age: ${t.ageHours.toFixed(1)} h`)
+    lines.push(`Impact: ${t.subscriberImpact}`)
+    lines.push(`NLD: ${t.nld || ''}`)
+    if (t.liquidRef) lines.push(`Liquid Ref: ${t.liquidRef}`)
+    if (t.liquidCircuit) lines.push(`Liquid Cir: ${t.liquidCircuit}`)
+    lines.push(`Link: https://${ZENDESK_SUBDOMAIN}.zendesk.com/agent/tickets/${t.id}`)
     lines.push('')
   })
 
@@ -262,6 +308,10 @@ function transformPartialNldAlerts (results) {
     else if (raw === 'NLD Flap') eventGroup = 'NLD Flap'
 
     circuits.forEach(circuitCode => {
+      // CHANGE: ignore DFA NLD / OTHER / blank upfront (route first, else partial)
+      const routeKeyForValidity = route || partial || ''
+      if (isIgnorableNld(routeKeyForValidity)) return
+
       events.push({
         ticketId: t.id,
         ticketUrl: `${base}${t.id}`,
@@ -289,8 +339,10 @@ function findPartialClusters (events) {
   const windowMs = CLUSTER_WINDOW_HOURS * 60 * 60 * 1000
 
   events.forEach(e => {
-    const routeKey = e.nldRoute || e.partialCircuit || 'UNKNOWN'
-    if (!routeKey || routeKey === 'UNKNOWN') return
+    // CHANGE: ignore DFA NLD / OTHER / blank at clustering stage too
+    const routeKey = getEventRouteKey(e)
+    if (!routeKey) return
+
     if (!byKey.has(routeKey)) byKey.set(routeKey, [])
     byKey.get(routeKey).push({ ...e, routeKey })
   })
@@ -328,19 +380,17 @@ function buildPartialClusterMsg (clusters) {
   if (!clusters.length) return null
 
   const lines = [
-    `🟠 Partial NLD flap / outage clusters (>=${CLUSTER_MIN_EVENTS} events in ${CLUSTER_WINDOW_HOURS}h on same partial circuit)`,
+    `🟠 Partial NLD cluster: >=${CLUSTER_MIN_EVENTS} events in ${CLUSTER_WINDOW_HOURS}h on same NLD/partial`,
     ''
   ]
 
   clusters.forEach(cluster => {
     const { routeKey, count, events } = cluster
-    const label = count > CLUSTER_MIN_EVENTS
-      ? `🔴 MAJOR MAJOR RED FLAG – ${count} events`
-      : `🟠 Cluster – ${count} events`
+    const label = count > CLUSTER_MIN_EVENTS ? `🔴 Cluster (${count} events)` : `🟠 Cluster (${count} events)`
 
-    lines.push(`${label} on partial circuit: ${routeKey}`)
+    lines.push(`${label}: ${routeKey}`)
     events.forEach(e => {
-      lines.push(`• ${e.created_at} – #${e.ticketId} – ${e.eventGroup} – circuit ${e.circuit}`)
+      lines.push(`• ${e.created_at} | #${e.ticketId} | ${e.eventGroup} | circuit ${e.circuit}`)
       lines.push(`  ${e.ticketUrl}`)
     })
     lines.push('')
@@ -356,6 +406,11 @@ function findPartialNotLogged (events, outageIndex) {
   for (const e of events) {
     if (e.isCleared) continue
     if (e.ageMinutes < PARTIAL_NOT_LOGGED_MINUTES) continue
+
+    // CHANGE: ignore DFA NLD / OTHER / blank
+    if (!getEventRouteKey(e)) continue
+
+    // CHANGE: matching supports NLD3/4 variants
     if (hasMatchingOutageForEvent(e, outageIndex)) continue
 
     const bucket = Math.floor(e.ageMinutes / PARTIAL_NOT_LOGGED_MINUTES)
@@ -385,14 +440,14 @@ function buildPartialNotLoggedMsg (events) {
   if (!events.length) return null
 
   const lines = [
-    `🔴 Partial NLD alerts active with NO logged outage (age >= ${PARTIAL_NOT_LOGGED_MINUTES} min)`,
-    `Repeated every ${PARTIAL_NOT_LOGGED_MINUTES} min per event while it remains active and without an outage.`,
+    `🔴 Partial NLD alert active without a logged outage (>= ${PARTIAL_NOT_LOGGED_MINUTES} min)`,
+    `Repeats every ${PARTIAL_NOT_LOGGED_MINUTES} min per ticket while still active.`,
     ''
   ]
 
   events.forEach(e => {
-    lines.push(`• #${e.ticketId} – ${e.eventGroup} – ${e.nldRoute || e.partialCircuit || ''}`)
-    lines.push(`  Age: ${e.ageHours.toFixed(2)} h (bucket ${e.bucket}) – state: ${e.state}`)
+    lines.push(`• #${e.ticketId} | ${e.eventGroup} | ${e.nldRoute || e.partialCircuit || ''}`)
+    lines.push(`  Age: ${e.ageHours.toFixed(2)} h | state: ${e.state} | bucket: ${e.bucket}`)
     lines.push(`  Circuit: ${e.circuit}`)
     lines.push(`  ${e.ticketUrl}`)
   })
@@ -411,7 +466,8 @@ export function startNldOutageWatcher (sendSlaAlert) {
   if (watcherStarted) return
   watcherStarted = true
 
-  console.log(`[NLD WATCHER] Starting – window ${OUTAGE_WINDOW_MINUTES} min, breach ${BREACH_HOURS} h, poll ${Math.round(POLL_INTERVAL_MS / 1000)}s`)
+  console.log(`[NLD WATCHER] Starting – window ${OUTAGE_WINDOW_MINUTES} min, breach baseline ${BREACH_HOURS} h, poll ${Math.round(POLL_INTERVAL_MS / 1000)}s`)
+  console.log(`[NLD WATCHER] Breach tiers – ${BREACH_THRESHOLDS_HOURS.join(', ')} hours`)
   console.log(`[NLD WATCHER] Partial – lookback ${PARTIAL_LOOKBACK_HOURS}h, cluster ${CLUSTER_MIN_EVENTS} events / ${CLUSTER_WINDOW_HOURS}h, not-logged >= ${PARTIAL_NOT_LOGGED_MINUTES} min`)
   console.log(`[NLD WATCHER] Cache – TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
@@ -423,8 +479,12 @@ export function startNldOutageWatcher (sendSlaAlert) {
       const rawOutages = await fetchOutageTickets()
 
       const recent = []
-      const breaches = []
       const allEnrichedOutages = []
+
+      // CHANGE: breaches now tracked per threshold
+      const breachesByThreshold = new Map() // hours -> enriched[]
+
+      for (const h of BREACH_THRESHOLDS_HOURS) breachesByThreshold.set(h, [])
 
       for (const t of rawOutages) {
         if (!isNldTicket(t)) continue
@@ -458,11 +518,16 @@ export function startNldOutageWatcher (sendSlaAlert) {
           }
         }
 
-        if (ageHours >= BREACH_HOURS && ageMinutes > OUTAGE_WINDOW_MINUTES) {
-          const key = `breach-${t.id}`
-          if (!warnedBreach.has(key)) {
-            warnedBreach.add(key)
-            breaches.push(enriched)
+        // CHANGE: multi tier breach alerts (in addition to 4h)
+        if (ageMinutes > OUTAGE_WINDOW_MINUTES) {
+          for (const thresholdHours of BREACH_THRESHOLDS_HOURS) {
+            if (ageHours >= thresholdHours) {
+              const key = `breach-${thresholdHours}-${t.id}`
+              if (!warnedBreach.has(key)) {
+                warnedBreach.add(key)
+                breachesByThreshold.get(thresholdHours).push(enriched)
+              }
+            }
           }
         }
       }
@@ -473,10 +538,14 @@ export function startNldOutageWatcher (sendSlaAlert) {
         await sendSlaAlert(recentMsg)
       }
 
-      const breachMsg = buildBreachMsg(breaches, BREACH_HOURS, OUTAGE_WINDOW_MINUTES)
-      if (breachMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp NLD BREACH alert')
-        await sendSlaAlert(breachMsg)
+      // CHANGE: send breach messages per threshold (only if any new ones for that tier)
+      for (const thresholdHours of BREACH_THRESHOLDS_HOURS) {
+        const list = breachesByThreshold.get(thresholdHours) || []
+        const msg = buildBreachMsg(list, thresholdHours, OUTAGE_WINDOW_MINUTES)
+        if (msg) {
+          console.log(`[NLD WATCHER] Sending WhatsApp NLD BREACH ${thresholdHours}h alert`)
+          await sendSlaAlert(msg)
+        }
       }
 
       const outageIndex = buildOutageRouteIndex(allEnrichedOutages)
