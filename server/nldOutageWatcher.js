@@ -334,42 +334,39 @@ function transformPartialNldAlerts (results) {
 }
 
 // ---- Cluster detection ----
-function findPartialClusters (events) {
-  const byKey = new Map()
+function findPartialClusters (events, { nowMs = Date.now() } = {}) {
   const windowMs = CLUSTER_WINDOW_HOURS * 60 * 60 * 1000
+  const cutoffMs = nowMs - windowMs
 
-  events.forEach(e => {
-    // CHANGE: ignore DFA NLD / OTHER / blank at clustering stage too
+  // Only events in the last CLUSTER_WINDOW_HOURS from "now"
+  const recent = events.filter(e => e.createdMs >= cutoffMs)
+
+  const byKey = new Map()
+
+  for (const e of recent) {
     const routeKey = getEventRouteKey(e)
-    if (!routeKey) return
+    if (!routeKey) continue
 
     if (!byKey.has(routeKey)) byKey.set(routeKey, [])
     byKey.get(routeKey).push({ ...e, routeKey })
-  })
+  }
 
   const clusters = []
 
   for (const [routeKey, arr] of byKey.entries()) {
     if (arr.length < CLUSTER_MIN_EVENTS) continue
 
+    // Stable ordering (oldest -> newest) for consistent keys
     const sorted = [...arr].sort((a, b) => a.createdMs - b.createdMs)
 
-    for (let i = 0; i < sorted.length; i++) {
-      const startMs = sorted[i].createdMs
-      let j = i
-      while (j < sorted.length && sorted[j].createdMs - startMs <= windowMs) j++
+    // Dedupe key: same routeKey and same most-recent ticket in the window
+    // This ensures once we’ve alerted for the current burst, we won’t repeat it.
+    const last = sorted[sorted.length - 1]
+    const clusterKey = `partial-cluster-last${CLUSTER_WINDOW_HOURS}h:${normalizeRoute(routeKey)}:${last.ticketId}`
 
-      const count = j - i
-      if (count >= CLUSTER_MIN_EVENTS) {
-        const windowEvents = sorted.slice(i, j)
-        const clusterKey =
-          `partial-cluster:${routeKey}:${windowEvents[0].ticketId}:${windowEvents[windowEvents.length - 1].ticketId}`
-
-        if (!warnedPartialClusters.has(clusterKey)) {
-          warnedPartialClusters.add(clusterKey)
-          clusters.push({ routeKey, count, events: windowEvents })
-        }
-      }
+    if (!warnedPartialClusters.has(clusterKey)) {
+      warnedPartialClusters.add(clusterKey)
+      clusters.push({ routeKey, count: sorted.length, events: sorted })
     }
   }
 
@@ -554,7 +551,7 @@ export function startNldOutageWatcher (sendSlaAlert) {
       const rawPartial = await fetchPartialNldAlertsRaw()
       const partialEvents = transformPartialNldAlerts(rawPartial)
 
-      const clusters = findPartialClusters(partialEvents)
+      const clusters = findPartialClusters(partialEvents, { nowMs: Date.now() })
       const clusterMsg = buildPartialClusterMsg(clusters)
       if (clusterMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD CLUSTER alert')
