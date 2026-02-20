@@ -215,9 +215,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
         warnedNew.add(key)
 
         const msg = buildVipMsg({
-          title: '🟣 VIP ticket logged (Org rule)',
+          title: '🟣 VIP ticket logged (Telemedia)',
           ticket: t,
-          reason: `organization_id=${VIP_ORG_ID}`,
           ageHours
         })
 
@@ -244,9 +243,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
         warnedNew.add(key)
 
         const msg = buildVipMsg({
-          title: '🟪 VIP carrier down or integration ticket logged (Tag rule)',
+          title: '🟪 VIP carrier down (Telemedia)',
           ticket: t,
-          reason,
           ageHours
         })
 
