@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { initWhatsApp } from '../whatsappClient.js'
 
-const q = process.argv.slice(2).join(' ').trim()
+const q = (process.argv.slice(2).join(' ') || '').trim()
 if (!q) {
   console.log('Usage: node server/tools/findWaGroup.js "part of group name"')
   process.exit(1)
@@ -12,18 +12,23 @@ async function main () {
   await new Promise(r => setTimeout(r, 3000))
 
   const groups = await sock.groupFetchAllParticipating()
-  const rows = Object.values(groups)
-    .map(g => ({ name: g.subject || '', id: g.id, participants: g.participants?.length || 0 }))
+  const all = Object.values(groups).map(g => ({
+    name: g.subject || '',
+    id: g.id,
+    participants: g.participants?.length || 0
+  }))
+
+  console.log('[DEBUG] Total groups visible to Baileys:', all.length)
+  console.log('[DEBUG] Search term:', JSON.stringify(q))
+
+  const matches = all
     .filter(x => x.name.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  if (!rows.length) {
-    console.log('No groups matched:', q)
-    process.exit(2)
-  }
+  console.log('[DEBUG] Matches:', matches.length)
+  console.table(matches)
 
-  console.table(rows)
-  process.exit(0)
+  process.exit(matches.length ? 0 : 2)
 }
 
 main().catch(err => {
