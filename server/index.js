@@ -13,6 +13,7 @@ import authRoutesFactory, { verifyToken }  from './routes/auth.js'
 import { initWhatsApp, sendSlaAlert, getStatus as getWhatsAppStatus } from './whatsappClient.js'
 //import { startSlaAckWatcher } from './slaAckWatcher.js'
 import { startNldOutageWatcher } from './nldOutageWatcher.js'   // <-- new import
+import { startVipTicketWatcher } from './vipTicketWatcher.js'
 
 import rosterRoutes     from './routes/roster.js'
 import scheduleRoutes   from './routes/schedule.js'
@@ -45,6 +46,7 @@ const app    = express()
 initWhatsApp()
 //startSlaAckWatcher(sendSlaAlert)
 startNldOutageWatcher(sendSlaAlert)
+startVipTicketWatcher(sendSlaAlert)
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
