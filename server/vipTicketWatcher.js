@@ -238,9 +238,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
         if (!warnedNew.has(newKey)) {
           warnedNew.add(newKey)
           const msg = buildVipMsg({
-            title: '🟣 VIP ticket logged (Org rule)',
+            title: '🟣 VIP ticket logged (TELEMEDIA logged a ticket)',
             ticket: t,
-            reason: `organization_id=${VIP_ORG_ID}`,
             ageHours
           })
           console.log('[VIP WATCHER] Sending WA VIP org NEW alert', t.id)
@@ -253,9 +252,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
         const { shouldSend, bucket } = upsertReminderBucket(bucketKey, ageHours)
         if (shouldSend && bucket >= 1) {
           const msg = buildVipMsg({
-            title: `🟣 VIP ticket still open (${bucket * REMIND_EVERY_HOURS}h)`,
+            title: `🟣 VIP ticket still open - TELEMEDIA (${bucket * REMIND_EVERY_HOURS}h)`,
             ticket: t,
-            reason: `organization_id=${VIP_ORG_ID}`,
             ageHours
           })
           console.log('[VIP WATCHER] Sending WA VIP org REMINDER', t.id, 'bucket', bucket)
@@ -281,9 +279,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
         if (!warnedNew.has(newKey)) {
           warnedNew.add(newKey)
           const msg = buildVipMsg({
-            title: '🟪 VIP carrier down or integration ticket logged (Tag rule)',
+            title: '🟪 VIP carrier down - TELEMEDIA',
             ticket: t,
-            reason,
             ageHours
           })
           console.log('[VIP WATCHER] Sending WA VIP tag NEW alert', t.id)
@@ -294,9 +291,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
         const { shouldSend, bucket } = upsertReminderBucket(bucketKey, ageHours)
         if (shouldSend && bucket >= 1) {
           const msg = buildVipMsg({
-            title: `🟪 VIP tag ticket still open (${bucket * REMIND_EVERY_HOURS}h)`,
+            title: `🟪 VIP carrier - still open - TELEMEDIA (${bucket * REMIND_EVERY_HOURS}h)`,
             ticket: t,
-            reason,
             ageHours
           })
           console.log('[VIP WATCHER] Sending WA VIP tag REMINDER', t.id, 'bucket', bucket)
