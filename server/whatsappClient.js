@@ -21,9 +21,10 @@ let readyPromise = null
 let readyResolve = null
 let readyReject = null
 
-// QR stability gate (prevents QR from refreshing too quickly due to reconnect loops)
-let qrActive = false
-let lastQrAt = 0
+// QR tracking (QR rotates quickly until scanned)
+let lastQr = null
+let lastQrPrintedAt = 0
+const QR_PRINT_THROTTLE_MS = Number(process.env.WA_QR_PRINT_THROTTLE_MS || 25000)
 
 function normalizeGroupId (id) {
   if (!id) return null
@@ -71,10 +72,8 @@ async function waitUntilReady (timeoutMs = 60_000) {
 }
 
 export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_000 } = {}) {
-  // If already ready, done
   if (sock && isReady) return sock
 
-  // If an init is already running, reuse it
   if (initPromise) {
     const s = await initPromise
     if (waitForReady) await waitUntilReady(readyTimeoutMs)
@@ -85,14 +84,11 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
     targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
     console.log('[WA] Target group JID:', targetGroupId)
 
-    // Reset ready gate for this init attempt
     makeReadyPromise()
     isReady = false
 
-    // Auth state persisted in Postgres
     const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
 
-    // Baileys version
     let version
     try {
       const latest = await fetchLatestBaileysVersion()
@@ -114,7 +110,6 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
       keepAliveIntervalMs: 25_000
     })
 
-    // Persist creds to Postgres whenever updated
     sock.ev.on('creds.update', async () => {
       try {
         await saveCreds()
@@ -127,19 +122,23 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
       const { connection, lastDisconnect, qr } = update
 
       if (qr) {
-        // QR shown: mark active so we don't reconnect-loop and refresh it
-        qrActive = true
-        lastQrAt = Date.now()
-
+        lastQr = qr
         markNotReady()
-        console.log('[WA] QR (raw):', qr)
-        console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
-        qrcode.generate(qr, { small: true })
+
+        const now = Date.now()
+        if (now - lastQrPrintedAt >= QR_PRINT_THROTTLE_MS) {
+          lastQrPrintedAt = now
+          console.log('[WA] QR (raw):', qr)
+          console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
+          qrcode.generate(qr, { small: true })
+        } else {
+          console.log('[WA] QR refreshed (suppressed log; still waiting for scan)')
+        }
       }
 
       if (connection === 'open') {
         console.log('[WA] Connected to WhatsApp (Baileys)')
-        qrActive = false
+        lastQr = null
         markReady()
         return
       }
@@ -149,14 +148,6 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
         console.log('[WA] Connection closed. statusCode:', statusCode)
         markNotReady(lastDisconnect?.error)
 
-        // If a QR was just generated, do NOT reconnect-loop for 2 minutes.
-        // This prevents the QR from changing too quickly to scan.
-        if (qrActive && (Date.now() - lastQrAt) < 2 * 60 * 1000) {
-          console.log('[WA] QR is active. Waiting for scan, not reconnecting yet.')
-          return
-        }
-
-        // Logged out: nuke session so next boot forces fresh QR
         if (statusCode === DisconnectReason.loggedOut) {
           console.warn('[WA] Logged out. Clearing session from Postgres. Scan QR again.')
           try {
@@ -165,17 +156,13 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
             console.error('[WA] Failed clearing session:', e?.message || e)
           }
           sock = null
-          qrActive = false
           return
         }
 
-        // Conflict/replaced or other transient: backoff + reconnect
         console.log('[WA] Reconnecting in 5s...')
         sock = null
         await sleep(5000)
 
-        // Kick a new init in the background (no await inside the event handler)
-        // to avoid bubbling errors out and crashing the process.
         initWhatsApp({ waitForReady: false }).catch(e => {
           console.error('[WA] Reconnect init failed:', e?.message || e)
         })
@@ -195,9 +182,7 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
 }
 
 export async function sendSlaAlert (message, opts = {}) {
-  // Ensure WA is connected before sending
   await initWhatsApp({ waitForReady: true, readyTimeoutMs: 60_000 })
-
   if (!sock || !isReady) throw new Error('WhatsApp client not ready')
 
   const override = opts?.groupId ? normalizeGroupId(opts.groupId) : null
@@ -209,13 +194,7 @@ export async function sendSlaAlert (message, opts = {}) {
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  // Disable preview at send-time (prevents link preview generation paths)
-  await sock.sendMessage(
-    jid,
-    { text },
-    { linkPreview: false }
-  )
-
+  await sock.sendMessage(jid, { text }, { linkPreview: false })
   console.log('[WA] Message sent to', jid)
 }
 
@@ -224,6 +203,6 @@ export function getStatus () {
     ready: isReady,
     groupConfigured: !!targetGroupId,
     sessionId: SESSION_ID,
-    qrActive
+    hasQr: !!lastQr
   }
 }
