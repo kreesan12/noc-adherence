@@ -21,6 +21,10 @@ let readyPromise = null
 let readyResolve = null
 let readyReject = null
 
+// QR stability gate (prevents QR from refreshing too quickly due to reconnect loops)
+let qrActive = false
+let lastQrAt = 0
+
 function normalizeGroupId (id) {
   if (!id) return null
   return id.endsWith('@g.us') ? id : `${id}@g.us`
@@ -104,8 +108,6 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
       markOnlineOnConnect: false,
       syncFullHistory: false,
       shouldSyncHistoryMessage: () => false,
-      // NOTE: some Baileys builds still try preview generation when URLs exist.
-      // We also disable preview per-message in sendSlaAlert.
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 60_000,
       connectTimeoutMs: 60_000,
@@ -125,14 +127,19 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
       const { connection, lastDisconnect, qr } = update
 
       if (qr) {
+        // QR shown: mark active so we don't reconnect-loop and refresh it
+        qrActive = true
+        lastQrAt = Date.now()
+
         markNotReady()
-        console.log('[WA] QR (raw):', qr)   // ✅ add this line
+        console.log('[WA] QR (raw):', qr)
         console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
         qrcode.generate(qr, { small: true })
       }
 
       if (connection === 'open') {
         console.log('[WA] Connected to WhatsApp (Baileys)')
+        qrActive = false
         markReady()
         return
       }
@@ -141,6 +148,13 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
         const statusCode = lastDisconnect?.error?.output?.statusCode
         console.log('[WA] Connection closed. statusCode:', statusCode)
         markNotReady(lastDisconnect?.error)
+
+        // If a QR was just generated, do NOT reconnect-loop for 2 minutes.
+        // This prevents the QR from changing too quickly to scan.
+        if (qrActive && (Date.now() - lastQrAt) < 2 * 60 * 1000) {
+          console.log('[WA] QR is active. Waiting for scan, not reconnecting yet.')
+          return
+        }
 
         // Logged out: nuke session so next boot forces fresh QR
         if (statusCode === DisconnectReason.loggedOut) {
@@ -151,6 +165,7 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
             console.error('[WA] Failed clearing session:', e?.message || e)
           }
           sock = null
+          qrActive = false
           return
         }
 
@@ -194,13 +209,10 @@ export async function sendSlaAlert (message, opts = {}) {
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  // IMPORTANT:
-  // If your Baileys build tries to generate link previews and you don’t have link-preview-js,
-  // sending a URL can crash. Disable preview at send-time.
+  // Disable preview at send-time (prevents link preview generation paths)
   await sock.sendMessage(
     jid,
     { text },
-    // This option is supported in recent Baileys builds; harmless if ignored.
     { linkPreview: false }
   )
 
@@ -211,6 +223,7 @@ export function getStatus () {
   return {
     ready: isReady,
     groupConfigured: !!targetGroupId,
-    sessionId: SESSION_ID
+    sessionId: SESSION_ID,
+    qrActive
   }
 }
