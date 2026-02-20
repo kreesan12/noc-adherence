@@ -43,10 +43,11 @@ dotenv.config()
 const prisma = new PrismaClient()
 const app    = express()
 
-initWhatsApp()
-//startSlaAckWatcher(sendSlaAlert)
-startNldOutageWatcher(sendSlaAlert)
-startVipTicketWatcher(sendSlaAlert)
+;(async () => {
+  await initWhatsApp()
+  startNldOutageWatcher(sendSlaAlert)
+  startVipTicketWatcher(sendSlaAlert)
+})().catch(e => console.error('[BOOT] WhatsApp init failed:', e?.message || e))
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({

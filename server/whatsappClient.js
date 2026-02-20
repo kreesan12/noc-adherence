@@ -138,3 +138,11 @@ export async function sendSlaAlert (message, opts = {}) {
   await sock.sendMessage(jid, { text })
   console.log('[WA] Message sent to', jid)
 }
+
+export function getStatus () {
+  return {
+    ready: isReady,
+    groupConfigured: !!targetGroupId,
+    sessionId: SESSION_ID
+  }
+}
