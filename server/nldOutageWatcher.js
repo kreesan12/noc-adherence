@@ -297,7 +297,7 @@ function transformPartialNldAlerts (results) {
     }
 
     const tags = t.tags || []
-    const cleared = tags.includes('partial_nld_alert_clear')
+    const cleared = tags.includes('iris_alert_clear')
 
     const ageMs = nowMs - createdMs
     const ageHours = ageMs / (60 * 60 * 1000)
