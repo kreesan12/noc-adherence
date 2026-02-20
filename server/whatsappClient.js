@@ -121,23 +121,20 @@ export async function initWhatsApp () {
   }
 }
 
-export async function sendSlaAlert (message) {
+export async function sendSlaAlert (message, opts = {}) {
   if (!sock || !isReady) throw new Error('WhatsApp client not ready')
-  if (!targetGroupId) throw new Error('Target WhatsApp group not configured')
+
+  const fallbackGroupId = targetGroupId
+  const override = opts?.groupId ? normalizeGroupId(opts.groupId) : null
+  const jid = override || fallbackGroupId
+
+  if (!jid) throw new Error('Target WhatsApp group not configured')
 
   const text =
     message ||
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  await sock.sendMessage(targetGroupId, { text })
-  console.log('[WA] Message sent')
-}
-
-export function getStatus () {
-  return {
-    ready: isReady,
-    groupConfigured: !!targetGroupId,
-    sessionId: SESSION_ID
-  }
+  await sock.sendMessage(jid, { text })
+  console.log('[WA] Message sent to', jid)
 }
