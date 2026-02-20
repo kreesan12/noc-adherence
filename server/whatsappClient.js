@@ -19,6 +19,11 @@ const SESSION_ID = process.env.WHATSAPP_SESSION_ID || 'noc-adherence'
 // Prevent multiple simultaneous reconnect loops
 let isConnecting = false
 
+// Promise that resolves when WA becomes ready
+let readyPromise = null
+let readyResolve = null
+let readyReject = null
+
 function normalizeGroupId (id) {
   if (!id) return null
   return id.endsWith('@g.us') ? id : `${id}@g.us`
@@ -28,14 +33,63 @@ function sleep (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-export async function initWhatsApp () {
-  if (sock) return sock
-  if (isConnecting) return sock
+function makeReadyPromise () {
+  readyPromise = new Promise((resolve, reject) => {
+    readyResolve = resolve
+    readyReject = reject
+  })
+}
+
+function markReady () {
+  if (!isReady) isReady = true
+  if (readyResolve) {
+    readyResolve(true)
+    readyResolve = null
+    readyReject = null
+    // keep promise as resolved; next init will recreate it if needed
+  }
+}
+
+function markNotReady (err) {
+  isReady = false
+  // don’t reject a resolved promise; only reject if we are still waiting
+  if (readyReject) {
+    readyReject(err || new Error('WhatsApp not ready'))
+    readyResolve = null
+    readyReject = null
+  }
+}
+
+async function waitUntilReady (timeoutMs = 60_000) {
+  if (isReady) return true
+  if (!readyPromise) makeReadyPromise()
+
+  // Timeout wrapper so we don’t hang forever if QR is required
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`WhatsApp not ready after ${timeoutMs}ms`)), timeoutMs)
+  )
+
+  return Promise.race([readyPromise, timeout])
+}
+
+export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_000 } = {}) {
+  if (sock && isReady) return sock
+
+  // If a connection is already in progress, just wait for readiness if requested
+  if (isConnecting) {
+    if (waitForReady) await waitUntilReady(readyTimeoutMs)
+    return sock
+  }
+
   isConnecting = true
 
   try {
     targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
     console.log('[WA] Target group JID:', targetGroupId)
+
+    // Reset the ready promise each fresh init attempt
+    makeReadyPromise()
+    isReady = false
 
     // Auth state persisted in Postgres
     const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
@@ -76,24 +130,22 @@ export async function initWhatsApp () {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update
 
-      // QR handling (Baileys no longer prints automatically)
       if (qr) {
-        isReady = false
+        markNotReady()
         console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
         qrcode.generate(qr, { small: true })
       }
 
       if (connection === 'open') {
-        isReady = true
         console.log('[WA] Connected to WhatsApp (Baileys)')
+        markReady()
         return
       }
 
       if (connection === 'close') {
-        isReady = false
-
         const statusCode = lastDisconnect?.error?.output?.statusCode
         console.log('[WA] Connection closed. statusCode:', statusCode)
+        markNotReady(lastDisconnect?.error)
 
         // Logged out: nuke session so next boot forces fresh QR
         if (statusCode === DisconnectReason.loggedOut) {
@@ -111,9 +163,14 @@ export async function initWhatsApp () {
         console.log('[WA] Reconnecting in 5s...')
         sock = null
         await sleep(5000)
-        await initWhatsApp()
+        await initWhatsApp({ waitForReady: false })
       }
     })
+
+    // If caller wants strong guarantee, wait for open
+    if (waitForReady) {
+      await waitUntilReady(readyTimeoutMs)
+    }
 
     return sock
   } finally {
@@ -122,15 +179,15 @@ export async function initWhatsApp () {
 }
 
 export async function sendSlaAlert (message, opts = {}) {
-  if (!sock || !isReady) {
-    // Try to recover instead of throwing
-    await initWhatsApp()
-  }
+  // Hard guarantee: ensure WA is connected before sending
+  await initWhatsApp({ waitForReady: true, readyTimeoutMs: 60_000 })
+
   if (!sock || !isReady) throw new Error('WhatsApp client not ready')
 
   const fallbackGroupId = targetGroupId
   const override = opts?.groupId ? normalizeGroupId(opts.groupId) : null
   const jid = override || fallbackGroupId
+
   if (!jid) throw new Error('Target WhatsApp group not configured')
 
   const text =
