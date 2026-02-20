@@ -122,12 +122,15 @@ export async function initWhatsApp () {
 }
 
 export async function sendSlaAlert (message, opts = {}) {
+  if (!sock || !isReady) {
+    // Try to recover instead of throwing
+    await initWhatsApp()
+  }
   if (!sock || !isReady) throw new Error('WhatsApp client not ready')
 
   const fallbackGroupId = targetGroupId
   const override = opts?.groupId ? normalizeGroupId(opts.groupId) : null
   const jid = override || fallbackGroupId
-
   if (!jid) throw new Error('Target WhatsApp group not configured')
 
   const text =

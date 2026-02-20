@@ -44,10 +44,15 @@ const prisma = new PrismaClient()
 const app    = express()
 
 ;(async () => {
-  await initWhatsApp()
-  startNldOutageWatcher(sendSlaAlert)
-  startVipTicketWatcher(sendSlaAlert)
-})().catch(e => console.error('[BOOT] WhatsApp init failed:', e?.message || e))
+  try {
+    await initWhatsApp()
+    console.log('[WA] init complete, starting watchers')
+    startNldOutageWatcher(sendSlaAlert)
+    startVipTicketWatcher(sendSlaAlert)
+  } catch (e) {
+    console.error('[WA] init failed, watchers not started:', e?.message || e)
+  }
+})()
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
