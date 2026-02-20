@@ -3,8 +3,6 @@ import dayjs from 'dayjs'
 
 // ---- Config ----
 const POLL_INTERVAL_MS = Number(process.env.VIP_POLL_MS || 2 * 60 * 1000)
-
-// Look back 2 hours to catch anything we might have missed (but still bounded)
 const LOOKBACK_HOURS = Number(process.env.VIP_LOOKBACK_HOURS || 2)
 
 // Organization based VIP rule
@@ -122,7 +120,6 @@ function buildVipMsg ({ title, ticket, reason, ageHours }) {
 }
 
 function buildCreatedLookbackQuery () {
-  // Zendesk search supports relative times like created>2hours
   return `created>${LOOKBACK_HOURS}hours`
 }
 
@@ -149,8 +146,6 @@ async function fetchVipOrgTicketsRaw () {
 
 async function fetchVipTagTicketsRaw () {
   const createdCutoff = buildCreatedLookbackQuery()
-
-  // Keep this super explicit to avoid Zendesk parser edge cases
   const query = `type:ticket status<solved tags:${VIP_TAG} ${createdCutoff}`
 
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
@@ -187,7 +182,12 @@ export function startVipTicketWatcher (sendSlaAlert) {
   console.log(`[VIP WATCHER] Cache – TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
   const sendVip = async (msg) => {
-    await sendSlaAlert(msg, VIP_GROUP_ID ? { groupId: VIP_GROUP_ID } : {})
+    // Never let a send failure kill the tick
+    try {
+      await sendSlaAlert(msg, VIP_GROUP_ID ? { groupId: VIP_GROUP_ID } : {})
+    } catch (e) {
+      console.error('[VIP WATCHER] send failed:', e?.message || e)
+    }
   }
 
   const tick = async () => {
@@ -203,10 +203,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
 
         const ageHours = now.diff(created, 'hour', true)
 
-        // Only alert once per ticket
         const key = `vip-org-new:${t.id}`
         if (warnedNew.has(key)) continue
-
         warnedNew.add(key)
 
         const msg = buildVipMsg({
@@ -223,11 +221,8 @@ export function startVipTicketWatcher (sendSlaAlert) {
       // 2) Tag based VIP tickets (creation alerts)
       const { results: vipTags, query } = await fetchVipTagTicketsRaw()
 
-      // Debug: you can remove later
       console.log('[VIP WATCHER] Tag query:', query, '| results:', vipTags.length)
-      if (vipTags[0]) {
-        console.log('[VIP WATCHER] Tag sample:', vipTags[0].id, vipTags[0].created_at)
-      }
+      if (vipTags[0]) console.log('[VIP WATCHER] Tag sample:', vipTags[0].id, vipTags[0].created_at)
 
       for (const t of vipTags) {
         const created = dayjs(t.created_at)
@@ -237,7 +232,6 @@ export function startVipTicketWatcher (sendSlaAlert) {
 
         const key = `vip-tag-new:${t.id}`
         if (warnedNew.has(key)) continue
-
         warnedNew.add(key)
 
         const msg = buildVipMsg({

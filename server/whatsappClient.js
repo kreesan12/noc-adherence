@@ -1,10 +1,7 @@
 // server/whatsappClient.js
 import dotenv from 'dotenv'
 import qrcode from 'qrcode-terminal'
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion
-} from '@whiskeysockets/baileys'
+import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
 import { usePostgresAuthState } from './baileysPostgresAuth.js'
 
 dotenv.config()
@@ -16,10 +13,10 @@ let targetGroupId = null
 const DEFAULT_GROUP_ID = '120363403922602776@g.us'
 const SESSION_ID = process.env.WHATSAPP_SESSION_ID || 'noc-adherence'
 
-// Prevent multiple simultaneous reconnect loops
-let isConnecting = false
+// Single-flight init
+let initPromise = null
 
-// Promise that resolves when WA becomes ready
+// Ready gate
 let readyPromise = null
 let readyResolve = null
 let readyReject = null
@@ -41,18 +38,16 @@ function makeReadyPromise () {
 }
 
 function markReady () {
-  if (!isReady) isReady = true
+  isReady = true
   if (readyResolve) {
     readyResolve(true)
     readyResolve = null
     readyReject = null
-    // keep promise as resolved; next init will recreate it if needed
   }
 }
 
 function markNotReady (err) {
   isReady = false
-  // don’t reject a resolved promise; only reject if we are still waiting
   if (readyReject) {
     readyReject(err || new Error('WhatsApp not ready'))
     readyResolve = null
@@ -64,7 +59,6 @@ async function waitUntilReady (timeoutMs = 60_000) {
   if (isReady) return true
   if (!readyPromise) makeReadyPromise()
 
-  // Timeout wrapper so we don’t hang forever if QR is required
   const timeout = new Promise((_, reject) =>
     setTimeout(() => reject(new Error(`WhatsApp not ready after ${timeoutMs}ms`)), timeoutMs)
   )
@@ -73,21 +67,21 @@ async function waitUntilReady (timeoutMs = 60_000) {
 }
 
 export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_000 } = {}) {
+  // If already ready, done
   if (sock && isReady) return sock
 
-  // If a connection is already in progress, just wait for readiness if requested
-  if (isConnecting) {
+  // If an init is already running, reuse it
+  if (initPromise) {
+    const s = await initPromise
     if (waitForReady) await waitUntilReady(readyTimeoutMs)
-    return sock
+    return s
   }
 
-  isConnecting = true
-
-  try {
+  initPromise = (async () => {
     targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID || DEFAULT_GROUP_ID)
     console.log('[WA] Target group JID:', targetGroupId)
 
-    // Reset the ready promise each fresh init attempt
+    // Reset ready gate for this init attempt
     makeReadyPromise()
     isReady = false
 
@@ -99,9 +93,7 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
     try {
       const latest = await fetchLatestBaileysVersion()
       version = latest?.version
-      if (version?.length) {
-        console.log('[WA] Baileys using WA Web version:', version.join('.'))
-      }
+      if (version?.length) console.log('[WA] Baileys using WA Web version:', version.join('.'))
     } catch (e) {
       console.warn('[WA] fetchLatestBaileysVersion failed, continuing with defaults:', e?.message || e)
     }
@@ -112,6 +104,8 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
       markOnlineOnConnect: false,
       syncFullHistory: false,
       shouldSyncHistoryMessage: () => false,
+      // NOTE: some Baileys builds still try preview generation when URLs exist.
+      // We also disable preview per-message in sendSlaAlert.
       generateHighQualityLinkPreview: false,
       defaultQueryTimeoutMs: 60_000,
       connectTimeoutMs: 60_000,
@@ -159,35 +153,39 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
           return
         }
 
-        // Otherwise: backoff + reconnect
+        // Conflict/replaced or other transient: backoff + reconnect
         console.log('[WA] Reconnecting in 5s...')
         sock = null
         await sleep(5000)
-        await initWhatsApp({ waitForReady: false })
+
+        // Kick a new init in the background (no await inside the event handler)
+        // to avoid bubbling errors out and crashing the process.
+        initWhatsApp({ waitForReady: false }).catch(e => {
+          console.error('[WA] Reconnect init failed:', e?.message || e)
+        })
       }
     })
 
-    // If caller wants strong guarantee, wait for open
-    if (waitForReady) {
-      await waitUntilReady(readyTimeoutMs)
-    }
-
     return sock
+  })()
+
+  try {
+    const s = await initPromise
+    if (waitForReady) await waitUntilReady(readyTimeoutMs)
+    return s
   } finally {
-    isConnecting = false
+    initPromise = null
   }
 }
 
 export async function sendSlaAlert (message, opts = {}) {
-  // Hard guarantee: ensure WA is connected before sending
+  // Ensure WA is connected before sending
   await initWhatsApp({ waitForReady: true, readyTimeoutMs: 60_000 })
 
   if (!sock || !isReady) throw new Error('WhatsApp client not ready')
 
-  const fallbackGroupId = targetGroupId
   const override = opts?.groupId ? normalizeGroupId(opts.groupId) : null
-  const jid = override || fallbackGroupId
-
+  const jid = override || targetGroupId
   if (!jid) throw new Error('Target WhatsApp group not configured')
 
   const text =
@@ -195,7 +193,16 @@ export async function sendSlaAlert (message, opts = {}) {
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  await sock.sendMessage(jid, { text })
+  // IMPORTANT:
+  // If your Baileys build tries to generate link previews and you don’t have link-preview-js,
+  // sending a URL can crash. Disable preview at send-time.
+  await sock.sendMessage(
+    jid,
+    { text },
+    // This option is supported in recent Baileys builds; harmless if ignored.
+    { linkPreview: false }
+  )
+
   console.log('[WA] Message sent to', jid)
 }
 

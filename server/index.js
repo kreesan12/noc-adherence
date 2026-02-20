@@ -1,71 +1,93 @@
 // server/index.js
-import './utils/dayjs.js'          // registers plugins for the process
+import './utils/dayjs.js' // registers plugins for the process
 import 'express-async-errors'
-import express          from 'express'
-import cors             from 'cors'
-import morgan           from 'morgan'
-import dotenv           from 'dotenv'
+import express from 'express'
+import cors from 'cors'
+import morgan from 'morgan'
+import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 
-import authRole                            from './middleware/auth.js'
-import audit                               from './middleware/audit.js'
-import authRoutesFactory, { verifyToken }  from './routes/auth.js'
-import { initWhatsApp, sendSlaAlert, getStatus as getWhatsAppStatus } from './whatsappClient.js'
-//import { startSlaAckWatcher } from './slaAckWatcher.js'
-import { startNldOutageWatcher } from './nldOutageWatcher.js'   // <-- new import
+import authRole from './middleware/auth.js'
+import audit from './middleware/audit.js'
+import authRoutesFactory, { verifyToken } from './routes/auth.js'
+
+import {
+  initWhatsApp,
+  sendSlaAlert,
+  getStatus as getWhatsAppStatus
+} from './whatsappClient.js'
+
+// import { startSlaAckWatcher } from './slaAckWatcher.js'
+import { startNldOutageWatcher } from './nldOutageWatcher.js'
 import { startVipTicketWatcher } from './vipTicketWatcher.js'
 
-import rosterRoutes     from './routes/roster.js'
-import scheduleRoutes   from './routes/schedule.js'
-import volumeRoutes     from './routes/volume.js'
-import reportRoutes     from './routes/reports.js'
-import agentsRoutes     from './routes/agents.js'
+import rosterRoutes from './routes/roster.js'
+import scheduleRoutes from './routes/schedule.js'
+import volumeRoutes from './routes/volume.js'
+import reportRoutes from './routes/reports.js'
+import agentsRoutes from './routes/agents.js'
 import attendanceRoutes from './routes/attendance.js'
 import supervisorRoutes from './routes/supervisors.js'
-import erlangRoutes     from './routes/erlang.js'
-import shiftRoutes      from './routes/shifts.js'
-import leaveRoutes      from './routes/leave.js'
-import workforceRouter  from './routes/workforce.js'
+import erlangRoutes from './routes/erlang.js'
+import shiftRoutes from './routes/shifts.js'
+import leaveRoutes from './routes/leave.js'
+import workforceRouter from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
-import managersRoutes    from './routes/managers.js'
-import nldsRoutes        from './routes/nlds.js'
-import nldServices       from './routes/nldServices.js'
-import nodes             from './routes/nodes.js'
-import rocAppointmentsRoutes  from './routes/rocAppointments.js'
+import managersRoutes from './routes/managers.js'
+import nldsRoutes from './routes/nlds.js'
+import nldServices from './routes/nldServices.js'
+import nodes from './routes/nodes.js'
+import rocAppointmentsRoutes from './routes/rocAppointments.js'
 import techAppointmentsRoutes from './routes/techAppointments.js'
-import techAuthRoutes         from './routes/techAuth.js'
+import techAuthRoutes from './routes/techAuth.js'
 
 // ✅ Overtime (single source of truth)
-import overtimeRoutes       from './routes/overtime.js'
+import overtimeRoutes from './routes/overtime.js'
 import overtimeExportRoutes from './routes/overtimeExportRoutes.js'
 
 dotenv.config()
-const prisma = new PrismaClient()
-const app    = express()
 
+// ---- Crash guards (prevents Heroku restart loops) ----
+process.on('unhandledRejection', (err) => {
+  console.error('[FATAL] unhandledRejection:', err?.message || err)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] uncaughtException:', err?.message || err)
+})
+
+const prisma = new PrismaClient()
+const app = express()
+
+/**
+ * Start WA and watchers once on boot.
+ * Watchers are safe even if WA is not ready yet (sendSlaAlert waits for readiness).
+ */
 ;(async () => {
   try {
-    await initWhatsApp()
+    // Don’t hard-block boot forever. WA can still come up async.
+    await initWhatsApp({ waitForReady: false })
     console.log('[WA] init complete, starting watchers')
+
     startNldOutageWatcher(sendSlaAlert)
     startVipTicketWatcher(sendSlaAlert)
   } catch (e) {
-    console.error('[WA] init failed, watchers not started:', e?.message || e)
+    console.error('[WA] init failed, watchers still starting (send will retry):', e?.message || e)
+    // Still start watchers so they can send when WA is ready later.
+    try { startNldOutageWatcher(sendSlaAlert) } catch {}
+    try { startVipTicketWatcher(sendSlaAlert) } catch {}
   }
 })()
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors({
-  origin:      process.env.CLIENT_ORIGIN,   // e.g. https://kreesan12.github.io
+  origin: process.env.CLIENT_ORIGIN,
   credentials: true
 }))
 
-app.options('*',
-  cors({
-    origin: process.env.CLIENT_ORIGIN,
-    credentials: true
-  })
-)
+app.options('*', cors({
+  origin: process.env.CLIENT_ORIGIN,
+  credentials: true
+}))
 
 app.use(express.json({ limit: '100mb' }))
 app.use(express.urlencoded({ limit: '100mb', extended: true }))
@@ -74,7 +96,7 @@ app.use(morgan('dev'))
 /* ---------- Public auth routes (/api/login, /api/me) ---------- */
 const authRoutes = authRoutesFactory(prisma)
 
-/* ---------- WhatsApp SLA alert endpoints ---------- */
+/* ---------- WhatsApp endpoints ---------- */
 
 // status check (no auth while testing)
 app.get('/whatsapp/status', (_req, res) => {
@@ -93,7 +115,6 @@ app.post('/whatsapp/notify', async (req, res, next) => {
 })
 
 app.use('/api', authRoutes)
-
 app.use('/api', techAuthRoutes(prisma))
 
 /* ---------- Protected business routes ---------- */
@@ -135,11 +156,10 @@ app.use(
 
 app.use(
   '/api/tech',
-  verifyToken, authRole('tech','supervisor'),
+  verifyToken, authRole('tech', 'supervisor'),
   techAppointmentsRoutes(prisma)
 )
 
-// Supervisors management (only accessible to supervisors)
 app.use(
   '/api/supervisors',
   verifyToken, authRole('supervisor'),
@@ -153,7 +173,7 @@ app.use(
   overtimeRoutes(prisma)
 )
 
-/* ✅ Overtime export (protected, separate namespace to avoid collisions) */
+/* ✅ Overtime export (protected) */
 app.use(
   '/api/overtime/export',
   verifyToken,
@@ -161,7 +181,7 @@ app.use(
   overtimeExportRoutes(prisma)
 )
 
-/* ---------- Mount in attendance WITH audit middleware ---------- */
+/* ---------- Attendance WITH audit middleware ---------- */
 app.use(
   '/api/attendance',
   verifyToken, authRole('supervisor'), audit(prisma),
@@ -171,9 +191,7 @@ app.use(
 app.use('/api/erlang', verifyToken, authRole('supervisor'), erlangRoutes(prisma))
 
 app.use('/api/leave', leaveRoutes(prisma))
-
 app.use('/api', workforceRouter)
-
 app.use('/api', nldsRoutes)
 
 app.use(
@@ -184,12 +202,11 @@ app.use(
 
 app.use('/api', nldServices)
 app.use('/api', nodes)
-
 app.use('/api/engineering', engineeringRoutes)
 
 app.use(
   '/api/managers',
-  verifyToken, authRole('admin'),   /* only admins can change managers */
+  verifyToken, authRole('admin'),
   managersRoutes(prisma)
 )
 
@@ -201,6 +218,4 @@ app.use((err, _req, res, _next) => {
 
 /* ---------- Start server ---------- */
 const PORT = process.env.PORT || 4000
-app.listen(PORT, () =>
-  console.log(`API • http://localhost:${PORT}`)
-)
+app.listen(PORT, () => console.log(`API • http://localhost:${PORT}`))
