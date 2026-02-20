@@ -2,7 +2,7 @@
 import dayjs from 'dayjs'
 
 // ---- Config ----
-const POLL_INTERVAL_MS = Number(process.env.VIP_POLL_MS || 5 * 60 * 1000)
+const POLL_INTERVAL_MS = Number(process.env.VIP_POLL_MS || 2 * 60 * 1000)
 
 // Look back 2 hours to catch anything we might have missed (but still bounded)
 const LOOKBACK_HOURS = Number(process.env.VIP_LOOKBACK_HOURS || 2)
@@ -10,14 +10,10 @@ const LOOKBACK_HOURS = Number(process.env.VIP_LOOKBACK_HOURS || 2)
 // Organization based VIP rule
 const VIP_ORG_ID = String(process.env.VIP_ORG_ID || '42757142385041')
 
-// Tag based VIP rule (any match triggers)
-const VIP_TAGS = (process.env.VIP_TAGS || 'iris_vip_carrier_down,iris_integration')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean)
+// Tag based VIP rule (single tag for now)
+const VIP_TAG = String(process.env.VIP_TAG || 'iris_vip_carrier_down').trim()
 
 // Send VIP alerts to a different WhatsApp group (optional)
-// If not set, falls back to default group configured in whatsappClient.js
 const VIP_GROUP_ID = process.env.WHATSAPP_VIP_GROUP_ID || null
 
 // Cache safety
@@ -136,7 +132,7 @@ async function fetchVipOrgTicketsRaw () {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set(
     'query',
-    `type:ticket organization_id:${VIP_ORG_ID} ${createdCutoff}`
+    `type:ticket status<solved organization_id:${VIP_ORG_ID} ${createdCutoff}`
   )
   url.searchParams.set('filter[type]', 'ticket')
   url.searchParams.set('page[size]', '1000')
@@ -153,13 +149,12 @@ async function fetchVipOrgTicketsRaw () {
 
 async function fetchVipTagTicketsRaw () {
   const createdCutoff = buildCreatedLookbackQuery()
-  const tagQuery = VIP_TAGS.map(t => `tags:${t}`).join(' OR ')
+
+  // Keep this super explicit to avoid Zendesk parser edge cases
+  const query = `type:ticket status<solved tags:${VIP_TAG} ${createdCutoff}`
 
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
-  url.searchParams.set(
-    'query',
-    `type:ticket (${tagQuery}) ${createdCutoff}`
-  )
+  url.searchParams.set('query', query)
   url.searchParams.set('filter[type]', 'ticket')
   url.searchParams.set('page[size]', '1000')
 
@@ -170,7 +165,7 @@ async function fetchVipTagTicketsRaw () {
     }
   })
 
-  return data.results || []
+  return { results: (data.results || []), query }
 }
 
 // ---- Main entrypoint ----
@@ -188,7 +183,7 @@ export function startVipTicketWatcher (sendSlaAlert) {
   console.log(
     `[VIP WATCHER] Starting – poll ${Math.round(POLL_INTERVAL_MS / 1000)}s, lookback ${LOOKBACK_HOURS}h, group ${groupLabel}`
   )
-  console.log(`[VIP WATCHER] Rules – org ${VIP_ORG_ID}, tags ${VIP_TAGS.join(', ')}`)
+  console.log(`[VIP WATCHER] Rules – org ${VIP_ORG_ID}, tag ${VIP_TAG}`)
   console.log(`[VIP WATCHER] Cache – TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
   const sendVip = async (msg) => {
@@ -217,6 +212,7 @@ export function startVipTicketWatcher (sendSlaAlert) {
         const msg = buildVipMsg({
           title: '🟣 VIP ticket logged (Telemedia)',
           ticket: t,
+          reason: `organization_id=${VIP_ORG_ID}`,
           ageHours
         })
 
@@ -225,17 +221,19 @@ export function startVipTicketWatcher (sendSlaAlert) {
       }
 
       // 2) Tag based VIP tickets (creation alerts)
-      const vipTags = await fetchVipTagTicketsRaw()
+      const { results: vipTags, query } = await fetchVipTagTicketsRaw()
+
+      // Debug: you can remove later
+      console.log('[VIP WATCHER] Tag query:', query, '| results:', vipTags.length)
+      if (vipTags[0]) {
+        console.log('[VIP WATCHER] Tag sample:', vipTags[0].id, vipTags[0].created_at)
+      }
 
       for (const t of vipTags) {
         const created = dayjs(t.created_at)
         if (!created.isValid()) continue
 
         const ageHours = now.diff(created, 'hour', true)
-
-        const tagList = Array.isArray(t.tags) ? t.tags : []
-        const matched = VIP_TAGS.filter(x => tagList.includes(x))
-        const reason = matched.length ? `tags=${matched.join(', ')}` : `tags in ${VIP_TAGS.join(', ')}`
 
         const key = `vip-tag-new:${t.id}`
         if (warnedNew.has(key)) continue
@@ -245,6 +243,7 @@ export function startVipTicketWatcher (sendSlaAlert) {
         const msg = buildVipMsg({
           title: '🟪 VIP carrier down (Telemedia)',
           ticket: t,
+          reason: `tags=${VIP_TAG}`,
           ageHours
         })
 
