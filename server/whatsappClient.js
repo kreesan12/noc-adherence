@@ -121,20 +121,25 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update
 
-      if (qr) {
-        lastQr = qr
-        markNotReady()
+if (qr) {
+  markNotReady()
 
-        const now = Date.now()
-        if (now - lastQrPrintedAt >= QR_PRINT_THROTTLE_MS) {
-          lastQrPrintedAt = now
-          console.log('[WA] QR (raw):', qr)
-          console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
-          qrcode.generate(qr, { small: true })
-        } else {
-          console.log('[WA] QR refreshed (suppressed log; still waiting for scan)')
-        }
-      }
+  const now = Date.now()
+  const changed = qr !== lastQr
+  const due = (now - lastQrPrintedAt) >= QR_PRINT_THROTTLE_MS
+
+  // only print if it changed or 25s passed
+  if (changed || due) {
+    lastQr = qr
+    lastQrPrintedAt = now
+
+    console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
+    qrcode.generate(qr, { small: true })
+  } else {
+    // optional: keep log quieter, or comment this out
+    console.log('[WA] QR received (throttled)')
+  }
+}
 
       if (connection === 'open') {
         console.log('[WA] Connected to WhatsApp (Baileys)')
