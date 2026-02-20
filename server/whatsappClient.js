@@ -126,6 +126,7 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
 
       if (qr) {
         markNotReady()
+        console.log('[WA] QR (raw):', qr)   // ✅ add this line
         console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
         qrcode.generate(qr, { small: true })
       }
