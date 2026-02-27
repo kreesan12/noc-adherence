@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box, Paper, Typography, Button, TextField, Alert, Divider,
-  Stack, Chip, MenuItem, Select, FormControl, InputLabel
+  Stack, Chip, MenuItem, Select, FormControl, InputLabel, Checkbox, FormControlLabel
 } from '@mui/material'
 import dayjs from 'dayjs'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -56,7 +56,6 @@ const GPS_MIN_MOVEMENT_METERS = 35
 const GPS_MAX_AGE_MS = 30_000
 const GPS_FORCE_SEND_MS = 180_000
 
-
 function haversineMeters(a, b) {
   if (!a || !b) return null
   const R = 6371e3
@@ -73,6 +72,45 @@ function haversineMeters(a, b) {
   return R * c
 }
 
+function normalizeStatus(s) {
+  return String(s || '').toUpperCase()
+}
+
+function shouldTrackForStatus(status) {
+  // Status driven tracking:
+  // - Track only while EN_ROUTE (moving)
+  // - Stop on site: NEAR_SITE/ARRIVED/IN_PROGRESS and anything closed
+  const st = normalizeStatus(status)
+  return st === 'EN_ROUTE'
+}
+
+function canChangeToEnRoute(status) {
+  const st = normalizeStatus(status)
+  return !['EN_ROUTE', 'NEAR_SITE', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'UNSUCCESSFUL', 'CIVILS_REQUIRED', 'CANCELLED'].includes(st)
+}
+
+function formatWSOBlock(form) {
+  // Clean block that lands in existing jobCard.notes without schema changes
+  // Keep it readable for ops + auditable.
+  const lines = []
+  lines.push('WSO_FORM v1')
+  lines.push(`RT Ticket Ref: ${form.rtTicketRef || ''}`)
+  lines.push(`Link Label: ${form.linkLabel || ''}`)
+  lines.push(`Assigned Contractor: ${form.assignedContractor || ''}`)
+  lines.push(`Category: ${form.category || ''}`)
+  lines.push(`Work Type: ${[form.workRepair ? 'Repair' : null, form.workReplace ? 'Replace' : null].filter(Boolean).join(', ')}`)
+  lines.push(`Terminal Equipment Damaged: ${form.terminalEquipmentDamaged ? 'Yes' : 'No'}`)
+  lines.push(`Relocation of link: ${form.relocationOfLink ? 'Yes' : 'No'}`)
+  lines.push(`Hours on site start: ${form.hoursOnSiteStart || ''}`)
+  lines.push(`Hours on site end: ${form.hoursOnSiteEnd || ''}`)
+  lines.push(`Findings: ${form.findings || ''}`)
+  lines.push(`Items to be replaced: ${form.itemsToBeReplaced || ''}`)
+  lines.push(`Customer consent: over18=${form.consentOver18 ? 'Yes' : 'No'}, authorised=${form.consentAuthorised ? 'Yes' : 'No'}, goAhead=${form.consentGoAhead ? 'Yes' : 'No'}, 30mCosts=${form.consent30mCosts ? 'Yes' : 'No'}`)
+  lines.push(`Customer not prepared to sign: ${form.notPreparedToSign ? 'Yes' : 'No'}`)
+  if (form.notPreparedToSign) lines.push(`Reason: ${form.notPreparedReason || ''}`)
+  return lines.join('\n')
+}
+
 export default function TechAppointmentDetailPage() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -82,19 +120,38 @@ export default function TechAppointmentDetailPage() {
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
+  // Job card related
   const [notes, setNotes] = useState('')
   const [reasonCode, setReasonCode] = useState('NO_ACCESS')
   const [civilsRequired, setCivilsRequired] = useState(false)
   const [customerRating, setCustomerRating] = useState('')
 
+  // Work Service Order form (based on your PDF)
+  const [wso, setWso] = useState({
+    rtTicketRef: '',
+    linkLabel: '',
+    assignedContractor: '',
+    category: 'Link damaged, rebuild/replace/repair',
+    workReplace: false,
+    workRepair: true,
+    terminalEquipmentDamaged: false,
+    relocationOfLink: false,
+    hoursOnSiteStart: '',
+    hoursOnSiteEnd: '',
+    findings: '',
+    itemsToBeReplaced: '',
+    consentOver18: true,
+    consentAuthorised: true,
+    consentGoAhead: true,
+    consent30mCosts: false,
+    notPreparedToSign: false,
+    notPreparedReason: ''
+  })
+
   const [queueCount, setQueueCount] = useState(0)
   const [apptQueueCount, setApptQueueCount] = useState(0)
 
-  // Live tracking UI state
-  const [tracking, setTracking] = useState(false)
-  const [lastPingAt, setLastPingAt] = useState(null)
-
-  // Refs for interval + movement check
+  // Tracking internals (no UI toggle)
   const pingTimerRef = useRef(null)
   const isPingingRef = useRef(false)
   const lastSentLocRef = useRef(null)
@@ -114,6 +171,17 @@ export default function TechAppointmentDetailPage() {
 
     await safeFlushQueue()
     await refreshQueueCounts()
+
+    const ticket = r.data?.ticket || {}
+    const techName = r.data?.technician?.name || localStorage.getItem('techName') || ''
+
+    // Prepopulate WSO fields when empty
+    setWso(prev => ({
+      ...prev,
+      rtTicketRef: prev.rtTicketRef || (ticket.externalRef || r.data?.ticketId || ''),
+      linkLabel: prev.linkLabel || (ticket.linkLabel || ''),
+      assignedContractor: prev.assignedContractor || techName
+    }))
 
     const jc = r.data?.jobCard
     if (jc?.notes && !notes) setNotes(jc.notes)
@@ -144,6 +212,7 @@ export default function TechAppointmentDetailPage() {
 
   const ticket = appt?.ticket || {}
   const status = appt?.status || ''
+  const st = normalizeStatus(status)
 
   const timeline = useMemo(() => {
     const ev = Array.isArray(appt?.events) ? [...appt.events] : []
@@ -168,7 +237,7 @@ export default function TechAppointmentDetailPage() {
         status: newStatus || null,
         lat: gps?.lat,
         lng: gps?.lng,
-        payload: { ...(payload || {}), source: 'tech_detail' },
+        payload: { ...(payload || {}), source: 'tech_detail', accuracy: gps?.accuracy ?? null },
         eventTime: new Date().toISOString()
       })
 
@@ -205,7 +274,6 @@ export default function TechAppointmentDetailPage() {
 
       if (!force && prev && movedM != null && movedM < GPS_MIN_MOVEMENT_METERS && tooSoon) return
 
-
       await enqueueEvent({
         clientEventId: makeClientEventId('cev_gps'),
         appointmentId: id,
@@ -219,7 +287,6 @@ export default function TechAppointmentDetailPage() {
 
       lastSentLocRef.current = { lat: gps.lat, lng: gps.lng }
       lastSentAtRef.current = now
-      setLastPingAt(new Date().toISOString())
 
       if (navigator.onLine) {
         await safeFlushQueue()
@@ -228,7 +295,7 @@ export default function TechAppointmentDetailPage() {
         await refreshQueueCounts()
       }
     } catch {
-      // keep silent, do not spam tech with GPS noise
+      // keep silent
     } finally {
       isPingingRef.current = false
     }
@@ -250,31 +317,57 @@ export default function TechAppointmentDetailPage() {
     }, GPS_PING_INTERVAL_MS)
   }
 
-  // Start or stop tracking based on toggle and status
+  // ✅ STATUS DRIVEN tracking (no tech control)
   useEffect(() => {
-    const shouldAllow =
-      status === 'EN_ROUTE' ||
-      status === 'ARRIVED' ||
-      status === 'NEAR_SITE' ||
-      status === 'IN_PROGRESS'
+    const shouldTrack = shouldTrackForStatus(st)
 
-    if (!shouldAllow) {
-      setTracking(false)
-      stopTracking()
-      return
-    }
-
-    if (tracking) startTracking()
+    if (shouldTrack) startTracking()
     else stopTracking()
 
     return () => stopTracking()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tracking, status, id])
+  }, [st, id])
 
-  // cleanup on unmount
   useEffect(() => {
     return () => stopTracking()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function saveWSOForm() {
+    // Offline safe: store as appointmentEvent payload for audit trail
+    await queueAndTrySend({
+      eventType: 'FORM_UPDATED',
+      status: null,
+      payload: {
+        formType: 'WSO_FORM',
+        version: 1,
+        data: wso
+      }
+    })
+  }
+
+  function buildFinalNotes(outcome) {
+    const wsoBlock = formatWSOBlock(wso)
+
+    // Put WSO in notes for now so your existing backend stores it without schema changes.
+    // Also keep tech free text notes separate.
+    const parts = []
+    parts.push('--- TECH NOTES ---')
+    parts.push((notes || '').trim())
+    parts.push('')
+    parts.push('--- WORK SERVICE ORDER ---')
+    parts.push(wsoBlock)
+    parts.push('')
+
+    if (outcome === 'UNSUCCESSFUL') {
+      parts.push('--- UNSUCCESSFUL ---')
+      parts.push(`Reason: ${reasonCode}`)
+      parts.push(`Civils required: ${civilsRequired ? 'Yes' : 'No'}`)
+      parts.push('')
+    }
+
+    return parts.join('\n').trim()
+  }
 
   async function doSubmitJobCard(outcome) {
     setErr('')
@@ -286,11 +379,15 @@ export default function TechAppointmentDetailPage() {
         return
       }
 
+      // Optional: save a form snapshot before submit (online only here)
+      // so your backend has the last state even if notes get edited later.
+      await saveWSOForm()
+
       await submitJobCard(id, {
         clientEventId: makeClientEventId('cev_job'),
         outcome,
         reasonCode: outcome === 'UNSUCCESSFUL' ? reasonCode : null,
-        notes: notes || null,
+        notes: buildFinalNotes(outcome),
         civilsRequired: Boolean(civilsRequired),
         customerRating: customerRating === '' ? null : Number(customerRating)
       })
@@ -343,6 +440,10 @@ export default function TechAppointmentDetailPage() {
         setErr('You are offline. Signature upload requires internet for now.')
         return
       }
+
+      // Save form snapshot before signature so it lines up with consent
+      await saveWSOForm()
+
       const dataUrl = await fileToDataUrl(f)
       await uploadSignature(id, {
         clientEventId: makeClientEventId('cev_sig'),
@@ -372,11 +473,7 @@ export default function TechAppointmentDetailPage() {
     )
   }
 
-  const trackingAllowed =
-    status === 'EN_ROUTE' ||
-    status === 'ARRIVED' ||
-    status === 'NEAR_SITE' ||
-    status === 'IN_PROGRESS'
+  const trackingLive = shouldTrackForStatus(st)
 
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto' }}>
@@ -392,9 +489,9 @@ export default function TechAppointmentDetailPage() {
           <Chip size="small" variant="outlined" label={`Here: ${apptQueueCount}`} />
           <Chip
             size="small"
-            color={tracking ? 'success' : 'default'}
+            color={trackingLive ? 'success' : 'default'}
             variant="outlined"
-            label={tracking ? 'Tracking: ON' : 'Tracking: OFF'}
+            label={trackingLive ? 'Live tracking: ACTIVE (EN_ROUTE)' : 'Live tracking: OFF'}
           />
         </Stack>
 
@@ -402,7 +499,7 @@ export default function TechAppointmentDetailPage() {
         {msg && <Alert severity="info">{msg}</Alert>}
       </Stack>
 
-      {/* ✅ Map with live directions */}
+      {/* Map + directions */}
       <TechRouteMap ticket={ticket} />
 
       <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
@@ -431,29 +528,20 @@ export default function TechAppointmentDetailPage() {
             Sync now
           </Button>
 
-          <Button
-            variant={tracking ? 'contained' : 'outlined'}
-            color={tracking ? 'success' : 'primary'}
-            onClick={() => setTracking(v => !v)}
-            disabled={busy || !trackingAllowed}
-            sx={{ borderRadius: 3 }}
-          >
-            {tracking ? 'Stop live tracking' : 'Start live tracking'}
-          </Button>
-
-          <Button
-            variant="outlined"
-            onClick={async () => { await sendGpsPingOnce(); await refreshQueueCounts() }}
-            disabled={busy || !trackingAllowed}
-            sx={{ borderRadius: 3 }}
-          >
-            Ping now
-          </Button>
+          {canChangeToEnRoute(st) ? (
+            <Button
+              variant="contained"
+              onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'EN_ROUTE' })}
+              disabled={busy}
+              sx={{ borderRadius: 3 }}
+            >
+              Start travel
+            </Button>
+          ) : null}
         </Stack>
 
         <Typography variant="caption" sx={{ display: 'block', opacity: 0.75, mt: 1 }}>
-          Live tracking sends GPS pings about every {Math.round(GPS_PING_INTERVAL_MS / 1000)} seconds while EN_ROUTE, ARRIVED, NEAR_SITE, or IN_PROGRESS.
-          {lastPingAt ? ` Last ping: ${dayjs(lastPingAt).format('HH:mm:ss')}.` : ''}
+          Tracking is automatic. It pings GPS every {Math.round(GPS_PING_INTERVAL_MS / 1000)} seconds while EN_ROUTE, and stops when you arrive/on site.
         </Typography>
 
         <Divider sx={{ my: 2 }} />
@@ -507,6 +595,176 @@ export default function TechAppointmentDetailPage() {
         </Stack>
       </Paper>
 
+      {/* ✅ Work Service Order form (based on your PDF) */}
+      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+            Work Service Order
+          </Typography>
+          <Chip size="small" variant="outlined" label="Customer consent + findings" />
+        </Stack>
+
+        <Stack spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="RT Ticket Ref"
+              value={wso.rtTicketRef}
+              onChange={e => setWso(v => ({ ...v, rtTicketRef: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Assigned Contractor"
+              value={wso.assignedContractor}
+              onChange={e => setWso(v => ({ ...v, assignedContractor: e.target.value }))}
+              fullWidth
+            />
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="Link label"
+              value={wso.linkLabel}
+              onChange={e => setWso(v => ({ ...v, linkLabel: e.target.value }))}
+              fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel>Category</InputLabel>
+              <Select
+                label="Category"
+                value={wso.category}
+                onChange={e => setWso(v => ({ ...v, category: e.target.value }))}
+              >
+                <MenuItem value="Link damaged, rebuild/replace/repair">Link damaged, rebuild/replace/repair</MenuItem>
+                <MenuItem value="Repair of components of link">Repair of components of link</MenuItem>
+                <MenuItem value="Terminal Equipment damaged">Terminal Equipment damaged</MenuItem>
+                <MenuItem value="Relocation of link">Relocation of link</MenuItem>
+                <MenuItem value="Other">Other</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="Hours on site start"
+              placeholder="HH:mm"
+              value={wso.hoursOnSiteStart}
+              onChange={e => setWso(v => ({ ...v, hoursOnSiteStart: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Hours on site end"
+              placeholder="HH:mm"
+              value={wso.hoursOnSiteEnd}
+              onChange={e => setWso(v => ({ ...v, hoursOnSiteEnd: e.target.value }))}
+              fullWidth
+            />
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={wso.workRepair}
+                  onChange={e => setWso(v => ({ ...v, workRepair: e.target.checked }))}
+                />
+              }
+              label="Repair"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={wso.workReplace}
+                  onChange={e => setWso(v => ({ ...v, workReplace: e.target.checked }))}
+                />
+              }
+              label="Replace"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={wso.terminalEquipmentDamaged}
+                  onChange={e => setWso(v => ({ ...v, terminalEquipmentDamaged: e.target.checked }))}
+                />
+              }
+              label="Terminal equipment damaged"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={wso.relocationOfLink}
+                  onChange={e => setWso(v => ({ ...v, relocationOfLink: e.target.checked }))}
+                />
+              }
+              label="Relocation of link"
+            />
+          </Stack>
+
+          <TextField
+            label="Short description of findings"
+            value={wso.findings}
+            onChange={e => setWso(v => ({ ...v, findings: e.target.value }))}
+            fullWidth
+            multiline
+            minRows={3}
+          />
+
+          <TextField
+            label="Items to be replaced (list)"
+            value={wso.itemsToBeReplaced}
+            onChange={e => setWso(v => ({ ...v, itemsToBeReplaced: e.target.value }))}
+            fullWidth
+            multiline
+            minRows={3}
+            placeholder="Example: Call out fee, Patchcord, ONT power supply..."
+          />
+
+          <Divider />
+
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+            Customer consent
+          </Typography>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+            <FormControlLabel
+              control={<Checkbox checked={wso.consentOver18} onChange={e => setWso(v => ({ ...v, consentOver18: e.target.checked }))} />}
+              label="Customer is over 18"
+            />
+            <FormControlLabel
+              control={<Checkbox checked={wso.consentAuthorised} onChange={e => setWso(v => ({ ...v, consentAuthorised: e.target.checked }))} />}
+              label="Authorised to sign"
+            />
+            <FormControlLabel
+              control={<Checkbox checked={wso.consentGoAhead} onChange={e => setWso(v => ({ ...v, consentGoAhead: e.target.checked }))} />}
+              label="Go ahead given"
+            />
+            <FormControlLabel
+              control={<Checkbox checked={wso.consent30mCosts} onChange={e => setWso(v => ({ ...v, consent30mCosts: e.target.checked }))} />}
+              label="Accepts costs beyond 30m"
+            />
+          </Stack>
+
+          <FormControlLabel
+            control={<Checkbox checked={wso.notPreparedToSign} onChange={e => setWso(v => ({ ...v, notPreparedToSign: e.target.checked }))} />}
+            label="Customer not prepared to sign"
+          />
+
+          {wso.notPreparedToSign ? (
+            <TextField
+              label="Reason"
+              value={wso.notPreparedReason}
+              onChange={e => setWso(v => ({ ...v, notPreparedReason: e.target.value }))}
+              fullWidth
+            />
+          ) : null}
+
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Button variant="outlined" onClick={saveWSOForm} disabled={busy} sx={{ borderRadius: 3 }}>
+              Save form
+            </Button>
+          </Stack>
+        </Stack>
+      </Paper>
+
       <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
         <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
           Photos and signature
@@ -535,7 +793,7 @@ export default function TechAppointmentDetailPage() {
         </Typography>
 
         <TextField
-          label="Notes"
+          label="Tech notes (free text)"
           value={notes}
           onChange={e => setNotes(e.target.value)}
           fullWidth

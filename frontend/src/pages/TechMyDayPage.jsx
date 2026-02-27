@@ -16,11 +16,21 @@ async function getGpsOnce() {
   return new Promise(resolve => {
     if (!navigator.geolocation) return resolve(null)
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
       () => resolve(null),
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 20000 }
     )
   })
+}
+
+function isStartedStatus(status) {
+  const s = String(status || '').toUpperCase()
+  return ['EN_ROUTE', 'NEAR_SITE', 'ARRIVED', 'IN_PROGRESS'].includes(s)
+}
+
+function isClosedStatus(status) {
+  const s = String(status || '').toUpperCase()
+  return ['COMPLETED', 'UNSUCCESSFUL', 'CIVILS_REQUIRED', 'CANCELLED'].includes(s)
 }
 
 export default function TechMyDayPage() {
@@ -109,13 +119,15 @@ export default function TechMyDayPage() {
         status: 'EN_ROUTE',
         lat: gps?.lat,
         lng: gps?.lng,
-        payload: { source: 'tech_my_day' },
+        payload: { source: 'tech_my_day', accuracy: gps?.accuracy ?? null },
         eventTime: new Date().toISOString()
       })
 
       await refreshQueueCount()
-      await safeFlushQueue()
-      await refreshQueueCount()
+      if (navigator.onLine) {
+        await safeFlushQueue()
+        await refreshQueueCount()
+      }
 
       setInfo('Travel started. Opening appointment…')
       nav(`/tech/appointments/${apptId}`)
@@ -204,6 +216,20 @@ export default function TechMyDayPage() {
           const ref = t.externalRef || a.ticketId
           const top = `${dayjs(a.appointmentDate).format('YYYY-MM-DD')}  •  Slot ${a.slotNumber || '-'}`
           const addr = t.address || ''
+          const st = String(a.status || '').toUpperCase()
+
+          const started = isStartedStatus(st)
+          const closed = isClosedStatus(st)
+
+          // Primary action rules:
+          // - If not started and not closed: show Start travel
+          // - Else: show Open/View only
+          const canStartTravel = !started && !closed
+
+          const openLabel =
+            closed ? 'View' :
+            started ? 'Open (in progress)' :
+            'Open'
 
           return (
             <Paper key={a.id} variant="outlined" sx={{ p: 2, borderRadius: 4 }}>
@@ -227,17 +253,28 @@ export default function TechMyDayPage() {
                   </Stack>
                 </Box>
 
-                <Stack spacing={1} alignItems="flex-end" sx={{ minWidth: 120 }}>
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    startIcon={<DirectionsCarIcon />}
-                    disabled={loading}
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); startTravel(a.id) }}
-                    sx={{ borderRadius: 3 }}
-                  >
-                    Start
-                  </Button>
+                <Stack spacing={1} alignItems="flex-end" sx={{ minWidth: 170 }}>
+                  {canStartTravel ? (
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      startIcon={<DirectionsCarIcon />}
+                      disabled={loading}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); startTravel(a.id) }}
+                      sx={{ borderRadius: 3 }}
+                    >
+                      Start travel
+                    </Button>
+                  ) : (
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      disabled
+                      sx={{ borderRadius: 3 }}
+                    >
+                      {started ? 'Already en route' : 'Closed'}
+                    </Button>
+                  )}
 
                   <Button
                     fullWidth
@@ -247,7 +284,7 @@ export default function TechMyDayPage() {
                     endIcon={<ChevronRightIcon />}
                     sx={{ borderRadius: 3 }}
                   >
-                    Open
+                    {openLabel}
                   </Button>
                 </Stack>
               </Stack>
