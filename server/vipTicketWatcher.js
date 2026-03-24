@@ -18,7 +18,10 @@ const VIP_TAG_RULES = [
   {
     key: 'rise-traffic-drop',
     tag: String(process.env.VIP_RISE_TRAFFIC_TAG || 'iris_rise_traffic').trim(),
-    title: '🟦 RISE traffic drop (Telemedia)'
+    title: '🚨 RISE traffic drop',
+    includePriority: false,
+    includeTags: false,
+    includeOrgId: false
   }
 ].filter(rule => rule.tag)
 
@@ -109,22 +112,34 @@ function safeStr (v) {
   return (v === null || v === undefined) ? '' : String(v)
 }
 
-function buildVipMsg ({ title, ticket, reason, ageHours }) {
+function buildVipMsg ({
+  title,
+  ticket,
+  reason,
+  ageHours,
+  includePriority = true,
+  includeTags = true,
+  includeOrgId = true
+}) {
   const lines = []
   lines.push(title)
   lines.push('')
 
   lines.push(`Ticket #${ticket.id}: ${safeStr(ticket.subject)}`)
-  lines.push(`Status: ${safeStr(ticket.status)} | Priority: ${safeStr(ticket.priority)}`)
+  lines.push(
+    includePriority
+      ? `Status: ${safeStr(ticket.status)} | Priority: ${safeStr(ticket.priority)}`
+      : `Status: ${safeStr(ticket.status)}`
+  )
   lines.push(`Created: ${safeStr(ticket.created_at)} | Updated: ${safeStr(ticket.updated_at)}`)
   lines.push(`Age: ${Number.isFinite(ageHours) ? ageHours.toFixed(2) : ''} h`)
 
   if (reason) lines.push(`Reason: ${reason}`)
-  if (Array.isArray(ticket.tags) && ticket.tags.length) {
+  if (includeTags && Array.isArray(ticket.tags) && ticket.tags.length) {
     lines.push(`Tags: ${ticket.tags.join(', ')}`)
   }
 
-  if (ticket.organization_id) lines.push(`Org ID: ${ticket.organization_id}`)
+  if (includeOrgId && ticket.organization_id) lines.push(`Org ID: ${ticket.organization_id}`)
   lines.push(`Link: ${zendeskAgentTicketLink(ticket.id)}`)
 
   return lines.join('\n')
@@ -256,7 +271,10 @@ export function startVipTicketWatcher (sendSlaAlert) {
             title: rule.title,
             ticket: t,
             reason: `tags=${rule.tag}`,
-            ageHours
+            ageHours,
+            includePriority: rule.includePriority,
+            includeTags: rule.includeTags,
+            includeOrgId: rule.includeOrgId
           })
 
           console.log('[VIP WATCHER] Sending WA VIP tag NEW alert', rule.tag, t.id)
