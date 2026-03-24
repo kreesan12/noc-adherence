@@ -8,8 +8,19 @@ const LOOKBACK_HOURS = Number(process.env.VIP_LOOKBACK_HOURS || 2)
 // Organization based VIP rule
 const VIP_ORG_ID = String(process.env.VIP_ORG_ID || '42757142385041')
 
-// Tag based VIP rule (single tag for now)
-const VIP_TAG = String(process.env.VIP_TAG || 'iris_vip_carrier_down').trim()
+// Tag based VIP rules
+const VIP_TAG_RULES = [
+  {
+    key: 'vip-carrier-down',
+    tag: String(process.env.VIP_TAG || 'iris_vip_carrier_down').trim(),
+    title: '🟪 VIP carrier down (Telemedia)'
+  },
+  {
+    key: 'rise-traffic-drop',
+    tag: String(process.env.VIP_RISE_TRAFFIC_TAG || 'iris_rise_traffic').trim(),
+    title: '🟦 RISE traffic drop (Telemedia)'
+  }
+].filter(rule => rule.tag)
 
 // Send VIP alerts to a different WhatsApp group (optional)
 const VIP_GROUP_ID = process.env.WHATSAPP_VIP_GROUP_ID || null
@@ -81,7 +92,7 @@ async function fetchJsonWithTimeout (url, { headers, timeoutMs = 25000 } = {}) {
     const text = await res.text()
 
     if (!res.ok) {
-      throw new Error(`${res.status} ${res.statusText} – ${text}`)
+      throw new Error(`${res.status} ${res.statusText} - ${text}`)
     }
 
     return JSON.parse(text)
@@ -144,9 +155,9 @@ async function fetchVipOrgTicketsRaw () {
   return data.results || []
 }
 
-async function fetchVipTagTicketsRaw () {
+async function fetchVipTagTicketsRaw (tag) {
   const createdCutoff = buildCreatedLookbackQuery()
-  const query = `type:ticket status<solved tags:${VIP_TAG} ${createdCutoff}`
+  const query = `type:ticket status<solved tags:${tag} ${createdCutoff}`
 
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set('query', query)
@@ -168,18 +179,22 @@ let watcherStarted = false
 
 export function startVipTicketWatcher (sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
-    console.warn('[VIP WATCHER] Not starting – Zendesk config missing')
+    console.warn('[VIP WATCHER] Not starting - Zendesk config missing')
     return
   }
   if (watcherStarted) return
   watcherStarted = true
 
   const groupLabel = VIP_GROUP_ID ? `override ${VIP_GROUP_ID}` : 'default group'
+  const tagLabel = VIP_TAG_RULES.length
+    ? VIP_TAG_RULES.map(rule => rule.tag).join(', ')
+    : '(none)'
+
   console.log(
-    `[VIP WATCHER] Starting – poll ${Math.round(POLL_INTERVAL_MS / 1000)}s, lookback ${LOOKBACK_HOURS}h, group ${groupLabel}`
+    `[VIP WATCHER] Starting - poll ${Math.round(POLL_INTERVAL_MS / 1000)}s, lookback ${LOOKBACK_HOURS}h, group ${groupLabel}`
   )
-  console.log(`[VIP WATCHER] Rules – org ${VIP_ORG_ID}, tag ${VIP_TAG}`)
-  console.log(`[VIP WATCHER] Cache – TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
+  console.log(`[VIP WATCHER] Rules - org ${VIP_ORG_ID}, tags ${tagLabel}`)
+  console.log(`[VIP WATCHER] Cache - TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
   const sendVip = async (msg) => {
     // Never let a send failure kill the tick
@@ -219,30 +234,34 @@ export function startVipTicketWatcher (sendSlaAlert) {
       }
 
       // 2) Tag based VIP tickets (creation alerts)
-      const { results: vipTags, query } = await fetchVipTagTicketsRaw()
+      for (const rule of VIP_TAG_RULES) {
+        const { results: vipTags, query } = await fetchVipTagTicketsRaw(rule.tag)
 
-      console.log('[VIP WATCHER] Tag query:', query, '| results:', vipTags.length)
-      if (vipTags[0]) console.log('[VIP WATCHER] Tag sample:', vipTags[0].id, vipTags[0].created_at)
+        console.log('[VIP WATCHER] Tag query:', query, '| results:', vipTags.length)
+        if (vipTags[0]) {
+          console.log('[VIP WATCHER] Tag sample:', rule.tag, vipTags[0].id, vipTags[0].created_at)
+        }
 
-      for (const t of vipTags) {
-        const created = dayjs(t.created_at)
-        if (!created.isValid()) continue
+        for (const t of vipTags) {
+          const created = dayjs(t.created_at)
+          if (!created.isValid()) continue
 
-        const ageHours = now.diff(created, 'hour', true)
+          const ageHours = now.diff(created, 'hour', true)
 
-        const key = `vip-tag-new:${t.id}`
-        if (warnedNew.has(key)) continue
-        warnedNew.add(key)
+          const key = `vip-tag-new:${rule.key}:${t.id}`
+          if (warnedNew.has(key)) continue
+          warnedNew.add(key)
 
-        const msg = buildVipMsg({
-          title: '🟪 VIP carrier down (Telemedia)',
-          ticket: t,
-          reason: `tags=${VIP_TAG}`,
-          ageHours
-        })
+          const msg = buildVipMsg({
+            title: rule.title,
+            ticket: t,
+            reason: `tags=${rule.tag}`,
+            ageHours
+          })
 
-        console.log('[VIP WATCHER] Sending WA VIP tag NEW alert', t.id)
-        await sendVip(msg)
+          console.log('[VIP WATCHER] Sending WA VIP tag NEW alert', rule.tag, t.id)
+          await sendVip(msg)
+        }
       }
     } catch (err) {
       console.error('[VIP WATCHER] Tick error:', err?.message || err)
