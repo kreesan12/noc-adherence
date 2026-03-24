@@ -1,7 +1,7 @@
 // frontend/src/components/UserStatus.jsx
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Box, Paper, Avatar, Typography, Chip,
+  Box, Paper, Avatar, Typography, Chip, Button,
   IconButton, Menu, MenuItem, Divider, Stack, Tooltip
 } from '@mui/material'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
@@ -17,19 +17,18 @@ function getInitials(name = '') {
 function roleChipProps(roleRaw) {
   const role = (roleRaw || '').toLowerCase()
   if (role === 'engineering') return { color: 'success', label: 'engineering' }
-  if (role === 'admin')       return { color: 'warning', label: 'admin' }
-  if (role === 'manager')     return { color: 'info',    label: 'manager' }
-  if (role === 'supervisor')  return { color: 'info',    label: 'supervisor' }
-  return { color: 'default',  label: roleRaw || 'user' }
+  if (role === 'admin') return { color: 'warning', label: 'admin' }
+  if (role === 'manager') return { color: 'info', label: 'manager' }
+  if (role === 'supervisor') return { color: 'info', label: 'supervisor' }
+  return { color: 'default', label: roleRaw || 'user' }
 }
 
-export default function UserStatus() {
+export default function UserStatus({ inDrawer = false }) {
   const { user: ctxUser, logout: ctxLogout } = useAuth()
   const [anchorEl, setAnchorEl] = useState(null)
   const [fallbackUser, setFallbackUser] = useState(null)
   const open = Boolean(anchorEl)
 
-  // Only rebuild fallback from JWT if ctxUser is missing AND a token exists.
   useEffect(() => {
     const t = localStorage.getItem('token')
     if (!ctxUser && t) {
@@ -44,7 +43,6 @@ export default function UserStatus() {
     }
   }, [ctxUser])
 
-  // Cross-tab logout awareness
   useEffect(() => {
     const onStorage = (e) => {
       if (e.key === 'token' && e.newValue == null) {
@@ -56,7 +54,6 @@ export default function UserStatus() {
   }, [])
 
   const user = ctxUser ?? fallbackUser
-
   const initials = useMemo(() => getInitials(user?.name), [user])
   const chip = useMemo(() => roleChipProps(user?.role), [user])
 
@@ -68,11 +65,79 @@ export default function UserStatus() {
     try {
       if (typeof ctxLogout === 'function') await ctxLogout()
     } finally {
-      // hard clear locally in case ctxLogout is a no-op
       localStorage.removeItem('token')
       setFallbackUser(null)
       window.location.replace('/noc-adherence/login')
     }
+  }
+
+  const avatarSx = inDrawer
+    ? { width: 32, height: 32, fontSize: 13, bgcolor: 'rgba(255,255,255,0.18)', color: '#fff' }
+    : { width: 28, height: 28, fontSize: 13 }
+
+  if (inDrawer) {
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          px: 1.25,
+          py: 1,
+          borderRadius: 2,
+          border: '1px solid rgba(255,255,255,0.18)',
+          bgcolor: 'rgba(255,255,255,0.12)',
+          color: '#fff',
+          backdropFilter: 'blur(8px)'
+        }}
+      >
+        {user ? (
+          <Stack spacing={1}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Avatar sx={avatarSx}>
+                {initials || <PersonRoundedIcon fontSize="small" />}
+              </Avatar>
+
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="body2" sx={{ lineHeight: 1.2, fontWeight: 600 }} noWrap>
+                  {user.name}
+                </Typography>
+                <Chip
+                  size="small"
+                  variant="filled"
+                  color={chip.color}
+                  label={chip.label}
+                  sx={{ mt: 0.5, height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }}
+                />
+              </Box>
+            </Stack>
+
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<LogoutRoundedIcon fontSize="small" />}
+              onClick={handleLogout}
+              sx={{
+                alignSelf: 'stretch',
+                color: '#fff',
+                borderColor: 'rgba(255,255,255,0.35)',
+                '&:hover': {
+                  borderColor: '#fff',
+                  bgcolor: 'rgba(255,255,255,0.08)'
+                }
+              }}
+            >
+              Logout
+            </Button>
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Avatar sx={avatarSx}>
+              <PersonRoundedIcon fontSize="small" />
+            </Avatar>
+            <Typography variant="body2">Not logged in</Typography>
+          </Stack>
+        )}
+      </Paper>
+    )
   }
 
   return (
@@ -80,15 +145,20 @@ export default function UserStatus() {
       <Paper
         elevation={3}
         sx={{
-          px: 1.25, py: 0.75, borderRadius: 999,
-          display: 'flex', alignItems: 'center', gap: 1,
-          border: '1px solid', borderColor: 'divider',
+          px: 1.25,
+          py: 0.75,
+          borderRadius: 999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          border: '1px solid',
+          borderColor: 'divider',
           bgcolor: 'background.paper'
         }}
       >
         {user ? (
           <>
-            <Avatar sx={{ width: 28, height: 28, fontSize: 13 }}>
+            <Avatar sx={avatarSx}>
               {initials || <PersonRoundedIcon fontSize="small" />}
             </Avatar>
 
@@ -130,14 +200,14 @@ export default function UserStatus() {
               </Box>
               <Divider />
               <MenuItem onClick={handleLogout}>
-                <LogoutRoundedIcon fontSize="small" style={{ marginRight: 8 }} />
+                <LogoutRoundedIcon fontSize="small" sx={{ mr: 1 }} />
                 Logout
               </MenuItem>
             </Menu>
           </>
         ) : (
           <>
-            <Avatar sx={{ width: 28, height: 28 }}>
+            <Avatar sx={avatarSx}>
               <PersonRoundedIcon fontSize="small" />
             </Avatar>
             <Typography variant="body2">Not logged in</Typography>

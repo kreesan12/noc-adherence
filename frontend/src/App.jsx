@@ -164,11 +164,15 @@ function SideNav() {
   ]
 
   const [openState, setOpenState] = useState(
-    Object.fromEntries(sections.map(s => [s.title, true]))
+    Object.fromEntries(sections.map(s => [s.title, false]))
   )
 
   return (
     <StyledDrawer variant="permanent">
+      <Box sx={{ px: 1.5, pt: 1.5, pb: 0.5 }}>
+        <UserStatus inDrawer />
+      </Box>
+
       <List
         subheader={
           <ListSubheader
@@ -234,6 +238,13 @@ function SideNav() {
   )
 }
 
+function FloatingTechUserStatus() {
+  const location = useLocation()
+
+  if (!location.pathname.startsWith('/tech')) return null
+  return <UserStatus />
+}
+
 /* ──────────────────────── App ──────────────────────────── */
 export default function App() {
   return (
@@ -245,7 +256,7 @@ export default function App() {
 
           {/* ✅ AppFrame removes drawer padding on /tech routes and on /login */}
           <AppFrame drawerWidth={DRAWER_WIDTH}>
-            <UserStatus />
+            <FloatingTechUserStatus />
 
             <Routes>
               {/* Public */}

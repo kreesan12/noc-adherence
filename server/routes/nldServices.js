@@ -20,6 +20,101 @@ function trimOr(v) {
   return (typeof v === 'string') ? v.trim() : v
 }
 
+const SEARCH_SCAN_LIMIT = 5000
+
+function normalizeSearchValue(v) {
+  return String(v ?? '').toUpperCase().trim()
+}
+
+function compactSearchValue(v) {
+  return normalizeSearchValue(v).replace(/[^A-Z0-9]+/g, '')
+}
+
+function buildPrimaryPathTokens(path) {
+  const raw = normalizeSearchValue(path)
+  const compact = compactSearchValue(path)
+  const tokens = new Set()
+
+  if (!compact) return tokens
+
+  tokens.add(compact)
+
+  raw
+    .split(/[^A-Z0-9]+/)
+    .map(token => token.trim())
+    .filter(Boolean)
+    .forEach(token => {
+      tokens.add(token)
+
+      if (/^NLD\d+$/.test(token)) {
+        token
+          .slice(3)
+          .split('')
+          .forEach(digit => tokens.add(`NLD${digit}`))
+      }
+    })
+
+  ;(compact.match(/NLD\d+/g) || []).forEach(token => {
+    tokens.add(token)
+
+    token
+      .slice(3)
+      .split('')
+      .forEach(digit => tokens.add(`NLD${digit}`))
+  })
+
+  ;(compact.match(/NTP[0-9A-Z]+/g) || []).forEach(token => {
+    tokens.add(token)
+  })
+
+  return tokens
+}
+
+function matchesPrimaryPath(path, query) {
+  const q = compactSearchValue(query)
+  const compactPath = compactSearchValue(path)
+
+  if (!q || !compactPath) return false
+  if (compactPath.includes(q)) return true
+
+  for (const token of buildPrimaryPathTokens(path)) {
+    if (token === q || token.includes(q)) return true
+  }
+
+  return false
+}
+
+function matchesServiceSearch(row, query) {
+  const q = normalizeSearchValue(query)
+  if (!q) return true
+
+  const fields = [
+    row.customer,
+    row.frg,
+    row.serviceType,
+    row.capacity,
+    row.nldRoute,
+    row.deployment,
+    row.secPath,
+    row.stag,
+    row.ctag,
+    row.sideAName,
+    row.sideBName,
+    row.sideAIC,
+    row.sideASO,
+    row.sideAHandoff,
+    row.sideBIC,
+    row.sideBSO,
+    row.sideBHandoff
+  ]
+
+  if (fields.some(value => normalizeSearchValue(value).includes(q))) {
+    return true
+  }
+
+  return matchesPrimaryPath(row.priPath, query)
+}
+
 /* ───────────── CREATE ───────────── */
 r.post('/engineering/nld-services', async (req, res, next) => {
   try {
@@ -78,31 +173,31 @@ r.get('/engineering/nld-services', async (req, res, next) => {
     const { q = '', skip = '0', take = '50' } = req.query
     const s = String(q).trim()
 
-    const where = s
-      ? {
-          OR: [
-            { customer:   { contains: s, mode: 'insensitive' } },
-            { frg:        { contains: s, mode: 'insensitive' } },
-            { nldRoute:   { contains: s, mode: 'insensitive' } },
-            { priPath:    { contains: s, mode: 'insensitive' } },
-            { secPath:    { contains: s, mode: 'insensitive' } },
-            { stag:       { contains: s, mode: 'insensitive' } },
-            { ctag:       { contains: s, mode: 'insensitive' } },
-            { sideAName:  { contains: s, mode: 'insensitive' } },
-            { sideBName:  { contains: s, mode: 'insensitive' } },
-          ],
-        }
-      : {}
+    const skipNum = Math.max(Number(skip) || 0, 0)
+    const takeNum = Math.min(Math.max(Number(take) || 50, 1), 200)
 
-    const [items, total] = await Promise.all([
-      prisma.nldService.findMany({
-        where,
+    let items
+    let total
+
+    if (!s) {
+      ;[items, total] = await Promise.all([
+        prisma.nldService.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip: skipNum,
+          take: takeNum,
+        }),
+        prisma.nldService.count(),
+      ])
+    } else {
+      const allItems = await prisma.nldService.findMany({
         orderBy: { createdAt: 'desc' },
-        skip: Number(skip) || 0,
-        take: Math.min(Number(take) || 50, 200),
-      }),
-      prisma.nldService.count({ where }),
-    ])
+        take: SEARCH_SCAN_LIMIT,
+      })
+
+      const filtered = allItems.filter(item => matchesServiceSearch(item, s))
+      total = filtered.length
+      items = filtered.slice(skipNum, skipNum + takeNum)
+    }
 
     res.json({ items, total })
   } catch (e) { next(e) }

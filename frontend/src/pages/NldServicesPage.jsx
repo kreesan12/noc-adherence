@@ -1,5 +1,5 @@
 // frontend/src/pages/NldServicesPage.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   Box, Paper, Tabs, Tab, Stack, TextField, MenuItem, Button, Typography, Grid,
   FormControlLabel, Switch, Autocomplete, Chip, Snackbar, Alert,
@@ -42,6 +42,19 @@ const initialForm = {
   sideBIC: '',
   sideBSO: '',
   sideBHandoff: '',
+}
+
+const initialColumnFilters = {
+  customer: '',
+  frg: '',
+  serviceType: '',
+  capacity: '',
+  nldRoute: '',
+  deployment: '',
+  priPath: '',
+  sideAName: '',
+  sideBName: '',
+  createdAt: '',
 }
 
 /* Required fields (static baseline; Step 2 is made dynamic below) */
@@ -90,9 +103,12 @@ export default function NldServicesPage() {
 
   // list tab
   const [search, setSearch] = useState('')
+  const [appliedSearch, setAppliedSearch] = useState('')
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loadingList, setLoadingList] = useState(false)
+  const [columnFilters, setColumnFilters] = useState(initialColumnFilters)
+  const [expandedCustomers, setExpandedCustomers] = useState({})
 
   // details/edit drawer
   const [openDrawer, setOpenDrawer] = useState(false)
@@ -123,9 +139,48 @@ export default function NldServicesPage() {
       const r = await api.get('/engineering/nld-services', { params: { q: search, take: 100 } })
       setRows(r.data?.items ?? [])
       setTotal(r.data?.total ?? 0)
+      setAppliedSearch(search)
     } catch (e) { console.error(e) } finally { setLoadingList(false) }
   }
   useEffect(() => { if (tab === 1) loadList() }, [tab])
+
+  const setColumnFilter = (key, value) => {
+    setColumnFilters(prev => ({ ...prev, [key]: value }))
+  }
+
+  const clearColumnFilters = () => setColumnFilters(initialColumnFilters)
+
+  const filteredRows = useMemo(() => {
+    const activeFilters = Object.entries(columnFilters)
+      .filter(([, value]) => String(value ?? '').trim())
+
+    if (!activeFilters.length) return rows
+
+    return rows.filter((row) => {
+      return activeFilters.every(([key, value]) => {
+        const needle = String(value ?? '').trim().toLowerCase()
+        const haystack = key === 'createdAt'
+          ? new Date(row.createdAt).toLocaleString()
+          : row[key]
+
+        return String(haystack ?? '').toLowerCase().includes(needle)
+      })
+    })
+  }, [rows, columnFilters])
+
+  const customerGroups = useMemo(() => {
+    const groups = new Map()
+
+    filteredRows.forEach((row) => {
+      const customer = row.customer || 'Unknown customer'
+      if (!groups.has(customer)) groups.set(customer, [])
+      groups.get(customer).push(row)
+    })
+
+    return Array.from(groups.entries()).map(([customer, items]) => ({ customer, items }))
+  }, [filteredRows])
+
+  const forceExpandGroups = Boolean(appliedSearch.trim()) || Object.values(columnFilters).some(v => String(v ?? '').trim())
 
   /* -------- validation helpers ----------- */
   const setF = (key, val) => setForm(prev => ({ ...prev, [key]: val }))
@@ -195,8 +250,15 @@ export default function NldServicesPage() {
 
   /* =================== RENDER =================== */
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 64px)' }}>
-      <Box sx={{ flex: 1, m: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <Box
+      sx={{
+        display: 'flex',
+        height: { xs: '100dvh', md: 'calc(100dvh - 48px)' },
+        minHeight: 0,
+        overflow: 'hidden'
+      }}
+    >
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Paper elevation={0} sx={{ mb: 1, p: 0 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
             <Tab label="Capture New" />
@@ -529,22 +591,45 @@ export default function NldServicesPage() {
 
           {/* ====== Current tab ====== */}
           {tab === 1 && (
-            <Box sx={{ overflow: 'auto', pr: 1 }}>
-              <Card title="Current NLD Services" subtitle="Search by customer, FRG, route, or node" right={<Chip label={`${total} total`} size="small" />}>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+              <Card
+                title="Current NLD Services"
+                subtitle="Search by customer, FRG, route, node, or Pri path"
+                right={<Chip label={`${filteredRows.length}${filteredRows.length !== total ? ` / ${total}` : ''} total`} size="small" />}
+                sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+              >
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                  sx={{ mb: 1, flexShrink: 0 }}
+                >
                   <TextField
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    placeholder="Search…"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') loadList()
+                    }}
+                    placeholder="Search customer, FRG, route, node, or Pri..."
                     size="small"
                     InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-                    sx={{ width: 360, maxWidth: '100%' }}
+                    sx={{ width: { xs: '100%', sm: 380 }, maxWidth: '100%' }}
                   />
                   <Button variant="outlined" onClick={loadList} disabled={loadingList}>Refresh</Button>
                 </Stack>
 
-                <Paper variant="outlined" sx={{ overflow: 'auto' }}>
-                  <Table size="small" stickyHeader>
+                <Paper variant="outlined" sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                  <Table
+                    size="small"
+                    stickyHeader
+                    sx={{
+                      '& .MuiTableCell-root': {
+                        py: 0.75,
+                        px: 1,
+                        whiteSpace: 'nowrap'
+                      }
+                    }}
+                  >
                     <TableHead>
                       <TableRow>
                         <TableCell>Customer</TableCell>
@@ -553,43 +638,100 @@ export default function NldServicesPage() {
                         <TableCell>Capacity</TableCell>
                         <TableCell>Route</TableCell>
                         <TableCell>Deploy</TableCell>
-                        <TableCell>Prot</TableCell>
                         <TableCell>Pri</TableCell>
-                        <TableCell>Sec</TableCell>
                         <TableCell>Side A</TableCell>
                         <TableCell>Side B</TableCell>
                         <TableCell>Created</TableCell>
                         <TableCell align="center">Edit</TableCell>
                       </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.customer} onChange={e => setColumnFilter('customer', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.frg} onChange={e => setColumnFilter('frg', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.serviceType} onChange={e => setColumnFilter('serviceType', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.capacity} onChange={e => setColumnFilter('capacity', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.nldRoute} onChange={e => setColumnFilter('nldRoute', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.deployment} onChange={e => setColumnFilter('deployment', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.priPath} onChange={e => setColumnFilter('priPath', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.sideAName} onChange={e => setColumnFilter('sideAName', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.sideBName} onChange={e => setColumnFilter('sideBName', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell>
+                          <TextField size="small" variant="standard" value={columnFilters.createdAt} onChange={e => setColumnFilter('createdAt', e.target.value)} placeholder="Filter" />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Button size="small" onClick={clearColumnFilters}>Clear</Button>
+                        </TableCell>
+                      </TableRow>
                     </TableHead>
                     <TableBody>
-                      {rows.map(r => (
-                        <TableRow key={r.id} hover>
-                          <TableCell>{r.customer}</TableCell>
-                          <TableCell>{r.frg}</TableCell>
-                          <TableCell>{r.serviceType}</TableCell>
-                          <TableCell>{r.capacity}</TableCell>
-                          <TableCell>{r.nldRoute}</TableCell>
-                          <TableCell>{r.deployment}</TableCell>
-                          <TableCell>{r.protection ? 'Yes' : 'No'}</TableCell>
-                          <TableCell>{r.priPath || '—'}</TableCell>
-                          <TableCell>{r.secPath || '—'}</TableCell>
-                          <TableCell>{r.sideAName}</TableCell>
-                          <TableCell>{r.sideBName}</TableCell>
-                          <TableCell>{new Date(r.createdAt).toLocaleString()}</TableCell>
-                          <TableCell align="center">
-                            <Tooltip title="Edit">
-                              <IconButton size="small" onClick={() => { setEdit({ ...r }); setOpenDrawer(true) }}>
-                                <EditIcon fontSize="inherit" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {!rows.length && (
+                      {customerGroups.map(({ customer, items }) => {
+                        const expanded = forceExpandGroups || !!expandedCustomers[customer]
+
+                        return (
+                          <Fragment key={customer}>
+                            <TableRow hover sx={{ bgcolor: 'action.hover' }}>
+                              <TableCell colSpan={11} sx={{ py: 1 }}>
+                                <Stack direction="row" alignItems="center" spacing={1}>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => setExpandedCustomers(prev => ({ ...prev, [customer]: !prev[customer] }))}
+                                    disabled={forceExpandGroups}
+                                  >
+                                    {expanded ? '-' : '+'}
+                                  </IconButton>
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                    {customer}
+                                  </Typography>
+                                  <Chip size="small" label={`${items.length} service${items.length === 1 ? '' : 's'}`} />
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+
+                            {expanded && items.map(r => (
+                              <TableRow key={r.id} hover>
+                                <TableCell>{r.customer}</TableCell>
+                                <TableCell>{r.frg}</TableCell>
+                                <TableCell>{r.serviceType}</TableCell>
+                                <TableCell>{r.capacity}</TableCell>
+                                <TableCell>{r.nldRoute}</TableCell>
+                                <TableCell>{r.deployment}</TableCell>
+                                <TableCell>{r.priPath || '-'}</TableCell>
+                                <TableCell>{r.sideAName}</TableCell>
+                                <TableCell>{r.sideBName}</TableCell>
+                                <TableCell>{new Date(r.createdAt).toLocaleString()}</TableCell>
+                                <TableCell align="center">
+                                  <Tooltip title="Edit">
+                                    <IconButton size="small" onClick={() => { setEdit({ ...r }); setOpenDrawer(true) }}>
+                                      <EditIcon fontSize="inherit" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </Fragment>
+                        )
+                      })}
+                      {!customerGroups.length && (
                         <TableRow>
-                          <TableCell colSpan={13} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                            {loadingList ? 'Loading…' : 'No results'}
+                          <TableCell colSpan={11} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                            {loadingList ? 'Loading...' : 'No results'}
                           </TableCell>
                         </TableRow>
                       )}
@@ -697,3 +839,4 @@ export default function NldServicesPage() {
     </Box>
   )
 }
+

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
   Box, Paper, Typography, Accordion, AccordionSummary, AccordionDetails,
-  Chip, Stack
+  Chip, Stack, CircularProgress
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
@@ -53,31 +53,57 @@ function formatPct(p) {
 export default function NldUptimePage() {
   const [circuits, setCircuits] = useState([])         // base rows from /engineering/circuits
   const [eventsById, setEventsById] = useState({})     // { [id]: LightLevelEvent[] }
+  const [loadingCircuits, setLoadingCircuits] = useState(true)
+  const [loadingEvents, setLoadingEvents] = useState(false)
   const months = useMemo(monthsFromStartToNow, [])
 
   /* ── load circuits ─────────────────────────────────── */
   useEffect(() => {
-    api.get('/engineering/circuits').then(r => setCircuits(r.data))
+    let cancelled = false
+
+    setLoadingCircuits(true)
+    api.get('/engineering/circuits')
+      .then(r => {
+        if (!cancelled) setCircuits(r.data ?? [])
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (!cancelled) setLoadingCircuits(false)
+      })
+
+    return () => { cancelled = true }
   }, [])
 
   /* ── load lightEvents per circuit (N calls in parallel) ─ */
   useEffect(() => {
-    if (!circuits.length) return
+    if (!circuits.length) {
+      setLoadingEvents(false)
+      return
+    }
     let cancelled = false
 
     ;(async () => {
-      const ids = circuits.map(c => c.id)
-      const results = await Promise.all(ids.map(async (id) => {
-        const { data } = await api.get(`/engineering/circuit/${id}`)
-        return [id, data?.lightEvents ?? []]
-      }))
-      if (!cancelled) {
-        setEventsById(Object.fromEntries(results))
+      setLoadingEvents(true)
+      try {
+        const ids = circuits.map(c => c.id)
+        const results = await Promise.all(ids.map(async (id) => {
+          const { data } = await api.get(`/engineering/circuit/${id}`)
+          return [id, data?.lightEvents ?? []]
+        }))
+        if (!cancelled) {
+          setEventsById(Object.fromEntries(results))
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        if (!cancelled) setLoadingEvents(false)
       }
     })()
 
     return () => { cancelled = true }
   }, [circuits])
+
+  const isLoading = loadingCircuits || loadingEvents
 
   /* ── compute uptime metrics per circuit x month ────── */
   const rowsWithUptime = useMemo(() => {
@@ -239,99 +265,119 @@ export default function NldUptimePage() {
         <em> impactHours</em> from light-level events. For the current month, uptime is based on elapsed hours to date.
       </Typography>
 
-      {/* ===== Summary Tiles (industry-style) ===== */}
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
-          gap: 1.25,
-          mb: 2
-        }}
-      >
-        {nldSummaries.map(s => (
-          <Paper key={s.nld} elevation={2} sx={{ p: 1.5 }}>
-            <Stack spacing={0.75}>
-              <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
-                {s.nld}
-              </Typography>
+      {isLoading ? (
+        <Paper
+          elevation={0}
+          variant="outlined"
+          sx={{
+            minHeight: 240,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+            gap: 1.5
+          }}
+        >
+          <CircularProgress size={32} />
+          <Typography variant="body2" color="text.secondary">
+            Loading uptime data...
+          </Typography>
+        </Paper>
+      ) : (
+        <>
+          {/* ===== Summary Tiles (industry-style) ===== */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
+              gap: 1.25,
+              mb: 2
+            }}
+          >
+            {nldSummaries.map(s => (
+              <Paper key={s.nld} elevation={2} sx={{ p: 1.5 }}>
+                <Stack spacing={0.75}>
+                  <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
+                    {s.nld}
+                  </Typography>
 
-              {/* Main metric: whole-NLD (bottleneck) for latest month */}
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                  NLD Path Uptime ({s.latestMonthLabel})
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                      NLD Path Uptime ({s.latestMonthLabel})
+                    </Typography>
+                    <Chip
+                      size="small"
+                      color={pctChipForValue(s.nldPathLatestPct).color}
+                      label={formatPct(s.nldPathLatestPct)}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Stack>
+
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                      Avg Uptime (last 3 mo)
+                    </Typography>
+                    <Chip
+                      size="small"
+                      color={pctChipForValue(s.avg3moPct).color}
+                      label={formatPct(s.avg3moPct)}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Stack>
+
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                      Events (last 90d)
+                    </Typography>
+                    <Chip
+                      size="small"
+                      color={s.events90 > 0 ? 'warning' : 'success'}
+                      label={s.events90}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Box>
+
+          {Object.entries(byNld).map(([grp, list]) => (
+            <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  {grp}&nbsp;
+                  <Chip label={list.length} size="small" sx={{ ml:1 }} />
                 </Typography>
-                <Chip
-                  size="small"
-                  color={pctChipForValue(s.nldPathLatestPct).color}
-                  label={formatPct(s.nldPathLatestPct)}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Stack>
-
-              {/* Existing metrics kept */}
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                  Avg Uptime (last 3 mo)
-                </Typography>
-                <Chip
-                  size="small"
-                  color={pctChipForValue(s.avg3moPct).color}
-                  label={formatPct(s.avg3moPct)}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Stack>
-
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                  Events (last 90d)
-                </Typography>
-                <Chip
-                  size="small"
-                  color={s.events90 > 0 ? 'warning' : 'success'}
-                  label={s.events90}
-                  sx={{ fontWeight: 700 }}
-                />
-              </Stack>
-            </Stack>
-          </Paper>
-        ))}
-      </Box>
-
-      {Object.entries(byNld).map(([grp, list]) => (
-        <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography variant="subtitle1" fontWeight={600}>
-              {grp}&nbsp;
-              <Chip label={list.length} size="small" sx={{ ml:1 }} />
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ p:0 }}>
-            <Paper elevation={0}>
-              <DataGrid
-                rows={list}
-                columns={columns}
-                getRowId={(r) => r.id}
-                rowHeight={64}
-                columnHeaderHeight={44}
-                density="standard"
-                pageSizeOptions={[25,50,100]}
-                initialState={{ pagination:{ paginationModel:{ pageSize:25 } } }}
-                slots={{ toolbar: GridToolbar }}
-                slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } } }}
-                sx={(theme) => ({
-                  border: 0,
-                  '.MuiDataGrid-cell:hover': { bgcolor:'rgba(0,0,0,0.04)' },
-                  '& .uptimeCell': {
-                    display: 'flex',
-                    alignItems: 'center',
-                    py: 0.5,
-                  },
-                })}
-              />
-            </Paper>
-          </AccordionDetails>
-        </Accordion>
-      ))}
+              </AccordionSummary>
+              <AccordionDetails sx={{ p:0 }}>
+                <Paper elevation={0}>
+                  <DataGrid
+                    rows={list}
+                    columns={columns}
+                    getRowId={(r) => r.id}
+                    rowHeight={64}
+                    columnHeaderHeight={44}
+                    density="standard"
+                    pageSizeOptions={[25,50,100]}
+                    initialState={{ pagination:{ paginationModel:{ pageSize:25 } } }}
+                    slots={{ toolbar: GridToolbar }}
+                    slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } } }}
+                    sx={(theme) => ({
+                      border: 0,
+                      '.MuiDataGrid-cell:hover': { bgcolor:'rgba(0,0,0,0.04)' },
+                      '& .uptimeCell': {
+                        display: 'flex',
+                        alignItems: 'center',
+                        py: 0.5,
+                      },
+                    })}
+                  />
+                </Paper>
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </>
+      )}
     </Box>
   )
 }
