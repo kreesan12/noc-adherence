@@ -4,8 +4,9 @@ import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
 
 function requireEngineering(req, res, next) {
-  if ((req.user?.role || '').toLowerCase() !== 'engineering')
-    return res.status(403).json({ error: 'Engineering role required' })
+  const role = (req.user?.role || '').toLowerCase()
+  if (!['engineering', 'admin', 'manager'].includes(role))
+    return res.status(403).json({ error: 'Engineering, admin, or manager role required' })
   next()
 }
 

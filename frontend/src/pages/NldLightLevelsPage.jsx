@@ -136,6 +136,8 @@ function orderCircuitsChain(list) {
 
 export default function NldLightLevelsPage () {
   const { user } = useAuth()
+  const role = String(user?.role || '').toLowerCase()
+  const canEditLevels = role === 'engineering' || role === 'admin' || role === 'manager'
 
   /* ── state ─────────────────────────────────────────── */
   const [rows, setRows] = useState([])
@@ -365,9 +367,11 @@ export default function NldLightLevelsPage () {
 
       const deltaA = calcDelta(r.initRxSiteA ?? r.initial?.rxSiteA ?? null, r.displayRxA ?? r.currentRxSiteA ?? null)
       const deltaB = calcDelta(r.initRxSiteB ?? r.initial?.rxSiteB ?? null, r.displayRxB ?? r.currentRxSiteB ?? null)
+      const worseA = (deltaA == null) ? null : (deltaA < 0 ? Math.abs(deltaA) : 0)
+      const worseB = (deltaB == null) ? null : (deltaB < 0 ? Math.abs(deltaB) : 0)
       const thresholdOk = (worseThreshold == null) || (
-        (deltaA != null && deltaA >= worseThreshold) ||
-        (deltaB != null && deltaB >= worseThreshold)
+        (worseA != null && worseA >= worseThreshold) ||
+        (worseB != null && worseB >= worseThreshold)
       )
 
       return nldOk && circuitOk && thresholdOk
@@ -612,17 +616,17 @@ export default function NldLightLevelsPage () {
     },
     {
       field:'actions',
-      headerName:'', width:170, sortable:false, filterable:false,
+      headerName:'Actions', width:210, sortable:false, filterable:false,
       renderCell: (p) => (
         <Stack direction="row" spacing={0.5} alignItems="center">
-          {user?.role === 'engineering' && (
+          {canEditLevels && (
             <Tooltip title="Edit levels">
               <IconButton size="small" onClick={() => startEdit(p.row)}>
                 <EditNoteIcon fontSize="inherit" />
               </IconButton>
             </Tooltip>
           )}
-          {user?.role === 'engineering' && (
+          {canEditLevels && (
             <Tooltip title="Insert manual event">
               <IconButton size="small" onClick={() => startManualEvent(p.row)}>
                 <AddCircleOutlineIcon fontSize="inherit" />
@@ -645,7 +649,7 @@ export default function NldLightLevelsPage () {
         </Stack>
       )
     }
-  ], [user])
+  ], [canEditLevels])
 
   /* ── render ────────────────────────────────────────── */
   return (
@@ -683,7 +687,7 @@ export default function NldLightLevelsPage () {
             type="number"
             value={filters.worseDelta}
             onChange={(e) => setFilters(s => ({ ...s, worseDelta: e.target.value }))}
-            helperText="Shows rows where Δ A or Δ B meets/exceeds this value"
+            helperText="Shows rows where A or B worsened by at least this dBm"
             sx={{ minWidth: 220 }}
             inputProps={{ step: '0.1', min: '0' }}
           />
