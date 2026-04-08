@@ -57,7 +57,8 @@ r.get('/circuits', async (_, res) => {
       dailyLevels: {
       select: { sampleTime: true, side: true, rx: true },
       orderBy: { sampleTime: 'desc' },
-      take: 2  // we only need A and B latest
+      // fetch enough recent samples so UI can reliably resolve latest per-side values
+      take: 20
     }
     },
     orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }]
@@ -129,6 +130,100 @@ r.post('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
   })
 
   res.json(updated)
+})
+
+// Manual light-level event insert from UI
+r.post('/circuit/:id/light-event', verifyToken, requireEngineering, async (req, res) => {
+  const id = +req.params.id
+
+  const numOrNull = (v) => {
+    if (v === '' || v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const toIntOrNull = (v) => {
+    if (v === '' || v == null) return null
+    const n = Number(v)
+    return Number.isInteger(n) ? n : null
+  }
+
+  const {
+    ticketId,
+    impactType,
+    impactHours,
+    eventDate,
+    sideAPrev,
+    sideACurr,
+    sideBPrev,
+    sideBCurr,
+    reason = 'manual light event',
+  } = req.body || {}
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const circuit = await tx.circuit.findUnique({ where: { id } })
+      if (!circuit) return null
+
+      const prevA = numOrNull(sideAPrev)
+      const prevB = numOrNull(sideBPrev)
+      const currAInput = numOrNull(sideACurr)
+      const currBInput = numOrNull(sideBCurr)
+
+      const nextA = currAInput ?? circuit.currentRxSiteA ?? null
+      const nextB = currBInput ?? circuit.currentRxSiteB ?? null
+
+      const sideADelta = (prevA == null || currAInput == null) ? null : (currAInput - prevA)
+      const sideBDelta = (prevB == null || currBInput == null) ? null : (currBInput - prevB)
+
+      const when = eventDate ? new Date(eventDate) : new Date()
+
+      const event = await tx.lightLevelEvent.create({
+        data: {
+          circuitId: id,
+          ticketId: toIntOrNull(ticketId),
+          impactType: impactType || 'Manual',
+          eventDate: when,
+          sideAPrev: prevA,
+          sideACurr: currAInput,
+          sideBPrev: prevB,
+          sideBCurr: currBInput,
+          sideADelta,
+          sideBDelta,
+          impactHours: numOrNull(impactHours),
+          sourceEmailId: 'manual-ui',
+        }
+      })
+
+      await tx.circuit.update({
+        where: { id },
+        data: {
+          currentRxSiteA: nextA,
+          currentRxSiteB: nextB,
+        }
+      })
+
+      await tx.circuitLevelHistory.create({
+        data: {
+          circuitId: id,
+          rxSiteA: nextA,
+          rxSiteB: nextB,
+          reason,
+          source: 'manual-event-ui',
+          changedById: req.user.id,
+          changedAt: when,
+        }
+      })
+
+      return event
+    })
+
+    if (!result) return res.status(404).json({ error: 'Circuit not found' })
+    return res.status(201).json(result)
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json({ error: 'Failed to insert manual light event' })
+  }
 })
 
 

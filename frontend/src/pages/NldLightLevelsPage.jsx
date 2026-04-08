@@ -9,12 +9,15 @@ import {
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import HistoryIcon from '@mui/icons-material/History'
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import * as XLSX from 'xlsx'
 import { useAuth } from '../context/AuthContext'
 import api from '../api'
 
@@ -138,6 +141,8 @@ export default function NldLightLevelsPage () {
   const [rows, setRows] = useState([])
   const [edit, setEdit] = useState(null)   // { id, rxA, rxB, reason, changedAt }
   const [hist, setHist] = useState(null)   // [{...levelHistory, event?:{ticketId,impactType,impactHours}}]
+  const [manualEvent, setManualEvent] = useState(null)
+  const [filters, setFilters] = useState({ nld: '', circuit: '', worseDelta: '' })
 
   /* ── helpers ──────────────────────────────────────── */
   const groupBy = (arr, key) =>
@@ -173,11 +178,11 @@ export default function NldLightLevelsPage () {
 
   // Choose display values per circuit:
   // - For each side, use Daily iff that side has a daily sample newer than lastEventAt
-  // - As-of ALWAYS shows latest daily sampleTime (if any)
+  // - As-of shows the freshest timestamp behind the displayed values
   function deriveRow(r) {
     const dailies = Array.isArray(r.dailyLevels) ? r.dailyLevels : []
 
-    // latest overall daily (for the "As of" column)
+    // latest overall daily
     const latestDailyAt = dailies.length
       ? dailies.map(d => dayjs(d.sampleTime)).sort((a,b)=>b.valueOf()-a.valueOf())[0]
       : null
@@ -191,6 +196,7 @@ export default function NldLightLevelsPage () {
       .sort((a,b)=>dayjs(b.sampleTime).valueOf() - dayjs(a.sampleTime).valueOf())[0] || null
 
     const lastEventAt = r.lastEventAt ? dayjs(r.lastEventAt) : null
+    const initialAt = r.initial?.changedAt ? dayjs(r.initial.changedAt) : null
     const sideNewerThanEvent = (sideDaily) =>
       sideDaily && (!lastEventAt || dayjs(sideDaily.sampleTime).isAfter(lastEventAt))
 
@@ -202,12 +208,16 @@ export default function NldLightLevelsPage () {
     const displayRxB = useDailyB ? (latestB?.rx ?? r.currentRxSiteB ?? null)
                                  : (r.currentRxSiteB ?? null)
 
-    // As-of: ALWAYS latest daily snapshot (if any)
-    const displayAsOf = latestDailyAt ? latestDailyAt.toISOString() : null
-
     // Source per side: if not using Daily, call it Event only when an event exists; else Initial
     const displaySourceA = useDailyA ? 'daily' : (lastEventAt ? 'event' : 'initial')
     const displaySourceB = useDailyB ? 'daily' : (lastEventAt ? 'event' : 'initial')
+
+    const sideATime = useDailyA ? (latestA ? dayjs(latestA.sampleTime) : null) : (lastEventAt ?? initialAt ?? null)
+    const sideBTime = useDailyB ? (latestB ? dayjs(latestB.sampleTime) : null) : (lastEventAt ?? initialAt ?? null)
+    const asOfCandidates = [sideATime, sideBTime, latestDailyAt, lastEventAt, initialAt]
+      .filter(Boolean)
+      .sort((a, b) => b.valueOf() - a.valueOf())
+    const displayAsOf = asOfCandidates.length ? asOfCandidates[0].toISOString() : null
 
     return {
       ...r,
@@ -231,13 +241,18 @@ export default function NldLightLevelsPage () {
 
   async function openHist (id) {
     const { data } = await api.get(`/engineering/circuit/${id}`)
-    // Join history with lightEvents by date (YYYY-MM-DD)
+    // Join history with lightEvents by timestamp first, then by date fallback
+    const byTs = Object.fromEntries(
+      (data.lightEvents || []).map(e => [dayjs(e.eventDate).toISOString(), e])
+    )
     const byDate = Object.fromEntries(
       (data.lightEvents || []).map(e => [dayjs(e.eventDate).format('YYYY-MM-DD'), e])
     )
     const enriched = (data.levelHistory || []).map(h => ({
       ...h,
-      event: byDate[dayjs(h.changedAt).format('YYYY-MM-DD')]
+      event:
+        byTs[dayjs(h.changedAt).toISOString()] ??
+        byDate[dayjs(h.changedAt).format('YYYY-MM-DD')]
     }))
     setHist(enriched)
   }
@@ -264,6 +279,47 @@ export default function NldLightLevelsPage () {
     const { data } = await api.get('/engineering/circuits')
     setRows(deriveRows(data))
     setEdit(null)
+  }
+
+  function startManualEvent (r) {
+    const currA = r.displayRxA ?? r.currentRxSiteA ?? ''
+    const currB = r.displayRxB ?? r.currentRxSiteB ?? ''
+    setManualEvent({
+      id: r.id,
+      circuitId: r.circuitId,
+      ticketId: '',
+      impactType: 'Manual',
+      impactHours: '',
+      eventDate: dayjs(),
+      sideAPrev: currA,
+      sideACurr: currA,
+      sideBPrev: currB,
+      sideBCurr: currB,
+      reason: 'manual light event'
+    })
+  }
+
+  async function saveManualEvent () {
+    await api.post(`/engineering/circuit/${manualEvent.id}/light-event`, {
+      ticketId: manualEvent.ticketId === '' ? null : Number(manualEvent.ticketId),
+      impactType: manualEvent.impactType || 'Manual',
+      impactHours: toNumOrNull(manualEvent.impactHours),
+      eventDate: manualEvent.eventDate ? dayjs(manualEvent.eventDate).toISOString() : undefined,
+      sideAPrev: toNumOrNull(manualEvent.sideAPrev),
+      sideACurr: toNumOrNull(manualEvent.sideACurr),
+      sideBPrev: toNumOrNull(manualEvent.sideBPrev),
+      sideBCurr: toNumOrNull(manualEvent.sideBCurr),
+      reason: manualEvent.reason || 'manual light event'
+    })
+    const { data } = await api.get('/engineering/circuits')
+    setRows(deriveRows(data))
+    setManualEvent(null)
+  }
+
+  const calcDelta = (init, curr) => {
+    if (init == null || curr == null) return null
+    const d = Number(curr) - Number(init)
+    return Number.isFinite(d) ? d : null
   }
 
   const fmtSigned = (v) => (v === null || v === undefined || Number.isNaN(v))
@@ -293,6 +349,77 @@ export default function NldLightLevelsPage () {
 
     // more than -2.0 dBm drop (e.g. -2.1 and lower) → red
     return { label: 'Worse', color: 'error', icon: <ArrowDownwardRoundedIcon fontSize="small" /> }
+  }
+
+  const thresholdInput = String(filters.worseDelta ?? '').trim()
+  const thresholdNum = thresholdInput === '' ? Number.NaN : Number(thresholdInput)
+  const worseThreshold = Number.isFinite(thresholdNum) && thresholdNum >= 0 ? thresholdNum : null
+
+  const filteredRows = useMemo(() => {
+    const nldQ = String(filters.nld || '').trim().toLowerCase()
+    const circuitQ = String(filters.circuit || '').trim().toLowerCase()
+
+    return rows.filter((r) => {
+      const nldOk = !nldQ || String(r.nldGroup || '').toLowerCase().includes(nldQ)
+      const circuitOk = !circuitQ || String(r.circuitId || '').toLowerCase().includes(circuitQ)
+
+      const deltaA = calcDelta(r.initRxSiteA ?? r.initial?.rxSiteA ?? null, r.displayRxA ?? r.currentRxSiteA ?? null)
+      const deltaB = calcDelta(r.initRxSiteB ?? r.initial?.rxSiteB ?? null, r.displayRxB ?? r.currentRxSiteB ?? null)
+      const thresholdOk = (worseThreshold == null) || (
+        (deltaA != null && deltaA >= worseThreshold) ||
+        (deltaB != null && deltaB >= worseThreshold)
+      )
+
+      return nldOk && circuitOk && thresholdOk
+    })
+  }, [rows, filters, worseThreshold])
+
+  const groupedFilteredRows = useMemo(
+    () => groupBy(filteredRows, 'nldGroup'),
+    [filteredRows]
+  )
+
+  function clearFilters () {
+    setFilters({ nld: '', circuit: '', worseDelta: '' })
+  }
+
+  function exportCurrentView () {
+    const ordered = Object.entries(groupedFilteredRows)
+      .flatMap(([_, list]) => orderCircuitsChain(list))
+
+    const payload = ordered.map((r) => {
+      const initA = r.initRxSiteA ?? r.initial?.rxSiteA ?? null
+      const initB = r.initRxSiteB ?? r.initial?.rxSiteB ?? null
+      const currA = r.displayRxA ?? r.currentRxSiteA ?? null
+      const currB = r.displayRxB ?? r.currentRxSiteB ?? null
+      const dA = calcDelta(initA, currA)
+      const dB = calcDelta(initB, currB)
+
+      return {
+        NLD: r.nldGroup ?? '',
+        Circuit: r.circuitId ?? '',
+        NodeA: r.nodeA ?? '',
+        NodeB: r.nodeB ?? '',
+        Tech: r.techType ?? '',
+        CurrentRxA_dBm: currA,
+        SourceA: r.displaySourceA ?? '',
+        InitialRxA_dBm: initA,
+        DeltaA_dBm: dA,
+        TrendA: chipForDelta(dA).label,
+        CurrentRxB_dBm: currB,
+        SourceB: r.displaySourceB ?? '',
+        InitialRxB_dBm: initB,
+        DeltaB_dBm: dB,
+        TrendB: chipForDelta(dB).label,
+        AsOf: r.displayAsOf ? dayjs(r.displayAsOf).format('YYYY-MM-DD HH:mm') : '',
+        LastEvent: r.lastEventAt ? dayjs(r.lastEventAt).format('YYYY-MM-DD HH:mm') : '',
+      }
+    })
+
+    const ws = XLSX.utils.json_to_sheet(payload)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'NLD Light Levels')
+    XLSX.writeFile(wb, `nld_light_levels_${dayjs().format('YYYYMMDD_HHmm')}.xlsx`)
   }
 
   /* ── datagrid columns (memoised) ───────────────────── */
@@ -485,13 +612,20 @@ export default function NldLightLevelsPage () {
     },
     {
       field:'actions',
-      headerName:'', width:130, sortable:false, filterable:false,
+      headerName:'', width:170, sortable:false, filterable:false,
       renderCell: (p) => (
         <Stack direction="row" spacing={0.5} alignItems="center">
           {user?.role === 'engineering' && (
             <Tooltip title="Edit levels">
               <IconButton size="small" onClick={() => startEdit(p.row)}>
                 <EditNoteIcon fontSize="inherit" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {user?.role === 'engineering' && (
+            <Tooltip title="Insert manual event">
+              <IconButton size="small" onClick={() => startManualEvent(p.row)}>
+                <AddCircleOutlineIcon fontSize="inherit" />
               </IconButton>
             </Tooltip>
           )}
@@ -521,11 +655,51 @@ export default function NldLightLevelsPage () {
       </Typography>
       <Typography variant="body2" sx={{ mb: 2, opacity: 0.8 }}>
         “Current” values pick the freshest of <strong>Event</strong> vs <strong>Daily</strong> snapshot <em>per side</em>.
-        <br/> <strong>As of</strong> shows the timestamp of the latest <strong>Daily</strong> snapshot available.
-        Deltas compare against the <strong>initial import</strong>. Higher (less negative) dBm is better.
+        <br/> <strong>As of</strong> shows the freshest timestamp used for the displayed values.
+        Deltas compare against the <strong>initial import</strong>.
       </Typography>
 
-      {Object.entries(groupBy(rows, 'nldGroup')).map(([grp, list]) => {
+      <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid #eee' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
+          <TextField
+            size="small"
+            label="Filter NLD"
+            placeholder="e.g. NLD1"
+            value={filters.nld}
+            onChange={(e) => setFilters(s => ({ ...s, nld: e.target.value }))}
+            sx={{ minWidth: 180 }}
+          />
+          <TextField
+            size="small"
+            label="Filter Circuit"
+            placeholder="Circuit ID contains..."
+            value={filters.circuit}
+            onChange={(e) => setFilters(s => ({ ...s, circuit: e.target.value }))}
+            sx={{ minWidth: 220 }}
+          />
+          <TextField
+            size="small"
+            label="Worse Δ >= (dBm)"
+            type="number"
+            value={filters.worseDelta}
+            onChange={(e) => setFilters(s => ({ ...s, worseDelta: e.target.value }))}
+            helperText="Shows rows where Δ A or Δ B meets/exceeds this value"
+            sx={{ minWidth: 220 }}
+            inputProps={{ step: '0.1', min: '0' }}
+          />
+          <Button variant="outlined" onClick={clearFilters}>Clear</Button>
+          <Button
+            variant="contained"
+            startIcon={<FileDownloadOutlinedIcon />}
+            onClick={exportCurrentView}
+            disabled={!filteredRows.length}
+          >
+            Export Excel
+          </Button>
+        </Stack>
+      </Paper>
+
+      {Object.entries(groupedFilteredRows).map(([grp, list]) => {
         const ordered = orderCircuitsChain(list)
         return (
           <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
@@ -614,6 +788,90 @@ export default function NldLightLevelsPage () {
             <Stack direction="row" spacing={1}>
               <Button variant="contained" onClick={saveEdit}>Save</Button>
               <Button onClick={() => setEdit(null)}>Cancel</Button>
+            </Stack>
+          </Stack>
+        </Box>
+      </Drawer>
+
+      {/* ---------- Manual event drawer ---------- */}
+      <Drawer anchor="right" open={Boolean(manualEvent)} onClose={() => setManualEvent(null)} ModalProps={{ sx: { zIndex: 2400 } }}>
+        <Box p={3} width={360}>
+          <Typography variant="h6" mb={0.5}>Insert Manual Event</Typography>
+          <Typography variant="body2" sx={{ mb: 2, opacity: 0.75 }}>
+            {manualEvent?.circuitId || ''}
+          </Typography>
+          <Stack spacing={2}>
+            <LocalizationProvider dateAdapter={AdapterDayjs}>
+              <DateTimePicker
+                label="Event date/time"
+                value={manualEvent?.eventDate ?? null}
+                onChange={(v) => setManualEvent(s => ({ ...s, eventDate: v }))}
+              />
+            </LocalizationProvider>
+
+            <TextField
+              label="Ticket ID (optional)"
+              value={manualEvent?.ticketId ?? ''}
+              onChange={e => setManualEvent(s => ({ ...s, ticketId: e.target.value }))}
+              inputProps={{ inputMode: 'numeric' }}
+            />
+            <TextField
+              label="Impact Type"
+              value={manualEvent?.impactType ?? ''}
+              onChange={e => setManualEvent(s => ({ ...s, impactType: e.target.value }))}
+            />
+            <TextField
+              label="Impact Hours (optional)"
+              value={manualEvent?.impactHours ?? ''}
+              onChange={e => setManualEvent(s => ({ ...s, impactHours: e.target.value }))}
+              inputProps={{ inputMode: 'decimal' }}
+            />
+
+            <Stack direction="row" spacing={1}>
+              <TextField
+                label="Side A Prev"
+                value={manualEvent?.sideAPrev ?? ''}
+                onChange={e => setManualEvent(s => ({ ...s, sideAPrev: e.target.value }))}
+                inputProps={{ inputMode: 'decimal' }}
+                fullWidth
+              />
+              <TextField
+                label="Side A Curr"
+                value={manualEvent?.sideACurr ?? ''}
+                onChange={e => setManualEvent(s => ({ ...s, sideACurr: e.target.value }))}
+                inputProps={{ inputMode: 'decimal' }}
+                fullWidth
+              />
+            </Stack>
+
+            <Stack direction="row" spacing={1}>
+              <TextField
+                label="Side B Prev"
+                value={manualEvent?.sideBPrev ?? ''}
+                onChange={e => setManualEvent(s => ({ ...s, sideBPrev: e.target.value }))}
+                inputProps={{ inputMode: 'decimal' }}
+                fullWidth
+              />
+              <TextField
+                label="Side B Curr"
+                value={manualEvent?.sideBCurr ?? ''}
+                onChange={e => setManualEvent(s => ({ ...s, sideBCurr: e.target.value }))}
+                inputProps={{ inputMode: 'decimal' }}
+                fullWidth
+              />
+            </Stack>
+
+            <TextField
+              label="Reason"
+              value={manualEvent?.reason ?? ''}
+              onChange={e => setManualEvent(s => ({ ...s, reason: e.target.value }))}
+              multiline
+              minRows={2}
+            />
+
+            <Stack direction="row" spacing={1}>
+              <Button variant="contained" onClick={saveManualEvent}>Save Event</Button>
+              <Button onClick={() => setManualEvent(null)}>Cancel</Button>
             </Stack>
           </Stack>
         </Box>
