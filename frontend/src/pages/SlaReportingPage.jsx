@@ -4,6 +4,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Box,
   Button,
   Chip,
@@ -26,6 +27,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import api from '../api'
+
+const DEFAULT_ISP_PAGE_SIZE = 50
 
 function fmtPct(v) {
   if (v == null || Number.isNaN(Number(v))) return '—'
@@ -61,7 +64,7 @@ export default function SlaReportingPage() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState({ months: [], isps: [], from: null, to: null })
   const [linksByIsp, setLinksByIsp] = useState({})
-  const [loadingIsp, setLoadingIsp] = useState({})
+  const [linksMetaByIsp, setLinksMetaByIsp] = useState({})
   const [expandedIsp, setExpandedIsp] = useState('')
 
   const [openLink, setOpenLink] = useState('')
@@ -79,26 +82,86 @@ export default function SlaReportingPage() {
       })
       setData(res.data || { months: [], isps: [] })
       setLinksByIsp({})
-      setLoadingIsp({})
+      setLinksMetaByIsp({})
       setExpandedIsp('')
     } finally {
       setLoading(false)
     }
   }
 
-  async function loadIspLinks(ispName) {
-    if (!ispName || linksByIsp[ispName]) return
-    setLoadingIsp((s) => ({ ...s, [ispName]: true }))
+  function getIspMeta(ispName) {
+    return linksMetaByIsp[ispName] || {
+      loading: false,
+      loaded: false,
+      error: '',
+      page: 0,
+      pageSize: DEFAULT_ISP_PAGE_SIZE,
+      totalCount: 0
+    }
+  }
+
+  async function loadIspLinks(ispName, page = 0, pageSize = DEFAULT_ISP_PAGE_SIZE) {
+    if (!ispName) return
+    setLinksMetaByIsp((s) => ({
+      ...s,
+      [ispName]: {
+        ...(s[ispName] || {
+          loading: false,
+          loaded: false,
+          error: '',
+          page: 0,
+          pageSize: DEFAULT_ISP_PAGE_SIZE,
+          totalCount: 0
+        }),
+        loading: true,
+        error: '',
+        page,
+        pageSize
+      }
+    }))
     try {
       const res = await api.get(`/sla-reporting/isp/${encodeURIComponent(ispName)}/links`, {
         params: {
           from: range.from,
-          to: range.to
+          to: range.to,
+          page,
+          pageSize
         }
       })
-      setLinksByIsp((s) => ({ ...s, [ispName]: res.data?.links || [] }))
-    } finally {
-      setLoadingIsp((s) => ({ ...s, [ispName]: false }))
+      const payload = res.data || {}
+      const links = payload.links || []
+      setLinksByIsp((s) => ({ ...s, [ispName]: links }))
+      setLinksMetaByIsp((s) => ({
+        ...s,
+        [ispName]: {
+          loading: false,
+          loaded: true,
+          error: '',
+          page: Number(payload.page ?? page),
+          pageSize: Number(payload.pageSize ?? pageSize),
+          totalCount: Number(payload.totalCount ?? links.length)
+        }
+      }))
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load links'
+      setLinksMetaByIsp((s) => ({
+        ...s,
+        [ispName]: {
+          ...(s[ispName] || {
+            loading: false,
+            loaded: false,
+            error: '',
+            page: 0,
+            pageSize: DEFAULT_ISP_PAGE_SIZE,
+            totalCount: 0
+          }),
+          loading: false,
+          loaded: false,
+          error: String(msg),
+          page,
+          pageSize
+        }
+      }))
     }
   }
 
@@ -125,14 +188,15 @@ export default function SlaReportingPage() {
 
   const monthColumns = useMemo(() => {
     return (data.months || []).map((m) => ({
-      field: `m_${m}`,
+      field: `m_${m.replace('-', '_')}`,
       headerName: m,
       width: 120,
       align: 'center',
       headerAlign: 'center',
       sortable: false,
+      valueGetter: (_, row) => row?.monthValues?.[m] ?? null,
       renderCell: (p) => {
-        const v = p.row.monthValues?.[m]
+        const v = p.value ?? p.row?.monthValues?.[m] ?? null
         return (
           <Chip
             size="small"
@@ -263,7 +327,12 @@ export default function SlaReportingPage() {
               expanded={expandedIsp === isp.isp}
               onChange={(_, expanded) => {
                 setExpandedIsp(expanded ? isp.isp : '')
-                if (expanded) loadIspLinks(isp.isp).catch(console.error)
+                if (expanded) {
+                  const meta = getIspMeta(isp.isp)
+                  if (!meta.loaded) {
+                    loadIspLinks(isp.isp, 0, DEFAULT_ISP_PAGE_SIZE).catch(console.error)
+                  }
+                }
               }}
               sx={{ mb: 1 }}
             >
@@ -283,28 +352,52 @@ export default function SlaReportingPage() {
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ p: 0 }}>
-                {loadingIsp[isp.isp] ? (
-                  <Box py={2} textAlign="center">
-                    <CircularProgress size={22} />
-                    <Typography variant="body2" sx={{ mt: 1 }}>Loading links...</Typography>
-                  </Box>
-                ) : (
-                  <DataGrid
-                    rows={(linksByIsp[isp.isp] || []).map((l) => ({ id: l.frogfootlinklabel, ...l }))}
-                    columns={columns}
-                    autoHeight
-                    density="compact"
-                    pageSizeOptions={[25, 50, 100]}
-                    initialState={{
-                      pagination: { paginationModel: { pageSize: 25 } }
-                    }}
-                    slots={{ toolbar: GridToolbar }}
-                    slotProps={{
-                      toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
-                    }}
-                    sx={{ border: 0 }}
-                  />
-                )}
+                {(() => {
+                  const meta = getIspMeta(isp.isp)
+                  const rows = (linksByIsp[isp.isp] || []).map((l) => ({ id: l.frogfootlinklabel, ...l }))
+                  const hasNoRows = !meta.loading && meta.loaded && rows.length === 0
+
+                  return (
+                    <Box>
+                      {meta.error ? (
+                        <Alert severity="warning" sx={{ m: 1 }}>
+                          {meta.error}
+                        </Alert>
+                      ) : null}
+
+                      {meta.loading && !rows.length ? (
+                        <Box py={2} textAlign="center">
+                          <CircularProgress size={22} />
+                          <Typography variant="body2" sx={{ mt: 1 }}>Loading links...</Typography>
+                        </Box>
+                      ) : hasNoRows ? (
+                        <Paper elevation={0} sx={{ p: 1.5, borderTop: '1px solid #eee' }}>
+                          <Typography variant="body2">No FRG link records returned for this ISP in the selected range.</Typography>
+                        </Paper>
+                      ) : (
+                        <DataGrid
+                          rows={rows}
+                          columns={columns}
+                          autoHeight
+                          density="compact"
+                          rowCount={meta.totalCount || rows.length}
+                          pageSizeOptions={[25, 50, 100, 200]}
+                          paginationMode="server"
+                          paginationModel={{ page: meta.page || 0, pageSize: meta.pageSize || DEFAULT_ISP_PAGE_SIZE }}
+                          onPaginationModelChange={(model) => {
+                            loadIspLinks(isp.isp, model.page, model.pageSize).catch(console.error)
+                          }}
+                          loading={Boolean(meta.loading)}
+                          slots={{ toolbar: GridToolbar }}
+                          slotProps={{
+                            toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
+                          }}
+                          sx={{ border: 0 }}
+                        />
+                      )}
+                    </Box>
+                  )
+                })()}
               </AccordionDetails>
             </Accordion>
           ))}
