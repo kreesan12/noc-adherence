@@ -26,9 +26,22 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
+import {
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Scatter,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis
+} from 'recharts'
 import api from '../api'
 
 const DEFAULT_ISP_PAGE_SIZE = 50
+const DOWNTIME_CATEGORY = 'service impacting'
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 function fmtPct(v) {
   if (v == null || Number.isNaN(Number(v))) return '—'
@@ -55,8 +68,140 @@ function fmtTs(v) {
 
 function defaultRange() {
   const to = dayjs().format('YYYY-MM')
-  const from = dayjs().subtract(5, 'month').format('YYYY-MM')
+  const from = dayjs().subtract(2, 'month').format('YYYY-MM')
   return { from, to }
+}
+
+function toDateSafe(v) {
+  if (!v) return null
+  const d = dayjs(v)
+  return d.isValid() ? d.toDate() : null
+}
+
+function normalizeInterval(startV, stopV) {
+  const start = toDateSafe(startV)
+  if (!start) return null
+  const stop = toDateSafe(stopV) || start
+  if (stop <= start) {
+    return { start, end: new Date(start.getTime() + 1000) }
+  }
+  return { start, end: stop }
+}
+
+function mergeIntervals(intervals) {
+  if (!intervals.length) return []
+  const sorted = [...intervals].sort((a, b) => a.start - b.start)
+  const merged = [sorted[0]]
+  for (let i = 1; i < sorted.length; i += 1) {
+    const cur = sorted[i]
+    const last = merged[merged.length - 1]
+    if (cur.start <= last.end) {
+      last.end = new Date(Math.max(last.end.getTime(), cur.end.getTime()))
+    } else {
+      merged.push(cur)
+    }
+  }
+  return merged
+}
+
+function overlapMs(startA, endA, startB, endB) {
+  const s = Math.max(startA.getTime(), startB.getTime())
+  const e = Math.min(endA.getTime(), endB.getTime())
+  return Math.max(0, e - s)
+}
+
+function dayIndexInMonth(ts, monthStart, monthDays) {
+  const d = toDateSafe(ts)
+  if (!d) return -1
+  const idx = dayjs(d).diff(monthStart, 'day')
+  if (!Number.isInteger(idx) || idx < 0 || idx >= monthDays) return -1
+  return idx
+}
+
+function buildMonthlyTimelineData(monthDetail) {
+  const ym = String(monthDetail?.yearMonth || '').trim()
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return null
+
+  const monthStart = dayjs(`${ym}-01`).startOf('day')
+  const monthEnd = monthStart.add(1, 'month')
+  const monthDays = monthStart.daysInMonth()
+
+  const dayRows = []
+  for (let i = 0; i < monthDays; i += 1) {
+    const day = monthStart.add(i, 'day')
+    dayRows.push({
+      day: i + 1,
+      label: day.format('DD MMM'),
+      availability: 100,
+      downtimeHours: 0,
+      outageCount: 0,
+      downtimeTicketCount: 0,
+      otherTicketCount: 0
+    })
+  }
+
+  const downtimeIntervalsRaw = []
+
+  for (const o of (monthDetail?.outages || [])) {
+    const idx = dayIndexInMonth(o.impact_start || o.impact_stop, monthStart, monthDays)
+    if (idx >= 0) dayRows[idx].outageCount += 1
+    const interval = normalizeInterval(o.impact_start, o.impact_stop || o.impact_start)
+    if (interval) downtimeIntervalsRaw.push(interval)
+  }
+
+  for (const t of (monthDetail?.tickets || [])) {
+    const cat = String(t.category || '').trim().toLowerCase()
+    const isDowntimeTicket = cat === DOWNTIME_CATEGORY
+    const idx = dayIndexInMonth(t.created_date || t.impact_stop_time, monthStart, monthDays)
+    if (idx >= 0) {
+      if (isDowntimeTicket) dayRows[idx].downtimeTicketCount += 1
+      else dayRows[idx].otherTicketCount += 1
+    }
+    if (isDowntimeTicket) {
+      const interval = normalizeInterval(t.created_date, t.impact_stop_time || t.created_date)
+      if (interval) downtimeIntervalsRaw.push(interval)
+    }
+  }
+
+  const monthStartDt = monthStart.toDate()
+  const monthEndDt = monthEnd.toDate()
+  const clippedIntervals = downtimeIntervalsRaw
+    .map((it) => ({
+      start: new Date(Math.max(it.start.getTime(), monthStartDt.getTime())),
+      end: new Date(Math.min(it.end.getTime(), monthEndDt.getTime()))
+    }))
+    .filter((it) => it.end > it.start)
+
+  const mergedIntervals = mergeIntervals(clippedIntervals)
+  for (let i = 0; i < monthDays; i += 1) {
+    const dayStart = monthStart.add(i, 'day').toDate()
+    const dayEnd = monthStart.add(i + 1, 'day').toDate()
+    let downtimeMs = 0
+    for (const iv of mergedIntervals) {
+      downtimeMs += overlapMs(dayStart, dayEnd, iv.start, iv.end)
+    }
+    const downtimeHours = Number((downtimeMs / (1000 * 60 * 60)).toFixed(2))
+    const availability = Math.max(0, Math.min(100, Number((100 - ((downtimeMs / MS_PER_DAY) * 100)).toFixed(2))))
+    dayRows[i].downtimeHours = downtimeHours
+    dayRows[i].availability = availability
+  }
+
+  const outageMarkers = dayRows
+    .filter((d) => d.outageCount > 0)
+    .map((d) => ({ day: d.day, y: 5, count: d.outageCount }))
+  const downtimeTicketMarkers = dayRows
+    .filter((d) => d.downtimeTicketCount > 0)
+    .map((d) => ({ day: d.day, y: 12, count: d.downtimeTicketCount }))
+  const otherTicketMarkers = dayRows
+    .filter((d) => d.otherTicketCount > 0)
+    .map((d) => ({ day: d.day, y: 20, count: d.otherTicketCount }))
+
+  return {
+    series: dayRows,
+    outageMarkers,
+    downtimeTicketMarkers,
+    otherTicketMarkers
+  }
 }
 
 export default function SlaReportingPage() {
@@ -211,7 +356,7 @@ export default function SlaReportingPage() {
     return (data.months || []).map((m) => ({
       field: `m_${m.replace('-', '_')}`,
       headerName: m,
-      width: 120,
+      width: 96,
       align: 'center',
       headerAlign: 'center',
       sortable: false,
@@ -234,8 +379,7 @@ export default function SlaReportingPage() {
     {
       field: 'frogfootlinklabel',
       headerName: 'FRG Link',
-      minWidth: 220,
-      flex: 1,
+      width: 180,
       renderCell: (p) => (
         <Button
           size="small"
@@ -361,9 +505,10 @@ export default function SlaReportingPage() {
               key={isp.isp}
               expanded={expandedIsp === isp.isp}
               onChange={(_, expanded) => {
+                const meta = getIspMeta(isp.isp)
+                if (meta.loading) return
                 setExpandedIsp(expanded ? isp.isp : '')
                 if (expanded) {
-                  const meta = getIspMeta(isp.isp)
                   if (!meta.loaded) {
                     loadIspLinks(isp.isp, 0, DEFAULT_ISP_PAGE_SIZE).catch(console.error)
                   }
@@ -379,6 +524,7 @@ export default function SlaReportingPage() {
                   sx={{ width: '100%' }}
                 >
                   <Typography variant="subtitle1" fontWeight={700}>{isp.isp}</Typography>
+                  {getIspMeta(isp.isp).loading ? <CircularProgress size={16} /> : null}
                   <Chip size="small" label={`Links ${isp.linkCount}`} />
                   <Chip size="small" label={`Impacted ${isp.impactedLinks}`} color={isp.impactedLinks > 0 ? 'warning' : 'success'} />
                   <Chip size="small" label={`Avg ${fmtPct(isp.avgUptimePct)}`} color={pctChipColor(isp.avgUptimePct)} />
@@ -471,25 +617,79 @@ export default function SlaReportingPage() {
             <Alert severity="error">{detailError}</Alert>
           ) : detail ? (
             <Stack spacing={1.2}>
-              {(detail.details || []).map((m) => (
-                <Accordion key={m.yearMonth} defaultExpanded={m.yearMonth === detail.to}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', md: 'center' }}>
-                      <Typography variant="subtitle2" fontWeight={700}>{m.yearMonth}</Typography>
-                      <Chip size="small" label={`SLA ${fmtPct(m.sla?.uptimePct)}`} color={pctChipColor(m.sla?.uptimePct)} />
-                      <Chip size="small" label={`Downtime ${fmtHours(m.sla?.downtimeHours)}`} />
-                      <Chip size="small" label={`Active ${fmtHours(m.sla?.activeHours)}`} />
-                      <Chip size="small" label={`Tickets ${m.tickets?.length || 0}`} />
-                      <Chip size="small" label={`Outages ${m.outages?.length || 0}`} />
-                      <Chip size="small" label={`Linked tickets ${m.overlap?.linkedTickets || 0}`} />
-                      <Chip size="small" label={`Overlap tickets ${m.overlap?.overlapTickets || 0}`} />
-                      <Chip size="small" label={`Overlap pairs ${m.overlap?.overlapPairs || 0}`} />
-                    </Stack>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Tickets</Typography>
-                    <Table size="small">
-                      <TableHead>
+              {(detail.details || []).map((m) => {
+                const timeline = buildMonthlyTimelineData(m)
+                return (
+                  <Accordion key={m.yearMonth} defaultExpanded={m.yearMonth === detail.to}>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', md: 'center' }}>
+                        <Typography variant="subtitle2" fontWeight={700}>{m.yearMonth}</Typography>
+                        <Chip size="small" label={`SLA ${fmtPct(m.sla?.uptimePct)}`} color={pctChipColor(m.sla?.uptimePct)} />
+                        <Chip size="small" label={`Downtime ${fmtHours(m.sla?.downtimeHours)}`} />
+                        <Chip size="small" label={`Active ${fmtHours(m.sla?.activeHours)}`} />
+                        <Chip size="small" label={`Tickets ${m.tickets?.length || 0}`} />
+                        <Chip size="small" label={`Outages ${m.outages?.length || 0}`} />
+                        <Chip size="small" label={`Linked tickets ${m.overlap?.linkedTickets || 0}`} />
+                        <Chip size="small" label={`Overlap tickets ${m.overlap?.overlapTickets || 0}`} />
+                        <Chip size="small" label={`Overlap pairs ${m.overlap?.overlapPairs || 0}`} />
+                      </Stack>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      {timeline ? (
+                        <Paper elevation={0} sx={{ mb: 1.2, p: 1, border: '1px solid #eee' }}>
+                          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                            Daily Availability Timeline
+                          </Typography>
+                          <Typography variant="caption" sx={{ display: 'block', mb: 0.75, opacity: 0.8 }}>
+                            Blue line = daily availability. Markers = outages, service-impacting tickets, and non-downtime tickets.
+                          </Typography>
+                          <Box sx={{ width: '100%', height: 260 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={timeline.series} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis
+                                  dataKey="day"
+                                  interval={Math.max(0, Math.floor((timeline.series.length || 1) / 12) - 1)}
+                                  tickFormatter={(v) => String(v).padStart(2, '0')}
+                                />
+                                <YAxis
+                                  domain={[0, 100]}
+                                  ticks={[0, 25, 50, 75, 100]}
+                                  tickFormatter={(v) => `${v}%`}
+                                  width={44}
+                                />
+                                <RechartsTooltip
+                                  labelFormatter={(label) => `Day ${String(label).padStart(2, '0')}`}
+                                  formatter={(value, name, item) => {
+                                    if (name === 'Availability') return [`${Number(value).toFixed(2)}%`, name]
+                                    if (name === 'Outages') return [`${item?.payload?.count || 0} event(s)`, name]
+                                    if (name === 'Service-impacting Tickets') return [`${item?.payload?.count || 0} ticket(s)`, name]
+                                    if (name === 'Other Tickets') return [`${item?.payload?.count || 0} ticket(s)`, name]
+                                    return [value, name]
+                                  }}
+                                />
+                                <Legend />
+                                <Line
+                                  type="monotone"
+                                  dataKey="availability"
+                                  name="Availability"
+                                  stroke="#1976d2"
+                                  strokeWidth={2}
+                                  dot={false}
+                                  activeDot={{ r: 4 }}
+                                />
+                                <Scatter name="Outages" data={timeline.outageMarkers} dataKey="y" fill="#ef6c00" />
+                                <Scatter name="Service-impacting Tickets" data={timeline.downtimeTicketMarkers} dataKey="y" fill="#c62828" />
+                                <Scatter name="Other Tickets" data={timeline.otherTicketMarkers} dataKey="y" fill="#6d4c41" />
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </Box>
+                        </Paper>
+                      ) : null}
+
+                      <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Tickets</Typography>
+                      <Table size="small">
+                        <TableHead>
                         <TableRow>
                           <TableCell>Ticket ID</TableCell>
                           <TableCell>Created</TableCell>
@@ -552,9 +752,10 @@ export default function SlaReportingPage() {
                         )}
                       </TableBody>
                     </Table>
-                  </AccordionDetails>
-                </Accordion>
-              ))}
+                    </AccordionDetails>
+                  </Accordion>
+                )
+              })}
             </Stack>
           ) : (
             <Typography variant="body2">No details available.</Typography>

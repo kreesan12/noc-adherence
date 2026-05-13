@@ -81,7 +81,7 @@ function normalizeRange(start, stop) {
 function resolveRange(query) {
   const now = new Date()
   const thisMonth = `${now.getUTCFullYear()}-${pad2(now.getUTCMonth() + 1)}`
-  const defaultFrom = addMonths(thisMonth, -5)
+  const defaultFrom = addMonths(thisMonth, -2)
   const fromKey = parseMonthKey(query.from) || defaultFrom
   const toKey = parseMonthKey(query.to) || thisMonth
   const lo = fromKey <= toKey ? fromKey : toKey
