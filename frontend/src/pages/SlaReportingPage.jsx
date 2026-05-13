@@ -61,6 +61,8 @@ function defaultRange() {
 
 export default function SlaReportingPage() {
   const [range, setRange] = useState(defaultRange)
+  const [ispSearch, setIspSearch] = useState('')
+  const [frgSearch, setFrgSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState({ months: [], isps: [], from: null, to: null })
   const [linksByIsp, setLinksByIsp] = useState({})
@@ -126,7 +128,8 @@ export default function SlaReportingPage() {
           from: range.from,
           to: range.to,
           page,
-          pageSize
+          pageSize,
+          frgSearch
         }
       })
       const payload = res.data || {}
@@ -190,6 +193,19 @@ export default function SlaReportingPage() {
   useEffect(() => {
     loadSummary().catch(console.error)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // FRG search changes the server query for each ISP detail table.
+    setLinksByIsp({})
+    setLinksMetaByIsp({})
+    setExpandedIsp('')
+  }, [frgSearch])
+
+  const visibleIsps = useMemo(() => {
+    const q = ispSearch.trim().toLowerCase()
+    if (!q) return data.isps || []
+    return (data.isps || []).filter((isp) => String(isp.isp || '').toLowerCase().includes(q))
+  }, [data.isps, ispSearch])
 
   const monthColumns = useMemo(() => {
     return (data.months || []).map((m) => ({
@@ -308,6 +324,20 @@ export default function SlaReportingPage() {
             onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
             InputLabelProps={{ shrink: true }}
           />
+          <TextField
+            size="small"
+            label="ISP Search"
+            placeholder="e.g. Vox"
+            value={ispSearch}
+            onChange={(e) => setIspSearch(e.target.value)}
+          />
+          <TextField
+            size="small"
+            label="FRG Search"
+            placeholder="e.g. FRG1109853"
+            value={frgSearch}
+            onChange={(e) => setFrgSearch(e.target.value)}
+          />
           <Button variant="contained" onClick={() => loadSummary().catch(console.error)} disabled={loading}>
             Refresh
           </Button>
@@ -326,7 +356,7 @@ export default function SlaReportingPage() {
         </Paper>
       ) : (
         <>
-          {(data.isps || []).map((isp) => (
+          {(visibleIsps || []).map((isp) => (
             <Accordion
               key={isp.isp}
               expanded={expandedIsp === isp.isp}
@@ -407,9 +437,13 @@ export default function SlaReportingPage() {
             </Accordion>
           ))}
 
-          {!data.isps?.length && (
+          {!visibleIsps?.length && (
             <Paper elevation={0} sx={{ p: 2, border: '1px solid #eee' }}>
-              <Typography variant="body2">No SLA records found for selected range.</Typography>
+              <Typography variant="body2">
+                {data.isps?.length
+                  ? 'No ISPs match your current search.'
+                  : 'No SLA records found for selected range.'}
+              </Typography>
             </Paper>
           )}
         </>

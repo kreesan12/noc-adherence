@@ -55,6 +55,10 @@ function toNum(v, dflt = 0) {
   return Number.isFinite(n) ? n : dflt
 }
 
+function escapeLikePattern(input) {
+  return String(input || '').replace(/([\\%_])/g, '\\$1')
+}
+
 function parseLinkedOutageRef(category) {
   const m = /linked to outage\s+([a-z0-9_-]+)/i.exec(String(category || ''))
   return m ? m[1].toUpperCase() : null
@@ -160,6 +164,8 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
     ? Math.min(rawPageSize, 500)
     : 200
   const offset = page * pageSize
+  const frgSearch = String(req.query.frgSearch || '').trim()
+  const frgLike = `%${escapeLikePattern(frgSearch)}%`
 
   const [countRows, rows] = await Promise.all([
     prisma.$queryRawUnsafe(
@@ -170,10 +176,13 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
         AND COALESCE(NULLIF(s.isp, ''), 'Unknown') = $1
         AND s.year_month >= $2
         AND s.year_month <= $3
+        AND ($4::text = '' OR s.frogfootlinklabel ILIKE $5 ESCAPE '\\')
       `,
       ispName,
       fromKey,
-      toKey
+      toKey,
+      frgSearch,
+      frgLike
     ),
     prisma.$queryRawUnsafe(
     `
@@ -188,6 +197,7 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
         AND COALESCE(NULLIF(s.isp, ''), 'Unknown') = $1
         AND s.year_month >= $2
         AND s.year_month <= $3
+        AND ($4::text = '' OR s.frogfootlinklabel ILIKE $5 ESCAPE '\\')
       GROUP BY 1, 2
     ),
     link_rollup AS (
@@ -209,8 +219,8 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
         lr.total_downtime_hours
       FROM link_rollup lr
       ORDER BY lr.frogfootlinklabel
-      LIMIT $4
-      OFFSET $5
+      LIMIT $6
+      OFFSET $7
     )
     SELECT
       pl.frogfootlinklabel,
@@ -229,6 +239,8 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
     ispName,
     fromKey,
     toKey,
+    frgSearch,
+    frgLike,
     pageSize,
     offset
   )
@@ -274,6 +286,7 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
     months,
     page,
     pageSize,
+    frgSearch,
     totalCount,
     links
   })
