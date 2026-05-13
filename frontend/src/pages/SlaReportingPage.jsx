@@ -70,6 +70,7 @@ export default function SlaReportingPage() {
   const [openLink, setOpenLink] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
   const [detail, setDetail] = useState(null)
+  const [detailError, setDetailError] = useState('')
 
   async function loadSummary() {
     setLoading(true)
@@ -168,6 +169,7 @@ export default function SlaReportingPage() {
   async function openLinkDetails(link) {
     setOpenLink(link)
     setDetail(null)
+    setDetailError('')
     setDetailLoading(true)
     try {
       const res = await api.get(`/sla-reporting/link/${encodeURIComponent(link)}/details`, {
@@ -177,6 +179,9 @@ export default function SlaReportingPage() {
         }
       })
       setDetail(res.data)
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load FRG details'
+      setDetailError(String(msg))
     } finally {
       setDetailLoading(false)
     }
@@ -412,7 +417,10 @@ export default function SlaReportingPage() {
 
       <Dialog
         open={Boolean(openLink)}
-        onClose={() => setOpenLink('')}
+        onClose={() => {
+          setOpenLink('')
+          setDetailError('')
+        }}
         fullWidth
         maxWidth="xl"
       >
@@ -425,6 +433,8 @@ export default function SlaReportingPage() {
               <CircularProgress size={24} />
               <Typography variant="body2" sx={{ mt: 1 }}>Loading link details...</Typography>
             </Box>
+          ) : detailError ? (
+            <Alert severity="error">{detailError}</Alert>
           ) : detail ? (
             <Stack spacing={1.2}>
               {(detail.details || []).map((m) => (

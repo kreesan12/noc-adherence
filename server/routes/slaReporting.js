@@ -311,7 +311,6 @@ r.get('/link/:frg/details', verifyToken, async (req, res) => {
         impact_stop_time,
         year_month,
         "Category" AS category,
-        sla_duration,
         sla_exclusion_reason
       FROM public.tickets_output
       WHERE frg = $1
@@ -342,8 +341,7 @@ r.get('/link/:frg/details', verifyToken, async (req, res) => {
         o.summary,
         o.party_at_fault,
         o.infrastructure_owner,
-        o.network_segment,
-        o.sla_duration
+        o.network_segment
       FROM public.outage_resolvers os
       JOIN public.outages_outage o
         ON o.outage_ref = os.outageref
