@@ -21,27 +21,17 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
+  MenuItem,
   Typography
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
-import {
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Scatter,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis
-} from 'recharts'
 import api from '../api'
 
 const DEFAULT_ISP_PAGE_SIZE = 50
 const DOWNTIME_CATEGORY = 'service impacting'
-const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 function fmtPct(v) {
   if (v == null || Number.isNaN(Number(v))) return '—'
@@ -67,8 +57,9 @@ function fmtTs(v) {
 }
 
 function defaultRange() {
-  const to = dayjs().format('YYYY-MM')
-  const from = dayjs().subtract(2, 'month').format('YYYY-MM')
+  const toMonth = dayjs().subtract(1, 'month')
+  const to = toMonth.format('YYYY-MM')
+  const from = toMonth.subtract(2, 'month').format('YYYY-MM')
   return { from, to }
 }
 
@@ -88,28 +79,6 @@ function normalizeInterval(startV, stopV) {
   return { start, end: stop }
 }
 
-function mergeIntervals(intervals) {
-  if (!intervals.length) return []
-  const sorted = [...intervals].sort((a, b) => a.start - b.start)
-  const merged = [sorted[0]]
-  for (let i = 1; i < sorted.length; i += 1) {
-    const cur = sorted[i]
-    const last = merged[merged.length - 1]
-    if (cur.start <= last.end) {
-      last.end = new Date(Math.max(last.end.getTime(), cur.end.getTime()))
-    } else {
-      merged.push(cur)
-    }
-  }
-  return merged
-}
-
-function overlapMs(startA, endA, startB, endB) {
-  const s = Math.max(startA.getTime(), startB.getTime())
-  const e = Math.min(endA.getTime(), endB.getTime())
-  return Math.max(0, e - s)
-}
-
 function dayIndexInMonth(ts, monthStart, monthDays) {
   const d = toDateSafe(ts)
   if (!d) return -1
@@ -126,90 +95,91 @@ function buildMonthlyTimelineData(monthDetail) {
   const monthEnd = monthStart.add(1, 'month')
   const monthDays = monthStart.daysInMonth()
 
-  const dayRows = []
-  for (let i = 0; i < monthDays; i += 1) {
-    const day = monthStart.add(i, 'day')
-    dayRows.push({
+  const days = Array.from({ length: monthDays }, (_, i) => {
+    const d = monthStart.add(i, 'day')
+    return {
       day: i + 1,
-      label: day.format('DD MMM'),
-      availability: 100,
-      downtimeHours: 0,
-      outageCount: 0,
-      downtimeTicketCount: 0,
-      otherTicketCount: 0
-    })
-  }
-
-  const downtimeIntervalsRaw = []
-
-  for (const o of (monthDetail?.outages || [])) {
-    const idx = dayIndexInMonth(o.impact_start || o.impact_stop, monthStart, monthDays)
-    if (idx >= 0) dayRows[idx].outageCount += 1
-    const interval = normalizeInterval(o.impact_start, o.impact_stop || o.impact_start)
-    if (interval) downtimeIntervalsRaw.push(interval)
-  }
-
-  for (const t of (monthDetail?.tickets || [])) {
-    const cat = String(t.category || '').trim().toLowerCase()
-    const isDowntimeTicket = cat === DOWNTIME_CATEGORY
-    const idx = dayIndexInMonth(t.created_date || t.impact_stop_time, monthStart, monthDays)
-    if (idx >= 0) {
-      if (isDowntimeTicket) dayRows[idx].downtimeTicketCount += 1
-      else dayRows[idx].otherTicketCount += 1
+      label: d.format('DD MMM'),
+      isDown: false,
+      downEvents: [],
+      otherTickets: []
     }
-    if (isDowntimeTicket) {
-      const interval = normalizeInterval(t.created_date, t.impact_stop_time || t.created_date)
-      if (interval) downtimeIntervalsRaw.push(interval)
-    }
-  }
+  })
 
   const monthStartDt = monthStart.toDate()
   const monthEndDt = monthEnd.toDate()
-  const clippedIntervals = downtimeIntervalsRaw
-    .map((it) => ({
-      start: new Date(Math.max(it.start.getTime(), monthStartDt.getTime())),
-      end: new Date(Math.min(it.end.getTime(), monthEndDt.getTime()))
-    }))
-    .filter((it) => it.end > it.start)
 
-  const mergedIntervals = mergeIntervals(clippedIntervals)
-  for (let i = 0; i < monthDays; i += 1) {
-    const dayStart = monthStart.add(i, 'day').toDate()
-    const dayEnd = monthStart.add(i + 1, 'day').toDate()
-    let downtimeMs = 0
-    for (const iv of mergedIntervals) {
-      downtimeMs += overlapMs(dayStart, dayEnd, iv.start, iv.end)
+  function clipInterval(startV, stopV) {
+    const interval = normalizeInterval(startV, stopV)
+    if (!interval) return null
+    const start = new Date(Math.max(interval.start.getTime(), monthStartDt.getTime()))
+    const end = new Date(Math.min(interval.end.getTime(), monthEndDt.getTime()))
+    if (end <= start) return null
+    return { start, end }
+  }
+
+  function addDownEventToDays(interval, event) {
+    if (!interval) return
+    let cursor = dayjs(interval.start).startOf('day')
+    while (cursor.isBefore(interval.end)) {
+      const idx = cursor.diff(monthStart, 'day')
+      if (idx >= 0 && idx < monthDays) {
+        days[idx].isDown = true
+        if (!days[idx].downEvents.some((e) => e.key === event.key)) {
+          days[idx].downEvents.push(event)
+        }
+      }
+      cursor = cursor.add(1, 'day')
     }
-    const downtimeHours = Number((downtimeMs / (1000 * 60 * 60)).toFixed(2))
-    const availability = Math.max(0, Math.min(100, Number((100 - ((downtimeMs / MS_PER_DAY) * 100)).toFixed(2))))
-    dayRows[i].downtimeHours = downtimeHours
-    dayRows[i].availability = availability
   }
 
-  const outageMarkers = dayRows
-    .filter((d) => d.outageCount > 0)
-    .map((d) => ({ day: d.day, y: 5, count: d.outageCount }))
-  const downtimeTicketMarkers = dayRows
-    .filter((d) => d.downtimeTicketCount > 0)
-    .map((d) => ({ day: d.day, y: 12, count: d.downtimeTicketCount }))
-  const otherTicketMarkers = dayRows
-    .filter((d) => d.otherTicketCount > 0)
-    .map((d) => ({ day: d.day, y: 20, count: d.otherTicketCount }))
-
-  return {
-    series: dayRows,
-    outageMarkers,
-    downtimeTicketMarkers,
-    otherTicketMarkers
+  for (const o of (monthDetail?.outages || [])) {
+    const interval = clipInterval(o.impact_start, o.impact_stop || o.impact_start)
+    const event = {
+      key: `outage:${o.outage_ref || ''}`,
+      type: 'Outage',
+      id: o.outage_ref || 'Unknown',
+      start: fmtTs(o.impact_start),
+      stop: fmtTs(o.impact_stop),
+      detail: o.impact_type || o.outagetitle || ''
+    }
+    addDownEventToDays(interval, event)
   }
+
+  for (const t of (monthDetail?.tickets || [])) {
+    const category = String(t.category || '').trim()
+    const isDowntimeTicket = category.toLowerCase() === DOWNTIME_CATEGORY
+    const event = {
+      key: `ticket:${t.ticket_id || ''}`,
+      type: 'Ticket',
+      id: t.ticket_id || 'Unknown',
+      start: fmtTs(t.created_date),
+      stop: fmtTs(t.impact_stop_time),
+      detail: category || 'Uncategorized'
+    }
+
+    if (isDowntimeTicket) {
+      const interval = clipInterval(t.created_date, t.impact_stop_time || t.created_date)
+      addDownEventToDays(interval, event)
+    } else {
+      const idx = dayIndexInMonth(t.created_date || t.impact_stop_time, monthStart, monthDays)
+      if (idx >= 0 && !days[idx].otherTickets.some((x) => x.key === event.key)) {
+        days[idx].otherTickets.push(event)
+      }
+    }
+  }
+
+  return { days }
 }
 
 export default function SlaReportingPage() {
   const [range, setRange] = useState(defaultRange)
   const [ispSearch, setIspSearch] = useState('')
   const [frgSearch, setFrgSearch] = useState('')
+  const [productTypeFilter, setProductTypeFilter] = useState('')
+  const [serviceTypeFilter, setServiceTypeFilter] = useState('')
   const [loading, setLoading] = useState(false)
-  const [data, setData] = useState({ months: [], isps: [], from: null, to: null })
+  const [data, setData] = useState({ months: [], isps: [], productTypes: [], serviceTypes: [], from: null, to: null })
   const [linksByIsp, setLinksByIsp] = useState({})
   const [linksMetaByIsp, setLinksMetaByIsp] = useState({})
   const [expandedIsp, setExpandedIsp] = useState('')
@@ -225,10 +195,12 @@ export default function SlaReportingPage() {
       const res = await api.get('/sla-reporting/summary', {
         params: {
           from: range.from,
-          to: range.to
+          to: range.to,
+          productType: productTypeFilter,
+          serviceType: serviceTypeFilter
         }
       })
-      setData(res.data || { months: [], isps: [] })
+      setData(res.data || { months: [], isps: [], productTypes: [], serviceTypes: [] })
       setLinksByIsp({})
       setLinksMetaByIsp({})
       setExpandedIsp('')
@@ -274,7 +246,9 @@ export default function SlaReportingPage() {
           to: range.to,
           page,
           pageSize,
-          frgSearch
+          frgSearch,
+          productType: productTypeFilter,
+          serviceType: serviceTypeFilter
         }
       })
       const payload = res.data || {}
@@ -340,11 +314,11 @@ export default function SlaReportingPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    // FRG search changes the server query for each ISP detail table.
+    // These filters change the server query for each ISP detail table.
     setLinksByIsp({})
     setLinksMetaByIsp({})
     setExpandedIsp('')
-  }, [frgSearch])
+  }, [frgSearch, productTypeFilter, serviceTypeFilter])
 
   const visibleIsps = useMemo(() => {
     const q = ispSearch.trim().toLowerCase()
@@ -379,7 +353,7 @@ export default function SlaReportingPage() {
     {
       field: 'frogfootlinklabel',
       headerName: 'FRG Link',
-      width: 180,
+      width: 210,
       renderCell: (p) => (
         <Button
           size="small"
@@ -468,6 +442,32 @@ export default function SlaReportingPage() {
             onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
             InputLabelProps={{ shrink: true }}
           />
+          <TextField
+            size="small"
+            select
+            label="Product Type"
+            value={productTypeFilter}
+            onChange={(e) => setProductTypeFilter(e.target.value)}
+            sx={{ minWidth: 180 }}
+          >
+            <MenuItem value="">All Products</MenuItem>
+            {(data.productTypes || []).map((pt) => (
+              <MenuItem key={`pt-${pt}`} value={pt}>{pt}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            size="small"
+            select
+            label="Service Type"
+            value={serviceTypeFilter}
+            onChange={(e) => setServiceTypeFilter(e.target.value)}
+            sx={{ minWidth: 180 }}
+          >
+            <MenuItem value="">All Services</MenuItem>
+            {(data.serviceTypes || []).map((st) => (
+              <MenuItem key={`st-${st}`} value={st}>{st}</MenuItem>
+            ))}
+          </TextField>
           <TextField
             size="small"
             label="ISP Search"
@@ -638,51 +638,85 @@ export default function SlaReportingPage() {
                       {timeline ? (
                         <Paper elevation={0} sx={{ mb: 1.2, p: 1, border: '1px solid #eee' }}>
                           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                            Daily Availability Timeline
+                            Monthly Uptime Timeline
                           </Typography>
                           <Typography variant="caption" sx={{ display: 'block', mb: 0.75, opacity: 0.8 }}>
-                            Blue line = daily availability. Markers = outages, service-impacting tickets, and non-downtime tickets.
+                            Green = up, red = down. Hover red periods for outage/ticket details. Orange dots are non-downtime tickets.
                           </Typography>
-                          <Box sx={{ width: '100%', height: 260 }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                              <ComposedChart data={timeline.series} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis
-                                  dataKey="day"
-                                  interval={Math.max(0, Math.floor((timeline.series.length || 1) / 12) - 1)}
-                                  tickFormatter={(v) => String(v).padStart(2, '0')}
-                                />
-                                <YAxis
-                                  domain={[0, 100]}
-                                  ticks={[0, 25, 50, 75, 100]}
-                                  tickFormatter={(v) => `${v}%`}
-                                  width={44}
-                                />
-                                <RechartsTooltip
-                                  labelFormatter={(label) => `Day ${String(label).padStart(2, '0')}`}
-                                  formatter={(value, name, item) => {
-                                    if (name === 'Availability') return [`${Number(value).toFixed(2)}%`, name]
-                                    if (name === 'Outages') return [`${item?.payload?.count || 0} event(s)`, name]
-                                    if (name === 'Service-impacting Tickets') return [`${item?.payload?.count || 0} ticket(s)`, name]
-                                    if (name === 'Other Tickets') return [`${item?.payload?.count || 0} ticket(s)`, name]
-                                    return [value, name]
-                                  }}
-                                />
-                                <Legend />
-                                <Line
-                                  type="monotone"
-                                  dataKey="availability"
-                                  name="Availability"
-                                  stroke="#1976d2"
-                                  strokeWidth={2}
-                                  dot={false}
-                                  activeDot={{ r: 4 }}
-                                />
-                                <Scatter name="Outages" data={timeline.outageMarkers} dataKey="y" fill="#ef6c00" />
-                                <Scatter name="Service-impacting Tickets" data={timeline.downtimeTicketMarkers} dataKey="y" fill="#c62828" />
-                                <Scatter name="Other Tickets" data={timeline.otherTicketMarkers} dataKey="y" fill="#6d4c41" />
-                              </ComposedChart>
-                            </ResponsiveContainer>
+                          <Box sx={{ width: '100%' }}>
+                            <Box sx={{ display: 'flex', width: '100%', height: 20, borderRadius: 1, overflow: 'hidden', border: '1px solid #ddd' }}>
+                              {timeline.days.map((d) => {
+                                const downEvents = d.downEvents || []
+                                const otherTickets = d.otherTickets || []
+                                const title = (
+                                  <Box>
+                                    <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+                                      {d.label}
+                                    </Typography>
+                                    {d.isDown ? (
+                                      <>
+                                        <Typography variant="caption" sx={{ display: 'block', mb: 0.25 }}>
+                                          Downtime events: {downEvents.length}
+                                        </Typography>
+                                        {downEvents.slice(0, 6).map((ev) => (
+                                          <Typography key={`${d.day}-${ev.key}`} variant="caption" sx={{ display: 'block' }}>
+                                            {ev.type} {ev.id}: {ev.start} - {ev.stop}
+                                          </Typography>
+                                        ))}
+                                        {downEvents.length > 6 ? (
+                                          <Typography variant="caption" sx={{ display: 'block' }}>
+                                            +{downEvents.length - 6} more
+                                          </Typography>
+                                        ) : null}
+                                      </>
+                                    ) : (
+                                      <Typography variant="caption" sx={{ display: 'block' }}>
+                                        No downtime
+                                      </Typography>
+                                    )}
+                                    {otherTickets.length ? (
+                                      <Typography variant="caption" sx={{ display: 'block', mt: 0.25 }}>
+                                        Other tickets: {otherTickets.map((t) => t.id).join(', ')}
+                                      </Typography>
+                                    ) : null}
+                                  </Box>
+                                )
+
+                                return (
+                                  <Tooltip key={`day-bar-${d.day}`} title={title} arrow placement="top">
+                                    <Box
+                                      sx={{
+                                        flex: 1,
+                                        bgcolor: d.isDown ? '#d32f2f' : '#2e7d32',
+                                        borderRight: d.day < timeline.days.length ? '1px solid rgba(255,255,255,0.35)' : 'none',
+                                        cursor: 'pointer'
+                                      }}
+                                    />
+                                  </Tooltip>
+                                )
+                              })}
+                            </Box>
+
+                            <Box sx={{ display: 'flex', width: '100%', mt: 0.35 }}>
+                              {timeline.days.map((d) => (
+                                <Box key={`day-dot-${d.day}`} sx={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 8 }}>
+                                  {d.otherTickets?.length ? (
+                                    <Tooltip
+                                      title={`${d.label} non-downtime tickets: ${d.otherTickets.map((t) => t.id).join(', ')}`}
+                                      arrow
+                                      placement="top"
+                                    >
+                                      <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#f57c00', mt: 0.15, cursor: 'pointer' }} />
+                                    </Tooltip>
+                                  ) : null}
+                                </Box>
+                              ))}
+                            </Box>
+
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.3 }}>
+                              <Typography variant="caption" sx={{ opacity: 0.75 }}>Day 01</Typography>
+                              <Typography variant="caption" sx={{ opacity: 0.75 }}>Day {String(timeline.days.length).padStart(2, '0')}</Typography>
+                            </Box>
                           </Box>
                         </Paper>
                       ) : null}
