@@ -37,6 +37,7 @@ import LanOutlinedIcon        from '@mui/icons-material/LanOutlined'
 import MapIcon                from '@mui/icons-material/Map'
 import AvTimerIcon            from '@mui/icons-material/AvTimer'
 import BuildIcon              from '@mui/icons-material/Build'
+import InsightsIcon           from '@mui/icons-material/Insights'
 
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
@@ -61,6 +62,7 @@ import OvertimeSupervisorPage from './pages/OvertimeSupervisorPage'
 import OvertimeManagerPage from './pages/OvertimeManagerPage'
 import SignaturePage from './pages/SignaturePage'
 import RocAppointmentsPage from './pages/RocAppointmentsPage'
+import SlaReportingPage from './pages/SlaReportingPage'
 
 import TechMyDayPage from './pages/TechMyDayPage.jsx'
 import TechAppointmentDetailPage from './pages/TechAppointmentDetailPage.jsx'
@@ -159,6 +161,12 @@ function SideNav() {
         { label:'NLD Map',          path:'/nld-map',          icon:<MapIcon/> },
         { label:'NLD Admin',        path:'/nld-admin',        icon:<AdminPanelSettingsIcon/> },
         { label:'NLD Services',     path:'/engineering/nld-services', icon:<AdminPanelSettingsIcon/> },
+      ],
+    },
+    {
+      title: 'SLA REPORTING',
+      items: [
+        { label:'ISP SLA Dashboard', path:'/sla-reporting', icon:<InsightsIcon/> },
       ],
     },
   ]
@@ -295,6 +303,7 @@ export default function App() {
                 <Route path="/nld-uptime"       element={<NldUptimePage/>}/>
                 <Route path="/nld-admin"        element={<CircuitEditorPage/>}/>
                 <Route path="/engineering/nld-services" element={<NldServicesPage />}/>
+                <Route path="/sla-reporting" element={<SlaReportingPage />}/>
                 <Route path="/overtime/capture" element={<OvertimeCapturePage />}/>
                 <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />}/>
                 <Route path="/overtime/manager" element={<OvertimeManagerPage />}/>

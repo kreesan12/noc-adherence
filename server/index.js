@@ -40,6 +40,7 @@ import nodes from './routes/nodes.js'
 import rocAppointmentsRoutes from './routes/rocAppointments.js'
 import techAppointmentsRoutes from './routes/techAppointments.js'
 import techAuthRoutes from './routes/techAuth.js'
+import slaReportingRoutes from './routes/slaReporting.js'
 
 // ✅ Overtime (single source of truth)
 import overtimeRoutes from './routes/overtime.js'
@@ -203,6 +204,7 @@ app.use(
 app.use('/api', nldServices)
 app.use('/api', nodes)
 app.use('/api/engineering', engineeringRoutes)
+app.use('/api/sla-reporting', slaReportingRoutes)
 
 app.use(
   '/api/managers',
