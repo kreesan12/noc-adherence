@@ -94,9 +94,10 @@ function resolveRange(query) {
 r.get('/summary', verifyToken, async (req, res) => {
   const { fromKey, toKey, months } = resolveRange(req.query)
 
+  // Lightweight summary only (one row per ISP) to avoid loading all links at once.
   const rows = await prisma.$queryRawUnsafe(
     `
-    WITH filtered AS (
+    WITH link_month AS (
       SELECT
         COALESCE(NULLIF(s.isp, ''), 'Unknown') AS isp,
         s.frogfootlinklabel,
@@ -108,104 +109,121 @@ r.get('/summary', verifyToken, async (req, res) => {
         AND s.year_month >= $1
         AND s.year_month <= $2
       GROUP BY 1, 2, 3
+    ),
+    link_rollup AS (
+      SELECT
+        lm.isp,
+        lm.frogfootlinklabel,
+        AVG(lm.uptime_pct)::numeric AS avg_uptime_pct,
+        MIN(lm.uptime_pct)::numeric AS worst_uptime_pct,
+        SUM(CASE WHEN lm.uptime_pct < 100 THEN 1 ELSE 0 END)::int AS impacted_months,
+        SUM(EXTRACT(EPOCH FROM lm.total_downtime)) / 3600.0 AS downtime_hours
+      FROM link_month lm
+      GROUP BY 1, 2
     )
     SELECT
-      isp,
-      frogfootlinklabel,
-      year_month,
-      ROUND(uptime_pct, 2) AS uptime_pct,
-      EXTRACT(EPOCH FROM total_downtime) / 3600.0 AS downtime_hours
-    FROM filtered
-    ORDER BY isp, frogfootlinklabel, year_month
+      lr.isp,
+      COUNT(*)::int AS link_count,
+      SUM(CASE WHEN lr.impacted_months > 0 THEN 1 ELSE 0 END)::int AS impacted_links,
+      ROUND(AVG(lr.avg_uptime_pct), 2) AS avg_uptime_pct,
+      ROUND(MIN(lr.worst_uptime_pct), 2) AS worst_uptime_pct,
+      ROUND(SUM(lr.downtime_hours)::numeric, 2) AS total_downtime_hours
+    FROM link_rollup lr
+    GROUP BY lr.isp
+    ORDER BY lr.isp
     `,
     fromKey,
     toKey
   )
 
-  const isps = new Map()
+  const isps = rows.map((r) => ({
+    isp: String(r.isp || 'Unknown'),
+    linkCount: toNum(r.link_count, 0),
+    impactedLinks: toNum(r.impacted_links, 0),
+    avgUptimePct: toNum(r.avg_uptime_pct, null),
+    worstUptimePct: toNum(r.worst_uptime_pct, null),
+    totalDowntimeHours: toNum(r.total_downtime_hours, 0)
+  }))
 
+  res.json({ from: fromKey, to: toKey, months, isps })
+})
+
+r.get('/isp/:isp/links', verifyToken, async (req, res) => {
+  const ispName = decodeURIComponent(String(req.params.isp || '').trim())
+  if (!ispName) return res.status(400).json({ error: 'Missing ISP' })
+
+  const { fromKey, toKey, months } = resolveRange(req.query)
+
+  const rows = await prisma.$queryRawUnsafe(
+    `
+    WITH link_month AS (
+      SELECT
+        s.frogfootlinklabel,
+        s.year_month,
+        AVG(s."uptime%")::numeric AS uptime_pct,
+        SUM(COALESCE(s.total_downtime, interval '0 second')) AS total_downtime
+      FROM public.servicelevels s
+      WHERE s.frogfootlinklabel IS NOT NULL
+        AND COALESCE(NULLIF(s.isp, ''), 'Unknown') = $1
+        AND s.year_month >= $2
+        AND s.year_month <= $3
+      GROUP BY 1, 2
+    )
+    SELECT
+      frogfootlinklabel,
+      year_month,
+      ROUND(uptime_pct, 2) AS uptime_pct,
+      EXTRACT(EPOCH FROM total_downtime) / 3600.0 AS downtime_hours
+    FROM link_month
+    ORDER BY frogfootlinklabel, year_month
+    `,
+    ispName,
+    fromKey,
+    toKey
+  )
+
+  const byLink = new Map()
   for (const row of rows) {
-    const ispName = String(row.isp || 'Unknown')
     const link = String(row.frogfootlinklabel || '')
     const ym = String(row.year_month || '')
-    const uptime = toNum(row.uptime_pct, null)
-    const downtimeHours = toNum(row.downtime_hours, 0)
     if (!link || !ym) continue
-
-    if (!isps.has(ispName)) {
-      isps.set(ispName, {
-        isp: ispName,
-        linksMap: new Map(),
-      })
-    }
-    const isp = isps.get(ispName)
-
-    if (!isp.linksMap.has(link)) {
+    if (!byLink.has(link)) {
       const monthValues = {}
       const monthDowntimeHours = {}
       for (const m of months) {
         monthValues[m] = null
         monthDowntimeHours[m] = 0
       }
-      isp.linksMap.set(link, {
-        frogfootlinklabel: link,
-        monthValues,
-        monthDowntimeHours,
-      })
+      byLink.set(link, { frogfootlinklabel: link, monthValues, monthDowntimeHours })
     }
-
-    const linkRow = isp.linksMap.get(link)
-    linkRow.monthValues[ym] = uptime
-    linkRow.monthDowntimeHours[ym] = downtimeHours
+    const ref = byLink.get(link)
+    ref.monthValues[ym] = toNum(row.uptime_pct, null)
+    ref.monthDowntimeHours[ym] = toNum(row.downtime_hours, 0)
   }
 
-  const ispList = []
-  for (const isp of isps.values()) {
-    const links = [...isp.linksMap.values()].sort((a, b) =>
-      a.frogfootlinklabel.localeCompare(b.frogfootlinklabel)
-    )
-
-    for (const link of links) {
-      const vals = Object.values(link.monthValues)
-        .map(v => (v == null ? null : toNum(v, null)))
-        .filter(v => v != null)
-
+  const links = [...byLink.values()]
+    .sort((a, b) => a.frogfootlinklabel.localeCompare(b.frogfootlinklabel))
+    .map((link) => {
+      const vals = Object.values(link.monthValues).filter(v => v != null).map(v => Number(v))
       const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
       const worst = vals.length ? Math.min(...vals) : null
       const impactedMonths = vals.filter(v => v < 100).length
-      const totalDowntimeHours = Object.values(link.monthDowntimeHours).reduce((a, b) => a + toNum(b), 0)
-
-      link.avgUptimePct = avg == null ? null : Number(avg.toFixed(2))
-      link.worstUptimePct = worst == null ? null : Number(worst.toFixed(2))
-      link.impactedMonths = impactedMonths
-      link.totalDowntimeHours = Number(totalDowntimeHours.toFixed(2))
-    }
-
-    const linkCount = links.length
-    const avgValues = links.map(l => l.avgUptimePct).filter(v => v != null)
-    const ispAvg = avgValues.length ? (avgValues.reduce((a, b) => a + b, 0) / avgValues.length) : null
-    const ispWorst = links.length ? Math.min(...links.map(l => l.worstUptimePct ?? 100)) : null
-    const impactedLinks = links.filter(l => l.impactedMonths > 0).length
-    const totalDowntimeHours = links.reduce((a, l) => a + toNum(l.totalDowntimeHours), 0)
-
-    ispList.push({
-      isp: isp.isp,
-      linkCount,
-      impactedLinks,
-      avgUptimePct: ispAvg == null ? null : Number(ispAvg.toFixed(2)),
-      worstUptimePct: ispWorst == null ? null : Number(ispWorst.toFixed(2)),
-      totalDowntimeHours: Number(totalDowntimeHours.toFixed(2)),
-      links
+      const totalDowntimeHours = Object.values(link.monthDowntimeHours).reduce((a, b) => a + toNum(b, 0), 0)
+      return {
+        ...link,
+        avgUptimePct: avg == null ? null : Number(avg.toFixed(2)),
+        worstUptimePct: worst == null ? null : Number(worst.toFixed(2)),
+        impactedMonths,
+        totalDowntimeHours: Number(totalDowntimeHours.toFixed(2))
+      }
     })
-  }
-
-  ispList.sort((a, b) => a.isp.localeCompare(b.isp))
 
   res.json({
+    isp: ispName,
     from: fromKey,
     to: toKey,
     months,
-    isps: ispList
+    links
   })
 })
 
@@ -367,4 +385,3 @@ r.get('/link/:frg/details', verifyToken, async (req, res) => {
 })
 
 export default r
-

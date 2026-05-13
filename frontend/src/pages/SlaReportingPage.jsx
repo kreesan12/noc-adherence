@@ -60,6 +60,9 @@ export default function SlaReportingPage() {
   const [range, setRange] = useState(defaultRange)
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState({ months: [], isps: [], from: null, to: null })
+  const [linksByIsp, setLinksByIsp] = useState({})
+  const [loadingIsp, setLoadingIsp] = useState({})
+  const [expandedIsp, setExpandedIsp] = useState('')
 
   const [openLink, setOpenLink] = useState('')
   const [detailLoading, setDetailLoading] = useState(false)
@@ -75,8 +78,27 @@ export default function SlaReportingPage() {
         }
       })
       setData(res.data || { months: [], isps: [] })
+      setLinksByIsp({})
+      setLoadingIsp({})
+      setExpandedIsp('')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadIspLinks(ispName) {
+    if (!ispName || linksByIsp[ispName]) return
+    setLoadingIsp((s) => ({ ...s, [ispName]: true }))
+    try {
+      const res = await api.get(`/sla-reporting/isp/${encodeURIComponent(ispName)}/links`, {
+        params: {
+          from: range.from,
+          to: range.to
+        }
+      })
+      setLinksByIsp((s) => ({ ...s, [ispName]: res.data?.links || [] }))
+    } finally {
+      setLoadingIsp((s) => ({ ...s, [ispName]: false }))
     }
   }
 
@@ -236,7 +258,15 @@ export default function SlaReportingPage() {
       ) : (
         <>
           {(data.isps || []).map((isp) => (
-            <Accordion key={isp.isp} sx={{ mb: 1 }}>
+            <Accordion
+              key={isp.isp}
+              expanded={expandedIsp === isp.isp}
+              onChange={(_, expanded) => {
+                setExpandedIsp(expanded ? isp.isp : '')
+                if (expanded) loadIspLinks(isp.isp).catch(console.error)
+              }}
+              sx={{ mb: 1 }}
+            >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Stack
                   direction={{ xs: 'column', md: 'row' }}
@@ -253,21 +283,28 @@ export default function SlaReportingPage() {
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ p: 0 }}>
-                <DataGrid
-                  rows={(isp.links || []).map((l) => ({ id: l.frogfootlinklabel, ...l }))}
-                  columns={columns}
-                  autoHeight
-                  density="compact"
-                  pageSizeOptions={[25, 50, 100]}
-                  initialState={{
-                    pagination: { paginationModel: { pageSize: 25 } }
-                  }}
-                  slots={{ toolbar: GridToolbar }}
-                  slotProps={{
-                    toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
-                  }}
-                  sx={{ border: 0 }}
-                />
+                {loadingIsp[isp.isp] ? (
+                  <Box py={2} textAlign="center">
+                    <CircularProgress size={22} />
+                    <Typography variant="body2" sx={{ mt: 1 }}>Loading links...</Typography>
+                  </Box>
+                ) : (
+                  <DataGrid
+                    rows={(linksByIsp[isp.isp] || []).map((l) => ({ id: l.frogfootlinklabel, ...l }))}
+                    columns={columns}
+                    autoHeight
+                    density="compact"
+                    pageSizeOptions={[25, 50, 100]}
+                    initialState={{
+                      pagination: { paginationModel: { pageSize: 25 } }
+                    }}
+                    slots={{ toolbar: GridToolbar }}
+                    slotProps={{
+                      toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
+                    }}
+                    sx={{ border: 0 }}
+                  />
+                )}
               </AccordionDetails>
             </Accordion>
           ))}
@@ -390,4 +427,3 @@ export default function SlaReportingPage() {
     </Box>
   )
 }
-
