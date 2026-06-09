@@ -4,6 +4,7 @@
 // and UPSERT rows into public.daily_light_level.
 
 import { google } from 'googleapis'
+import AdmZip from 'adm-zip'
 import { parse as parseCsv } from 'csv-parse/sync'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc.js'
@@ -25,6 +26,7 @@ const {
   DATABASE_URL,
   GMAIL_SUBJECT = 'Fw: Iris Automated Report: ADVA Rx Levels',
   GMAIL_SENDER = '',
+  GMAIL_LOOKBACK_DAYS = '14',
   CSV_FILE // optional: read local CSV instead of Gmail
 } = process.env
 
@@ -40,7 +42,85 @@ async function gmailClient () {
   return google.gmail({ version: 'v1', auth })
 }
 
-// ─── Download latest CSV (last 4 days) or open CSV_FILE ─────────────────────
+const SUBJECT_PREFIX_RE = /^(?:\s*(?:re|fw|fwd)\s*:\s*)+/i
+
+function normalizeSubject(subject) {
+  return String(subject || '')
+    .replace(SUBJECT_PREFIX_RE, '')
+    .trim()
+    .toLowerCase()
+}
+
+function getSubjectHeader(msg) {
+  const headers = msg?.payload?.headers || []
+  return headers.find(h => String(h?.name || '').toLowerCase() === 'subject')?.value || ''
+}
+
+function buildSubjectNeedles() {
+  const defaults = [
+    GMAIL_SUBJECT,
+    'Iris Automated Report: ADVA Rx Levels',
+    'Fw: Iris Automated Report: ADVA Rx Levels',
+    'Fwd: Iris Automated Report: ADVA Rx Levels'
+  ]
+
+  return Array.from(new Set(
+    defaults
+      .flatMap(subject => [subject, normalizeSubject(subject)])
+      .map(x => String(x || '').trim())
+      .filter(Boolean)
+  ))
+}
+
+function matchesWantedSubject(subject, needles = buildSubjectNeedles()) {
+  const normalized = normalizeSubject(subject)
+  return needles.some(needle => {
+    const n = normalizeSubject(needle)
+    return n && normalized.includes(n)
+  })
+}
+
+function walkParts(parts = []) {
+  return parts
+    .flatMap(p => p?.parts ? walkParts(p.parts) : [p])
+    .filter(Boolean)
+}
+
+async function getAttachmentBuffer(gmail, msgId, attachId) {
+  const { data: { data: b64 } } = await gmail.users.messages.attachments.get({
+    userId: 'me',
+    messageId: msgId,
+    id: attachId
+  })
+  return Buffer.from(b64, 'base64')
+}
+
+function pickSupportedAttachment(parts = []) {
+  const supported = parts
+    .filter(p => /\.(csv|zip)$/i.test(p.filename || ''))
+    .map(p => ({ ...p, size: Number(p.body?.size || 0) }))
+    .sort((a, b) => b.size - a.size)
+
+  return supported[0] || null
+}
+
+function extractCsvFromZip(zipBuffer, zipName = 'daily.zip') {
+  const zip = new AdmZip(zipBuffer)
+  const entry = zip.getEntries()
+    .filter(e => !e.isDirectory && /\.csv$/i.test(e.entryName || ''))
+    .sort((a, b) => b.header.size - a.header.size)[0]
+
+  if (!entry) {
+    throw new Error(`ZIP attachment ${zipName} does not contain a CSV file`)
+  }
+
+  return {
+    csvBuffer: entry.getData(),
+    filename: entry.entryName
+  }
+}
+
+// ─── Download latest CSV email or open CSV_FILE ──────────────────────────────
 async function getCsvBufferAndMeta (gmail) {
   if (CSV_FILE) {
     const filePath = path.resolve(CSV_FILE)
@@ -49,39 +129,66 @@ async function getCsvBufferAndMeta (gmail) {
   }
 
   const q = [
-    `subject:"${GMAIL_SUBJECT}"`,
     GMAIL_SENDER ? `from:${GMAIL_SENDER}` : null,
-    'newer_than:4d'
+    `newer_than:${Number(GMAIL_LOOKBACK_DAYS) || 14}d`,
+    'has:attachment'
   ].filter(Boolean).join(' ')
 
-  const { data: { messages } } = await gmail.users.messages.list({ userId: 'me', q, maxResults: 5 })
-  if (!messages?.length) throw new Error('Daily email not found')
-  const msgId = messages[0].id
-  const { data: msg } = await gmail.users.messages.get({ userId: 'me', id: msgId })
-
-  const walk = (parts = []) => parts.flatMap(p => p?.parts ? walk(p.parts) : [p]).filter(Boolean)
-  const parts = walk(msg.payload?.parts || [])
-  const csvParts = parts.filter(p => (p.filename || '').toLowerCase().endsWith('.csv'))
-  if (!csvParts.length) throw new Error('CSV attachment not found')
-  const attach = csvParts
-    .map(p => ({ ...p, size: Number(p.body?.size || 0) }))
-    .sort((a, b) => b.size - a.size)[0]
-
-  const { data: { data: b64 } } = await gmail.users.messages.attachments.get({
-    userId: 'me', messageId: msgId, id: attach.body.attachmentId
+  const { data: { messages } } = await gmail.users.messages.list({
+    userId: 'me',
+    q,
+    maxResults: 25
   })
-  const csvBuffer = Buffer.from(b64, 'base64')
-  return { csvBuffer, emailId: msgId, filename: attach.filename || 'daily.csv' }
+  if (!messages?.length) throw new Error('Daily email not found in mailbox lookback window')
+
+  const subjectNeedles = buildSubjectNeedles()
+  const attachmentErrors = []
+
+  for (const summary of messages) {
+    const msgId = summary.id
+    const { data: msg } = await gmail.users.messages.get({ userId: 'me', id: msgId })
+    const subject = getSubjectHeader(msg)
+    if (!matchesWantedSubject(subject, subjectNeedles)) continue
+
+    const parts = walkParts(msg.payload?.parts || [])
+    const attach = pickSupportedAttachment(parts)
+    if (!attach) {
+      attachmentErrors.push(`message ${msgId} matched subject but had no CSV/ZIP attachment`)
+      continue
+    }
+
+    const buffer = await getAttachmentBuffer(gmail, msgId, attach.body.attachmentId)
+    if (/\.zip$/i.test(attach.filename || '')) {
+      const extracted = extractCsvFromZip(buffer, attach.filename || 'daily.zip')
+      return {
+        csvBuffer: extracted.csvBuffer,
+        emailId: msgId,
+        filename: extracted.filename
+      }
+    }
+
+    return {
+      csvBuffer: buffer,
+      emailId: msgId,
+      filename: attach.filename || 'daily.csv'
+    }
+  }
+
+  if (attachmentErrors.length) {
+    throw new Error(`Daily email found but attachment could not be processed: ${attachmentErrors[0]}`)
+  }
+
+  throw new Error(`Daily email not found for subjects: ${subjectNeedles.join(' | ')}`)
 }
 
 // ─── Helpers: mapping & side detection ───────────────────────────────────────
 // Known code patterns:
-//  - FNO "027" style: 027 + 4 letters + digits (e.g., 027CAPE292014216096)
+//  - FNO "027" style: 027 + 3/4 letters + digits (e.g., 027CAPE292014216096, 027NEW292013461734)
 //  - DFA style: DFA##-####### (e.g., DFA21-0025521)
 //  - DFX style: DFX##_####### (e.g., DFX21_0000065)
 //  - FRG style: liberal catch for FRG-prefixed ids (letters/digits/_/-)
 const RX_PATTERNS = [
-  /027[A-Z]{4}\d+/g,        // 027CAPE292014216096
+  /027[A-Z]{3,4}\d+/g,      // 027CAPE292014216096 / 027NEW292013461734
   /DFA\d{2}-\d+/g,          // DFA21-0025521
   /DFX\d{2}_\d+/g,          // DFX21_0000065
   /FRG[A-Z0-9_-]+/gi        // FRG... (loose)
@@ -225,7 +332,7 @@ function resolveCol(records, wanted) {
   let k = keys.find(k => k.toLowerCase() === w)
   if (k) return k
   k = keys.find(k => k.toLowerCase().includes(w))
-  return k || wanted
+  return k || null
 }
 
 // Build lookup map for circuits by both full circuit_id and ANY embedded codes (027/DFA/DFX/FRG)
@@ -254,6 +361,13 @@ async function run() {
   const MNEMONIC = resolveCol(records, 'Mnemonic')
   const ROUTER   = resolveCol(records, 'Router')
   const OPR      = resolveCol(records, 'OPR')
+
+  if (!MNEMONIC || !ROUTER || !OPR) {
+    const cols = Object.keys(records[0] || {})
+    throw new Error(
+      `CSV columns do not match expected format. Needed Mnemonic/Router/OPR, got: ${cols.join(', ')}`
+    )
+  }
 
   // DB connect
   const pool = new pg.Pool({
@@ -335,6 +449,14 @@ async function run() {
         circuit.id, side, rx, mnemonic, router, matchedCode, emailId, sampleTime
       ])
       inserted++
+    }
+
+    if (inserted === 0) {
+      throw new Error(
+        `Parsed ${records.length} rows from ${filename} but inserted 0 rows. ` +
+        `Skipped: blank_rx=${skippedBlank}, no_code=${skippedNoCode}, ` +
+        `no_circuit=${skippedNoCircuit}, ambiguous_side=${skippedAmbiguous}`
+      )
     }
 
     await cx.query('COMMIT')
