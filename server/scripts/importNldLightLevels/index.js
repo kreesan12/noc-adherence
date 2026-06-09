@@ -40,6 +40,55 @@ function pick (row, keys) {
   }
   return undefined
 }
+function normalizeSourceCircuitId (value) {
+  return String(value || '')
+    .trim()
+    .replace(/[|/]+/g, ' & ')
+    .replace(/\s*&\s*/g, ' & ')
+    .replace(/(?:\s*&\s*){2,}/g, ' & ')
+    .split(' & ')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(' & ')
+}
+async function resolveCircuit (cx, cache, rawCircuitId) {
+  const normalizedCircuitId = normalizeSourceCircuitId(rawCircuitId)
+  if (!normalizedCircuitId) return null
+  if (cache.has(normalizedCircuitId)) return cache.get(normalizedCircuitId)
+
+  const baseSql = `
+    SELECT id, circuit_id, node_a, node_b, current_rx_site_a, current_rx_site_b
+    FROM "Circuit"
+  `
+  const exact = await cx.query(`${baseSql} WHERE circuit_id = $1`, [normalizedCircuitId])
+  if (exact.rows.length === 1) {
+    const resolved = exact.rows[0]
+    cache.set(normalizedCircuitId, resolved)
+    return resolved
+  }
+
+  const prefix = await cx.query(
+    `${baseSql} WHERE circuit_id LIKE $1 ORDER BY length(circuit_id) ASC, circuit_id ASC`,
+    [`${normalizedCircuitId}%`]
+  )
+  if (prefix.rows.length === 1) {
+    const resolved = prefix.rows[0]
+    console.log(`normalized circuit alias "${rawCircuitId}" -> "${resolved.circuit_id}"`)
+    cache.set(normalizedCircuitId, resolved)
+    return resolved
+  }
+
+  if (prefix.rows.length > 1) {
+    console.warn(
+      `ambiguous circuit alias "${rawCircuitId}" -> ${prefix.rows.length} matches for "${normalizedCircuitId}"`
+    )
+  } else {
+    console.warn(`unknown circuit "${rawCircuitId}" (normalized: "${normalizedCircuitId}")`)
+  }
+
+  cache.set(normalizedCircuitId, null)
+  return null
+}
 
 /**
  * Decide if currA/currB look swapped compared only to live levels.
@@ -132,6 +181,7 @@ async function main (targetDate) {
   if (!csvBuffers.length) throw new Error('No CSV attachment in mail')
 
   const allRows = []
+  const circuitCache = new Map()
   for (const buf of csvBuffers) {
     const parsed = parse(buf, { columns:true, skip_empty_lines:true })
     allRows.push(...parsed)
@@ -143,9 +193,8 @@ async function main (targetDate) {
   try {
     for (const r of allRows) {
       /* normalise circuitId */
-      let circuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
-      if (!circuitId) continue
-      circuitId = circuitId.replace(/\|/g,'&').replace(/\s*&\s*/g,' & ')
+      const rawCircuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
+      if (!rawCircuitId) continue
 
       const tid = String(r['Ticket ID'] ?? '').trim()
       if (!tid) continue
@@ -165,11 +214,9 @@ async function main (targetDate) {
       const csvBName = pick(r, ['Side B name','Side B Name','B Name','B Site','Side B'])
 
       // circuit lookup with live levels and node names
-      const { rows:cRows } = await cx.query(
-        `SELECT id, node_a, node_b, current_rx_site_a, current_rx_site_b
-           FROM "Circuit" WHERE circuit_id=$1`, [circuitId])
-      if (!cRows.length) { console.warn('⚠︎ unknown circuit', circuitId); continue }
-      const c = cRows[0]
+      const c = await resolveCircuit(cx, circuitCache, rawCircuitId)
+      if (!c) continue
+      const circuitId = c.circuit_id
 
       // decide swap using CURRENT only
       const decision = maybeSwapCurrentOnly({
