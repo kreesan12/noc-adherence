@@ -3,6 +3,9 @@ import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
 
+const INITIAL_IMPORT_REASON = 'initial import'
+const INITIAL_OVERRIDE_SOURCE = 'initial-values-ui'
+
 function requireEngineering(req, res, next) {
   const role = (req.user?.role || '').toLowerCase()
   if (!['engineering', 'admin', 'manager'].includes(role))
@@ -35,17 +38,27 @@ r.get('/circuits', async (_, res) => {
       _count: {
         select: {
           levelHistory: {
-            where: { reason: { not: 'initial import' } }
+            where: { reason: { not: INITIAL_IMPORT_REASON } }
           }
         }
       },
 
-      // Initial import record (baseline for deltas)
+      // Baseline records: original import plus any UI override to initial values
       levelHistory: {
-        where: { reason: 'initial import' },
+        where: {
+          OR: [
+            { reason: INITIAL_IMPORT_REASON },
+            { source: INITIAL_OVERRIDE_SOURCE }
+          ]
+        },
         orderBy: { changedAt: 'asc' },
-        take: 1,
-        select: { rxSiteA: true, rxSiteB: true, changedAt: true }
+        select: {
+          rxSiteA: true,
+          rxSiteB: true,
+          changedAt: true,
+          reason: true,
+          source: true,
+        }
       },
 
       // NEW: latest light-level event date
@@ -67,13 +80,26 @@ r.get('/circuits', async (_, res) => {
 
   // Flatten initial import info and compute lastEventAt
   const shaped = circuits.map(c => {
-    const init = c.levelHistory?.[0] ?? null
+    const baselineHistory = Array.isArray(c.levelHistory) ? c.levelHistory : []
+    const initialImport = baselineHistory.find(h => h.reason === INITIAL_IMPORT_REASON) ?? null
+    const initialOverride = [...baselineHistory]
+      .reverse()
+      .find(h => h.source === INITIAL_OVERRIDE_SOURCE) ?? null
+    const effectiveInitial = (initialImport || initialOverride)
+      ? {
+          rxSiteA: initialOverride?.rxSiteA ?? initialImport?.rxSiteA ?? null,
+          rxSiteB: initialOverride?.rxSiteB ?? initialImport?.rxSiteB ?? null,
+          changedAt: initialOverride?.changedAt ?? initialImport?.changedAt ?? null,
+          reason: initialOverride?.reason ?? initialImport?.reason ?? null,
+          source: initialOverride?.source ?? initialImport?.source ?? null,
+        }
+      : null
     const latestEventAt = c.lightEvents?.[0]?.eventDate ?? null
 
     // Only show lastEventAt if it is strictly AFTER the initial import
     let lastEventAt = latestEventAt
-    if (init?.changedAt && latestEventAt) {
-      const initTs = new Date(init.changedAt).getTime()
+    if (initialImport?.changedAt && latestEventAt) {
+      const initTs = new Date(initialImport.changedAt).getTime()
       const eventTs = new Date(latestEventAt).getTime()
       if (!(eventTs > initTs)) lastEventAt = null
     }
@@ -83,9 +109,11 @@ r.get('/circuits', async (_, res) => {
 
     return {
       ...rest,
-      initRxSiteA: init?.rxSiteA ?? null,
-      initRxSiteB: init?.rxSiteB ?? null,
-      initial: init,          // { rxSiteA, rxSiteB, changedAt } or null
+      initRxSiteA: effectiveInitial?.rxSiteA ?? null,
+      initRxSiteB: effectiveInitial?.rxSiteB ?? null,
+      initial: effectiveInitial,
+      initialImport,
+      initialOverride,
       lastEventAt             // Date | null
     }
   })
@@ -131,6 +159,38 @@ r.post('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
   })
 
   res.json(updated)
+})
+
+r.post('/circuit/:id/initial-values', verifyToken, requireEngineering, async (req, res) => {
+  const id = +req.params.id
+  const { initialRxSiteA, initialRxSiteB, changedAt, reason } = req.body || {}
+
+  const numOrNull = (v) => {
+    if (v === '' || v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const exists = await prisma.circuit.findUnique({
+    where: { id },
+    select: { id: true }
+  })
+
+  if (!exists) return res.status(404).json({ error: 'Circuit not found' })
+
+  const override = await prisma.circuitLevelHistory.create({
+    data: {
+      circuitId: id,
+      rxSiteA: numOrNull(initialRxSiteA),
+      rxSiteB: numOrNull(initialRxSiteB),
+      reason: String(reason || '').trim() || 'initial values override',
+      source: INITIAL_OVERRIDE_SOURCE,
+      changedById: req.user.id,
+      changedAt: changedAt ? new Date(changedAt) : new Date()
+    }
+  })
+
+  res.status(201).json(override)
 })
 
 // Manual light-level event insert from UI
@@ -248,7 +308,8 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
   const allowed = [
     'nldGroup',
     'nodeALat', 'nodeALon', 'nodeBLat', 'nodeBLon',
-    'currentRxSiteA', 'currentRxSiteB' // optional: if included, we’ll log history
+    'currentRxSiteA', 'currentRxSiteB',
+    'circuitId', 'nodeA', 'nodeB', 'techType'
   ]
 
   const data = {}
@@ -284,7 +345,12 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
         } : {})
       },
       select: {
-        id: true, circuitId: true, nldGroup: true,
+        id: true,
+        circuitId: true,
+        nodeA: true,
+        nodeB: true,
+        techType: true,
+        nldGroup: true,
         nodeALat: true, nodeALon: true, nodeBLat: true, nodeBLon: true,
         currentRxSiteA: true, currentRxSiteB: true, updatedAt: true
       }
@@ -293,6 +359,9 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
   } catch (e) {
     if (e?.code === 'P2025') {
       return res.status(404).json({ error: 'Circuit not found' })
+    }
+    if (e?.code === 'P2002') {
+      return res.status(409).json({ error: 'Circuit ID must be unique' })
     }
     console.error(e)
     res.status(500).json({ error: 'Unexpected error' })

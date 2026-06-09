@@ -1,9 +1,11 @@
 // frontend/src/pages/CircuitEditorPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Box, Paper, Stack, Button, Typography, Snackbar, Alert, Tooltip
+  Box, Paper, Stack, Button, Typography, Snackbar, Alert, Tooltip,
+  Accordion, AccordionSummary, AccordionDetails, Chip
 } from '@mui/material'
-import { DataGrid, GridToolbarContainer, GridToolbarExport } from '@mui/x-data-grid'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import { DataGrid } from '@mui/x-data-grid'
 import api from '../api'
 
 const toNumberOrNull = (v) => {
@@ -47,19 +49,6 @@ const validateRow = (row, circuitIndex) => {
   return errors
 }
 
-function CircuitsToolbar({ onAdd }) {
-  return (
-    <GridToolbarContainer>
-      <Stack direction="row" spacing={1} sx={{ p: 1 }}>
-        <Tooltip title="Add a new circuit row">
-          <Button variant="contained" onClick={onAdd}>Add Circuit</Button>
-        </Tooltip>
-        <GridToolbarExport />
-      </Stack>
-    </GridToolbarContainer>
-  )
-}
-
 export default function CircuitEditorPage() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
@@ -86,6 +75,23 @@ export default function CircuitEditorPage() {
     () => rows.map(({ id, circuitId }) => ({ id, circuitId: circuitId ?? '' })),
     [rows]
   )
+
+  const groupedRows = useMemo(() => {
+    const groups = new Map()
+
+    rows.forEach((row) => {
+      const key = String(row.nldGroup || '').trim() || 'Unassigned'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(row)
+    })
+
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([group, items]) => ({
+        group,
+        items: [...items].sort((a, b) => String(a.circuitId || '').localeCompare(String(b.circuitId || '')))
+      }))
+  }, [rows])
 
   const handleAdd = () => {
     const id = tempIdRef.current--
@@ -115,7 +121,6 @@ export default function CircuitEditorPage() {
       'nldGroup',
       'nodeALat', 'nodeALon', 'nodeBLat', 'nodeBLon',
       'currentRxSiteA', 'currentRxSiteB',
-      // if you also want to allow renaming nodes/IDs via PATCH, add fields here
       'circuitId', 'nodeA', 'nodeB', 'techType'
     ])
     const payload = {}
@@ -156,6 +161,7 @@ export default function CircuitEditorPage() {
         delete payload._isNew
         const res = await api.post('engineering/circuits', payload)
         const created = res.data
+        setRows(prev => [created, ...prev.filter(r => r.id !== normalized.id)])
         setSnack({ open: true, severity: 'success', msg: `Created ${created.circuitId}` })
         return created
       }
@@ -167,6 +173,7 @@ export default function CircuitEditorPage() {
       }
       const res = await api.patch(`engineering/circuit/${normalized.id}`, payload)
       const updated = res.data
+      setRows(prev => prev.map(r => (r.id === updated.id ? { ...r, ...updated } : r)))
       setSnack({ open: true, severity: 'success', msg: `Updated ${updated.circuitId}` })
       return { ...normalized, ...updated }
     } catch (e) {
@@ -193,37 +200,64 @@ export default function CircuitEditorPage() {
   ]
 
   return (
-    <Box sx={{ p: 2, height: 'calc(100vh - 64px)' }}>
+    <Box sx={{ p: 2, height: 'calc(100vh - 64px)', overflow: 'auto' }}>
       <Typography variant="h5" sx={{ mb: 1 }}>Circuit Data Cleanup</Typography>
       <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-        Edit circuit names/IDs, add coordinates, or create new circuits. Changes are validated on save.
+        Edit circuit names, IDs, grouping, and coordinates. Circuits are grouped by NLD for easier review.
       </Typography>
 
-      <Paper sx={{ height: '100%', p: 1 }}>
-      <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-        <Button variant="contained" onClick={handleAdd}>Add Circuit</Button>
-        {/* Optional export */}
-        {/* <GridToolbarExport /> */}
-      </Stack>
-
-      <DataGrid
-        rows={rows}
-        columns={columns}
-        loading={loading}
-        disableRowSelectionOnClick
-        processRowUpdate={processRowUpdate}
-        onProcessRowUpdateError={handleProcessError}
-        editMode="row"
-        experimentalFeatures={{ newEditingApi: true }}
-        // You can keep toolbar if it's working; otherwise, remove the next two lines:
-        // slots={{ toolbar: CircuitsToolbar }}     // v6 API
-        // slotProps={{ toolbar: { onAdd: handleAdd } }}
-        initialState={{
-          pagination: { paginationModel: { pageSize: 25, page: 0 } },
-        }}
-        pageSizeOptions={[10, 25, 50, 100]}
-      />
+      <Paper sx={{ p: 1.5, mb: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <Tooltip title="Add a new circuit row">
+            <Button variant="contained" onClick={handleAdd}>Add Circuit</Button>
+          </Tooltip>
+          <Typography variant="body2" color="text.secondary">
+            {rows.length} circuits across {groupedRows.length} NLD group{groupedRows.length === 1 ? '' : 's'}
+          </Typography>
+        </Stack>
       </Paper>
+
+      {!groupedRows.length && loading && (
+        <Paper sx={{ p: 3, mb: 2 }}>
+          <Typography color="text.secondary">Loading circuits...</Typography>
+        </Paper>
+      )}
+
+      {!groupedRows.length && !loading && (
+        <Paper sx={{ p: 3 }}>
+          <Typography color="text.secondary">No circuits found.</Typography>
+        </Paper>
+      )}
+
+      {groupedRows.map(({ group, items }) => (
+        <Accordion key={group} defaultExpanded disableGutters sx={{ mb: 1.5 }}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{group}</Typography>
+              <Chip size="small" label={items.length} />
+            </Stack>
+          </AccordionSummary>
+          <AccordionDetails sx={{ pt: 0 }}>
+            <Paper variant="outlined" sx={{ p: 1 }}>
+              <DataGrid
+                rows={items}
+                columns={columns}
+                autoHeight
+                loading={loading}
+                disableRowSelectionOnClick
+                processRowUpdate={processRowUpdate}
+                onProcessRowUpdateError={handleProcessError}
+                editMode="row"
+                experimentalFeatures={{ newEditingApi: true }}
+                initialState={{
+                  pagination: { paginationModel: { pageSize: 10, page: 0 } },
+                }}
+                pageSizeOptions={[10, 25, 50]}
+              />
+            </Paper>
+          </AccordionDetails>
+        </Accordion>
+      ))}
 
       <Snackbar
         open={snack.open}

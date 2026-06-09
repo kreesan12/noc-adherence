@@ -141,7 +141,7 @@ export default function NldLightLevelsPage () {
 
   /* ── state ─────────────────────────────────────────── */
   const [rows, setRows] = useState([])
-  const [edit, setEdit] = useState(null)   // { id, rxA, rxB, reason, changedAt }
+  const [edit, setEdit] = useState(null)   // { id, circuitId, rxA, rxB, reason, changedAt }
   const [hist, setHist] = useState(null)   // [{...levelHistory, event?:{ticketId,impactType,impactHours}}]
   const [manualEvent, setManualEvent] = useState(null)
   const [filters, setFilters] = useState({ nld: '', circuit: '', worseDelta: '' })
@@ -259,11 +259,12 @@ export default function NldLightLevelsPage () {
     setHist(enriched)
   }
 
-  function startEdit (r) {
+  function startEditInitialValues (r) {
     setEdit({
       id: r.id,
-      rxA: r.displayRxA ?? r.currentRxSiteA ?? '',
-      rxB: r.displayRxB ?? r.currentRxSiteB ?? '',
+      circuitId: r.circuitId,
+      rxA: r.initRxSiteA ?? r.initial?.rxSiteA ?? '',
+      rxB: r.initRxSiteB ?? r.initial?.rxSiteB ?? '',
       reason: '',
       changedAt: dayjs()
     })
@@ -271,11 +272,11 @@ export default function NldLightLevelsPage () {
 
   const toNumOrNull = (v) => (v === '' || v == null) ? null : +v
 
-  async function saveEdit () {
-    await api.post(`/engineering/circuit/${edit.id}`, {
-      currentRxSiteA: toNumOrNull(edit.rxA),
-      currentRxSiteB: toNumOrNull(edit.rxB),
-      reason: edit.reason || 'manual edit',
+  async function saveInitialValues () {
+    await api.post(`/engineering/circuit/${edit.id}/initial-values`, {
+      initialRxSiteA: toNumOrNull(edit.rxA),
+      initialRxSiteB: toNumOrNull(edit.rxB),
+      reason: edit.reason || 'initial values override',
       changedAt: edit.changedAt ? dayjs(edit.changedAt).toISOString() : undefined
     })
     const { data } = await api.get('/engineering/circuits')
@@ -429,8 +430,8 @@ export default function NldLightLevelsPage () {
   /* ── datagrid columns (memoised) ───────────────────── */
   const columns = useMemo(() => [
     { field:'circuitId', headerName:'Circuit', flex:1, minWidth:160 },
-    { field:'nodeA',     headerName:'Node A',  flex:1, minWidth:120 },
-    { field:'nodeB',     headerName:'Node B',  flex:1, minWidth:120 },
+    { field:'nodeA',     headerName:'Node A',  flex:0.55, minWidth:95 },
+    { field:'nodeB',     headerName:'Node B',  flex:0.55, minWidth:95 },
     { field:'techType',  headerName:'Tech',    width:80 },
 
     // ── Side A group ─────────────────────────────
@@ -583,7 +584,7 @@ export default function NldLightLevelsPage () {
     {
       field: 'displayAsOf',
       headerName: 'As of',
-      minWidth: 110,
+      minWidth: 135,
       align: 'center',
       headerAlign: 'center',
       sortable: true,
@@ -600,7 +601,7 @@ export default function NldLightLevelsPage () {
     {
       field: 'lastEventAt',
       headerName: 'Last Event',
-      minWidth: 110,
+      minWidth: 135,
       align: 'center',
       headerAlign: 'center',
       sortable: true,
@@ -620,8 +621,8 @@ export default function NldLightLevelsPage () {
       renderCell: (p) => (
         <Stack direction="row" spacing={0.5} alignItems="center">
           {canEditLevels && (
-            <Tooltip title="Edit levels">
-              <IconButton size="small" onClick={() => startEdit(p.row)}>
+            <Tooltip title="Edit initial values">
+              <IconButton size="small" onClick={() => startEditInitialValues(p.row)}>
                 <EditNoteIcon fontSize="inherit" />
               </IconButton>
             </Tooltip>
@@ -660,7 +661,7 @@ export default function NldLightLevelsPage () {
       <Typography variant="body2" sx={{ mb: 2, opacity: 0.8 }}>
         “Current” values pick the freshest of <strong>Event</strong> vs <strong>Daily</strong> snapshot <em>per side</em>.
         <br/> <strong>As of</strong> shows the freshest timestamp used for the displayed values.
-        Deltas compare against the <strong>initial import</strong>.
+        Deltas compare against the <strong>stored initial baseline</strong>, including any manual initial-value edits.
       </Typography>
 
       <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid #eee' }}>
@@ -756,16 +757,19 @@ export default function NldLightLevelsPage () {
       {/* ---------- Edit drawer ---------- */}
       <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)} ModalProps={{ sx: { zIndex: 2400 } }}>
         <Box p={3} width={320}>
-          <Typography variant="h6" mb={2}>Edit Levels</Typography>
+          <Typography variant="h6" mb={0.5}>Edit Initial Values</Typography>
+          <Typography variant="body2" sx={{ mb: 2, opacity: 0.75 }}>
+            {edit?.circuitId || ''}
+          </Typography>
           <Stack spacing={2}>
             <TextField
-              label="Rx A (dBm)"
+              label="Initial Rx A (dBm)"
               value={edit?.rxA ?? ''}
               onChange={e => setEdit(s => ({ ...s, rxA: e.target.value }))}
               inputProps={{ inputMode: 'decimal' }}
             />
             <TextField
-              label="Rx B (dBm)"
+              label="Initial Rx B (dBm)"
               value={edit?.rxB ?? ''}
               onChange={e => setEdit(s => ({ ...s, rxB: e.target.value }))}
               inputProps={{ inputMode: 'decimal' }}
@@ -777,7 +781,7 @@ export default function NldLightLevelsPage () {
               onChange={e => setEdit(s => ({ ...s, reason: e.target.value }))}
               multiline
               minRows={2}
-              placeholder="e.g. value adjusted via UI"
+              placeholder="e.g. corrected baseline after validation"
             />
 
             <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -785,12 +789,12 @@ export default function NldLightLevelsPage () {
                 label="Changed at"
                 value={edit?.changedAt ?? null}
                 onChange={(v) => setEdit(s => ({ ...s, changedAt: v }))}
-                slotProps={{ textField: { helperText: 'Timestamp to store in history' } }}
+                slotProps={{ textField: { helperText: 'Timestamp to store for the baseline override' } }}
               />
             </LocalizationProvider>
 
             <Stack direction="row" spacing={1}>
-              <Button variant="contained" onClick={saveEdit}>Save</Button>
+              <Button variant="contained" onClick={saveInitialValues}>Save</Button>
               <Button onClick={() => setEdit(null)}>Cancel</Button>
             </Stack>
           </Stack>

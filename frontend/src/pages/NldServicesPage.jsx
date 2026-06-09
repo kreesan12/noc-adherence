@@ -142,7 +142,7 @@ export default function NldServicesPage() {
       setAppliedSearch(search)
     } catch (e) { console.error(e) } finally { setLoadingList(false) }
   }
-  useEffect(() => { if (tab === 1) loadList() }, [tab])
+  useEffect(() => { if (tab === 0) loadList() }, [tab])
 
   const setColumnFilter = (key, value) => {
     setColumnFilters(prev => ({ ...prev, [key]: value }))
@@ -261,8 +261,8 @@ export default function NldServicesPage() {
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Paper elevation={0} sx={{ mb: 1, p: 0 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-            <Tab label="Capture New" />
             <Tab label={`Current (${total})`} />
+            <Tab label="Capture New" />
           </Tabs>
         </Paper>
 
@@ -285,7 +285,7 @@ export default function NldServicesPage() {
           }}
         >
           {/* ====== Capture tab (Stepper) ====== */}
-          {tab === 0 && (
+          {tab === 1 && (
             <Box sx={{ overflow: 'auto', pr: 1, pb: 2 }}>
               <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
                 <Stepper activeStep={activeStep} alternativeLabel>
@@ -590,7 +590,7 @@ export default function NldServicesPage() {
           )}
 
           {/* ====== Current tab ====== */}
-          {tab === 1 && (
+          {tab === 0 && (
             <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
               <Card
                 title="Current NLD Services"
