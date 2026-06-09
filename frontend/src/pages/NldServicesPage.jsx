@@ -78,6 +78,29 @@ const Card = ({ title, subtitle, children, right, sx }) => (
   </Paper>
 )
 
+const fmtDbm = (value) => {
+  if (value == null || value === '' || Number.isNaN(Number(value))) return 'N/A'
+  return `${Number(value).toFixed(1)} dBm`
+}
+
+const fmtDateTime = (value) => {
+  if (!value) return 'N/A'
+  return new Date(value).toLocaleString()
+}
+
+const priorityChipColor = (value) => {
+  const v = String(value || '').toLowerCase()
+  if (v === 'high') return 'error'
+  if (v === 'normal') return 'warning'
+  return 'default'
+}
+
+const statusChipColor = (value) => {
+  const v = String(value || '').toUpperCase()
+  if (v === 'OPEN') return 'success'
+  return 'default'
+}
+
 export default function NldServicesPage() {
   const [tab, setTab] = useState(0)
 
@@ -87,15 +110,6 @@ export default function NldServicesPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)   // {severity, message}
   const [touched, setTouched] = useState({}) // for inline errors
-
-  // dropdown sources
-  const [nlds, setNlds] = useState([])
-  const [nldLoading, setNldLoading] = useState(true)
-  const nldGroups = useMemo(() => {
-    const s = new Set()
-    for (const sp of nlds) s.add(sp?.nldGroup ?? 'Unassigned')
-    return Array.from(s).sort()
-  }, [nlds])
 
   // node autocompletes (async)
   const [nodeOptionsA, setNodeOptionsA] = useState([])
@@ -110,18 +124,25 @@ export default function NldServicesPage() {
   const [columnFilters, setColumnFilters] = useState(initialColumnFilters)
   const [expandedCustomers, setExpandedCustomers] = useState({})
 
+  // blank RX monitor
+  const [blankRxSearch, setBlankRxSearch] = useState('')
+  const [blankRxRows, setBlankRxRows] = useState([])
+  const [blankRxTotal, setBlankRxTotal] = useState(0)
+  const [blankRxLoading, setBlankRxLoading] = useState(false)
+
+  // ticket staging
+  const [ticketSearch, setTicketSearch] = useState('')
+  const [ticketPriority, setTicketPriority] = useState('')
+  const [ticketStatus, setTicketStatus] = useState('')
+  const [ticketRows, setTicketRows] = useState([])
+  const [ticketTotal, setTicketTotal] = useState(0)
+  const [ticketLoading, setTicketLoading] = useState(false)
+  const [ticketSyncing, setTicketSyncing] = useState(false)
+  const [ticketDrawer, setTicketDrawer] = useState(null)
+
   // details/edit drawer
   const [openDrawer, setOpenDrawer] = useState(false)
   const [edit, setEdit] = useState(null) // editable copy of row
-
-  /* -------- load NLDs once -------- */
-  useEffect(() => {
-    setNldLoading(true)
-    api.get('/nlds.json')
-      .then(r => setNlds(r.data ?? []))
-      .catch(console.error)
-      .finally(() => setNldLoading(false))
-  }, [])
 
   /* -------- node search ---------- */
   const searchNodes = async (q, setter) => {
@@ -143,6 +164,68 @@ export default function NldServicesPage() {
     } catch (e) { console.error(e) } finally { setLoadingList(false) }
   }
   useEffect(() => { if (tab === 0) loadList() }, [tab])
+
+  const loadBlankRx = async () => {
+    setBlankRxLoading(true)
+    try {
+      const r = await api.get('/engineering/blank-rx-issues', {
+        params: { q: blankRxSearch, take: 200 }
+      })
+      setBlankRxRows(r.data?.items ?? [])
+      setBlankRxTotal(r.data?.total ?? 0)
+    } catch (e) {
+      console.error(e)
+      setToast({ severity: 'error', message: e?.response?.data?.error || 'Failed to load blank RX issues' })
+    } finally {
+      setBlankRxLoading(false)
+    }
+  }
+
+  const loadTickets = async () => {
+    setTicketLoading(true)
+    try {
+      const r = await api.get('/engineering/staged-zendesk-tickets', {
+        params: {
+          q: ticketSearch,
+          priority: ticketPriority,
+          status: ticketStatus,
+          take: 200
+        }
+      })
+      setTicketRows(r.data?.items ?? [])
+      setTicketTotal(r.data?.total ?? 0)
+    } catch (e) {
+      console.error(e)
+      setToast({ severity: 'error', message: e?.response?.data?.error || 'Failed to load staged tickets' })
+    } finally {
+      setTicketLoading(false)
+    }
+  }
+
+  const syncTickets = async (quiet = false) => {
+    setTicketSyncing(true)
+    try {
+      const r = await api.post('/engineering/staged-zendesk-tickets/sync')
+      await loadTickets()
+      if (!quiet) {
+        const s = r.data || {}
+        setToast({
+          severity: 'success',
+          message: `Ticket staging synced: ${s.created || 0} created, ${s.escalated || 0} escalated, ${s.updated || 0} updated`
+        })
+      }
+    } catch (e) {
+      console.error(e)
+      setToast({ severity: 'error', message: e?.response?.data?.error || 'Failed to sync staged tickets' })
+    } finally {
+      setTicketSyncing(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 2) loadBlankRx()
+    if (tab === 3) loadTickets()
+  }, [tab])
 
   const setColumnFilter = (key, value) => {
     setColumnFilters(prev => ({ ...prev, [key]: value }))
@@ -263,6 +346,8 @@ export default function NldServicesPage() {
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
             <Tab label={`Current (${total})`} />
             <Tab label="Capture New" />
+            <Tab label={`Blank RX (${blankRxTotal})`} />
+            <Tab label={`Ticket Staging (${ticketTotal})`} />
           </Tabs>
         </Paper>
 
@@ -822,8 +907,331 @@ export default function NldServicesPage() {
               </Drawer>
             </Box>
           )}
+
+          {/* ====== Blank RX tab ====== */}
+          {tab === 2 && (
+            <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+              <Card
+                title="Blank RX Monitor"
+                subtitle="Daily ingested rows where RX was blank but the circuit could still be identified."
+                right={<Chip label={`${blankRxRows.length}${blankRxRows.length !== blankRxTotal ? ` / ${blankRxTotal}` : ''} rows`} size="small" />}
+                sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+              >
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                  sx={{ mb: 1, flexShrink: 0 }}
+                >
+                  <TextField
+                    value={blankRxSearch}
+                    onChange={e => setBlankRxSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') loadBlankRx()
+                    }}
+                    placeholder="Search circuit, NLD group, parsed code, router, or mnemonic..."
+                    size="small"
+                    InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                    sx={{ width: { xs: '100%', sm: 460 }, maxWidth: '100%' }}
+                  />
+                  <Button variant="outlined" onClick={loadBlankRx} disabled={blankRxLoading}>
+                    {blankRxLoading ? 'Loading...' : 'Refresh'}
+                  </Button>
+                </Stack>
+
+                <Paper variant="outlined" sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                  <Table
+                    size="small"
+                    stickyHeader
+                    sx={{
+                      '& .MuiTableCell-root': {
+                        py: 0.75,
+                        px: 1,
+                        whiteSpace: 'nowrap',
+                        verticalAlign: 'top'
+                      }
+                    }}
+                  >
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Sample Time</TableCell>
+                        <TableCell>Circuit ID</TableCell>
+                        <TableCell>NLD Group</TableCell>
+                        <TableCell>Path</TableCell>
+                        <TableCell>Side</TableCell>
+                        <TableCell>Parsed Code</TableCell>
+                        <TableCell>Raw RX</TableCell>
+                        <TableCell>Router</TableCell>
+                        <TableCell>Mnemonic</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {blankRxRows.map((row) => (
+                        <TableRow key={row.id} hover>
+                          <TableCell>{fmtDateTime(row.sampleTime)}</TableCell>
+                          <TableCell>{row.circuit?.circuitId || 'Unknown'}</TableCell>
+                          <TableCell>{row.circuit?.nldGroup || 'Unassigned'}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'normal', minWidth: 240 }}>
+                            {row.circuit ? `${row.circuit.nodeA} -> ${row.circuit.nodeB}` : 'N/A'}
+                          </TableCell>
+                          <TableCell>{row.side || 'UNKNOWN'}</TableCell>
+                          <TableCell>{row.parsedCode || 'N/A'}</TableCell>
+                          <TableCell>{row.rawRx == null || row.rawRx === '' ? 'Blank' : row.rawRx}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'normal', minWidth: 200 }}>{row.routerName || 'N/A'}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'normal', minWidth: 260 }}>{row.mnemonic || 'N/A'}</TableCell>
+                        </TableRow>
+                      ))}
+                      {!blankRxRows.length && (
+                        <TableRow>
+                          <TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                            {blankRxLoading ? 'Loading...' : 'No blank RX issues found'}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </Paper>
+              </Card>
+            </Box>
+          )}
+
+          {/* ====== Ticket staging tab ====== */}
+          {tab === 3 && (
+            <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+              <Card
+                title="Zendesk Ticket Staging"
+                subtitle="Preview drift-based ticket payloads before we wire in the real Zendesk API."
+                right={
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Chip label={`${ticketRows.length}${ticketRows.length !== ticketTotal ? ` / ${ticketTotal}` : ''} tickets`} size="small" />
+                    <Button variant="contained" size="small" onClick={() => syncTickets(false)} disabled={ticketSyncing}>
+                      {ticketSyncing ? 'Syncing...' : 'Sync Now'}
+                    </Button>
+                  </Stack>
+                }
+                sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+              >
+                <Stack
+                  direction={{ xs: 'column', lg: 'row' }}
+                  spacing={1}
+                  alignItems={{ xs: 'stretch', lg: 'center' }}
+                  sx={{ mb: 1, flexShrink: 0 }}
+                >
+                  <TextField
+                    value={ticketSearch}
+                    onChange={e => setTicketSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') loadTickets()
+                    }}
+                    placeholder="Search reference, circuit, NLD group, subject, or nodes..."
+                    size="small"
+                    InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+                    sx={{ width: { xs: '100%', lg: 420 }, maxWidth: '100%' }}
+                  />
+                  <TextField
+                    select
+                    size="small"
+                    label="Priority"
+                    value={ticketPriority}
+                    onChange={e => setTicketPriority(e.target.value)}
+                    sx={{ width: { xs: '100%', sm: 160 } }}
+                  >
+                    <MenuItem value="">All priorities</MenuItem>
+                    <MenuItem value="normal">Normal</MenuItem>
+                    <MenuItem value="high">High</MenuItem>
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Status"
+                    value={ticketStatus}
+                    onChange={e => setTicketStatus(e.target.value)}
+                    sx={{ width: { xs: '100%', sm: 160 } }}
+                  >
+                    <MenuItem value="">All statuses</MenuItem>
+                    <MenuItem value="OPEN">OPEN</MenuItem>
+                  </TextField>
+                  <Button variant="outlined" onClick={loadTickets} disabled={ticketLoading || ticketSyncing}>
+                    {ticketLoading ? 'Loading...' : 'Refresh'}
+                  </Button>
+                </Stack>
+
+                <Paper variant="outlined" sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                  <Table
+                    size="small"
+                    stickyHeader
+                    sx={{
+                      '& .MuiTableCell-root': {
+                        py: 0.75,
+                        px: 1,
+                        whiteSpace: 'nowrap',
+                        verticalAlign: 'top'
+                      }
+                    }}
+                  >
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Reference</TableCell>
+                        <TableCell>Circuit ID</TableCell>
+                        <TableCell>NLD Group</TableCell>
+                        <TableCell>Side</TableCell>
+                        <TableCell>Priority</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Delta</TableCell>
+                        <TableCell>Initial</TableCell>
+                        <TableCell>Latest</TableCell>
+                        <TableCell>Created</TableCell>
+                        <TableCell>Updated</TableCell>
+                        <TableCell>Tags</TableCell>
+                        <TableCell align="center">View</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {ticketRows.map((row) => (
+                        <TableRow key={row.id} hover>
+                          <TableCell>{row.reference}</TableCell>
+                          <TableCell>{row.circuit?.circuitId || 'Unknown'}</TableCell>
+                          <TableCell>{row.circuit?.nldGroup || 'Unassigned'}</TableCell>
+                          <TableCell>{row.breachSide || 'N/A'}</TableCell>
+                          <TableCell>
+                            <Chip size="small" color={priorityChipColor(row.priority)} label={String(row.priority || 'unknown').toUpperCase()} />
+                          </TableCell>
+                          <TableCell>
+                            <Chip size="small" color={statusChipColor(row.status)} label={String(row.status || 'unknown').toUpperCase()} />
+                          </TableCell>
+                          <TableCell>{row.deltaLightLevel == null ? 'N/A' : `${Number(row.deltaLightLevel).toFixed(1)} dBm worse`}</TableCell>
+                          <TableCell>{fmtDbm(row.initialLightLevel)}</TableCell>
+                          <TableCell>{fmtDbm(row.latestLightLevel)}</TableCell>
+                          <TableCell>{fmtDateTime(row.dateCreated)}</TableCell>
+                          <TableCell>{fmtDateTime(row.updatedAt)}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'normal', minWidth: 180 }}>
+                            <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                              {(row.tags || []).length
+                                ? row.tags.map((tag) => <Chip key={tag} size="small" variant="outlined" label={tag} />)
+                                : <Typography variant="caption" color="text.secondary">No tags</Typography>}
+                            </Stack>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Button size="small" onClick={() => setTicketDrawer(row)}>
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {!ticketRows.length && (
+                        <TableRow>
+                          <TableCell colSpan={13} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                            {ticketLoading || ticketSyncing ? 'Loading...' : 'No staged tickets found'}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </Paper>
+              </Card>
+            </Box>
+          )}
         </Box>
       </Box>
+
+      <Drawer anchor="right" open={!!ticketDrawer} onClose={() => setTicketDrawer(null)}>
+        <Box sx={{ width: { xs: 360, sm: 520 }, p: 2 }}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>Staged Ticket Detail</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Review the payload and comment history before real Zendesk API creation.
+          </Typography>
+
+          {ticketDrawer ? (
+            <Stack spacing={2}>
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Stack spacing={1}>
+                  <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                    <Chip label={ticketDrawer.reference} size="small" />
+                    <Chip size="small" color={priorityChipColor(ticketDrawer.priority)} label={String(ticketDrawer.priority || 'unknown').toUpperCase()} />
+                    <Chip size="small" color={statusChipColor(ticketDrawer.status)} label={String(ticketDrawer.status || 'unknown').toUpperCase()} />
+                    <Chip size="small" variant="outlined" label={`Group: ${ticketDrawer.groupName || 'NOC Tier3'}`} />
+                    <Chip size="small" variant="outlined" label={`Type: ${ticketDrawer.ticketType || 'task'}`} />
+                  </Stack>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {ticketDrawer.subject}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Circuit:</strong> {ticketDrawer.circuit?.circuitId || 'Unknown'}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>NLD Group:</strong> {ticketDrawer.circuit?.nldGroup || 'Unassigned'}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Path:</strong> {ticketDrawer.circuit ? `${ticketDrawer.circuit.nodeA} -> ${ticketDrawer.circuit.nodeB}` : 'N/A'}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Breached side:</strong> {ticketDrawer.breachSide || 'N/A'}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Initial light level:</strong> {fmtDbm(ticketDrawer.initialLightLevel)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Latest light level:</strong> {fmtDbm(ticketDrawer.latestLightLevel)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Delta light level:</strong> {ticketDrawer.deltaLightLevel == null ? 'N/A' : `${Number(ticketDrawer.deltaLightLevel).toFixed(1)} dBm worse`}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Date created:</strong> {fmtDateTime(ticketDrawer.dateCreated)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Last evaluated:</strong> {fmtDateTime(ticketDrawer.lastEvaluatedAt)}
+                  </Typography>
+                  <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                    {(ticketDrawer.tags || []).map((tag) => (
+                      <Chip key={tag} size="small" variant="outlined" label={tag} />
+                    ))}
+                  </Stack>
+                </Stack>
+              </Paper>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.75, fontWeight: 700 }}>
+                  Latest Public Comment
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 13 }}>
+                  {ticketDrawer.latestCommentBody || 'No comment body saved yet.'}
+                </Paper>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.75, fontWeight: 700 }}>
+                  Comment History
+                </Typography>
+                <Stack spacing={1}>
+                  {(ticketDrawer.comments || []).length ? ticketDrawer.comments.map((comment) => (
+                    <Paper key={comment.id} variant="outlined" sx={{ p: 1.25 }}>
+                      <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 0.75 }}>
+                        <Chip size="small" label={comment.eventKind || 'comment'} />
+                        <Chip size="small" variant="outlined" label={comment.isPublic ? 'Public' : 'Private'} />
+                        <Typography variant="caption" color="text.secondary">
+                          {fmtDateTime(comment.createdAt)}
+                        </Typography>
+                      </Stack>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {comment.body}
+                      </Typography>
+                    </Paper>
+                  )) : (
+                    <Paper variant="outlined" sx={{ p: 1.5 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No comments stored yet.
+                      </Typography>
+                    </Paper>
+                  )}
+                </Stack>
+              </Box>
+            </Stack>
+          ) : (
+            <Skeleton height={320} />
+          )}
+        </Box>
+      </Drawer>
 
       {/* toasts */}
       <Snackbar

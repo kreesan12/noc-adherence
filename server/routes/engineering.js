@@ -2,9 +2,10 @@
 import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
-
-const INITIAL_IMPORT_REASON = 'initial import'
-const INITIAL_OVERRIDE_SOURCE = 'initial-values-ui'
+import {
+  INITIAL_OVERRIDE_SOURCE,
+  loadCircuitMonitoringRows
+} from '../lib/nldCircuitState.js'
 
 function requireEngineering(req, res, next) {
   const role = (req.user?.role || '').toLowerCase()
@@ -17,108 +18,8 @@ const r = Router()
 
 /* ---------- read endpoints (public) ---------------------- */
 r.get('/circuits', async (_, res) => {
-  const circuits = await prisma.circuit.findMany({
-    select: {
-      id: true,
-      circuitId: true,
-      nodeA: true,
-      nodeB: true,
-      techType: true,
-      currentRxSiteA: true,
-      currentRxSiteB: true,
-      updatedAt: true,
-      nldGroup: true,
-
-        nodeALat: true,
-        nodeALon: true,
-        nodeBLat: true,
-        nodeBLon: true,
-
-      // Count of history excluding the initial import (unchanged)
-      _count: {
-        select: {
-          levelHistory: {
-            where: { reason: { not: INITIAL_IMPORT_REASON } }
-          }
-        }
-      },
-
-      // Baseline records: original import plus any UI override to initial values
-      levelHistory: {
-        where: {
-          OR: [
-            { reason: INITIAL_IMPORT_REASON },
-            { source: INITIAL_OVERRIDE_SOURCE }
-          ]
-        },
-        orderBy: { changedAt: 'asc' },
-        select: {
-          rxSiteA: true,
-          rxSiteB: true,
-          changedAt: true,
-          reason: true,
-          source: true,
-        }
-      },
-
-      // NEW: latest light-level event date
-      lightEvents: {
-        select: { eventDate: true },
-        orderBy: { eventDate: 'desc' },
-        take: 1
-      },
-
-      dailyLevels: {
-      select: { sampleTime: true, side: true, rx: true },
-      orderBy: { sampleTime: 'desc' },
-      // fetch enough recent samples so UI can reliably resolve latest per-side values
-      take: 20
-    }
-    },
-    orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }]
-  })
-
-  // Flatten initial import info and compute lastEventAt
-  const shaped = circuits.map(c => {
-    const baselineHistory = Array.isArray(c.levelHistory) ? c.levelHistory : []
-    const initialImport = baselineHistory.find(h => h.reason === INITIAL_IMPORT_REASON) ?? null
-    const initialOverride = [...baselineHistory]
-      .reverse()
-      .find(h => h.source === INITIAL_OVERRIDE_SOURCE) ?? null
-    const effectiveInitial = (initialImport || initialOverride)
-      ? {
-          rxSiteA: initialOverride?.rxSiteA ?? initialImport?.rxSiteA ?? null,
-          rxSiteB: initialOverride?.rxSiteB ?? initialImport?.rxSiteB ?? null,
-          changedAt: initialOverride?.changedAt ?? initialImport?.changedAt ?? null,
-          reason: initialOverride?.reason ?? initialImport?.reason ?? null,
-          source: initialOverride?.source ?? initialImport?.source ?? null,
-        }
-      : null
-    const latestEventAt = c.lightEvents?.[0]?.eventDate ?? null
-
-    // Only show lastEventAt if it is strictly AFTER the initial import
-    let lastEventAt = latestEventAt
-    if (initialImport?.changedAt && latestEventAt) {
-      const initTs = new Date(initialImport.changedAt).getTime()
-      const eventTs = new Date(latestEventAt).getTime()
-      if (!(eventTs > initTs)) lastEventAt = null
-    }
-
-    // Drop the arrays from the payload to keep it clean
-    const { levelHistory, lightEvents, ...rest } = c
-
-    return {
-      ...rest,
-      initRxSiteA: effectiveInitial?.rxSiteA ?? null,
-      initRxSiteB: effectiveInitial?.rxSiteB ?? null,
-      initial: effectiveInitial,
-      initialImport,
-      initialOverride,
-      lastEventAt             // Date | null
-    }
-  })
-
-  res.json(shaped)
+  const rows = await loadCircuitMonitoringRows(prisma)
+  res.json(rows)
 })
 
 

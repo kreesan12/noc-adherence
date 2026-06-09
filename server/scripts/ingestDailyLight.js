@@ -12,6 +12,8 @@ import timezone from 'dayjs/plugin/timezone.js'
 import path from 'path'
 import fs from 'fs/promises'
 import pg from 'pg'
+import prisma from '../lib/prisma.js'
+import { syncStagedZendeskTickets } from '../lib/nldTicketStaging.js'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -397,6 +399,18 @@ async function run() {
         parsed_code     = EXCLUDED.parsed_code,
         source_email_id = EXCLUDED.source_email_id
     `
+    const blankIssueUpsertSql = `
+      INSERT INTO public.blank_daily_light_issue
+        (circuit_id, side, raw_rx, mnemonic, router_name, parsed_code, source_email_id, sample_time)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT (circuit_id, side, sample_time, mnemonic)
+      DO UPDATE SET
+        raw_rx          = EXCLUDED.raw_rx,
+        mnemonic        = EXCLUDED.mnemonic,
+        router_name     = EXCLUDED.router_name,
+        parsed_code     = EXCLUDED.parsed_code,
+        source_email_id = EXCLUDED.source_email_id
+    `
 
     await cx.query('BEGIN')
 
@@ -412,11 +426,15 @@ async function run() {
       const router = r[ROUTER] ?? ''
       const rawRx = r[OPR]
       const rx = rawRx === '' || rawRx == null ? null : Number(rawRx)
-      if (rx == null || Number.isNaN(rx)) { skippedBlank++; continue }
+      const isBlankRx = rx == null || Number.isNaN(rx)
 
       // Extract ALL plausible codes from the mnemonic (supports 027 / DFA / DFX / FRG)
       const rowCodes = extractCodesFromText(mnemonic)
-      if (!rowCodes.length) { skippedNoCode++; continue }
+      if (!rowCodes.length) {
+        if (isBlankRx) skippedBlank++
+        else skippedNoCode++
+        continue
+      }
 
       // Find first code that maps to a circuit
       let circuit = null, matchedCode = null
@@ -424,7 +442,27 @@ async function run() {
         const c = byIdOrCode.get(code) || byIdOrCode.get(String(code).toUpperCase())
         if (c) { circuit = c; matchedCode = code; break }
       }
-      if (!circuit) { skippedNoCircuit++; continue }
+      if (!circuit) {
+        if (isBlankRx) skippedBlank++
+        else skippedNoCircuit++
+        continue
+      }
+
+      if (isBlankRx) {
+        const blankSide = decideSide(circuit.node_a, circuit.node_b, mnemonic, router) || 'UNKNOWN'
+        await cx.query(blankIssueUpsertSql, [
+          circuit.id,
+          blankSide,
+          rawRx == null ? null : String(rawRx),
+          mnemonic,
+          router,
+          matchedCode,
+          emailId,
+          sampleTime
+        ])
+        skippedBlank++
+        continue
+      }
 
       const side = decideSide(circuit.node_a, circuit.node_b, mnemonic, router)
       if (!side) {
@@ -462,6 +500,16 @@ async function run() {
     await cx.query('COMMIT')
     console.log(`Upserted ${inserted} rows from ${filename}.`)
     console.log(`Skipped: blank_rx=${skippedBlank}, no_code=${skippedNoCode}, no_circuit=${skippedNoCircuit}, ambiguous_side=${skippedAmbiguous}`)
+
+    try {
+      const ticketSummary = await syncStagedZendeskTickets(prisma)
+      console.log(
+        `Ticket staging synced: created=${ticketSummary.created}, escalated=${ticketSummary.escalated}, ` +
+        `updated=${ticketSummary.updated}, skipped=${ticketSummary.skipped}`
+      )
+    } catch (ticketErr) {
+      console.warn('Ticket staging sync failed after daily light ingest:', ticketErr?.message || ticketErr)
+    }
   } catch (err) {
     await cx.query('ROLLBACK')
     throw err

@@ -36,6 +36,7 @@ import engineeringRoutes from './routes/engineering.js'
 import managersRoutes from './routes/managers.js'
 import nldsRoutes from './routes/nlds.js'
 import nldServices from './routes/nldServices.js'
+import nldMonitoringRoutes from './routes/nldMonitoring.js'
 import nodes from './routes/nodes.js'
 import rocAppointmentsRoutes from './routes/rocAppointments.js'
 import techAppointmentsRoutes from './routes/techAppointments.js'
@@ -202,6 +203,7 @@ app.use(
 )
 
 app.use('/api', nldServices)
+app.use('/api', nldMonitoringRoutes)
 app.use('/api', nodes)
 app.use('/api/engineering', engineeringRoutes)
 app.use('/api/sla-reporting', slaReportingRoutes)

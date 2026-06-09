@@ -258,6 +258,8 @@ model Circuit {
   levelHistory CircuitLevelHistory[]
   lightEvents  LightLevelEvent[]
   dailyLevels  DailyLightLevel[]
+  blankRxIssues BlankDailyLightIssue[]
+  stagedTicket  StagedZendeskTicket?
 }
 
 model Node {
@@ -316,6 +318,67 @@ model DailyLightLevel {
   @@unique([circuitId, side, sampleTime], map: "uq_daily_circuit_side_time")
   @@index([parsedCode])
   @@map("daily_light_level")
+}
+
+model BlankDailyLightIssue {
+  id            Int      @id @default(autoincrement())
+  circuit       Circuit  @relation(fields: [circuitId], references: [id])
+  circuitId     Int      @map("circuit_id")
+  side          String   @default("UNKNOWN")
+  rawRx         String?  @map("raw_rx")
+  mnemonic      String?
+  routerName    String?  @map("router_name")
+  parsedCode    String?  @map("parsed_code")
+  sourceEmailId String?  @map("source_email_id")
+  sampleTime    DateTime @map("sample_time")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([circuitId, side, sampleTime, mnemonic], map: "uq_blank_daily_light_issue")
+  @@index([sampleTime], map: "idx_blank_daily_light_issue_sample_time")
+  @@index([parsedCode], map: "idx_blank_daily_light_issue_parsed_code")
+  @@map("blank_daily_light_issue")
+}
+
+model StagedZendeskTicket {
+  id                Int                          @id @default(autoincrement())
+  reference         String                       @unique
+  circuit           Circuit                      @relation(fields: [circuitId], references: [id])
+  circuitId         Int                          @unique @map("circuit_id")
+  subject           String
+  latestCommentBody String?                      @map("latest_comment_body")
+  priority          String
+  status            String                       @default("OPEN")
+  groupName         String                       @default("NOC Tier3") @map("group_name")
+  ticketType        String                       @default("task") @map("ticket_type")
+  tags              String[]                     @default([])
+  breachSide        String?                      @map("breach_side")
+  breachLevel       Int                          @default(1) @map("breach_level")
+  initialLightLevel Float?                       @map("initial_light_level")
+  latestLightLevel  Float?                       @map("latest_light_level")
+  deltaLightLevel   Float?                       @map("delta_light_level")
+  dateCreated       DateTime                     @default(now()) @map("date_created")
+  openedAt          DateTime?                    @map("opened_at")
+  escalatedAt       DateTime?                    @map("escalated_at")
+  lastEvaluatedAt   DateTime                     @default(now()) @map("last_evaluated_at")
+  updatedAt         DateTime                     @updatedAt @map("updated_at")
+  comments          StagedZendeskTicketComment[]
+
+  @@index([priority], map: "idx_staged_zendesk_ticket_priority")
+  @@index([status], map: "idx_staged_zendesk_ticket_status")
+  @@map("staged_zendesk_ticket")
+}
+
+model StagedZendeskTicketComment {
+  id        Int                 @id @default(autoincrement())
+  ticket    StagedZendeskTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  Int                 @map("ticket_id")
+  body      String
+  isPublic  Boolean             @default(true) @map("is_public")
+  eventKind String?             @map("event_kind")
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  @@index([ticketId, createdAt], map: "idx_staged_zendesk_ticket_comment_ticket_created")
+  @@map("staged_zendesk_ticket_comment")
 }
 
 // NEW ENUM
@@ -655,4 +718,3 @@ enum AppointmentStatus {
 
   @@map("AppointmentStatus")
 }
-
