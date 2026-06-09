@@ -913,7 +913,7 @@ export default function NldServicesPage() {
             <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
               <Card
                 title="Blank RX Monitor"
-                subtitle="Daily ingested rows where RX was blank but the circuit could still be identified."
+                subtitle="Daily ingested rows where RX was blank, including unresolved rows that still need circuit cleanup."
                 right={<Chip label={`${blankRxRows.length}${blankRxRows.length !== blankRxTotal ? ` / ${blankRxTotal}` : ''} rows`} size="small" />}
                 sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
               >
@@ -969,10 +969,10 @@ export default function NldServicesPage() {
                       {blankRxRows.map((row) => (
                         <TableRow key={row.id} hover>
                           <TableCell>{fmtDateTime(row.sampleTime)}</TableCell>
-                          <TableCell>{row.circuit?.circuitId || 'Unknown'}</TableCell>
-                          <TableCell>{row.circuit?.nldGroup || 'Unassigned'}</TableCell>
+                          <TableCell>{row.circuit?.circuitId || row.parsedCode || 'Unresolved'}</TableCell>
+                          <TableCell>{row.circuit?.nldGroup || 'Unresolved'}</TableCell>
                           <TableCell sx={{ whiteSpace: 'normal', minWidth: 240 }}>
-                            {row.circuit ? `${row.circuit.nodeA} -> ${row.circuit.nodeB}` : 'N/A'}
+                            {row.circuit ? `${row.circuit.nodeA} -> ${row.circuit.nodeB}` : 'Awaiting circuit match'}
                           </TableCell>
                           <TableCell>{row.side || 'UNKNOWN'}</TableCell>
                           <TableCell>{row.parsedCode || 'N/A'}</TableCell>

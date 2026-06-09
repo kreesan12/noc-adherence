@@ -403,8 +403,10 @@ async function run() {
       INSERT INTO public.blank_daily_light_issue
         (circuit_id, side, raw_rx, mnemonic, router_name, parsed_code, source_email_id, sample_time)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      ON CONFLICT (circuit_id, side, sample_time, mnemonic)
+      ON CONFLICT (sample_time, mnemonic, router_name)
       DO UPDATE SET
+        circuit_id       = EXCLUDED.circuit_id,
+        side             = EXCLUDED.side,
         raw_rx          = EXCLUDED.raw_rx,
         mnemonic        = EXCLUDED.mnemonic,
         router_name     = EXCLUDED.router_name,
@@ -431,8 +433,19 @@ async function run() {
       // Extract ALL plausible codes from the mnemonic (supports 027 / DFA / DFX / FRG)
       const rowCodes = extractCodesFromText(mnemonic)
       if (!rowCodes.length) {
-        if (isBlankRx) skippedBlank++
-        else skippedNoCode++
+        if (isBlankRx) {
+          await cx.query(blankIssueUpsertSql, [
+            null,
+            'UNKNOWN',
+            rawRx == null ? null : String(rawRx),
+            mnemonic,
+            router,
+            null,
+            emailId,
+            sampleTime
+          ])
+          skippedBlank++
+        } else skippedNoCode++
         continue
       }
 
@@ -443,8 +456,19 @@ async function run() {
         if (c) { circuit = c; matchedCode = code; break }
       }
       if (!circuit) {
-        if (isBlankRx) skippedBlank++
-        else skippedNoCircuit++
+        if (isBlankRx) {
+          await cx.query(blankIssueUpsertSql, [
+            null,
+            'UNKNOWN',
+            rawRx == null ? null : String(rawRx),
+            mnemonic,
+            router,
+            rowCodes[0] || null,
+            emailId,
+            sampleTime
+          ])
+          skippedBlank++
+        } else skippedNoCircuit++
         continue
       }
 
