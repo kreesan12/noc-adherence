@@ -1,6 +1,5 @@
 import { Router } from 'express'
-import { PrismaClient } from '@prisma/client'
-const prisma = new PrismaClient()
+import prisma from '../lib/prisma.js'
 const r = Router()
 
 // GET /nodes.json?q=isa

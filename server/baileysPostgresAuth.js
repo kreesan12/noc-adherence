@@ -6,7 +6,11 @@ const { Pool } = pkg
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  application_name: 'whatsapp-auth',
+  max: Number(process.env.WHATSAPP_DB_POOL_MAX || 1),
+  idleTimeoutMillis: Number(process.env.WHATSAPP_DB_IDLE_TIMEOUT_MS || 10000),
+  connectionTimeoutMillis: Number(process.env.WHATSAPP_DB_CONNECT_TIMEOUT_MS || 10000)
 })
 
 const TABLE = 'public.whatsapp_auth'
