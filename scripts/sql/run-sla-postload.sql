@@ -104,7 +104,7 @@ SELECT
   t1.*,
   CASE
     WHEN t1."Category" = 'Service impacting'
-      THEN COALESCE(t1.impact_stop_time, t1.created_date) - t1.created_date
+      THEN GREATEST(COALESCE(t1.impact_stop_time, t1.created_date) - t1.created_date, interval '0 second')
     ELSE interval '0 second'
   END AS sla_duration,
   CASE
@@ -148,15 +148,12 @@ WITH vars AS (
     :'month_end'::timestamp AS month_end,
     :'month_key'::text AS month_key
 ),
-active_ranges AS (
+active_bounds AS (
   SELECT
     s.frogfootlinklabel,
     COALESCE(NULLIF(s.isp, ''), 'Unknown') AS isp,
-    tsrange(
-      GREATEST(s.livedate::timestamp, v.month_start),
-      LEAST(COALESCE(s.canceldate::timestamp, v.month_end), v.month_end),
-      '[)'
-    ) AS active_r
+    GREATEST(s.livedate::timestamp, v.month_start) AS range_start,
+    LEAST(COALESCE(s.canceldate::timestamp, v.month_end), v.month_end) AS range_end
   FROM public.solidbase s
   CROSS JOIN vars v
   WHERE s.frogfootlinklabel IS NOT NULL
@@ -164,13 +161,20 @@ active_ranges AS (
     AND s.livedate::timestamp < v.month_end
     AND (s.canceldate IS NULL OR s.canceldate::timestamp > v.month_start)
 ),
+active_ranges AS (
+  SELECT
+    frogfootlinklabel,
+    isp,
+    tsrange(range_start, range_end, '[)') AS active_r
+  FROM active_bounds
+  WHERE range_end > range_start
+),
 active_mr AS (
   SELECT
     frogfootlinklabel,
     MAX(isp) AS isp,
     range_agg(active_r) AS active_mr
   FROM active_ranges
-  WHERE upper(active_r) > lower(active_r)
   GROUP BY frogfootlinklabel
 ),
 active_seconds AS (
@@ -186,14 +190,11 @@ active_seconds AS (
     )::numeric AS active_seconds
   FROM active_mr a
 ),
-outage_ranges_raw AS (
+outage_bounds AS (
   SELECT
     os.frogfootlinklabel,
-    tsrange(
-      GREATEST(o.impact_start, v.month_start),
-      LEAST(o.impact_stop, v.month_end),
-      '[)'
-    ) AS outage_r
+    GREATEST(o.impact_start, v.month_start) AS range_start,
+    LEAST(o.impact_stop, v.month_end) AS range_end
   FROM public.outage_resolvers os
   JOIN public.outages_outage o
     ON o.outage_ref = os.outageref
@@ -204,12 +205,18 @@ outage_ranges_raw AS (
     AND o.impact_start < v.month_end
     AND o.impact_stop > v.month_start
 ),
+outage_ranges_raw AS (
+  SELECT
+    frogfootlinklabel,
+    tsrange(range_start, range_end, '[)') AS outage_r
+  FROM outage_bounds
+  WHERE range_end > range_start
+),
 outage_mr AS (
   SELECT
     frogfootlinklabel,
     range_agg(outage_r) AS outage_mr
   FROM outage_ranges_raw
-  WHERE upper(outage_r) > lower(outage_r)
   GROUP BY frogfootlinklabel
 ),
 outage_seconds AS (
@@ -224,14 +231,11 @@ outage_seconds AS (
     )::numeric AS outage_seconds
   FROM outage_mr o
 ),
-ticket_ranges AS (
+ticket_bounds AS (
   SELECT
     t.frg AS frogfootlinklabel,
-    tsrange(
-      GREATEST(t.created_date, v.month_start),
-      LEAST(COALESCE(t.impact_stop_time, t.created_date), v.month_end),
-      '[)'
-    ) AS ticket_r
+    GREATEST(t.created_date, v.month_start) AS range_start,
+    LEAST(COALESCE(t.impact_stop_time, t.created_date), v.month_end) AS range_end
   FROM public.tickets_output t
   CROSS JOIN vars v
   WHERE t.frg IS NOT NULL
@@ -240,10 +244,16 @@ ticket_ranges AS (
     AND t.created_date < v.month_end
     AND COALESCE(t.impact_stop_time, t.created_date) > v.month_start
 ),
+ticket_ranges AS (
+  SELECT
+    frogfootlinklabel,
+    tsrange(range_start, range_end, '[)') AS ticket_r
+  FROM ticket_bounds
+  WHERE range_end > range_start
+),
 ticket_ranges_clean AS (
   SELECT *
   FROM ticket_ranges
-  WHERE upper(ticket_r) > lower(ticket_r)
 ),
 ticket_seconds AS (
   SELECT
@@ -482,4 +492,3 @@ FROM ranked_links rl
 ORDER BY rl.priority_rank;
 
 \echo [INFO] SLA pipeline completed for month :month_key
-
