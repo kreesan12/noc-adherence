@@ -3,6 +3,91 @@
 \echo [INFO] Starting post-load SLA pipeline for month :month_key
 \echo [INFO] Month window: :month_start to :month_end (exclusive)
 
+ALTER TABLE public.zendesktickets
+  ADD COLUMN IF NOT EXISTS producttype character varying(255),
+  ADD COLUMN IF NOT EXISTS siteaccesstimes character varying(255);
+
+ALTER TABLE public.tickets_output
+  ADD COLUMN IF NOT EXISTS product_type text,
+  ADD COLUMN IF NOT EXISTS site_access_times text,
+  ADD COLUMN IF NOT EXISTS site_access_schedule text,
+  ADD COLUMN IF NOT EXISTS raw_downtime interval,
+  ADD COLUMN IF NOT EXISTS excluded_site_access_duration interval,
+  ADD COLUMN IF NOT EXISTS final_ticket_downtime interval;
+
+CREATE OR REPLACE FUNCTION public.normalize_site_access_schedule(site_access_text text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+    WHEN BTRIM(REPLACE(COALESCE(site_access_text, ''), CHR(160), ' ')) = '' THEN NULL
+    WHEN UPPER(BTRIM(REPLACE(site_access_text, CHR(160), ' '))) LIKE '24 HOURS%; 7 DAYS A WEEK%' THEN '24x7'
+    WHEN UPPER(BTRIM(REPLACE(site_access_text, CHR(160), ' '))) LIKE '8AM TO 5PM; MONDAY - FRIDAY%' THEN 'Mon-Fri 08:00-17:00'
+    ELSE BTRIM(REPLACE(site_access_text, CHR(160), ' '))
+  END
+$$;
+
+CREATE OR REPLACE FUNCTION public.ticket_access_multirange(
+  ticket_start timestamp,
+  ticket_stop timestamp,
+  site_access_text text
+)
+RETURNS tsmultirange
+LANGUAGE sql
+IMMUTABLE
+AS $$
+WITH bounds AS (
+  SELECT
+    ticket_start AS start_ts,
+    GREATEST(COALESCE(ticket_stop, ticket_start), ticket_start) AS stop_ts,
+    public.normalize_site_access_schedule(site_access_text) AS schedule
+),
+days AS (
+  SELECT
+    generate_series(date_trunc('day', start_ts), date_trunc('day', stop_ts), interval '1 day') AS day_start,
+    start_ts,
+    stop_ts
+  FROM bounds
+)
+SELECT CASE
+  WHEN start_ts IS NULL THEN '{}'::tsmultirange
+  WHEN stop_ts <= start_ts THEN '{}'::tsmultirange
+  WHEN schedule IS NULL OR schedule = '24x7' THEN tsmultirange(tsrange(start_ts, stop_ts, '[)'))
+  WHEN schedule = 'Mon-Fri 08:00-17:00' THEN COALESCE(
+    (
+      SELECT range_agg(
+        tsrange(
+          GREATEST(start_ts, day_start + interval '8 hour'),
+          LEAST(stop_ts, day_start + interval '17 hour'),
+          '[)'
+        )
+      )
+      FROM days
+      WHERE EXTRACT(ISODOW FROM day_start) BETWEEN 1 AND 5
+        AND LEAST(stop_ts, day_start + interval '17 hour') > GREATEST(start_ts, day_start + interval '8 hour')
+    ),
+    '{}'::tsmultirange
+  )
+  ELSE tsmultirange(tsrange(start_ts, stop_ts, '[)'))
+END
+FROM bounds
+$$;
+
+CREATE OR REPLACE FUNCTION public.multirange_seconds(ranges tsmultirange)
+RETURNS numeric
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT COALESCE(
+    (
+      SELECT SUM(EXTRACT(EPOCH FROM (upper(r) - lower(r))))
+      FROM unnest(COALESCE(ranges, '{}'::tsmultirange)) AS r
+    ),
+    0
+  )::numeric
+$$;
+
 /* -------------------------------------------------------------------------- */
 /* Step 1: Add outage duration + year_month for new outage refs only          */
 /* -------------------------------------------------------------------------- */
@@ -21,9 +106,28 @@ WHERE o.outage_ref IS NOT NULL
   );
 
 /* -------------------------------------------------------------------------- */
-/* Step 2: Clean ticket output and insert only unseen ticket IDs              */
+/* Step 2: Rebuild cleaned ticket output for selected month                    */
 /* -------------------------------------------------------------------------- */
-INSERT INTO tickets_output
+DELETE FROM tickets_output
+WHERE year_month = :'month_key';
+
+INSERT INTO tickets_output (
+  frg,
+  ticket_id,
+  created_date,
+  impact_stop_time,
+  year_month,
+  durations,
+  "Category",
+  sla_duration,
+  sla_exclusion_reason,
+  product_type,
+  site_access_times,
+  site_access_schedule,
+  raw_downtime,
+  excluded_site_access_duration,
+  final_ticket_downtime
+)
 WITH vars AS (
   SELECT :'month_start'::timestamp AS running_month_start
 ),
@@ -72,17 +176,33 @@ accuratestoptime AS (
   FROM ticketcleanbase
   WHERE indicator1 = 1
 ),
+solidbase_dim AS (
+  SELECT
+    s.frogfootlinklabel,
+    MAX(NULLIF(BTRIM(REPLACE(s.producttype, CHR(160), ' ')), '')) AS product_type
+  FROM public.solidbase s
+  WHERE s.frogfootlinklabel IS NOT NULL
+  GROUP BY s.frogfootlinklabel
+),
 ticket_output1 AS (
   SELECT
     z.frglinklabel AS frg,
     z.ticketid AS ticket_id,
     z.ticketcreated AS created_date,
     ast.confirmedstoptime AS impact_stop_time,
+    COALESCE(
+      NULLIF(BTRIM(REPLACE(z.producttype, CHR(160), ' ')), ''),
+      sd.product_type
+    ) AS product_type,
+    NULLIF(BTRIM(REPLACE(z.siteaccesstimes, CHR(160), ' ')), '') AS site_access_times,
     CASE
       WHEN ast.confirmedstoptime IS NOT NULL THEN TO_CHAR(ast.confirmedstoptime, 'YYYY-MM')
       ELSE TO_CHAR(z.ticketcreated, 'YYYY-MM')
     END AS year_month,
-    ast.confirmedstoptime - z.ticketcreated AS durations,
+    CASE
+      WHEN z.ticketcreated IS NULL THEN interval '0 second'
+      ELSE GREATEST(COALESCE(ast.confirmedstoptime, z.ticketcreated) - z.ticketcreated, interval '0 second')
+    END AS raw_downtime,
     CASE
       WHEN z.partyatfault = 'Client' THEN 'Client fault'
       WHEN LENGTH(z.ticketproblemid) >= 6 THEN CONCAT('linked to outage ', oz.outage_ref)
@@ -97,32 +217,62 @@ ticket_output1 AS (
     ON oz.ffticket = z.ticketproblemid
   LEFT JOIN accuratestoptime ast
     ON ast.ticketid = z.ticketid
+  LEFT JOIN solidbase_dim sd
+    ON sd.frogfootlinklabel = z.frglinklabel
   CROSS JOIN vars
   WHERE z.stoptime >= vars.running_month_start
+),
+ticket_output2 AS (
+  SELECT
+    t1.*,
+    public.normalize_site_access_schedule(t1.site_access_times) AS site_access_schedule,
+    CASE
+      WHEN t1."Category" = 'Service impacting' THEN
+        (public.multirange_seconds(
+          public.ticket_access_multirange(
+            t1.created_date,
+            t1.impact_stop_time,
+            t1.site_access_times
+          )
+        ) * interval '1 second')
+      ELSE interval '0 second'
+    END AS final_ticket_downtime
+  FROM ticket_output1 t1
 )
 SELECT
-  t1.*,
+  t2.frg,
+  t2.ticket_id,
+  t2.created_date,
+  t2.impact_stop_time,
+  t2.year_month,
+  t2.raw_downtime AS durations,
+  t2."Category",
   CASE
-    WHEN t1."Category" = 'Service impacting'
-      THEN GREATEST(COALESCE(t1.impact_stop_time, t1.created_date) - t1.created_date, interval '0 second')
+    WHEN t2."Category" = 'Service impacting'
+      THEN t2.final_ticket_downtime
     ELSE interval '0 second'
   END AS sla_duration,
   CASE
-    WHEN t1."Category" = 'Service impacting' THEN ''
-    WHEN t1."Category" = 'Client fault' THEN 'Fault attributed to client'
-    WHEN t1."Category" = 'Non service impacting' THEN 'Ticket resolved as no link impact or no layer 2 fault found'
-    WHEN t1."Category" LIKE '%linked to outage%' THEN 'Downtime allocated under outage ticket'
-    WHEN t1."Category" = 'Duplicate ticket' THEN 'Duplicate ticket logged by ISP'
-    WHEN t1."Category" = 'Severity 3 or RFI' THEN 'Ticket logged as Severity 3 or Request for information i.e. not an active fault'
+    WHEN t2."Category" = 'Service impacting'
+      AND GREATEST(t2.raw_downtime - t2.final_ticket_downtime, interval '0 second') > interval '0 second'
+      THEN 'Outside site access hours excluded from SLA downtime'
+    WHEN t2."Category" = 'Service impacting' THEN ''
+    WHEN t2."Category" = 'Client fault' THEN 'Fault attributed to client'
+    WHEN t2."Category" = 'Non service impacting' THEN 'Ticket resolved as no link impact or no layer 2 fault found'
+    WHEN t2."Category" LIKE '%linked to outage%' THEN 'Downtime allocated under outage ticket'
+    WHEN t2."Category" = 'Duplicate ticket' THEN 'Duplicate ticket logged by ISP'
+    WHEN t2."Category" = 'Severity 3 or RFI' THEN 'Ticket logged as Severity 3 or Request for information i.e. not an active fault'
     ELSE ''
-  END AS sla_exclusion_reason
-FROM ticket_output1 t1
-WHERE t1.ticket_id IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1
-    FROM tickets_output x
-    WHERE x.ticket_id = t1.ticket_id
-  );
+  END AS sla_exclusion_reason,
+  t2.product_type,
+  t2.site_access_times,
+  t2.site_access_schedule,
+  t2.raw_downtime,
+  GREATEST(t2.raw_downtime - t2.final_ticket_downtime, interval '0 second') AS excluded_site_access_duration,
+  t2.final_ticket_downtime
+FROM ticket_output2 t2
+WHERE t2.ticket_id IS NOT NULL
+  AND t2.year_month = :'month_key';
 
 /* -------------------------------------------------------------------------- */
 /* Step 3: Rebuild servicelevels for selected month only                      */
@@ -235,7 +385,8 @@ ticket_bounds AS (
   SELECT
     t.frg AS frogfootlinklabel,
     GREATEST(t.created_date, v.month_start) AS range_start,
-    LEAST(COALESCE(t.impact_stop_time, t.created_date), v.month_end) AS range_end
+    LEAST(COALESCE(t.impact_stop_time, t.created_date), v.month_end) AS range_end,
+    t.site_access_times
   FROM public.tickets_output t
   CROSS JOIN vars v
   WHERE t.frg IS NOT NULL
@@ -247,35 +398,25 @@ ticket_bounds AS (
 ticket_ranges AS (
   SELECT
     frogfootlinklabel,
-    tsrange(range_start, range_end, '[)') AS ticket_r
+    public.ticket_access_multirange(range_start, range_end, site_access_times) AS ticket_mr
   FROM ticket_bounds
   WHERE range_end > range_start
-),
-ticket_ranges_clean AS (
-  SELECT *
-  FROM ticket_ranges
 ),
 ticket_seconds AS (
   SELECT
     tr.frogfootlinklabel,
     COALESCE(
       SUM(
-        COALESCE(
-          (
-            SELECT SUM(EXTRACT(EPOCH FROM (upper(r) - lower(r))))
-            FROM unnest(
-              CASE
-                WHEN om.outage_mr IS NULL THEN tsmultirange(tr.ticket_r)
-                ELSE (tsmultirange(tr.ticket_r) - om.outage_mr)
-              END
-            ) AS r
-          ),
-          0
+        public.multirange_seconds(
+          CASE
+            WHEN om.outage_mr IS NULL THEN tr.ticket_mr
+            ELSE (tr.ticket_mr - om.outage_mr)
+          END
         )
       ),
       0
     )::numeric AS ticket_seconds
-  FROM ticket_ranges_clean tr
+  FROM ticket_ranges tr
   LEFT JOIN outage_mr om
     ON om.frogfootlinklabel = tr.frogfootlinklabel
   GROUP BY tr.frogfootlinklabel

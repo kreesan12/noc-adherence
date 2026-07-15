@@ -490,7 +490,13 @@ r.get('/link/:frg/details', verifyToken, async (req, res) => {
         impact_stop_time,
         year_month,
         "Category" AS category,
-        sla_exclusion_reason
+        sla_exclusion_reason,
+        product_type,
+        site_access_times,
+        site_access_schedule,
+        raw_downtime,
+        excluded_site_access_duration,
+        final_ticket_downtime
       FROM public.tickets_output
       WHERE frg = $1
         AND created_date < $2::timestamp
