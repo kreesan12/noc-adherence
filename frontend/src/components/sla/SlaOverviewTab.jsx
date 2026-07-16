@@ -14,6 +14,7 @@ import {
   ComposedChart,
   Legend,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -22,6 +23,37 @@ import {
 
 const SLA_TARGET = 99.5
 const PRODUCT_ORDER = ['FTTB', 'FTTH', 'FTTC']
+const PRODUCT_COLORS = {
+  FTTB: '#0f766e',
+  FTTH: '#2563eb',
+  FTTC: '#7c3aed'
+}
+
+function hasNumericValue(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+}
+
+function compactLabel(value, limit = 24) {
+  const text = String(value || '').trim()
+  if (!text) return 'Unknown'
+  if (text.length <= limit) return text
+  return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`
+}
+
+function buildPercentDomain(rows, keys, floor = 98) {
+  const values = []
+  for (const row of rows || []) {
+    for (const key of keys || []) {
+      if (hasNumericValue(row?.[key])) values.push(Number(row[key]))
+    }
+  }
+  if (!values.length) return [floor, 100]
+  const min = Math.min(SLA_TARGET, ...values)
+  const max = Math.max(SLA_TARGET, ...values)
+  const lower = Math.max(floor, Math.floor((min - 0.25) * 10) / 10)
+  const upper = Math.min(100, Math.ceil((max + 0.15) * 10) / 10)
+  return [lower, upper > lower ? upper : Math.min(100, lower + 0.5)]
+}
 
 function formatChange(value, digits = 2) {
   const n = Number(value || 0)
@@ -150,18 +182,23 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
   )
 }
 
-function SectionCard({ title, subtitle, children, minHeight = 280 }) {
+function SectionCard({ title, subtitle, children, minHeight = 280, action = null, bodySx = {} }) {
   return (
-    <Paper elevation={0} sx={{ p: 1.25, border: '1px solid #e5e7eb', height: '100%', minWidth: 0, overflow: 'hidden' }}>
-      <Typography variant="subtitle2" fontWeight={800}>
-        {title}
-      </Typography>
-      {subtitle ? (
-        <Typography variant="body2" sx={{ opacity: 0.7, mb: 1, fontSize: 12.5 }}>
-          {subtitle}
-        </Typography>
-      ) : null}
-      <Box sx={{ minHeight }}>{children}</Box>
+    <Paper elevation={0} sx={{ p: 1.25, border: '1px solid #e5e7eb', minWidth: 0, overflow: 'hidden' }}>
+      <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0, mb: 1 }}>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="subtitle2" fontWeight={800}>
+            {title}
+          </Typography>
+          {subtitle ? (
+            <Typography variant="body2" sx={{ opacity: 0.7, fontSize: 12.5 }}>
+              {subtitle}
+            </Typography>
+          ) : null}
+        </Box>
+        {action ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
+      </Stack>
+      <Box sx={{ minHeight, ...bodySx }}>{children}</Box>
     </Paper>
   )
 }
@@ -211,12 +248,15 @@ export default function SlaOverviewTab({
   const cards = overview?.cards || {}
   const allMonths = overview?.months || []
   const monthTrend = (overview?.monthTrend || []).slice(-6)
+  const productMonthTrend = (overview?.productMonthTrend || []).slice(-6)
   const latestMonth = monthTrend[monthTrend.length - 1] || null
   const previousMonth = monthTrend[monthTrend.length - 2] || null
   const monthsInView = allMonths.length
   const rangeLabel = overview?.from && overview?.to
     ? `${overview.from} to ${overview.to}`
     : 'No range loaded'
+  const monthlySlaDomain = buildPercentDomain(monthTrend, ['avgUptimePct'], 98)
+  const productSlaDomain = buildPercentDomain(productMonthTrend, PRODUCT_ORDER, 98)
   const productRows = PRODUCT_ORDER.map((label) => {
     const row = (overview?.productPerformance || []).find((entry) => entry.label === label)
     return {
@@ -224,6 +264,20 @@ export default function SlaOverviewTab({
       value: row ? fmtPct(row.avgUptimePct) : 'N/A'
     }
   })
+  const activeProductGroups = PRODUCT_ORDER.filter((label) =>
+    productMonthTrend.some((row) => hasNumericValue(row?.[label]))
+  )
+  const worstIspRows = (overview?.worstIsps || []).slice(0, 6).map((row, index) => ({
+    ...row,
+    rank: index + 1,
+    shortIsp: compactLabel(row.isp, 24)
+  }))
+  const serviceRows = [...(overview?.servicePerformance || [])]
+    .slice(0, 6)
+    .map((row) => ({
+      ...row,
+      shortLabel: compactLabel(row.label, 22)
+    }))
   const ratioAverages = {
     ticket: monthTrend.length
       ? monthTrend.reduce((sum, row) => sum + Number(row.ticketContactRatioPct || 0), 0) / monthTrend.length
@@ -390,24 +444,33 @@ export default function SlaOverviewTab({
             xs: '1fr',
             xl: '1.45fr 1fr'
           },
+          alignItems: 'start',
           minWidth: 0
         }}
       >
         <SectionCard
           title="Monthly Performance Story"
           subtitle="Average SLA with impacted and breaching link counts for the latest six months in range."
+          minHeight={248}
+          action={<Chip size="small" label={`Target ${SLA_TARGET}%`} sx={{ fontWeight: 700 }} />}
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly trend..." />
           ) : monthTrend.length ? (
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={248}>
               <ComposedChart data={monthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="yearMonth" />
-                <YAxis yAxisId="left" domain={[98, 100]} tickFormatter={(value) => `${value}%`} width={52} />
+                <YAxis yAxisId="left" domain={monthlySlaDomain} tickFormatter={(value) => `${value}%`} width={52} />
                 <YAxis yAxisId="right" orientation="right" width={56} />
-                <Tooltip />
+                <Tooltip
+                  formatter={(value, name) => {
+                    if (name === 'Average SLA') return [fmtPct(value), name]
+                    return [fmtCount(value), name]
+                  }}
+                />
                 <Legend />
+                <ReferenceLine yAxisId="left" y={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" name="SLA Target" />
                 <Bar yAxisId="right" dataKey="impactedLinks" fill="#f59e0b" name="Impacted Links" radius={[6, 6, 0, 0]} />
                 <Bar yAxisId="right" dataKey="breachLinks" fill="#dc2626" name="Breaching Links" radius={[6, 6, 0, 0]} />
                 <Line yAxisId="left" type="monotone" dataKey="avgUptimePct" stroke="#0f766e" strokeWidth={3} dot={{ r: 3 }} name="Average SLA" />
@@ -418,74 +481,82 @@ export default function SlaOverviewTab({
           )}
         </SectionCard>
 
-        <SectionCard
-          title="Worst Performing ISPs"
-          subtitle="Average SLA order for the weakest performers in the selected range. Click a row to open that ISP in the explorer."
-        >
-          {focusLoading && !overview.worstIsps?.length ? (
-            <ChartFallback message="Loading ISP watchlist..." />
-          ) : overview.worstIsps?.length ? (
-            <Stack spacing={1} sx={{ minHeight: 280 }}>
-              {overview.worstIsps.map((row, index) => {
-                const fillPct = Math.max(0, Math.min(100, ((Number(row.avgUptimePct || 95) - 95) / 5) * 100))
-                return (
-                  <Paper
-                    key={`${row.isp}-${index}`}
-                    elevation={0}
-                    onClick={() => onSelectIsp?.(row?.isp)}
-                    sx={{
-                      p: 1,
-                      border: '1px solid #e5e7eb',
-                      borderRadius: 2,
-                      cursor: 'pointer',
-                      transition: 'border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease',
-                      '&:hover': {
-                        borderColor: '#0f766e',
-                        boxShadow: '0 8px 18px rgba(15, 118, 110, 0.10)',
-                        transform: 'translateY(-1px)'
-                      }
+        <Box sx={{ display: 'grid', gap: 1.25, minWidth: 0 }}>
+          <SectionCard
+            title="Worst Performing ISPs"
+            subtitle="Top six weakest performers in range. Click a bar to open that ISP in the explorer."
+            minHeight={210}
+            action={<Chip size="small" label={`Top ${worstIspRows.length || 0}`} sx={{ fontWeight: 700 }} />}
+          >
+            {focusLoading && !worstIspRows.length ? (
+              <ChartFallback message="Loading ISP watchlist..." />
+            ) : worstIspRows.length ? (
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart
+                  data={worstIspRows}
+                  layout="vertical"
+                  margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
+                  onClick={(state) => {
+                    const isp = state?.activePayload?.[0]?.payload?.isp
+                    if (isp) onSelectIsp?.(isp)
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                  <XAxis type="number" domain={[95, 100]} tickFormatter={(value) => `${value}%`} />
+                  <YAxis type="category" dataKey="shortIsp" width={120} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    formatter={(value, name) => {
+                      if (name === 'Average SLA') return [fmtPct(value), name]
+                      return [fmtCount(value), name]
                     }}
-                  >
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-                      <Chip size="small" label={`#${index + 1}`} sx={{ fontWeight: 700 }} />
-                      <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0, flex: 1, overflowWrap: 'anywhere' }}>
-                        {row.isp}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        label={fmtPct(row.avgUptimePct)}
-                        color={Number(row.avgUptimePct || 0) < SLA_TARGET ? 'error' : 'success'}
-                        sx={{ fontWeight: 700 }}
-                      />
-                    </Stack>
-                    <Stack direction="row" spacing={1.5} sx={{ mt: 0.85, flexWrap: 'wrap' }}>
-                      <Typography variant="caption" sx={{ opacity: 0.78 }}>
-                        Links {fmtCount(row.linkCount)}
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.78 }}>
-                        Breaches {fmtCount(row.breachLinks)}
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.78 }}>
-                        Worst {fmtPct(row.worstUptimePct)}
-                      </Typography>
-                    </Stack>
-                    <Box sx={{ mt: 1, height: 8, borderRadius: 999, bgcolor: '#fee2e2', overflow: 'hidden' }}>
-                      <Box
-                        sx={{
-                          width: `${fillPct}%`,
-                          height: '100%',
-                          bgcolor: '#dc2626'
-                        }}
-                      />
-                    </Box>
-                  </Paper>
-                )
-              })}
-            </Stack>
-          ) : (
-            <ChartFallback />
-          )}
-        </SectionCard>
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.isp || label}
+                  />
+                  <ReferenceLine x={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" />
+                  <Bar dataKey="avgUptimePct" fill="#dc2626" name="Average SLA" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ChartFallback />
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Service Type Pressure"
+            subtitle="Highest impacted service types in range. Click a bar to filter the dashboard."
+            minHeight={180}
+            action={<Chip size="small" label={`${serviceRows.length || 0} visible`} sx={{ fontWeight: 700 }} />}
+          >
+            {focusLoading && !serviceRows.length ? (
+              <ChartFallback message="Loading service pressure..." />
+            ) : serviceRows.length ? (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart
+                  data={serviceRows}
+                  layout="vertical"
+                  margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
+                  onClick={(state) => {
+                    const service = state?.activePayload?.[0]?.payload?.label
+                    if (service) onSelectServiceType?.(service)
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                  <XAxis type="number" />
+                  <YAxis type="category" dataKey="shortLabel" width={116} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    formatter={(value, name) => {
+                      if (name === 'Impacted Links') return [fmtCount(value), name]
+                      return [fmtPct(value), name]
+                    }}
+                    labelFormatter={(label, payload) => payload?.[0]?.payload?.label || label}
+                  />
+                  <Bar dataKey="impactedLinks" fill="#1d4ed8" name="Impacted Links" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ChartFallback />
+            )}
+          </SectionCard>
+        </Box>
       </Box>
 
       <Box
@@ -496,30 +567,43 @@ export default function SlaOverviewTab({
             xs: '1fr',
             xl: '1fr 1fr'
           },
+          alignItems: 'start',
           minWidth: 0
         }}
       >
         <SectionCard
-          title="Product Group SLA"
-          subtitle="Average SLA by grouped product type."
+          title="Product Group SLA By Month"
+          subtitle="Monthly average SLA by grouped product family across the selected range."
+          minHeight={248}
+          action={<Chip size="small" label={activeProductGroups.join(' / ') || 'No groups'} sx={{ fontWeight: 700 }} />}
         >
-          {focusLoading && !overview.productPerformance?.length ? (
+          {focusLoading && !productMonthTrend.length ? (
             <ChartFallback message="Loading grouped product SLA..." />
-          ) : overview.productPerformance?.length ? (
-            <ResponsiveContainer width="100%" height={255}>
-              <BarChart data={[...overview.productPerformance]} margin={{ left: 0, right: 8 }}>
+          ) : productMonthTrend.length && activeProductGroups.length ? (
+            <ResponsiveContainer width="100%" height={248}>
+              <ComposedChart data={productMonthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="label" />
-                <YAxis domain={[95, 100]} tickFormatter={(value) => `${value}%`} width={50} />
-                <Tooltip />
-                <Legend />
-                <Bar
-                  dataKey="avgUptimePct"
-                  fill="#2563eb"
-                  name="Average SLA"
-                  radius={[6, 6, 0, 0]}
+                <XAxis dataKey="yearMonth" />
+                <YAxis domain={productSlaDomain} tickFormatter={(value) => `${value}%`} width={52} />
+                <Tooltip
+                  formatter={(value, name) => [hasNumericValue(value) ? fmtPct(value) : 'N/A', `${name} SLA`]}
                 />
-              </BarChart>
+                <Legend />
+                <ReferenceLine y={SLA_TARGET} stroke="#dc2626" strokeDasharray="5 4" name="SLA Target" />
+                {activeProductGroups.map((label) => (
+                  <Line
+                    key={label}
+                    type="monotone"
+                    dataKey={label}
+                    stroke={PRODUCT_COLORS[label] || '#334155'}
+                    strokeWidth={3}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                    connectNulls
+                    name={label}
+                  />
+                ))}
+              </ComposedChart>
             </ResponsiveContainer>
           ) : (
             <ChartFallback />
@@ -529,16 +613,18 @@ export default function SlaOverviewTab({
         <SectionCard
           title="Monthly Contact Ratios"
           subtitle="Ticket and outage ratios relative to the active link base for the latest six months in range."
+          minHeight={248}
+          action={<Chip size="small" label={latestMonth?.yearMonth || 'No data'} sx={{ fontWeight: 700 }} />}
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly ratios..." />
           ) : monthTrend.length ? (
-            <ResponsiveContainer width="100%" height={255}>
+            <ResponsiveContainer width="100%" height={248}>
               <ComposedChart data={monthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="yearMonth" />
                 <YAxis tickFormatter={(value) => `${Number(value).toFixed(1)}%`} width={58} />
-                <Tooltip />
+                <Tooltip formatter={(value) => [`${Number(value || 0).toFixed(2)}%`, 'Ratio']} />
                 <Legend />
                 <Line type="monotone" dataKey="ticketContactRatioPct" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 3 }} name="Ticket Contact Ratio" />
                 <Line type="monotone" dataKey="outageImpactRatioPct" stroke="#0f172a" strokeWidth={3} dot={{ r: 3 }} name="Outage Impact Ratio" />

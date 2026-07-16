@@ -249,6 +249,7 @@ export default function SlaReportingPage() {
     monthTrend: [],
     worstIsps: [],
     productPerformance: [],
+    productMonthTrend: [],
     servicePerformance: [],
     from: null,
     to: null
@@ -390,6 +391,7 @@ export default function SlaReportingPage() {
       monthTrend: [],
       worstIsps: [],
       productPerformance: [],
+      productMonthTrend: [],
       servicePerformance: [],
       cards: {
         ...(state.cards || {}),
@@ -412,6 +414,7 @@ export default function SlaReportingPage() {
           monthTrend: [],
           worstIsps: [],
           productPerformance: [],
+          productMonthTrend: [],
           servicePerformance: []
         })
       }))

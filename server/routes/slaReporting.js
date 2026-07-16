@@ -231,7 +231,8 @@ r.get('/overview', verifyToken, async (req, res) => {
       outageRangeRows,
       worstIspRows,
       productRows,
-      serviceRows
+      serviceRows,
+      productMonthRows
     ] = await runSequentially([
       () => prisma.$queryRawUnsafe(
         `
@@ -523,6 +524,43 @@ r.get('/overview', verifyToken, async (req, res) => {
         productGroup,
         productType,
         serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        SELECT
+          k.year_month,
+          COALESCE(k.product_group, 'FTTB') AS label,
+          COALESCE(SUM(k.total_links), 0)::int AS total_links,
+          COALESCE(SUM(k.impacted_links), 0)::int AS impacted_links,
+          COALESCE(
+            ROUND(
+              SUM(COALESCE(k.avg_uptime_pct, 0) * COALESCE(k.total_links, 0))
+              / NULLIF(SUM(COALESCE(k.total_links, 0)), 0),
+              2
+            ),
+            0
+          ) AS avg_uptime_pct
+        FROM public.sla_monthly_kpi k
+        WHERE k.year_month >= $1
+          AND k.year_month <= $2
+          AND ($3::text = '' OR COALESCE(k.product_group, 'FTTB') = $3)
+          AND ($4::text = '' OR COALESCE(k.product_type, 'Unknown') = $4)
+          AND ($5::text = '' OR COALESCE(k.service_type, 'Unknown') = $5)
+        GROUP BY k.year_month, COALESCE(k.product_group, 'FTTB')
+        ORDER BY
+          k.year_month ASC,
+          CASE COALESCE(k.product_group, 'FTTB')
+            WHEN 'FTTB' THEN 1
+            WHEN 'FTTH' THEN 2
+            WHEN 'FTTC' THEN 3
+            ELSE 4
+          END
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
       )
     ])
 
@@ -582,6 +620,30 @@ r.get('/overview', verifyToken, async (req, res) => {
 
     const ticketCount = months.reduce((sum, month) => sum + toNum(monthMap[month]?.ticketCount, 0), 0)
     const serviceImpactingTickets = months.reduce((sum, month) => sum + toNum(monthMap[month]?.serviceImpactingTickets, 0), 0)
+    const productMonthMap = Object.fromEntries(months.map((month) => [month, {
+      yearMonth: month,
+      FTTB: null,
+      FTTH: null,
+      FTTC: null,
+      FTTBLinks: 0,
+      FTTHLinks: 0,
+      FTTCLinks: 0,
+      FTTBImpactedLinks: 0,
+      FTTHImpactedLinks: 0,
+      FTTCImpactedLinks: 0
+    }]))
+
+    for (const row of productMonthRows) {
+      const key = String(row.year_month || '').trim()
+      const label = String(row.label || '').trim()
+      if (!productMonthMap[key] || !label) continue
+      productMonthMap[key] = {
+        ...productMonthMap[key],
+        [label]: toNum(row.avg_uptime_pct, null),
+        [`${label}Links`]: toNum(row.total_links, 0),
+        [`${label}ImpactedLinks`]: toNum(row.impacted_links, 0)
+      }
+    }
 
     return {
       from: fromKey,
@@ -622,6 +684,7 @@ r.get('/overview', verifyToken, async (req, res) => {
         avgUptimePct: toNum(row.avg_uptime_pct, 0),
         worstUptimePct: toNum(row.worst_uptime_pct, 0)
       })),
+      productMonthTrend: months.map((month) => productMonthMap[month]),
       servicePerformance: serviceRows.map((row) => ({
         label: String(row.label || 'Unknown'),
         linkCount: toNum(row.link_count, 0),
