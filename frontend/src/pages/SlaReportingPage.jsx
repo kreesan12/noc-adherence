@@ -415,12 +415,6 @@ export default function SlaReportingPage() {
           servicePerformance: []
         })
       }))
-      if (activeTab === 'overview') {
-        void loadOverviewOptions(params)
-        void loadOverviewOps(params)
-        void loadOverviewTrend(params)
-        void loadOverviewFocus(params)
-      }
     } catch (err) {
       const msg = err?.response?.data?.error || err?.message || 'Failed to load overview'
       setOverviewError(String(msg))
@@ -997,7 +991,7 @@ export default function SlaReportingPage() {
     return {
       watchlist: worstIsp ? {
         badge: worstIsp.isp,
-        message: `${worstIsp.isp} is currently the weakest performer at ${fmtPct(worstIsp.avgUptimePct)} average SLA, with ${fmtCount(worstIsp.breachLinks)} breaching links in range.`,
+        message: `${worstIsp.isp} is currently the weakest performer at ${fmtPct(worstIsp.avgUptimePct)} average SLA, peaking at ${fmtCount(worstIsp.breachLinks)} breaching links in a month across the selected range.`,
         actionLabel: 'Open In Explorer',
         onAction: () => focusIsp(worstIsp.isp)
       } : {
@@ -1007,7 +1001,7 @@ export default function SlaReportingPage() {
       },
       product: hottestProduct ? {
         badge: hottestProduct.label,
-        message: `${hottestProduct.label} carries the heaviest impact concentration with ${fmtCount(hottestProduct.impactedLinks)} impacted links out of ${fmtCount(hottestProduct.linkCount)}.`,
+        message: `${hottestProduct.label} carries the heaviest impact concentration, peaking at ${fmtCount(hottestProduct.impactedLinks)} impacted links against a monthly base of ${fmtCount(hottestProduct.linkCount)}.`,
         actionLabel: 'Filter Group',
         onAction: () => focusProductGroup(hottestProduct.label)
       } : {

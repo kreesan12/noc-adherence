@@ -223,49 +223,369 @@ r.get('/overview', verifyToken, async (req, res) => {
     productType,
     serviceType
   }, async () => {
-    const rows = await prisma.$queryRawUnsafe(
-      `
-      WITH link_rollup AS (
+    const [
+      cardRows,
+      optionRows,
+      monthRows,
+      outageMonthRows,
+      outageRangeRows,
+      worstIspRows,
+      productRows,
+      serviceRows
+    ] = await runSequentially([
+      () => prisma.$queryRawUnsafe(
+        `
+        WITH link_rollup AS (
+          SELECT
+            l.frogfootlinklabel,
+            AVG(COALESCE(l.uptime_pct, 100))::numeric AS avg_uptime_pct,
+            MIN(COALESCE(l.uptime_pct, 100))::numeric AS worst_uptime_pct,
+            SUM(COALESCE(l.impacted, 0))::int AS impacted_months,
+            SUM(COALESCE(l.total_downtime_hours, 0))::numeric AS downtime_hours
+          FROM public.sla_link_monthly_fact l
+          WHERE l.year_month >= $1
+            AND l.year_month <= $2
+            AND ($3::text = '' OR COALESCE(l.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(l.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(l.service_type, 'Unknown') = $5)
+          GROUP BY l.frogfootlinklabel
+        )
         SELECT
-          COALESCE(l.isp, 'Unknown') AS isp,
-          l.frogfootlinklabel,
-          AVG(COALESCE(l.uptime_pct, 100))::numeric AS avg_uptime_pct,
-          MIN(COALESCE(l.uptime_pct, 100))::numeric AS worst_uptime_pct,
-          SUM(COALESCE(l.impacted, 0))::int AS impacted_months,
-          SUM(COALESCE(l.total_downtime_hours, 0))::numeric AS downtime_hours
-        FROM public.sla_link_monthly_fact l
-        WHERE l.year_month >= $1
-          AND l.year_month <= $2
-          AND ($3::text = '' OR COALESCE(l.product_group, 'FTTB') = $3)
-          AND ($4::text = '' OR COALESCE(l.product_type, 'Unknown') = $4)
-          AND ($5::text = '' OR COALESCE(l.service_type, 'Unknown') = $5)
-        GROUP BY 1, 2
+          COUNT(*)::int AS total_links,
+          COALESCE(SUM(CASE WHEN impacted_months > 0 THEN 1 ELSE 0 END), 0)::int AS impacted_links,
+          COALESCE(SUM(CASE WHEN avg_uptime_pct < ${SLA_TARGET} THEN 1 ELSE 0 END), 0)::int AS breach_links,
+          COALESCE(ROUND(AVG(avg_uptime_pct)::numeric, 2), 0) AS avg_uptime_pct,
+          COALESCE(ROUND(MIN(worst_uptime_pct)::numeric, 2), 0) AS worst_uptime_pct,
+          COALESCE(ROUND(SUM(downtime_hours)::numeric, 2), 0) AS total_downtime_hours
+        FROM link_rollup
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        SELECT DISTINCT
+          COALESCE(k.product_group, 'FTTB') AS product_group,
+          COALESCE(k.product_type, 'Unknown') AS product_type,
+          COALESCE(k.service_type, 'Unknown') AS service_type
+        FROM public.sla_monthly_kpi k
+        WHERE k.year_month >= $1
+          AND k.year_month <= $2
+        ORDER BY
+          CASE COALESCE(k.product_group, 'FTTB')
+            WHEN 'FTTB' THEN 1
+            WHEN 'FTTH' THEN 2
+            WHEN 'FTTC' THEN 3
+            ELSE 4
+          END,
+          COALESCE(k.product_type, 'Unknown'),
+          COALESCE(k.service_type, 'Unknown')
+        `,
+        fromKey,
+        toKey
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        SELECT
+          k.year_month,
+          COALESCE(SUM(k.total_links), 0)::int AS total_links,
+          COALESCE(SUM(k.impacted_links), 0)::int AS impacted_links,
+          COALESCE(SUM(k.breach_links), 0)::int AS breach_links,
+          COALESCE(SUM(k.ticket_count), 0)::int AS ticket_count,
+          COALESCE(SUM(k.service_impacting_ticket_count), 0)::int AS service_impacting_tickets,
+          COALESCE(SUM(k.outage_impact_count), 0)::int AS outage_impact_count,
+          COALESCE(SUM(k.unique_outage_link_count), 0)::int AS unique_outage_count,
+          COALESCE(
+            ROUND(
+              SUM(COALESCE(k.avg_uptime_pct, 0) * COALESCE(k.total_links, 0))
+              / NULLIF(SUM(COALESCE(k.total_links, 0)), 0),
+              2
+            ),
+            0
+          ) AS avg_uptime_pct
+        FROM public.sla_monthly_kpi k
+        WHERE k.year_month >= $1
+          AND k.year_month <= $2
+          AND ($3::text = '' OR COALESCE(k.product_group, 'FTTB') = $3)
+          AND ($4::text = '' OR COALESCE(k.product_type, 'Unknown') = $4)
+          AND ($5::text = '' OR COALESCE(k.service_type, 'Unknown') = $5)
+        GROUP BY k.year_month
+        ORDER BY k.year_month
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        WITH outage_rollup AS (
+          SELECT
+            o.year_month,
+            o.outage_ref
+          FROM public.sla_outage_link_monthly_fact o
+          WHERE o.year_month >= $1
+            AND o.year_month <= $2
+            AND ($3::text = '' OR COALESCE(o.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(o.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(o.service_type, 'Unknown') = $5)
+          GROUP BY o.year_month, o.outage_ref
+        )
+        SELECT
+          year_month,
+          COUNT(*)::int AS outage_count
+        FROM outage_rollup
+        GROUP BY year_month
+        ORDER BY year_month
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        WITH outage_rollup AS (
+          SELECT
+            o.outage_ref,
+            MAX(COALESCE(o.client_count, 0))::int AS client_count
+          FROM public.sla_outage_link_monthly_fact o
+          WHERE o.year_month >= $1
+            AND o.year_month <= $2
+            AND ($3::text = '' OR COALESCE(o.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(o.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(o.service_type, 'Unknown') = $5)
+          GROUP BY o.outage_ref
+        )
+        SELECT
+          COUNT(*)::int AS outage_count,
+          COUNT(*) FILTER (WHERE client_count < 20)::int AS minor_outage_count,
+          COUNT(*) FILTER (WHERE client_count >= 20)::int AS major_outage_count
+        FROM outage_rollup
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        WITH monthly_isp AS (
+          SELECT
+            s.isp,
+            s.year_month,
+            COALESCE(SUM(s.link_count), 0)::int AS link_count,
+            COALESCE(SUM(s.breach_links), 0)::int AS breach_links,
+            COALESCE(MIN(s.worst_uptime_pct), 0)::numeric AS worst_uptime_pct,
+            COALESCE(SUM(s.total_downtime_hours), 0)::numeric AS downtime_hours,
+            COALESCE(
+              SUM(COALESCE(s.avg_uptime_pct, 0) * COALESCE(s.link_count, 0))
+              / NULLIF(SUM(COALESCE(s.link_count, 0)), 0),
+              0
+            ) AS avg_uptime_pct
+          FROM public.sla_isp_monthly_summary s
+          WHERE s.year_month >= $1
+            AND s.year_month <= $2
+            AND ($3::text = '' OR COALESCE(s.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(s.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(s.service_type, 'Unknown') = $5)
+          GROUP BY s.isp, s.year_month
+        )
+        SELECT
+          isp,
+          MAX(link_count)::int AS link_count,
+          COALESCE(
+            ROUND(
+              SUM(avg_uptime_pct * link_count)
+              / NULLIF(SUM(link_count), 0),
+              2
+            ),
+            0
+          ) AS avg_uptime_pct,
+          COALESCE(ROUND(MIN(worst_uptime_pct), 2), 0) AS worst_uptime_pct,
+          MAX(breach_links)::int AS breach_links,
+          COALESCE(ROUND(SUM(downtime_hours), 2), 0) AS downtime_hours
+        FROM monthly_isp
+        GROUP BY isp
+        ORDER BY avg_uptime_pct ASC NULLS LAST, downtime_hours DESC, isp ASC
+        LIMIT 8
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        WITH monthly_group AS (
+          SELECT
+            COALESCE(k.product_group, 'FTTB') AS label,
+            k.year_month,
+            COALESCE(SUM(k.total_links), 0)::int AS total_links,
+            COALESCE(SUM(k.impacted_links), 0)::int AS impacted_links,
+            COALESCE(MIN(k.worst_uptime_pct), 0)::numeric AS worst_uptime_pct,
+            COALESCE(
+              SUM(COALESCE(k.avg_uptime_pct, 0) * COALESCE(k.total_links, 0))
+              / NULLIF(SUM(COALESCE(k.total_links, 0)), 0),
+              0
+            ) AS avg_uptime_pct
+          FROM public.sla_monthly_kpi k
+          WHERE k.year_month >= $1
+            AND k.year_month <= $2
+            AND ($3::text = '' OR COALESCE(k.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(k.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(k.service_type, 'Unknown') = $5)
+          GROUP BY COALESCE(k.product_group, 'FTTB'), k.year_month
+        )
+        SELECT
+          label,
+          MAX(total_links)::int AS link_count,
+          MAX(impacted_links)::int AS impacted_links,
+          COALESCE(
+            ROUND(
+              SUM(avg_uptime_pct * total_links)
+              / NULLIF(SUM(total_links), 0),
+              2
+            ),
+            0
+          ) AS avg_uptime_pct,
+          COALESCE(ROUND(MIN(worst_uptime_pct), 2), 0) AS worst_uptime_pct
+        FROM monthly_group
+        GROUP BY label
+        ORDER BY
+          CASE label
+            WHEN 'FTTB' THEN 1
+            WHEN 'FTTH' THEN 2
+            WHEN 'FTTC' THEN 3
+            ELSE 4
+          END,
+          label ASC
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
+      ),
+      () => prisma.$queryRawUnsafe(
+        `
+        WITH monthly_service AS (
+          SELECT
+            COALESCE(k.service_type, 'Unknown') AS label,
+            k.year_month,
+            COALESCE(SUM(k.total_links), 0)::int AS total_links,
+            COALESCE(SUM(k.impacted_links), 0)::int AS impacted_links,
+            COALESCE(MIN(k.worst_uptime_pct), 0)::numeric AS worst_uptime_pct,
+            COALESCE(
+              SUM(COALESCE(k.avg_uptime_pct, 0) * COALESCE(k.total_links, 0))
+              / NULLIF(SUM(COALESCE(k.total_links, 0)), 0),
+              0
+            ) AS avg_uptime_pct
+          FROM public.sla_monthly_kpi k
+          WHERE k.year_month >= $1
+            AND k.year_month <= $2
+            AND ($3::text = '' OR COALESCE(k.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(k.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(k.service_type, 'Unknown') = $5)
+          GROUP BY COALESCE(k.service_type, 'Unknown'), k.year_month
+        )
+        SELECT
+          label,
+          MAX(total_links)::int AS link_count,
+          MAX(impacted_links)::int AS impacted_links,
+          COALESCE(
+            ROUND(
+              SUM(avg_uptime_pct * total_links)
+              / NULLIF(SUM(total_links), 0),
+              2
+            ),
+            0
+          ) AS avg_uptime_pct,
+          COALESCE(ROUND(MIN(worst_uptime_pct), 2), 0) AS worst_uptime_pct
+        FROM monthly_service
+        GROUP BY label
+        ORDER BY impacted_links DESC, link_count DESC, label ASC
+        LIMIT 12
+        `,
+        fromKey,
+        toKey,
+        productGroup,
+        productType,
+        serviceType
       )
-      SELECT
-        COUNT(*)::int AS total_links,
-        COALESCE(SUM(CASE WHEN impacted_months > 0 THEN 1 ELSE 0 END), 0)::int AS impacted_links,
-        COALESCE(SUM(CASE WHEN avg_uptime_pct < ${SLA_TARGET} THEN 1 ELSE 0 END), 0)::int AS breach_links,
-        COALESCE(ROUND(AVG(avg_uptime_pct)::numeric, 2), 0) AS avg_uptime_pct,
-        COALESCE(ROUND(MIN(worst_uptime_pct)::numeric, 2), 0) AS worst_uptime_pct,
-        COALESCE(ROUND(SUM(downtime_hours)::numeric, 2), 0) AS total_downtime_hours
-      FROM link_rollup
-      `,
-      fromKey,
-      toKey,
-      productGroup,
-      productType,
-      serviceType
-    )
+    ])
 
-    const cards = rows?.[0] || {}
+    const cards = cardRows?.[0] || {}
+    const outageSummary = outageRangeRows?.[0] || {}
+    const monthMap = Object.fromEntries(months.map((month) => [month, {
+      yearMonth: month,
+      totalLinks: 0,
+      avgUptimePct: 0,
+      impactedLinks: 0,
+      breachLinks: 0,
+      ticketCount: 0,
+      serviceImpactingTickets: 0,
+      outageCount: 0,
+      outageImpactCount: 0,
+      uniqueOutageCount: 0,
+      ticketContactRatioPct: 0,
+      outageImpactRatioPct: 0,
+      uniqueOutageImpactRatioPct: 0
+    }]))
+
+    for (const row of monthRows) {
+      const key = String(row.year_month || '').trim()
+      if (!monthMap[key]) continue
+      monthMap[key] = {
+        ...monthMap[key],
+        totalLinks: toNum(row.total_links, 0),
+        avgUptimePct: toNum(row.avg_uptime_pct, 0),
+        impactedLinks: toNum(row.impacted_links, 0),
+        breachLinks: toNum(row.breach_links, 0),
+        ticketCount: toNum(row.ticket_count, 0),
+        serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
+        outageImpactCount: toNum(row.outage_impact_count, 0),
+        uniqueOutageCount: toNum(row.unique_outage_count, 0)
+      }
+    }
+
+    for (const row of outageMonthRows) {
+      const key = String(row.year_month || '').trim()
+      if (!monthMap[key]) continue
+      monthMap[key] = {
+        ...monthMap[key],
+        outageCount: toNum(row.outage_count, 0)
+      }
+    }
+
+    for (const month of months) {
+      const current = monthMap[month]
+      const totalLinks = toNum(current.totalLinks, 0)
+      monthMap[month] = {
+        ...current,
+        ticketContactRatioPct: totalLinks ? (toNum(current.ticketCount, 0) / totalLinks) * 100 : 0,
+        outageImpactRatioPct: totalLinks ? (toNum(current.outageImpactCount, 0) / totalLinks) * 100 : 0,
+        uniqueOutageImpactRatioPct: totalLinks ? (toNum(current.uniqueOutageCount, 0) / totalLinks) * 100 : 0
+      }
+    }
+
+    const ticketCount = months.reduce((sum, month) => sum + toNum(monthMap[month]?.ticketCount, 0), 0)
+    const serviceImpactingTickets = months.reduce((sum, month) => sum + toNum(monthMap[month]?.serviceImpactingTickets, 0), 0)
 
     return {
       from: fromKey,
       to: toKey,
       months,
-      productGroups: [],
-      productTypes: [],
-      serviceTypes: [],
+      productGroups: [...new Set(optionRows.map((row) => String(row.product_group || 'FTTB').trim()).filter(Boolean))],
+      productTypes: [...new Set(optionRows.map((row) => String(row.product_type || 'Unknown').trim()).filter(Boolean))],
+      serviceTypes: [...new Set(optionRows.map((row) => String(row.service_type || 'Unknown').trim()).filter(Boolean))],
       selectedProductGroup: productGroup,
       selectedProductType: productType,
       selectedServiceType: serviceType,
@@ -276,16 +596,35 @@ r.get('/overview', verifyToken, async (req, res) => {
         avgUptimePct: toNum(cards.avg_uptime_pct, 0),
         worstUptimePct: toNum(cards.worst_uptime_pct, 0),
         totalDowntimeHours: toNum(cards.total_downtime_hours, 0),
-        ticketCount: null,
-        serviceImpactingTickets: null,
-        outageCount: null,
-        minorOutageCount: null,
-        majorOutageCount: null
+        ticketCount,
+        serviceImpactingTickets,
+        outageCount: toNum(outageSummary.outage_count, 0),
+        minorOutageCount: toNum(outageSummary.minor_outage_count, 0),
+        majorOutageCount: toNum(outageSummary.major_outage_count, 0)
       },
-      monthTrend: [],
-      worstIsps: [],
-      productPerformance: [],
-      servicePerformance: []
+      monthTrend: months.map((month) => monthMap[month]),
+      worstIsps: worstIspRows.map((row) => ({
+        isp: String(row.isp || 'Unknown'),
+        linkCount: toNum(row.link_count, 0),
+        avgUptimePct: toNum(row.avg_uptime_pct, 0),
+        worstUptimePct: toNum(row.worst_uptime_pct, 0),
+        breachLinks: toNum(row.breach_links, 0),
+        downtimeHours: toNum(row.downtime_hours, 0)
+      })),
+      productPerformance: productRows.map((row) => ({
+        label: String(row.label || 'Unknown'),
+        linkCount: toNum(row.link_count, 0),
+        impactedLinks: toNum(row.impacted_links, 0),
+        avgUptimePct: toNum(row.avg_uptime_pct, 0),
+        worstUptimePct: toNum(row.worst_uptime_pct, 0)
+      })),
+      servicePerformance: serviceRows.map((row) => ({
+        label: String(row.label || 'Unknown'),
+        linkCount: toNum(row.link_count, 0),
+        impactedLinks: toNum(row.impacted_links, 0),
+        avgUptimePct: toNum(row.avg_uptime_pct, 0),
+        worstUptimePct: toNum(row.worst_uptime_pct, 0)
+      }))
     }
   })
 
