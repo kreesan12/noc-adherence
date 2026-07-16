@@ -1,4 +1,4 @@
-CREATE TABLE "SlaProductTypeMap" (
+CREATE TABLE IF NOT EXISTS "SlaProductTypeMap" (
     "id" SERIAL NOT NULL,
     "raw_product_type" TEXT NOT NULL,
     "product_group" TEXT NOT NULL,
@@ -10,9 +10,9 @@ CREATE TABLE "SlaProductTypeMap" (
     CONSTRAINT "SlaProductTypeMap_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "SlaProductTypeMap_raw_product_type_key" ON "SlaProductTypeMap"("raw_product_type");
-CREATE INDEX "idx_sla_product_type_map_group" ON "SlaProductTypeMap"("product_group");
-CREATE INDEX "idx_sla_product_type_map_active" ON "SlaProductTypeMap"("is_active");
+CREATE UNIQUE INDEX IF NOT EXISTS "SlaProductTypeMap_raw_product_type_key" ON "SlaProductTypeMap"("raw_product_type");
+CREATE INDEX IF NOT EXISTS "idx_sla_product_type_map_group" ON "SlaProductTypeMap"("product_group");
+CREATE INDEX IF NOT EXISTS "idx_sla_product_type_map_active" ON "SlaProductTypeMap"("is_active");
 
 INSERT INTO "SlaProductTypeMap" (
     "raw_product_type",
