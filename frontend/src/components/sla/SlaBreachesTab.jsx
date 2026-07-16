@@ -81,7 +81,7 @@ export default function SlaBreachesTab({
     {
       field: 'frogfootlinklabel',
       headerName: 'FRG Link',
-      width: 205,
+      width: 190,
       renderCell: (params) => (
         <Button
           size="small"
@@ -94,19 +94,19 @@ export default function SlaBreachesTab({
         </Button>
       )
     },
-    { field: 'isp', headerName: 'ISP', width: 160 },
-    { field: 'productType', headerName: 'Product', width: 180 },
-    { field: 'serviceType', headerName: 'Service', width: 160 },
+    { field: 'isp', headerName: 'ISP', width: 145 },
+    { field: 'productType', headerName: 'Product', width: 160 },
+    { field: 'serviceType', headerName: 'Service', width: 140 },
     {
       field: 'avgUptimePct',
       headerName: 'Range Avg SLA',
-      width: 165,
+      width: 150,
       renderCell: (params) => <SlaProgressCell value={params.row.avgUptimePct} fmtPct={fmtPct} />
     },
     {
       field: 'currentMonthUptimePct',
       headerName: 'Current Month',
-      width: 120,
+      width: 104,
       align: 'center',
       headerAlign: 'center',
       renderCell: (params) => (
@@ -121,7 +121,7 @@ export default function SlaBreachesTab({
     {
       field: 'worstUptimePct',
       headerName: 'Worst Month',
-      width: 120,
+      width: 104,
       align: 'center',
       headerAlign: 'center',
       renderCell: (params) => (
@@ -136,21 +136,21 @@ export default function SlaBreachesTab({
     {
       field: 'belowThresholdMonths',
       headerName: '< Threshold',
-      width: 110,
+      width: 98,
       align: 'center',
       headerAlign: 'center'
     },
     {
       field: 'impactedMonths',
       headerName: 'Impacted',
-      width: 95,
+      width: 88,
       align: 'center',
       headerAlign: 'center'
     },
     {
       field: 'totalDowntimeHours',
       headerName: 'Downtime',
-      width: 110,
+      width: 96,
       align: 'center',
       headerAlign: 'center',
       renderCell: (params) => fmtHours(params.row.totalDowntimeHours)
@@ -158,21 +158,21 @@ export default function SlaBreachesTab({
     {
       field: 'ticketCount',
       headerName: 'Tickets',
-      width: 90,
+      width: 82,
       align: 'center',
       headerAlign: 'center'
     },
     {
       field: 'serviceImpactingTickets',
       headerName: 'Svc Ticks',
-      width: 95,
+      width: 88,
       align: 'center',
       headerAlign: 'center'
     },
     {
       field: 'outageCount',
       headerName: 'Outages',
-      width: 90,
+      width: 82,
       align: 'center',
       headerAlign: 'center'
     },
@@ -233,7 +233,7 @@ export default function SlaBreachesTab({
             slotProps={{
               toolbar: { showQuickFilter: false }
             }}
-            sx={{ border: 0, minWidth: 1460 }}
+            sx={{ border: 0, minWidth: 1240, fontSize: 12.5 }}
           />
         </Box>
       </Paper>

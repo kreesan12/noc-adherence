@@ -27,21 +27,21 @@ function MetricCard({ label, value, subtext, tone = '#0f172a' }) {
     <Paper
       elevation={0}
       sx={{
-        p: 1.5,
+        p: 1.25,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
-        minHeight: 104,
+        minHeight: 92,
         minWidth: 0
       }}
     >
       <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.7 }}>
         {label}
       </Typography>
-      <Typography variant="h5" fontWeight={800} sx={{ mt: 0.5 }}>
+      <Typography variant="h6" fontWeight={800} sx={{ mt: 0.4 }}>
         {value}
       </Typography>
       {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.75, opacity: 0.75 }}>
+        <Typography variant="body2" sx={{ mt: 0.55, opacity: 0.75, fontSize: 12.5 }}>
           {subtext}
         </Typography>
       ) : null}
@@ -54,10 +54,10 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
     <Paper
       elevation={0}
       sx={{
-        p: 1.5,
+        p: 1.25,
         border: '1px solid #e5e7eb',
         borderLeft: `4px solid ${tone}`,
-        minHeight: 128,
+        minHeight: 118,
         minWidth: 0
       }}
     >
@@ -68,7 +68,7 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
         {badge ? <Chip size="small" label={badge} /> : null}
       </Stack>
 
-      <Typography variant="body2" sx={{ opacity: 0.82, minHeight: 42 }}>
+      <Typography variant="body2" sx={{ opacity: 0.82, minHeight: 44, fontSize: 13 }}>
         {message}
       </Typography>
 
@@ -86,14 +86,14 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
   )
 }
 
-function SectionCard({ title, subtitle, children, minHeight = 320 }) {
+function SectionCard({ title, subtitle, children, minHeight = 280 }) {
   return (
-    <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e5e7eb', height: '100%', minWidth: 0, overflow: 'hidden' }}>
-      <Typography variant="subtitle1" fontWeight={700}>
+    <Paper elevation={0} sx={{ p: 1.25, border: '1px solid #e5e7eb', height: '100%', minWidth: 0, overflow: 'hidden' }}>
+      <Typography variant="subtitle2" fontWeight={800}>
         {title}
       </Typography>
       {subtitle ? (
-        <Typography variant="body2" sx={{ opacity: 0.7, mb: 1.25 }}>
+        <Typography variant="body2" sx={{ opacity: 0.7, mb: 1, fontSize: 12.5 }}>
           {subtitle}
         </Typography>
       ) : null}
@@ -121,7 +121,7 @@ function ChartFallback({ message = 'No data available for this view.' }) {
 
 function LoadingBlock({ message }) {
   return (
-    <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #e5e7eb' }}>
+    <Paper elevation={0} sx={{ p: 3, textAlign: 'center', border: '1px solid #e5e7eb' }}>
       <Typography variant="body2">{message}</Typography>
     </Paper>
   )
@@ -132,6 +132,10 @@ export default function SlaOverviewTab({
   error,
   overview,
   insights,
+  trendLoading,
+  trendError,
+  focusLoading,
+  focusError,
   fmtPct,
   fmtHours,
   fmtCount,
@@ -141,6 +145,11 @@ export default function SlaOverviewTab({
   onSelectServiceType
 }) {
   const cards = overview?.cards || {}
+  const totalLinks = Number(cards.totalLinks || 0)
+  const breachRate = totalLinks ? (Number(cards.breachLinks || 0) / totalLinks) * 100 : 0
+  const ticketDensity = totalLinks ? (Number(cards.ticketCount || 0) / totalLinks) * 100 : 0
+  const outageDensity = totalLinks ? (Number(cards.outageCount || 0) / totalLinks) * 100 : 0
+  const monthsInView = (overview?.months || []).length
 
   if (loading) {
     return <LoadingBlock message="Loading SLA overview..." />
@@ -152,10 +161,16 @@ export default function SlaOverviewTab({
 
   return (
     <Stack spacing={1.5}>
+      {trendError || focusError ? (
+        <Alert severity="warning">
+          {[trendError, focusError].filter(Boolean).join(' ')}
+        </Alert>
+      ) : null}
+
       <Box
         sx={{
           display: 'grid',
-          gap: 1.5,
+          gap: 1.25,
           gridTemplateColumns: {
             xs: '1fr',
             sm: 'repeat(2, 1fr)',
@@ -200,12 +215,36 @@ export default function SlaOverviewTab({
           subtext="Distinct outages in selected range"
           tone="#0f172a"
         />
+        <MetricCard
+          label="Breach Rate"
+          value={fmtPct(breachRate)}
+          subtext="Breaching links as a share of the loaded base"
+          tone="#7c3aed"
+        />
+        <MetricCard
+          label="Tickets / 100 Links"
+          value={ticketDensity.toFixed(1)}
+          subtext="Operational load indicator for the selected range"
+          tone="#0891b2"
+        />
+        <MetricCard
+          label="Outages / 100 Links"
+          value={outageDensity.toFixed(1)}
+          subtext="Outage concentration relative to the link base"
+          tone="#b45309"
+        />
+        <MetricCard
+          label="Months In View"
+          value={fmtCount(monthsInView)}
+          subtext={(overview?.months || []).join(' to ') || 'No range loaded'}
+          tone="#334155"
+        />
       </Box>
 
       <Box
         sx={{
           display: 'grid',
-          gap: 1.5,
+          gap: 1.25,
           gridTemplateColumns: {
             xs: '1fr',
             md: 'repeat(2, 1fr)',
@@ -251,7 +290,7 @@ export default function SlaOverviewTab({
       <Box
         sx={{
           display: 'grid',
-          gap: 1.5,
+          gap: 1.25,
           gridTemplateColumns: {
             xs: '1fr',
             xl: '1.5fr 1fr'
@@ -263,8 +302,10 @@ export default function SlaOverviewTab({
           title="Monthly Performance Story"
           subtitle="Average SLA line with impacted and breaching link counts by month."
         >
-          {overview.monthTrend?.length ? (
-            <ResponsiveContainer width="100%" height={320}>
+          {trendLoading && !overview.monthTrend?.length ? (
+            <ChartFallback message="Loading monthly trend..." />
+          ) : overview.monthTrend?.length ? (
+            <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={overview.monthTrend}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="yearMonth" />
@@ -286,8 +327,10 @@ export default function SlaOverviewTab({
           title="Worst Performing ISPs"
           subtitle="Average SLA order for the weakest performers in the selected range. Click a bar to open that ISP in the explorer."
         >
-          {overview.worstIsps?.length ? (
-            <ResponsiveContainer width="100%" height={320}>
+          {focusLoading && !overview.worstIsps?.length ? (
+            <ChartFallback message="Loading ISP watchlist..." />
+          ) : overview.worstIsps?.length ? (
+            <ResponsiveContainer width="100%" height={280}>
               <BarChart data={[...overview.worstIsps].reverse()} layout="vertical" margin={{ left: 20, right: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis type="number" domain={[95, 100]} tickFormatter={(value) => `${value}%`} />
@@ -312,7 +355,7 @@ export default function SlaOverviewTab({
       <Box
         sx={{
           display: 'grid',
-          gap: 1.5,
+          gap: 1.25,
           gridTemplateColumns: {
             xs: '1fr',
             xl: '1fr 1fr'
@@ -324,8 +367,10 @@ export default function SlaOverviewTab({
           title="Product Performance"
           subtitle="Where the impacted links are concentrating by product type. Click a bar to filter the full dashboard."
         >
-          {overview.productPerformance?.length ? (
-            <ResponsiveContainer width="100%" height={300}>
+          {focusLoading && !overview.productPerformance?.length ? (
+            <ChartFallback message="Loading product concentration..." />
+          ) : overview.productPerformance?.length ? (
+            <ResponsiveContainer width="100%" height={255}>
               <BarChart data={[...overview.productPerformance].reverse()} layout="vertical" margin={{ left: 10, right: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis type="number" />
@@ -359,8 +404,10 @@ export default function SlaOverviewTab({
           title="Service Performance"
           subtitle="Impact pattern by service type for the selected range. Click a bar to filter the full dashboard."
         >
-          {overview.servicePerformance?.length ? (
-            <ResponsiveContainer width="100%" height={300}>
+          {focusLoading && !overview.servicePerformance?.length ? (
+            <ChartFallback message="Loading service concentration..." />
+          ) : overview.servicePerformance?.length ? (
+            <ResponsiveContainer width="100%" height={255}>
               <BarChart data={[...overview.servicePerformance].reverse()} layout="vertical" margin={{ left: 10, right: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis type="number" />

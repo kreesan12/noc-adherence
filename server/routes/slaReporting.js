@@ -151,10 +151,6 @@ r.get('/overview', verifyToken, async (req, res) => {
 
   const [
     cardRows,
-    monthRows,
-    worstIspRows,
-    productRows,
-    serviceRows,
     optionRows
   ] = await runSequentially([
     () => prisma.$queryRawUnsafe(
@@ -238,111 +234,230 @@ r.get('/overview', verifyToken, async (req, res) => {
     () => prisma.$queryRawUnsafe(
       `
       ${LINK_META_CTE},
-      link_month AS (
-        SELECT
-          s.frogfootlinklabel,
-          s.year_month,
-          AVG(s."uptime%")::numeric AS uptime_pct,
-          SUM(COALESCE(s.total_downtime, interval '0 second')) AS total_downtime
+      links_in_range AS (
+        SELECT DISTINCT s.frogfootlinklabel
         FROM public.servicelevels s
-        LEFT JOIN link_meta lm
-          ON lm.frogfootlinklabel = s.frogfootlinklabel
         WHERE s.frogfootlinklabel IS NOT NULL
           AND s.year_month >= $1
           AND s.year_month <= $2
-          AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
-          AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
-        GROUP BY 1, 2
-      ),
-      ticket_month AS (
-        SELECT
-          t.year_month,
-          COUNT(*)::int AS ticket_count,
-          COUNT(*) FILTER (WHERE t."Category" = $5)::int AS service_impacting_tickets
-        FROM public.tickets_output t
-        LEFT JOIN link_meta lm
-          ON lm.frogfootlinklabel = t.frg
-        WHERE t.year_month >= $1
-          AND t.year_month <= $2
-          AND ($3::text = '' OR COALESCE(NULLIF(t.product_type, ''), COALESCE(lm.product_type, 'Unknown')) = $3)
-          AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
-        GROUP BY t.year_month
-      ),
-      outage_month AS (
-        SELECT
-          o.year_month,
-          COUNT(DISTINCT o.outage_ref)::int AS outage_count
-        FROM public.outage_resolvers os
-        JOIN public.outages_outage o
-          ON o.outage_ref = os.outageref
-        LEFT JOIN link_meta lm
-          ON lm.frogfootlinklabel = os.frogfootlinklabel
-        WHERE o.year_month >= $1
-          AND o.year_month <= $2
-          AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
-          AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
-        GROUP BY o.year_month
       )
-      SELECT
-        lm.year_month,
-        ROUND(AVG(lm.uptime_pct), 2) AS avg_uptime_pct,
-        COUNT(*) FILTER (WHERE lm.uptime_pct < 100)::int AS impacted_links,
-        COUNT(*) FILTER (WHERE lm.uptime_pct < ${SLA_TARGET})::int AS breach_links,
-        ROUND((SUM(EXTRACT(EPOCH FROM lm.total_downtime)) / 3600.0)::numeric, 2) AS downtime_hours,
-        COALESCE(MAX(tm.ticket_count), 0) AS ticket_count,
-        COALESCE(MAX(tm.service_impacting_tickets), 0) AS service_impacting_tickets,
-        COALESCE(MAX(om.outage_count), 0) AS outage_count
-      FROM link_month lm
-      LEFT JOIN ticket_month tm
-        ON tm.year_month = lm.year_month
-      LEFT JOIN outage_month om
-        ON om.year_month = lm.year_month
-      GROUP BY lm.year_month
-      ORDER BY lm.year_month
+      SELECT DISTINCT
+        lm.product_type,
+        lm.service_type
+      FROM links_in_range lr
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = lr.frogfootlinklabel
+      ORDER BY lm.product_type, lm.service_type
       `,
       fromKey,
-      toKey,
-      productType,
-      serviceType,
-      DOWNTIME_CATEGORY
-    ),
-    () => prisma.$queryRawUnsafe(
-      `
-      ${LINK_META_CTE},
-      link_month AS (
-        SELECT
-          COALESCE(NULLIF(s.isp, ''), 'Unknown') AS isp,
-          s.frogfootlinklabel,
-          AVG(s."uptime%")::numeric AS avg_uptime_pct,
-          MIN(s."uptime%")::numeric AS worst_uptime_pct,
-          SUM(COALESCE(s.total_downtime, interval '0 second')) AS total_downtime
-        FROM public.servicelevels s
-        LEFT JOIN link_meta lm
-          ON lm.frogfootlinklabel = s.frogfootlinklabel
-        WHERE s.frogfootlinklabel IS NOT NULL
-          AND s.year_month >= $1
-          AND s.year_month <= $2
-          AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
-          AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
-        GROUP BY 1, 2
-      )
+      toKey
+    )
+  ])
+
+  const cards = cardRows?.[0] || {}
+  const productTypes = [...new Set(optionRows.map((row) => String(row.product_type || 'Unknown').trim()).filter(Boolean))]
+  const serviceTypes = [...new Set(optionRows.map((row) => String(row.service_type || 'Unknown').trim()).filter(Boolean))]
+
+  res.json({
+    from: fromKey,
+    to: toKey,
+    months,
+    productTypes,
+    serviceTypes,
+    selectedProductType: productType,
+    selectedServiceType: serviceType,
+    cards: {
+      totalLinks: toNum(cards.total_links, 0),
+      impactedLinks: toNum(cards.impacted_links, 0),
+      breachLinks: toNum(cards.breach_links, 0),
+      avgUptimePct: toNum(cards.avg_uptime_pct, 0),
+      worstUptimePct: toNum(cards.worst_uptime_pct, 0),
+      totalDowntimeHours: toNum(cards.total_downtime_hours, 0),
+      ticketCount: toNum(cards.ticket_count, 0),
+      serviceImpactingTickets: toNum(cards.service_impacting_count, 0),
+      outageCount: toNum(cards.outage_count, 0)
+    },
+    monthTrend: [],
+    worstIsps: [],
+    productPerformance: [],
+    servicePerformance: []
+  })
+})
+
+r.get('/overview/trend', verifyToken, async (req, res) => {
+  const { fromKey, toKey, months } = resolveRange(req.query)
+  const productType = normalizeFilter(req.query.productType)
+  const serviceType = normalizeFilter(req.query.serviceType)
+
+  const monthRows = await prisma.$queryRawUnsafe(
+    `
+    ${LINK_META_CTE},
+    link_month AS (
       SELECT
-        isp,
-        COUNT(*)::int AS link_count,
-        ROUND(AVG(avg_uptime_pct), 2) AS avg_uptime_pct,
-        ROUND(MIN(worst_uptime_pct), 2) AS worst_uptime_pct,
-        COUNT(*) FILTER (WHERE avg_uptime_pct < ${SLA_TARGET})::int AS breach_links,
-        ROUND((SUM(EXTRACT(EPOCH FROM total_downtime)) / 3600.0)::numeric, 2) AS downtime_hours
-      FROM link_month
-      GROUP BY isp
-      ORDER BY avg_uptime_pct ASC NULLS LAST, downtime_hours DESC, isp ASC
-      LIMIT 8
-      `,
-      fromKey,
-      toKey,
-      productType,
-      serviceType
+        s.frogfootlinklabel,
+        s.year_month,
+        AVG(s."uptime%")::numeric AS uptime_pct,
+        SUM(COALESCE(s.total_downtime, interval '0 second')) AS total_downtime
+      FROM public.servicelevels s
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = s.frogfootlinklabel
+      WHERE s.frogfootlinklabel IS NOT NULL
+        AND s.year_month >= $1
+        AND s.year_month <= $2
+        AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
+        AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
+      GROUP BY 1, 2
     ),
+    ticket_month AS (
+      SELECT
+        t.year_month,
+        COUNT(*)::int AS ticket_count,
+        COUNT(*) FILTER (WHERE t."Category" = $5)::int AS service_impacting_tickets
+      FROM public.tickets_output t
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = t.frg
+      WHERE t.year_month >= $1
+        AND t.year_month <= $2
+        AND ($3::text = '' OR COALESCE(NULLIF(t.product_type, ''), COALESCE(lm.product_type, 'Unknown')) = $3)
+        AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
+      GROUP BY t.year_month
+    ),
+    outage_month AS (
+      SELECT
+        o.year_month,
+        COUNT(DISTINCT o.outage_ref)::int AS outage_count
+      FROM public.outage_resolvers os
+      JOIN public.outages_outage o
+        ON o.outage_ref = os.outageref
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = os.frogfootlinklabel
+      WHERE o.year_month >= $1
+        AND o.year_month <= $2
+        AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
+        AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
+      GROUP BY o.year_month
+    )
+    SELECT
+      lm.year_month,
+      ROUND(AVG(lm.uptime_pct), 2) AS avg_uptime_pct,
+      COUNT(*) FILTER (WHERE lm.uptime_pct < 100)::int AS impacted_links,
+      COUNT(*) FILTER (WHERE lm.uptime_pct < ${SLA_TARGET})::int AS breach_links,
+      ROUND((SUM(EXTRACT(EPOCH FROM lm.total_downtime)) / 3600.0)::numeric, 2) AS downtime_hours,
+      COALESCE(MAX(tm.ticket_count), 0) AS ticket_count,
+      COALESCE(MAX(tm.service_impacting_tickets), 0) AS service_impacting_tickets,
+      COALESCE(MAX(om.outage_count), 0) AS outage_count
+    FROM link_month lm
+    LEFT JOIN ticket_month tm
+      ON tm.year_month = lm.year_month
+    LEFT JOIN outage_month om
+      ON om.year_month = lm.year_month
+    GROUP BY lm.year_month
+    ORDER BY lm.year_month
+    `,
+    fromKey,
+    toKey,
+    productType,
+    serviceType,
+    DOWNTIME_CATEGORY
+  )
+
+  const monthMap = Object.fromEntries(months.map((month) => [month, {
+    yearMonth: month,
+    avgUptimePct: 0,
+    impactedLinks: 0,
+    breachLinks: 0,
+    downtimeHours: 0,
+    ticketCount: 0,
+    serviceImpactingTickets: 0,
+    outageCount: 0
+  }]))
+
+  for (const row of monthRows) {
+    const key = String(row.year_month || '').trim()
+    if (!monthMap[key]) continue
+    monthMap[key] = {
+      yearMonth: key,
+      avgUptimePct: toNum(row.avg_uptime_pct, 0),
+      impactedLinks: toNum(row.impacted_links, 0),
+      breachLinks: toNum(row.breach_links, 0),
+      downtimeHours: toNum(row.downtime_hours, 0),
+      ticketCount: toNum(row.ticket_count, 0),
+      serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
+      outageCount: toNum(row.outage_count, 0)
+    }
+  }
+
+  res.json({
+    from: fromKey,
+    to: toKey,
+    months,
+    monthTrend: months.map((month) => monthMap[month])
+  })
+})
+
+r.get('/overview/isps', verifyToken, async (req, res) => {
+  const { fromKey, toKey } = resolveRange(req.query)
+  const productType = normalizeFilter(req.query.productType)
+  const serviceType = normalizeFilter(req.query.serviceType)
+
+  const rows = await prisma.$queryRawUnsafe(
+    `
+    ${LINK_META_CTE},
+    link_month AS (
+      SELECT
+        COALESCE(NULLIF(s.isp, ''), 'Unknown') AS isp,
+        s.frogfootlinklabel,
+        AVG(s."uptime%")::numeric AS avg_uptime_pct,
+        MIN(s."uptime%")::numeric AS worst_uptime_pct,
+        SUM(COALESCE(s.total_downtime, interval '0 second')) AS total_downtime
+      FROM public.servicelevels s
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = s.frogfootlinklabel
+      WHERE s.frogfootlinklabel IS NOT NULL
+        AND s.year_month >= $1
+        AND s.year_month <= $2
+        AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
+        AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
+      GROUP BY 1, 2
+    )
+    SELECT
+      isp,
+      COUNT(*)::int AS link_count,
+      ROUND(AVG(avg_uptime_pct), 2) AS avg_uptime_pct,
+      ROUND(MIN(worst_uptime_pct), 2) AS worst_uptime_pct,
+      COUNT(*) FILTER (WHERE avg_uptime_pct < ${SLA_TARGET})::int AS breach_links,
+      ROUND((SUM(EXTRACT(EPOCH FROM total_downtime)) / 3600.0)::numeric, 2) AS downtime_hours
+    FROM link_month
+    GROUP BY isp
+    ORDER BY avg_uptime_pct ASC NULLS LAST, downtime_hours DESC, isp ASC
+    LIMIT 8
+    `,
+    fromKey,
+    toKey,
+    productType,
+    serviceType
+  )
+
+  res.json({
+    from: fromKey,
+    to: toKey,
+    worstIsps: rows.map((row) => ({
+      isp: String(row.isp || 'Unknown'),
+      linkCount: toNum(row.link_count, 0),
+      avgUptimePct: toNum(row.avg_uptime_pct, 0),
+      worstUptimePct: toNum(row.worst_uptime_pct, 0),
+      breachLinks: toNum(row.breach_links, 0),
+      downtimeHours: toNum(row.downtime_hours, 0)
+    }))
+  })
+})
+
+r.get('/overview/groups', verifyToken, async (req, res) => {
+  const { fromKey, toKey } = resolveRange(req.query)
+  const productType = normalizeFilter(req.query.productType)
+  const serviceType = normalizeFilter(req.query.serviceType)
+
+  const [productRows, serviceRows] = await runSequentially([
     () => prisma.$queryRawUnsafe(
       `
       ${LINK_META_CTE},
@@ -416,71 +531,12 @@ r.get('/overview', verifyToken, async (req, res) => {
       toKey,
       productType,
       serviceType
-    ),
-    () => prisma.$queryRawUnsafe(
-      `
-      ${LINK_META_CTE},
-      links_in_range AS (
-        SELECT DISTINCT s.frogfootlinklabel
-        FROM public.servicelevels s
-        WHERE s.frogfootlinklabel IS NOT NULL
-          AND s.year_month >= $1
-          AND s.year_month <= $2
-      )
-      SELECT DISTINCT
-        lm.product_type,
-        lm.service_type
-      FROM links_in_range lr
-      LEFT JOIN link_meta lm
-        ON lm.frogfootlinklabel = lr.frogfootlinklabel
-      ORDER BY lm.product_type, lm.service_type
-      `,
-      fromKey,
-      toKey
     )
   ])
-
-  const cards = cardRows?.[0] || {}
-  const productTypes = [...new Set(optionRows.map((row) => String(row.product_type || 'Unknown').trim()).filter(Boolean))]
-  const serviceTypes = [...new Set(optionRows.map((row) => String(row.service_type || 'Unknown').trim()).filter(Boolean))]
 
   res.json({
     from: fromKey,
     to: toKey,
-    months,
-    productTypes,
-    serviceTypes,
-    selectedProductType: productType,
-    selectedServiceType: serviceType,
-    cards: {
-      totalLinks: toNum(cards.total_links, 0),
-      impactedLinks: toNum(cards.impacted_links, 0),
-      breachLinks: toNum(cards.breach_links, 0),
-      avgUptimePct: toNum(cards.avg_uptime_pct, 0),
-      worstUptimePct: toNum(cards.worst_uptime_pct, 0),
-      totalDowntimeHours: toNum(cards.total_downtime_hours, 0),
-      ticketCount: toNum(cards.ticket_count, 0),
-      serviceImpactingTickets: toNum(cards.service_impacting_count, 0),
-      outageCount: toNum(cards.outage_count, 0)
-    },
-    monthTrend: monthRows.map((row) => ({
-      yearMonth: String(row.year_month || ''),
-      avgUptimePct: toNum(row.avg_uptime_pct, 0),
-      impactedLinks: toNum(row.impacted_links, 0),
-      breachLinks: toNum(row.breach_links, 0),
-      downtimeHours: toNum(row.downtime_hours, 0),
-      ticketCount: toNum(row.ticket_count, 0),
-      serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
-      outageCount: toNum(row.outage_count, 0)
-    })),
-    worstIsps: worstIspRows.map((row) => ({
-      isp: String(row.isp || 'Unknown'),
-      linkCount: toNum(row.link_count, 0),
-      avgUptimePct: toNum(row.avg_uptime_pct, 0),
-      worstUptimePct: toNum(row.worst_uptime_pct, 0),
-      breachLinks: toNum(row.breach_links, 0),
-      downtimeHours: toNum(row.downtime_hours, 0)
-    })),
     productPerformance: productRows.map((row) => ({
       label: String(row.label || 'Unknown'),
       linkCount: toNum(row.link_count, 0),

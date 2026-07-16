@@ -233,6 +233,10 @@ export default function SlaReportingPage() {
   const [exportingDetail, setExportingDetail] = useState(false)
   const [overviewLoading, setOverviewLoading] = useState(false)
   const [overviewError, setOverviewError] = useState('')
+  const [overviewTrendLoading, setOverviewTrendLoading] = useState(false)
+  const [overviewTrendError, setOverviewTrendError] = useState('')
+  const [overviewFocusLoading, setOverviewFocusLoading] = useState(false)
+  const [overviewFocusError, setOverviewFocusError] = useState('')
   const [overview, setOverview] = useState({
     months: [],
     productTypes: [],
@@ -334,6 +338,15 @@ export default function SlaReportingPage() {
     setServiceTypeFilter(String(serviceType))
   }
 
+  function getOverviewParams() {
+    return {
+      from: range.from,
+      to: range.to,
+      productType: productTypeFilter,
+      serviceType: serviceTypeFilter
+    }
+  }
+
   async function loadSummary() {
     setLoading(true)
     try {
@@ -357,31 +370,97 @@ export default function SlaReportingPage() {
   async function loadOverview() {
     setOverviewLoading(true)
     setOverviewError('')
+    setOverviewTrendError('')
+    setOverviewFocusError('')
+    setOverview((state) => ({
+      ...state,
+      monthTrend: [],
+      worstIsps: [],
+      productPerformance: [],
+      servicePerformance: []
+    }))
     try {
-      const res = await api.get('/sla-reporting/overview', {
-        params: {
-          from: range.from,
-          to: range.to,
-          productType: productTypeFilter,
-          serviceType: serviceTypeFilter
-        }
-      })
-      setOverview(res.data || {
-        months: [],
-        productTypes: [],
-        serviceTypes: [],
-        cards: {},
-        monthTrend: [],
-        worstIsps: [],
-        productPerformance: [],
-        servicePerformance: []
-      })
+      const params = getOverviewParams()
+      const res = await api.get('/sla-reporting/overview', { params })
+      setOverview((state) => ({
+        ...state,
+        ...(res.data || {
+          months: [],
+          productTypes: [],
+          serviceTypes: [],
+          cards: {},
+          monthTrend: [],
+          worstIsps: [],
+          productPerformance: [],
+          servicePerformance: []
+        })
+      }))
+      if (activeTab === 'overview') {
+        void loadOverviewTrend(params)
+        void loadOverviewFocus(params)
+      }
     } catch (err) {
       const msg = err?.response?.data?.error || err?.message || 'Failed to load overview'
       setOverviewError(String(msg))
     } finally {
       setOverviewLoading(false)
     }
+  }
+
+  async function loadOverviewTrend(providedParams = null) {
+    setOverviewTrendLoading(true)
+    setOverviewTrendError('')
+    try {
+      const res = await api.get('/sla-reporting/overview/trend', {
+        params: providedParams || getOverviewParams()
+      })
+      setOverview((state) => ({
+        ...state,
+        monthTrend: res.data?.monthTrend || []
+      }))
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Trend section failed to load'
+      setOverviewTrendError(String(msg))
+    } finally {
+      setOverviewTrendLoading(false)
+    }
+  }
+
+  async function loadOverviewFocus(providedParams = null) {
+    setOverviewFocusLoading(true)
+    setOverviewFocusError('')
+    const params = providedParams || getOverviewParams()
+    const [ispsResult, groupsResult] = await Promise.allSettled([
+      api.get('/sla-reporting/overview/isps', { params }),
+      api.get('/sla-reporting/overview/groups', { params })
+    ])
+
+    let failedCount = 0
+
+    if (ispsResult.status === 'fulfilled') {
+      setOverview((state) => ({
+        ...state,
+        worstIsps: ispsResult.value?.data?.worstIsps || []
+      }))
+    } else {
+      failedCount += 1
+    }
+
+    if (groupsResult.status === 'fulfilled') {
+      setOverview((state) => ({
+        ...state,
+        productPerformance: groupsResult.value?.data?.productPerformance || [],
+        servicePerformance: groupsResult.value?.data?.servicePerformance || []
+      }))
+    } else {
+      failedCount += 1
+    }
+
+    if (failedCount > 0) {
+      setOverviewFocusError('Some overview insight sections are still loading slowly or failed to load.')
+    }
+
+    setOverviewFocusLoading(false)
   }
 
   async function loadBreaches() {
@@ -895,7 +974,7 @@ export default function SlaReportingPage() {
     return (data.months || []).map((m) => ({
       field: `m_${m.replace('-', '_')}`,
       headerName: m,
-      width: 96,
+      width: 88,
       align: 'center',
       headerAlign: 'center',
       sortable: false,
@@ -918,7 +997,7 @@ export default function SlaReportingPage() {
     {
       field: 'frogfootlinklabel',
       headerName: 'FRG Link',
-      width: 210,
+      width: 190,
       renderCell: (p) => (
         <Button
           size="small"
@@ -934,7 +1013,7 @@ export default function SlaReportingPage() {
     {
       field: 'avgUptimePct',
       headerName: 'Avg SLA',
-      width: 110,
+      width: 100,
       align: 'center',
       headerAlign: 'center',
       renderCell: (p) => (
@@ -949,7 +1028,7 @@ export default function SlaReportingPage() {
     {
       field: 'worstUptimePct',
       headerName: 'Worst SLA',
-      width: 110,
+      width: 100,
       align: 'center',
       headerAlign: 'center',
       renderCell: (p) => (
@@ -964,14 +1043,14 @@ export default function SlaReportingPage() {
     {
       field: 'impactedMonths',
       headerName: 'Impacted Months',
-      width: 130,
+      width: 118,
       align: 'center',
       headerAlign: 'center',
     },
     {
       field: 'totalDowntimeHours',
       headerName: 'Downtime',
-      width: 120,
+      width: 104,
       align: 'center',
       headerAlign: 'center',
       renderCell: (p) => fmtHours(p.row.totalDowntimeHours)
@@ -983,23 +1062,31 @@ export default function SlaReportingPage() {
   return (
     <Box
       px={{ xs: 1, md: 2 }}
-      py={1.5}
-      sx={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}
+      py={1.25}
+      sx={{
+        width: '100%',
+        maxWidth: {
+          xs: '100%',
+          lg: 'calc(100vw - 300px)'
+        },
+        overflowX: 'clip',
+        mx: 'auto'
+      }}
     >
       <Paper
         elevation={0}
         sx={{
-          mb: 1.5,
-          p: { xs: 1.5, md: 2 },
+          mb: 1.25,
+          p: { xs: 1.25, md: 1.5 },
           border: '1px solid #0b6b49',
           borderRadius: 3,
           color: '#f8fafc',
           background: 'linear-gradient(135deg, #0b7a4b 0%, #125c6d 58%, #142a45 100%)',
-          boxShadow: '0 20px 40px rgba(15, 23, 42, 0.18)',
+          boxShadow: '0 16px 30px rgba(15, 23, 42, 0.16)',
           overflow: 'hidden'
         }}
       >
-        <Stack spacing={1.5}>
+        <Stack spacing={1.2}>
           <Stack
             direction={{ xs: 'column', xl: 'row' }}
             spacing={1.5}
@@ -1011,10 +1098,10 @@ export default function SlaReportingPage() {
               <Typography variant="overline" sx={{ letterSpacing: 1.1, opacity: 0.78 }}>
                 SLA Reporting
               </Typography>
-              <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.05 }}>
+              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.05 }}>
                 SLA Performance Dashboard
               </Typography>
-              <Typography variant="body1" sx={{ mt: 0.75, maxWidth: 920, opacity: 0.9 }}>
+              <Typography variant="body2" sx={{ mt: 0.5, maxWidth: 840, opacity: 0.9 }}>
                 Interactive SLA performance across ISPs, FRG links, outages, and tickets. The page is built to move from an executive view into operational evidence quickly.
               </Typography>
             </Box>
@@ -1031,6 +1118,8 @@ export default function SlaReportingPage() {
               <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
               <Chip size="small" label={`Links ${fmtCount(overview.cards?.totalLinks || 0)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
               <Chip size="small" label={`Average ${fmtPct(overview.cards?.avgUptimePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={overviewTrendLoading ? 'Trend loading' : 'Trend ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={overviewFocusLoading ? 'Insights loading' : 'Insights ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
             </Stack>
           </Stack>
 
@@ -1052,8 +1141,8 @@ export default function SlaReportingPage() {
       <Paper
         elevation={0}
         sx={{
-          p: 1.5,
-          mb: 1.5,
+          p: 1.25,
+          mb: 1.25,
           border: '1px solid #d8e3dd',
           borderRadius: 3,
           bgcolor: '#f7fbf8',
@@ -1076,7 +1165,7 @@ export default function SlaReportingPage() {
               value={range.from}
               onChange={(e) => setRange(s => ({ ...s, from: e.target.value }))}
               InputLabelProps={{ shrink: true }}
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: 138 }}
             />
             <TextField
               size="small"
@@ -1085,7 +1174,7 @@ export default function SlaReportingPage() {
               value={range.to}
               onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
               InputLabelProps={{ shrink: true }}
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: 138 }}
             />
             <TextField
               size="small"
@@ -1093,7 +1182,7 @@ export default function SlaReportingPage() {
               label="Product Type"
               value={productTypeFilter}
               onChange={(e) => setProductTypeFilter(e.target.value)}
-              sx={{ minWidth: 180 }}
+              sx={{ minWidth: 166 }}
             >
               <MenuItem value="">All Products</MenuItem>
               {((overview.productTypes && overview.productTypes.length ? overview.productTypes : data.productTypes) || []).map((pt) => (
@@ -1106,7 +1195,7 @@ export default function SlaReportingPage() {
               label="Service Type"
               value={serviceTypeFilter}
               onChange={(e) => setServiceTypeFilter(e.target.value)}
-              sx={{ minWidth: 180 }}
+              sx={{ minWidth: 166 }}
             >
               <MenuItem value="">All Services</MenuItem>
               {((overview.serviceTypes && overview.serviceTypes.length ? overview.serviceTypes : data.serviceTypes) || []).map((st) => (
@@ -1119,7 +1208,7 @@ export default function SlaReportingPage() {
               placeholder="e.g. Vox"
               value={ispSearch}
               onChange={(e) => setIspSearch(e.target.value)}
-              sx={{ minWidth: 180 }}
+              sx={{ minWidth: 170 }}
             />
             <TextField
               size="small"
@@ -1127,15 +1216,16 @@ export default function SlaReportingPage() {
               placeholder="e.g. FRG1109853"
               value={frgSearch}
               onChange={(e) => setFrgSearch(e.target.value)}
-              sx={{ minWidth: 200 }}
+              sx={{ minWidth: 186 }}
             />
-            <Button variant="contained" onClick={refreshCurrentTab} disabled={currentTabLoading}>
+            <Button size="small" variant="contained" onClick={refreshCurrentTab} disabled={currentTabLoading}>
               Refresh
             </Button>
-            <Button variant="outlined" onClick={clearFilters}>
+            <Button size="small" variant="outlined" onClick={clearFilters}>
               Reset
             </Button>
             <Button
+              size="small"
               variant="outlined"
               onClick={() => exportCurrentView().catch(console.error)}
               disabled={exportingCurrent}
@@ -1171,7 +1261,7 @@ export default function SlaReportingPage() {
         </Stack>
       </Paper>
 
-      <Paper elevation={0} sx={{ mb: 1.5, border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
         <Tabs
           value={activeTab}
           onChange={(_, value) => setActiveTab(value)}
@@ -1179,11 +1269,12 @@ export default function SlaReportingPage() {
           scrollButtons="auto"
           sx={{
             px: 1,
-            minHeight: 56,
+            minHeight: 48,
             '& .MuiTab-root': {
-              minHeight: 56,
+              minHeight: 48,
               textTransform: 'none',
-              fontWeight: 700
+              fontWeight: 700,
+              fontSize: 13
             },
             '& .Mui-selected': {
               color: '#0f766e !important'
@@ -1209,6 +1300,10 @@ export default function SlaReportingPage() {
           error={overviewError}
           overview={overview}
           insights={overviewInsights}
+          trendLoading={overviewTrendLoading}
+          trendError={overviewTrendError}
+          focusLoading={overviewFocusLoading}
+          focusError={overviewFocusError}
           fmtPct={fmtPct}
           fmtHours={fmtHours}
           fmtCount={fmtCount}
@@ -1268,7 +1363,7 @@ export default function SlaReportingPage() {
         </Paper>
       ) : (
         <>
-          <Paper elevation={0} sx={{ p: 1.5, mb: 1.25, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+          <Paper elevation={0} sx={{ p: 1.25, mb: 1.1, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
             <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ xs: 'stretch', lg: 'center' }} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
               <TextField
                 size="small"
@@ -1356,7 +1451,7 @@ export default function SlaReportingPage() {
                           <Typography variant="body2">No FRG link records returned for this ISP in the selected range.</Typography>
                         </Paper>
                       ) : (
-                        <Box sx={{ width: '100%', overflowX: 'auto' }}>
+                        <Box sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
                           <DataGrid
                             rows={rows}
                             columns={columns}
@@ -1374,7 +1469,7 @@ export default function SlaReportingPage() {
                             slotProps={{
                               toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
                             }}
-                            sx={{ border: 0, minWidth: 1080 }}
+                            sx={{ border: 0, minWidth: 920, fontSize: 12.5 }}
                           />
                         </Box>
                       )}
