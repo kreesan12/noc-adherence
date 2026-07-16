@@ -29,6 +29,18 @@ const PRODUCT_COLORS = {
   FTTC: '#7c3aed'
 }
 
+function alphaHex(color, alpha) {
+  return `${color}${alpha}`
+}
+
+function cardSurface(tone) {
+  return `radial-gradient(circle at top right, ${alphaHex(tone, '18')} 0%, transparent 36%), linear-gradient(180deg, ${alphaHex(tone, '10')} 0%, #ffffff 40%, #ffffff 100%)`
+}
+
+function sectionSurface(tone) {
+  return `linear-gradient(135deg, ${alphaHex(tone, '12')} 0%, ${alphaHex(tone, '04')} 52%, rgba(255,255,255,0) 100%)`
+}
+
 function hasNumericValue(value) {
   return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
 }
@@ -85,17 +97,48 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
     <Paper
       elevation={0}
       sx={{
-        p: 1.25,
+        position: 'relative',
+        p: 1.35,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
-        minHeight: rows.length ? 140 : 108,
-        minWidth: 0
+        borderRadius: 3.5,
+        background: cardSurface(tone),
+        boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
+        minHeight: rows.length ? 148 : 118,
+        minWidth: 0,
+        overflow: 'hidden',
+        transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
+        '&:hover': {
+          transform: 'translateY(-1px)',
+          boxShadow: '0 18px 34px rgba(15, 23, 42, 0.09)',
+          borderColor: alphaHex(tone, '55')
+        }
       }}
     >
       <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.7 }}>
-          {label}
-        </Typography>
+        <Stack spacing={0.8} sx={{ minWidth: 0, flex: 1 }}>
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                bgcolor: tone,
+                boxShadow: `0 0 0 5px ${alphaHex(tone, '14')}`
+              }}
+            />
+            <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.7, opacity: 0.72 }}>
+              {label}
+            </Typography>
+          </Stack>
+          <Typography
+            variant="h5"
+            fontWeight={900}
+            sx={{ lineHeight: 1, letterSpacing: '-0.02em', color: '#0f172a' }}
+          >
+            {value}
+          </Typography>
+        </Stack>
         {trend ? (
           <Chip
             size="small"
@@ -103,25 +146,25 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
             sx={{
               bgcolor: trend.tone,
               color: trend.textColor,
+              border: `1px solid ${trend.textColor}22`,
               fontWeight: 700,
-              maxWidth: '100%'
+              maxWidth: '100%',
+              '& .MuiChip-label': {
+                px: 1
+              }
             }}
           />
         ) : null}
       </Stack>
 
-      <Typography variant="h6" fontWeight={800} sx={{ mt: 0.4 }}>
-        {value}
-      </Typography>
-
       {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.55, opacity: 0.75, fontSize: 12.5 }}>
+        <Typography variant="body2" sx={{ mt: 0.8, opacity: 0.72, fontSize: 12.5, maxWidth: 280 }}>
           {subtext}
         </Typography>
       ) : null}
 
       {rows.length ? (
-        <Stack spacing={0.5} sx={{ mt: 1 }}>
+        <Stack spacing={0.65} sx={{ mt: 1.1 }}>
           {rows.map((row) => (
             <Stack
               key={row.label}
@@ -129,7 +172,14 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
               spacing={1}
               justifyContent="space-between"
               alignItems="center"
-              sx={{ minWidth: 0 }}
+              sx={{
+                minWidth: 0,
+                px: 0.9,
+                py: 0.5,
+                borderRadius: 2,
+                bgcolor: alphaHex(tone, '0a'),
+                border: `1px solid ${alphaHex(tone, '12')}`
+              }}
             >
               <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 12.5 }}>
                 {row.label}
@@ -150,21 +200,35 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
     <Paper
       elevation={0}
       sx={{
-        p: 1.25,
+        p: 1.3,
         border: '1px solid #e5e7eb',
         borderLeft: `4px solid ${tone}`,
-        minHeight: 118,
-        minWidth: 0
+        borderRadius: 3.5,
+        minHeight: 126,
+        minWidth: 0,
+        background: `linear-gradient(135deg, ${alphaHex(tone, '10')} 0%, #ffffff 30%, #ffffff 100%)`,
+        boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)'
       }}
     >
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="subtitle2" fontWeight={700}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.05 }}>
+        <Typography variant="subtitle2" fontWeight={800}>
           {title}
         </Typography>
-        {badge ? <Chip size="small" label={badge} /> : null}
+        {badge ? (
+          <Chip
+            size="small"
+            label={badge}
+            sx={{
+              bgcolor: alphaHex(tone, '12'),
+              color: tone,
+              border: `1px solid ${alphaHex(tone, '24')}`,
+              fontWeight: 700
+            }}
+          />
+        ) : null}
       </Stack>
 
-      <Typography variant="body2" sx={{ opacity: 0.82, minHeight: 44, fontSize: 13 }}>
+      <Typography variant="body2" sx={{ opacity: 0.82, minHeight: 48, fontSize: 13, lineHeight: 1.45 }}>
         {message}
       </Typography>
 
@@ -173,7 +237,17 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
           size="small"
           variant="outlined"
           onClick={onAction}
-          sx={{ mt: 1.25, textTransform: 'none', fontWeight: 600 }}
+          sx={{
+            mt: 1.3,
+            textTransform: 'none',
+            fontWeight: 700,
+            borderColor: alphaHex(tone, '48'),
+            color: tone,
+            '&:hover': {
+              borderColor: tone,
+              bgcolor: alphaHex(tone, '0f')
+            }
+          }}
         >
           {actionLabel}
         </Button>
@@ -182,23 +256,45 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
   )
 }
 
-function SectionCard({ title, subtitle, children, minHeight = 280, action = null, bodySx = {} }) {
+function SectionCard({ title, subtitle, children, minHeight = 280, action = null, bodySx = {}, tone = '#0f172a' }) {
   return (
-    <Paper elevation={0} sx={{ p: 1.25, border: '1px solid #e5e7eb', minWidth: 0, overflow: 'hidden' }}>
-      <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0, mb: 1 }}>
+    <Paper
+      elevation={0}
+      sx={{
+        border: '1px solid #e5e7eb',
+        borderRadius: 4,
+        minWidth: 0,
+        overflow: 'hidden',
+        background: '#ffffff',
+        boxShadow: '0 14px 32px rgba(15, 23, 42, 0.05)'
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={1}
+        justifyContent="space-between"
+        alignItems="flex-start"
+        sx={{
+          minWidth: 0,
+          px: 1.35,
+          py: 1.15,
+          borderBottom: '1px solid #eef2f7',
+          background: sectionSurface(tone)
+        }}
+      >
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="subtitle2" fontWeight={800}>
+          <Typography variant="subtitle2" fontWeight={800} sx={{ color: '#0f172a' }}>
             {title}
           </Typography>
           {subtitle ? (
-            <Typography variant="body2" sx={{ opacity: 0.7, fontSize: 12.5 }}>
+            <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 12.5 }}>
               {subtitle}
             </Typography>
           ) : null}
         </Box>
         {action ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
       </Stack>
-      <Box sx={{ minHeight, ...bodySx }}>{children}</Box>
+      <Box sx={{ px: 1.25, py: 1.15, minHeight, ...bodySx }}>{children}</Box>
     </Paper>
   )
 }
@@ -453,6 +549,7 @@ export default function SlaOverviewTab({
           subtitle="Average SLA with impacted and breaching link counts for the latest six months in range."
           minHeight={248}
           action={<Chip size="small" label={`Target ${SLA_TARGET}%`} sx={{ fontWeight: 700 }} />}
+          tone="#0f766e"
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly trend..." />
@@ -487,6 +584,7 @@ export default function SlaOverviewTab({
             subtitle="Top six weakest performers in range. Click a bar to open that ISP in the explorer."
             minHeight={210}
             action={<Chip size="small" label={`Top ${worstIspRows.length || 0}`} sx={{ fontWeight: 700 }} />}
+            tone="#dc2626"
           >
             {focusLoading && !worstIspRows.length ? (
               <ChartFallback message="Loading ISP watchlist..." />
@@ -525,6 +623,7 @@ export default function SlaOverviewTab({
             subtitle="Highest impacted service types in range. Click a bar to filter the dashboard."
             minHeight={180}
             action={<Chip size="small" label={`${serviceRows.length || 0} visible`} sx={{ fontWeight: 700 }} />}
+            tone="#1d4ed8"
           >
             {focusLoading && !serviceRows.length ? (
               <ChartFallback message="Loading service pressure..." />
@@ -576,6 +675,7 @@ export default function SlaOverviewTab({
           subtitle="Monthly average SLA by grouped product family across the selected range."
           minHeight={248}
           action={<Chip size="small" label={activeProductGroups.join(' / ') || 'No groups'} sx={{ fontWeight: 700 }} />}
+          tone="#7c3aed"
         >
           {focusLoading && !productMonthTrend.length ? (
             <ChartFallback message="Loading grouped product SLA..." />
@@ -615,6 +715,7 @@ export default function SlaOverviewTab({
           subtitle="Ticket and outage ratios relative to the active link base for the latest six months in range."
           minHeight={248}
           action={<Chip size="small" label={latestMonth?.yearMonth || 'No data'} sx={{ fontWeight: 700 }} />}
+          tone="#0f172a"
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly ratios..." />

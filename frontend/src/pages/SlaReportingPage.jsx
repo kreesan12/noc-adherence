@@ -1139,10 +1139,10 @@ export default function SlaReportingPage() {
           mb: 1.25,
           p: { xs: 1.25, md: 1.5 },
           border: '1px solid #0b6b49',
-          borderRadius: 3,
+          borderRadius: 4,
           color: '#f8fafc',
           background: 'linear-gradient(135deg, #0b7a4b 0%, #125c6d 58%, #142a45 100%)',
-          boxShadow: '0 16px 30px rgba(15, 23, 42, 0.16)',
+          boxShadow: '0 18px 36px rgba(15, 23, 42, 0.18)',
           overflow: 'hidden'
         }}
       >
@@ -1173,14 +1173,14 @@ export default function SlaReportingPage() {
               flexWrap="wrap"
               sx={{ minWidth: 0 }}
             >
-              <Chip size="small" label={`Range ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`} sx={{ bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 700 }} />
-              <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
-              <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
-              <Chip size="small" label={`Links ${fmtCount(overview.cards?.totalLinks || 0)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
-              <Chip size="small" label={`Average ${fmtPct(overview.cards?.avgUptimePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
-              <Chip size="small" label={overviewOpsLoading ? 'Ops loading' : 'Ops ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
-              <Chip size="small" label={overviewTrendLoading ? 'Trend loading' : 'Trend ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
-              <Chip size="small" label={overviewFocusLoading ? 'Insights loading' : 'Insights ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={`Range ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`} sx={{ bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 700, border: '1px solid rgba(255,255,255,0.14)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={`Links ${fmtCount(overview.cards?.totalLinks || 0)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={`Average ${fmtPct(overview.cards?.avgUptimePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={overviewOpsLoading ? 'Ops loading' : 'Ops ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={overviewTrendLoading ? 'Trend loading' : 'Trend ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
+              <Chip size="small" label={overviewFocusLoading ? 'Insights loading' : 'Insights ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
             </Stack>
           </Stack>
 
@@ -1191,10 +1191,10 @@ export default function SlaReportingPage() {
             flexWrap="wrap"
             sx={{ minWidth: 0 }}
           >
-            <Chip size="small" label="Overview for direction" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
-            <Chip size="small" label="Breaches for watchlist" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
-            <Chip size="small" label="Outages and tickets for evidence" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
-            <Chip size="small" label="Explorer for FRG drilldown" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
+            <Chip size="small" label="Overview for direction" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
+            <Chip size="small" label="Breaches for watchlist" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
+            <Chip size="small" label="Outages and tickets for evidence" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
+            <Chip size="small" label="Explorer for FRG drilldown" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
           </Stack>
         </Stack>
       </Paper>
@@ -1205,8 +1205,10 @@ export default function SlaReportingPage() {
           p: 1.25,
           mb: 1.25,
           border: '1px solid #d8e3dd',
-          borderRadius: 3,
+          borderRadius: 4,
           bgcolor: '#f7fbf8',
+          background: 'linear-gradient(180deg, #fbfefd 0%, #f7fbf8 100%)',
+          boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
           overflow: 'hidden'
         }}
       >
@@ -1336,7 +1338,7 @@ export default function SlaReportingPage() {
         </Stack>
       </Paper>
 
-      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 4, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
         <Tabs
           value={activeTab}
           onChange={(_, value) => setActiveTab(value)}
