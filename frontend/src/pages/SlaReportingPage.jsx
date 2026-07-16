@@ -405,6 +405,7 @@ export default function SlaReportingPage() {
         })
       }))
       if (activeTab === 'overview') {
+        void loadOverviewOptions(params)
         void loadOverviewOps(params)
         void loadOverviewTrend(params)
         void loadOverviewFocus(params)
@@ -414,6 +415,25 @@ export default function SlaReportingPage() {
       setOverviewError(String(msg))
     } finally {
       setOverviewLoading(false)
+    }
+  }
+
+  async function loadOverviewOptions(providedParams = null) {
+    try {
+      const params = providedParams || getOverviewParams()
+      const res = await api.get('/sla-reporting/overview/options', {
+        params: {
+          from: params.from,
+          to: params.to
+        }
+      })
+      setOverview((state) => ({
+        ...state,
+        productTypes: res.data?.productTypes || [],
+        serviceTypes: res.data?.serviceTypes || []
+      }))
+    } catch (err) {
+      console.warn('Failed to load SLA overview filter options', err)
     }
   }
 
