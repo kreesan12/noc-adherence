@@ -7,6 +7,14 @@ const DOWNTIME_CATEGORY = 'Service impacting'
 const SLA_TARGET = 99.5
 const RESPONSE_CACHE_TTL_MS = 60 * 1000
 const responseCache = new Map()
+const PRODUCT_GROUP_ORDER_SQL = `
+  CASE label
+    WHEN 'FTTB' THEN 1
+    WHEN 'FTTH' THEN 2
+    WHEN 'FTTC' THEN 3
+    ELSE 4
+  END
+`
 const LINK_META_CTE = `
 WITH link_meta AS (
   SELECT
@@ -35,6 +43,25 @@ WITH link_meta AS (
     ON ns_link.frg = sb_link.frogfootlinklabel
 )
 `
+
+function buildProductGroupExpr(expr) {
+  return `
+    CASE
+      WHEN LOWER(COALESCE(${expr}, '')) LIKE '%home%' OR LOWER(COALESCE(${expr}, '')) LIKE '%air%' THEN 'FTTH'
+      WHEN LOWER(COALESCE(${expr}, '')) LIKE '%rise%' THEN 'FTTC'
+      ELSE 'FTTB'
+    END
+  `
+}
+
+function buildOutageClientCountExpr(alias = 'o') {
+  return `
+    COALESCE(
+      NULLIF(REGEXP_REPLACE(COALESCE(${alias}.sub_count::text, ''), '[^0-9.-]', '', 'g'), ''),
+      '0'
+    )::numeric
+  `
+}
 
 function getCacheKey(scope, params) {
   return `${scope}:${JSON.stringify(params)}`
@@ -304,11 +331,12 @@ r.get('/overview/ops', verifyToken, async (req, res) => {
   const productType = normalizeFilter(req.query.productType)
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
+  const needsOutageMeta = Boolean(productType || serviceType)
   const sql = `
     ${needsServiceMeta ? LINK_META_CTE : ''}
     SELECT
       COALESCE(SUM(COALESCE(i.tickets, 0)), 0)::int AS ticket_count,
-      COALESCE(SUM(COALESCE(i.outages, 0)), 0)::int AS outage_count
+      COALESCE(SUM(COALESCE(i.outages, 0)), 0)::int AS outage_impact_count
     FROM public.isp_table i
     ${needsServiceMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = i.frogfootlinklabel' : ''}
     WHERE i.year_month >= $1
@@ -326,15 +354,49 @@ r.get('/overview/ops', verifyToken, async (req, res) => {
     productType,
     serviceType
   }, async () => {
-    const rows = await prisma.$queryRawUnsafe(sql, ...sqlArgs)
+    const outageSql = `
+      ${needsOutageMeta ? `${LINK_META_CTE},` : 'WITH'}
+      outage_base AS (
+        SELECT DISTINCT
+          o.outage_ref,
+          o.year_month,
+          ${buildOutageClientCountExpr('o')} AS client_count
+        FROM public.outage_resolvers os
+        JOIN public.outages_outage o
+          ON o.outage_ref = os.outageref
+        ${needsOutageMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = os.frogfootlinklabel' : ''}
+        WHERE o.outage_ref IS NOT NULL
+          AND o.year_month >= $1
+          AND o.year_month <= $2
+          ${needsOutageMeta ? "AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)" : ''}
+          ${needsOutageMeta ? "AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)" : ''}
+      )
+      SELECT
+        COUNT(*)::int AS outage_count,
+        COUNT(*) FILTER (WHERE client_count < 20)::int AS minor_outage_count,
+        COUNT(*) FILTER (WHERE client_count >= 20)::int AS major_outage_count
+      FROM outage_base
+    `
+    const outageArgs = needsOutageMeta
+      ? [fromKey, toKey, productType, serviceType]
+      : [fromKey, toKey]
+
+    const [rows, outageRows] = await runSequentially([
+      () => prisma.$queryRawUnsafe(sql, ...sqlArgs),
+      () => prisma.$queryRawUnsafe(outageSql, ...outageArgs)
+    ])
     const card = rows?.[0] || {}
+    const outageCard = outageRows?.[0] || {}
     return {
       from: fromKey,
       to: toKey,
       cards: {
         ticketCount: toNum(card.ticket_count, 0),
         serviceImpactingTickets: null,
-        outageCount: toNum(card.outage_count, 0)
+        outageCount: toNum(outageCard.outage_count, 0),
+        outageImpactCount: toNum(card.outage_impact_count, 0),
+        minorOutageCount: toNum(outageCard.minor_outage_count, 0),
+        majorOutageCount: toNum(outageCard.major_outage_count, 0)
       }
     }
   })
@@ -347,6 +409,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
   const productType = normalizeFilter(req.query.productType)
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
+  const needsOutageMeta = Boolean(productType || serviceType)
   const sql = `
     ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
     isp_base AS (
@@ -354,10 +417,8 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         i.frogfootlinklabel,
         i.year_month,
         i."uptime%"::numeric AS uptime_pct,
-        COALESCE(i.total_downtime, interval '0 second') AS total_downtime,
         COALESCE(i.unique_links_affected, 0)::int AS unique_links_affected,
-        COALESCE(i.tickets, 0)::int AS tickets,
-        COALESCE(i.outages, 0)::int AS outages
+        COALESCE(i.tickets, 0)::int AS tickets
       FROM public.isp_table i
       ${needsServiceMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = i.frogfootlinklabel' : ''}
       WHERE i.frogfootlinklabel IS NOT NULL
@@ -365,19 +426,31 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         AND i.year_month <= $2
         AND ($3::text = '' OR COALESCE(NULLIF(i.producttype, ''), 'Unknown') = $3)
         ${needsServiceMeta ? "AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)" : ''}
+    ),
+    month_rollup AS (
+      SELECT
+        i.year_month,
+        COUNT(DISTINCT i.frogfootlinklabel)::int AS total_links,
+        ROUND(AVG(i.uptime_pct), 2) AS avg_uptime_pct,
+        COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.unique_links_affected > 0)::int AS impacted_links,
+        COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.uptime_pct < ${SLA_TARGET})::int AS breach_links,
+        SUM(i.tickets)::int AS ticket_count
+      FROM isp_base i
+      GROUP BY i.year_month
     )
     SELECT
-      i.year_month,
-      ROUND(AVG(i.uptime_pct), 2) AS avg_uptime_pct,
-      COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.unique_links_affected > 0)::int AS impacted_links,
-      COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.uptime_pct < ${SLA_TARGET})::int AS breach_links,
-      ROUND((SUM(EXTRACT(EPOCH FROM i.total_downtime)) / 3600.0)::numeric, 2) AS downtime_hours,
-      SUM(i.tickets)::int AS ticket_count,
+      m.year_month,
+      m.total_links,
+      m.avg_uptime_pct,
+      m.impacted_links,
+      m.breach_links,
+      m.ticket_count,
       NULL::int AS service_impacting_tickets,
-      SUM(i.outages)::int AS outage_count
-    FROM isp_base i
-    GROUP BY i.year_month
-    ORDER BY i.year_month
+      0::int AS outage_count,
+      0::int AS outage_impact_count,
+      0::int AS unique_outage_impacted_links
+    FROM month_rollup m
+    ORDER BY m.year_month
   `
   const sqlArgs = needsServiceMeta
     ? [fromKey, toKey, productType, serviceType]
@@ -389,16 +462,54 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
     productType,
     serviceType
   }, async () => {
-    const monthRows = await prisma.$queryRawUnsafe(sql, ...sqlArgs)
+    const outageSql = `
+      ${needsOutageMeta ? `${LINK_META_CTE},` : 'WITH'}
+      outage_base AS (
+        SELECT DISTINCT
+          o.year_month,
+          o.outage_ref,
+          os.frogfootlinklabel
+        FROM public.outage_resolvers os
+        JOIN public.outages_outage o
+          ON o.outage_ref = os.outageref
+        ${needsOutageMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = os.frogfootlinklabel' : ''}
+        WHERE o.outage_ref IS NOT NULL
+          AND o.year_month >= $1
+          AND o.year_month <= $2
+          ${needsOutageMeta ? "AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)" : ''}
+          ${needsOutageMeta ? "AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)" : ''}
+      )
+      SELECT
+        ob.year_month,
+        COUNT(DISTINCT ob.outage_ref)::int AS outage_count,
+        COUNT(*)::int AS outage_impact_count,
+        COUNT(DISTINCT ob.frogfootlinklabel)::int AS unique_outage_impacted_links
+      FROM outage_base ob
+      GROUP BY ob.year_month
+      ORDER BY ob.year_month
+    `
+    const outageArgs = needsOutageMeta
+      ? [fromKey, toKey, productType, serviceType]
+      : [fromKey, toKey]
+
+    const [monthRows, outageRows] = await runSequentially([
+      () => prisma.$queryRawUnsafe(sql, ...sqlArgs),
+      () => prisma.$queryRawUnsafe(outageSql, ...outageArgs)
+    ])
     const monthMap = Object.fromEntries(months.map((month) => [month, {
       yearMonth: month,
+      totalLinks: 0,
       avgUptimePct: 0,
       impactedLinks: 0,
       breachLinks: 0,
-      downtimeHours: 0,
       ticketCount: 0,
       serviceImpactingTickets: 0,
-      outageCount: 0
+      outageCount: 0,
+      outageImpactCount: 0,
+      uniqueOutageImpactedLinks: 0,
+      ticketContactRatioPct: 0,
+      outageImpactRatioPct: 0,
+      uniqueOutageImpactRatioPct: 0
     }]))
 
     for (const row of monthRows) {
@@ -406,13 +517,40 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       if (!monthMap[key]) continue
       monthMap[key] = {
         yearMonth: key,
+        totalLinks: toNum(row.total_links, 0),
         avgUptimePct: toNum(row.avg_uptime_pct, 0),
         impactedLinks: toNum(row.impacted_links, 0),
         breachLinks: toNum(row.breach_links, 0),
-        downtimeHours: toNum(row.downtime_hours, 0),
         ticketCount: toNum(row.ticket_count, 0),
         serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
-        outageCount: toNum(row.outage_count, 0)
+        outageCount: 0,
+        outageImpactCount: 0,
+        uniqueOutageImpactedLinks: 0,
+        ticketContactRatioPct: 0,
+        outageImpactRatioPct: 0,
+        uniqueOutageImpactRatioPct: 0
+      }
+    }
+
+    for (const row of outageRows) {
+      const key = String(row.year_month || '').trim()
+      if (!monthMap[key]) continue
+      monthMap[key] = {
+        ...monthMap[key],
+        outageCount: toNum(row.outage_count, 0),
+        outageImpactCount: toNum(row.outage_impact_count, 0),
+        uniqueOutageImpactedLinks: toNum(row.unique_outage_impacted_links, 0)
+      }
+    }
+
+    for (const month of months) {
+      const current = monthMap[month]
+      const totalLinks = toNum(current.totalLinks, 0)
+      monthMap[month] = {
+        ...current,
+        ticketContactRatioPct: totalLinks ? (toNum(current.ticketCount, 0) / totalLinks) * 100 : 0,
+        outageImpactRatioPct: totalLinks ? (toNum(current.outageImpactCount, 0) / totalLinks) * 100 : 0,
+        uniqueOutageImpactRatioPct: totalLinks ? (toNum(current.uniqueOutageImpactedLinks, 0) / totalLinks) * 100 : 0
       }
     }
 
@@ -502,6 +640,8 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
   const { fromKey, toKey } = resolveRange(req.query)
   const productType = normalizeFilter(req.query.productType)
   const serviceType = normalizeFilter(req.query.serviceType)
+  const needsServiceMeta = Boolean(serviceType)
+  const productGroupExpr = buildProductGroupExpr("COALESCE(NULLIF(i.producttype, ''), 'Unknown')")
 
   const payload = await withCachedResponse('sla-overview-groups', {
     fromKey,
@@ -509,69 +649,33 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
     productType,
     serviceType
   }, async () => {
-    const [productRows, serviceRows] = await runSequentially([
+    const [productRows] = await runSequentially([
       () => prisma.$queryRawUnsafe(
         `
-        ${LINK_META_CTE},
+        ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
         isp_base AS (
           SELECT
             i.frogfootlinklabel,
-            COALESCE(NULLIF(i.producttype, ''), COALESCE(lm.product_type, 'Unknown')) AS product_type,
+            ${productGroupExpr} AS product_group,
             i."uptime%"::numeric AS uptime_pct,
             COALESCE(i.unique_links_affected, 0)::int AS unique_links_affected
           FROM public.isp_table i
-          LEFT JOIN link_meta lm
-            ON lm.frogfootlinklabel = i.frogfootlinklabel
+          ${needsServiceMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = i.frogfootlinklabel' : ''}
           WHERE i.frogfootlinklabel IS NOT NULL
             AND i.year_month >= $1
             AND i.year_month <= $2
-            AND ($3::text = '' OR COALESCE(NULLIF(i.producttype, ''), COALESCE(lm.product_type, 'Unknown')) = $3)
-            AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
+            AND ($3::text = '' OR COALESCE(NULLIF(i.producttype, ''), 'Unknown') = $3)
+            ${needsServiceMeta ? "AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)" : ''}
         )
         SELECT
-          COALESCE(i.product_type, 'Unknown') AS label,
+          COALESCE(i.product_group, 'FTTB') AS label,
           COUNT(DISTINCT i.frogfootlinklabel)::int AS link_count,
           COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.unique_links_affected > 0)::int AS impacted_links,
           ROUND(AVG(i.uptime_pct), 2) AS avg_uptime_pct,
           ROUND(MIN(i.uptime_pct), 2) AS worst_uptime_pct
         FROM isp_base i
-        GROUP BY COALESCE(i.product_type, 'Unknown')
-        ORDER BY impacted_links DESC, link_count DESC, label ASC
-        LIMIT 10
-        `,
-        fromKey,
-        toKey,
-        productType,
-        serviceType
-      ),
-      () => prisma.$queryRawUnsafe(
-        `
-        ${LINK_META_CTE},
-        isp_base AS (
-          SELECT
-            i.frogfootlinklabel,
-            COALESCE(lm.service_type, 'Unknown') AS service_type,
-            i."uptime%"::numeric AS uptime_pct,
-            COALESCE(i.unique_links_affected, 0)::int AS unique_links_affected
-          FROM public.isp_table i
-          LEFT JOIN link_meta lm
-            ON lm.frogfootlinklabel = i.frogfootlinklabel
-          WHERE i.frogfootlinklabel IS NOT NULL
-            AND i.year_month >= $1
-            AND i.year_month <= $2
-            AND ($3::text = '' OR COALESCE(NULLIF(i.producttype, ''), COALESCE(lm.product_type, 'Unknown')) = $3)
-            AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
-        )
-        SELECT
-          COALESCE(i.service_type, 'Unknown') AS label,
-          COUNT(DISTINCT i.frogfootlinklabel)::int AS link_count,
-          COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.unique_links_affected > 0)::int AS impacted_links,
-          ROUND(AVG(i.uptime_pct), 2) AS avg_uptime_pct,
-          ROUND(MIN(i.uptime_pct), 2) AS worst_uptime_pct
-        FROM isp_base i
-        GROUP BY COALESCE(i.service_type, 'Unknown')
-        ORDER BY impacted_links DESC, link_count DESC, label ASC
-        LIMIT 10
+        GROUP BY COALESCE(i.product_group, 'FTTB')
+        ORDER BY ${PRODUCT_GROUP_ORDER_SQL}
         `,
         fromKey,
         toKey,
@@ -590,13 +694,7 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
         avgUptimePct: toNum(row.avg_uptime_pct, 0),
         worstUptimePct: toNum(row.worst_uptime_pct, 0)
       })),
-      servicePerformance: serviceRows.map((row) => ({
-        label: String(row.label || 'Unknown'),
-        linkCount: toNum(row.link_count, 0),
-        impactedLinks: toNum(row.impacted_links, 0),
-        avgUptimePct: toNum(row.avg_uptime_pct, 0),
-        worstUptimePct: toNum(row.worst_uptime_pct, 0)
-      }))
+      servicePerformance: []
     }
   })
 

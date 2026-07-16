@@ -966,14 +966,14 @@ export default function SlaReportingPage() {
     const worstIsp = overview.worstIsps?.[0] || null
     const hottestProduct = [...(overview.productPerformance || [])]
       .sort((a, b) => Number(b.impactedLinks || 0) - Number(a.impactedLinks || 0))[0] || null
-    const hottestService = [...(overview.servicePerformance || [])]
-      .sort((a, b) => Number(b.impactedLinks || 0) - Number(a.impactedLinks || 0))[0] || null
     const trend = overview.monthTrend || []
     const last = trend[trend.length - 1] || null
     const prev = trend[trend.length - 2] || null
     const delta = last && prev
       ? Number(last.avgUptimePct || 0) - Number(prev.avgUptimePct || 0)
       : null
+    const minorOutages = Number(overview.cards?.minorOutageCount || 0)
+    const majorOutages = Number(overview.cards?.majorOutageCount || 0)
 
     return {
       watchlist: worstIsp ? {
@@ -989,21 +989,15 @@ export default function SlaReportingPage() {
       product: hottestProduct ? {
         badge: hottestProduct.label,
         message: `${hottestProduct.label} carries the heaviest impact concentration with ${fmtCount(hottestProduct.impactedLinks)} impacted links out of ${fmtCount(hottestProduct.linkCount)}.`,
-        actionLabel: 'Filter Product',
-        onAction: () => focusProductType(hottestProduct.label)
+        actionLabel: ''
       } : {
         badge: 'No Data',
         message: 'No product concentration insight is available for this range.',
         actionLabel: ''
       },
-      service: hottestService ? {
-        badge: hottestService.label,
-        message: `${hottestService.label} is the busiest service grouping by impact with ${fmtCount(hottestService.impactedLinks)} affected links in the selected range.`,
-        actionLabel: 'Filter Service',
-        onAction: () => focusServiceType(hottestService.label)
-      } : {
-        badge: 'No Data',
-        message: 'No service concentration insight is available for this range.',
+      incident: {
+        badge: `${fmtCount(majorOutages)} major`,
+        message: `Minor incidents: ${fmtCount(minorOutages)}. Major outages: ${fmtCount(majorOutages)}. Outages are now counted as unique outage refs, not affected-link rows.`,
         actionLabel: ''
       },
       trend: last ? {
@@ -1117,12 +1111,9 @@ export default function SlaReportingPage() {
       py={1.25}
       sx={{
         width: '100%',
-        maxWidth: {
-          xs: '100%',
-          lg: 'calc(100vw - 300px)'
-        },
-        overflowX: 'clip',
-        mx: 'auto'
+        maxWidth: '100%',
+        overflowX: 'hidden',
+        mx: 0
       }}
     >
       <Paper
