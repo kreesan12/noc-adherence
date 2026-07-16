@@ -227,6 +227,7 @@ export default function SlaReportingPage() {
   const [frgSearch, setFrgSearch] = useState('')
   const [ispSort, setIspSort] = useState('risk')
   const [explorerMode, setExplorerMode] = useState('all')
+  const [productGroupFilter, setProductGroupFilter] = useState('')
   const [productTypeFilter, setProductTypeFilter] = useState('')
   const [serviceTypeFilter, setServiceTypeFilter] = useState('')
   const [exportingCurrent, setExportingCurrent] = useState(false)
@@ -241,6 +242,7 @@ export default function SlaReportingPage() {
   const [overviewOpsError, setOverviewOpsError] = useState('')
   const [overview, setOverview] = useState({
     months: [],
+    productGroups: [],
     productTypes: [],
     serviceTypes: [],
     cards: {},
@@ -291,7 +293,7 @@ export default function SlaReportingPage() {
     topTickets: []
   })
   const [loading, setLoading] = useState(false)
-  const [data, setData] = useState({ months: [], isps: [], productTypes: [], serviceTypes: [], from: null, to: null })
+  const [data, setData] = useState({ months: [], isps: [], productGroups: [], productTypes: [], serviceTypes: [], from: null, to: null })
   const [linksByIsp, setLinksByIsp] = useState({})
   const [linksMetaByIsp, setLinksMetaByIsp] = useState({})
   const [expandedIsp, setExpandedIsp] = useState('')
@@ -309,6 +311,7 @@ export default function SlaReportingPage() {
     setFrgSearch('')
     setIspSort('risk')
     setExplorerMode('all')
+    setProductGroupFilter('')
     setProductTypeFilter('')
     setServiceTypeFilter('')
     setBreachSearch('')
@@ -335,6 +338,11 @@ export default function SlaReportingPage() {
     setProductTypeFilter(String(productType))
   }
 
+  function focusProductGroup(productGroup) {
+    if (!productGroup) return
+    setProductGroupFilter(String(productGroup))
+  }
+
   function focusServiceType(serviceType) {
     if (!serviceType) return
     setServiceTypeFilter(String(serviceType))
@@ -344,6 +352,7 @@ export default function SlaReportingPage() {
     return {
       from: range.from,
       to: range.to,
+      productGroup: productGroupFilter,
       productType: productTypeFilter,
       serviceType: serviceTypeFilter
     }
@@ -356,11 +365,12 @@ export default function SlaReportingPage() {
         params: {
           from: range.from,
           to: range.to,
+          productGroup: productGroupFilter,
           productType: productTypeFilter,
           serviceType: serviceTypeFilter
         }
       })
-      setData(res.data || { months: [], isps: [], productTypes: [], serviceTypes: [] })
+      setData(res.data || { months: [], isps: [], productGroups: [], productTypes: [], serviceTypes: [] })
       setLinksByIsp({})
       setLinksMetaByIsp({})
       setExpandedIsp('')
@@ -395,6 +405,7 @@ export default function SlaReportingPage() {
         ...state,
         ...(res.data || {
           months: [],
+          productGroups: [],
           productTypes: [],
           serviceTypes: [],
           cards: {},
@@ -429,6 +440,7 @@ export default function SlaReportingPage() {
       })
       setOverview((state) => ({
         ...state,
+        productGroups: res.data?.productGroups || [],
         productTypes: res.data?.productTypes || [],
         serviceTypes: res.data?.serviceTypes || []
       }))
@@ -523,6 +535,7 @@ export default function SlaReportingPage() {
         params: {
           from: range.from,
           to: range.to,
+          productGroup: productGroupFilter,
           productType: productTypeFilter,
           serviceType: serviceTypeFilter,
           threshold: breachThreshold,
@@ -555,6 +568,7 @@ export default function SlaReportingPage() {
         params: {
           from: range.from,
           to: range.to,
+          productGroup: productGroupFilter,
           productType: productTypeFilter,
           serviceType: serviceTypeFilter
         }
@@ -584,6 +598,7 @@ export default function SlaReportingPage() {
         params: {
           from: range.from,
           to: range.to,
+          productGroup: productGroupFilter,
           productType: productTypeFilter,
           serviceType: serviceTypeFilter
         }
@@ -650,6 +665,7 @@ export default function SlaReportingPage() {
           page,
           pageSize,
           frgSearch,
+          productGroup: productGroupFilter,
           productType: productTypeFilter,
           serviceType: serviceTypeFilter
         }
@@ -724,6 +740,7 @@ export default function SlaReportingPage() {
     const filterRows = [
       { Filter: 'From', Value: range.from || '-' },
       { Filter: 'To', Value: range.to || '-' },
+      { Filter: 'Product Group', Value: productGroupFilter || 'All' },
       { Filter: 'Product Type', Value: productTypeFilter || 'All' },
       { Filter: 'Service Type', Value: serviceTypeFilter || 'All' },
       { Filter: 'Explorer ISP Search', Value: ispSearch || '-' },
@@ -864,7 +881,7 @@ export default function SlaReportingPage() {
   useEffect(() => {
     if (activeTab !== 'overview' && overview.months?.length) return
     loadOverview().catch(console.error)
-  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, range.from, range.to, productGroupFilter, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeTab === 'breaches') loadBreaches().catch(console.error)
@@ -872,6 +889,7 @@ export default function SlaReportingPage() {
     activeTab,
     range.from,
     range.to,
+    productGroupFilter,
     productTypeFilter,
     serviceTypeFilter,
     breachThreshold,
@@ -882,21 +900,21 @@ export default function SlaReportingPage() {
 
   useEffect(() => {
     if (activeTab === 'outages') loadOutageAnalytics().catch(console.error)
-  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, range.from, range.to, productGroupFilter, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeTab === 'tickets') loadTicketAnalytics().catch(console.error)
-  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, range.from, range.to, productGroupFilter, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeTab === 'explorer') loadSummary().catch(console.error)
-  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, range.from, range.to, productGroupFilter, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setLinksByIsp({})
     setLinksMetaByIsp({})
     setExpandedIsp('')
-  }, [frgSearch, productTypeFilter, serviceTypeFilter, range.from, range.to])
+  }, [frgSearch, productGroupFilter, productTypeFilter, serviceTypeFilter, range.from, range.to])
 
   useEffect(() => {
     setBreachPagination((state) => ({ ...state, page: 0 }))
@@ -956,6 +974,7 @@ export default function SlaReportingPage() {
   )
 
   const activeFilterCount = [
+    productGroupFilter,
     productTypeFilter,
     serviceTypeFilter,
     ispSearch,
@@ -989,7 +1008,8 @@ export default function SlaReportingPage() {
       product: hottestProduct ? {
         badge: hottestProduct.label,
         message: `${hottestProduct.label} carries the heaviest impact concentration with ${fmtCount(hottestProduct.impactedLinks)} impacted links out of ${fmtCount(hottestProduct.linkCount)}.`,
-        actionLabel: ''
+        actionLabel: 'Filter Group',
+        onAction: () => focusProductGroup(hottestProduct.label)
       } : {
         badge: 'No Data',
         message: 'No product concentration insight is available for this range.',
@@ -1223,6 +1243,19 @@ export default function SlaReportingPage() {
             <TextField
               size="small"
               select
+              label="Product Group"
+              value={productGroupFilter}
+              onChange={(e) => setProductGroupFilter(e.target.value)}
+              sx={{ minWidth: 154 }}
+            >
+              <MenuItem value="">All Groups</MenuItem>
+              {((overview.productGroups && overview.productGroups.length ? overview.productGroups : data.productGroups) || []).map((pg) => (
+                <MenuItem key={`pg-${pg}`} value={pg}>{pg}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              size="small"
+              select
               label="Product Type"
               value={productTypeFilter}
               onChange={(e) => setProductTypeFilter(e.target.value)}
@@ -1299,6 +1332,7 @@ export default function SlaReportingPage() {
             <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(12))}>Last 12M</Button>
             <Button size="small" variant="text" onClick={() => setRange(ytdRange())}>YTD</Button>
             <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} />
+            {productGroupFilter ? <Chip size="small" label={`Group ${productGroupFilter}`} /> : null}
             {productTypeFilter ? <Chip size="small" label={`Product ${productTypeFilter}`} /> : null}
             {serviceTypeFilter ? <Chip size="small" label={`Service ${serviceTypeFilter}`} /> : null}
           </Stack>
@@ -1353,6 +1387,7 @@ export default function SlaReportingPage() {
           fmtCount={fmtCount}
           onViewBreaches={openBreachesTab}
           onSelectIsp={focusIsp}
+          onSelectProductGroup={focusProductGroup}
           onSelectProductType={focusProductType}
           onSelectServiceType={focusServiceType}
         />

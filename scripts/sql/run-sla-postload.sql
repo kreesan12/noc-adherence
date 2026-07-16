@@ -632,4 +632,6 @@ SELECT
 FROM ranked_links rl
 ORDER BY rl.priority_rank;
 
+\ir refresh-sla-dashboard.sql
+
 \echo [INFO] SLA pipeline completed for month :month_key
