@@ -80,7 +80,7 @@ const StyledDrawer = styled(Drawer)(() => ({
   '& .MuiDrawer-paper': {
     width: DRAWER_WIDTH,
     backdropFilter: 'blur(6px)',
-    background: 'rgb(0, 184, 75)',
+    background: 'linear-gradient(135deg, #0b7a4b 0%, #125c6d 58%, #142a45 100%)',
     color: '#fff',
     borderRight: 'none',
   },
@@ -254,12 +254,14 @@ function FloatingTechUserStatus() {
 }
 
 /* ──────────────────────── App ──────────────────────────── */
+const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/'
+
 export default function App() {
   return (
     <AuthProvider>
       <ThemeProvider theme={theme}>
         <CssBaseline/>
-        <BrowserRouter basename="/noc-adherence">
+        <BrowserRouter basename={routerBasename}>
           <SideNav/>
 
           {/* ✅ AppFrame removes drawer padding on /tech routes and on /login */}
@@ -319,3 +321,4 @@ export default function App() {
     </AuthProvider>
   )
 }
+

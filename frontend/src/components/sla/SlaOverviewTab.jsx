@@ -7,6 +7,12 @@ import {
   Stack,
   Typography
 } from '@mui/material'
+import BoltOutlinedIcon from '@mui/icons-material/BoltOutlined'
+import ConfirmationNumberOutlinedIcon from '@mui/icons-material/ConfirmationNumberOutlined'
+import CrisisAlertOutlinedIcon from '@mui/icons-material/CrisisAlertOutlined'
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
+import QueryStatsOutlinedIcon from '@mui/icons-material/QueryStatsOutlined'
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import {
   Area,
   AreaChart,
@@ -108,19 +114,19 @@ function buildTrendChip(current, previous, key, { digits = 2, invert = false, su
   }
 }
 
-function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend = null, spark = null }) {
+function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend = null, spark = null, icon = null }) {
   return (
     <Paper
       elevation={0}
       sx={{
         position: 'relative',
-        p: 1.35,
+        p: 1.15,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
-        borderRadius: 3,
+        borderRadius: 3.25,
         background: cardSurface(tone),
         boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
-        minHeight: rows.length ? 148 : 118,
+        minHeight: rows.length ? 142 : 112,
         minWidth: 0,
         overflow: 'hidden',
         transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
@@ -136,13 +142,29 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
             <Box
               sx={{
-                width: 9,
-                height: 9,
-                borderRadius: '50%',
-                bgcolor: tone,
-                boxShadow: `0 0 0 5px ${alphaHex(tone, '14')}`
+                width: 24,
+                height: 24,
+                borderRadius: 1.75,
+                bgcolor: alphaHex(tone, '14'),
+                color: tone,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: `inset 0 0 0 1px ${alphaHex(tone, '24')}`
               }}
-            />
+            >
+              {icon || (
+                <Box
+                  sx={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: '50%',
+                    bgcolor: tone,
+                    boxShadow: `0 0 0 5px ${alphaHex(tone, '14')}`
+                  }}
+                />
+              )}
+            </Box>
             <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.7, opacity: 0.72 }}>
               {label}
             </Typography>
@@ -150,7 +172,7 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
           <Typography
             variant="h5"
             fontWeight={900}
-            sx={{ lineHeight: 1, letterSpacing: '-0.02em', color: '#0f172a' }}
+            sx={{ lineHeight: 1, letterSpacing: '-0.02em', color: '#0f172a', fontSize: 29 }}
           >
             {value}
           </Typography>
@@ -174,13 +196,13 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
       </Stack>
 
       {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.8, opacity: 0.72, fontSize: 12.5, maxWidth: 280 }}>
+        <Typography variant="body2" sx={{ mt: 0.7, opacity: 0.72, fontSize: 12, maxWidth: 260 }}>
           {subtext}
         </Typography>
       ) : null}
 
       {rows.length ? (
-        <Stack spacing={0.65} sx={{ mt: 1.1 }}>
+        <Stack spacing={0.55} sx={{ mt: 0.95 }}>
           {rows.map((row) => (
             <Stack
               key={row.label}
@@ -190,17 +212,17 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
               alignItems="center"
               sx={{
                 minWidth: 0,
-                px: 0.9,
-                py: 0.5,
-                borderRadius: 1.5,
+                px: 0.8,
+                py: 0.4,
+                borderRadius: 1.75,
                 bgcolor: alphaHex(tone, '0a'),
                 border: `1px solid ${alphaHex(tone, '12')}`
               }}
             >
-              <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 12.5 }}>
+              <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 11.75 }}>
                 {row.label}
               </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12.5, textAlign: 'right' }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 11.75, textAlign: 'right' }}>
                 {row.value}
               </Typography>
             </Stack>
@@ -210,7 +232,7 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
 
       {spark?.data?.length > 1 ? (
         <Box sx={{ mt: rows.length ? 0.95 : 1.15, pt: 0.55, borderTop: `1px solid ${alphaHex(tone, '12')}` }}>
-          <ResponsiveContainer width="100%" height={42}>
+          <ResponsiveContainer width="100%" height={38}>
             <AreaChart data={spark.data} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
               <Area
                 type="monotone"
@@ -235,7 +257,7 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
         p: 1.3,
         border: '1px solid #e5e7eb',
         borderLeft: `4px solid ${tone}`,
-        borderRadius: 3,
+        borderRadius: 3.25,
         minHeight: 126,
         minWidth: 0,
         background: `linear-gradient(135deg, ${alphaHex(tone, '10')} 0%, #ffffff 30%, #ffffff 100%)`,
@@ -294,7 +316,7 @@ function SectionCard({ title, subtitle, children, minHeight = 280, action = null
       elevation={0}
       sx={{
         border: '1px solid #e5e7eb',
-        borderRadius: 3,
+        borderRadius: 3.25,
         minWidth: 0,
         overflow: 'hidden',
         background: '#ffffff',
@@ -374,15 +396,10 @@ export default function SlaOverviewTab({
   onSelectServiceType
 }) {
   const cards = overview?.cards || {}
-  const allMonths = overview?.months || []
   const monthTrend = (overview?.monthTrend || []).slice(-6)
   const productMonthTrend = (overview?.productMonthTrend || []).slice(-6)
   const latestMonth = monthTrend[monthTrend.length - 1] || null
   const previousMonth = monthTrend[monthTrend.length - 2] || null
-  const monthsInView = allMonths.length
-  const rangeLabel = overview?.from && overview?.to
-    ? `${overview.from} to ${overview.to}`
-    : 'No range loaded'
   const monthlySlaDomain = buildPercentDomain(monthTrend, ['avgUptimePct'], 98)
   const productSlaDomain = buildPercentDomain(productMonthTrend, PRODUCT_ORDER, 98)
   const productRows = PRODUCT_ORDER.map((label) => {
@@ -418,12 +435,6 @@ export default function SlaOverviewTab({
     rank: index + 1,
     shortIsp: compactLabel(row.isp, 24)
   }))
-  const serviceRows = [...(overview?.servicePerformance || [])]
-    .slice(0, 6)
-    .map((row) => ({
-      ...row,
-      shortLabel: compactLabel(row.label, 22)
-    }))
   const ratioAverages = {
     ticket: monthTrend.length
       ? monthTrend.reduce((sum, row) => sum + Number(row.ticketContactRatioPct || 0), 0) / monthTrend.length
@@ -459,25 +470,20 @@ export default function SlaOverviewTab({
           gridTemplateColumns: {
             xs: '1fr',
             sm: 'repeat(2, minmax(0, 1fr))',
-            xl: 'repeat(4, minmax(0, 1fr))'
+            lg: 'repeat(3, minmax(0, 1fr))',
+            xl: 'repeat(6, minmax(0, 1fr))'
           },
           minWidth: 0
         }}
       >
         <MetricCard
-          label="Average SLA"
-          value={fmtPct(cards.avgUptimePct)}
-          subtext={`${fmtCount(cards.totalLinks)} links in selected range`}
-          trend={buildTrendChip(latestMonth, previousMonth, 'avgUptimePct', { digits: 2, suffix: ' pts' })}
-          tone="#0f766e"
-          spark={{ data: sparkByKey.avgUptimePct, dataKey: 'value', color: '#0f766e' }}
-        />
-        <MetricCard
           label="SLA by Product Group"
           value={fmtPct(cards.avgUptimePct)}
-          subtext="Range average with grouped product views"
+          subtext={`${fmtCount(cards.totalLinks)} links across the selected range`}
           rows={productRows}
           tone="#2563eb"
+          trend={buildTrendChip(latestMonth, previousMonth, 'avgUptimePct', { digits: 2, suffix: ' pts' })}
+          icon={<Inventory2OutlinedIcon sx={{ fontSize: 15 }} />}
         />
         <MetricCard
           label="Breaching Links"
@@ -486,6 +492,7 @@ export default function SlaOverviewTab({
           trend={buildTrendChip(latestMonth, previousMonth, 'breachLinks', { digits: 0, invert: true })}
           tone="#dc2626"
           spark={{ data: sparkByKey.breachLinks, dataKey: 'value', color: '#dc2626' }}
+          icon={<CrisisAlertOutlinedIcon sx={{ fontSize: 15 }} />}
         />
         <MetricCard
           label="Impacted Links"
@@ -494,6 +501,7 @@ export default function SlaOverviewTab({
           trend={buildTrendChip(latestMonth, previousMonth, 'impactedLinks', { digits: 0, invert: true })}
           tone="#f59e0b"
           spark={{ data: sparkByKey.impactedLinks, dataKey: 'value', color: '#f59e0b' }}
+          icon={<WarningAmberRoundedIcon sx={{ fontSize: 16 }} />}
         />
         <MetricCard
           label="Tickets"
@@ -502,6 +510,7 @@ export default function SlaOverviewTab({
           trend={buildTrendChip(latestMonth, previousMonth, 'ticketCount', { digits: 0, invert: true })}
           tone="#1d4ed8"
           spark={{ data: sparkByKey.ticketCount, dataKey: 'value', color: '#1d4ed8' }}
+          icon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} />}
         />
         <MetricCard
           label="Outages"
@@ -514,6 +523,7 @@ export default function SlaOverviewTab({
           trend={buildTrendChip(latestMonth, previousMonth, 'outageCount', { digits: 0, invert: true })}
           tone="#0f172a"
           spark={{ data: sparkByKey.outageCount, dataKey: 'value', color: '#0f172a' }}
+          icon={<BoltOutlinedIcon sx={{ fontSize: 15 }} />}
         />
         <MetricCard
           label="Monthly Ratios"
@@ -534,12 +544,7 @@ export default function SlaOverviewTab({
             }
           ]}
           tone="#7c3aed"
-        />
-        <MetricCard
-          label="Months In View"
-          value={fmtCount(monthsInView)}
-          subtext={`${rangeLabel} (${fmtCount(monthsInView)} months)`}
-          tone="#334155"
+          icon={<QueryStatsOutlinedIcon sx={{ fontSize: 15 }} />}
         />
       </Box>
 
@@ -569,7 +574,7 @@ export default function SlaOverviewTab({
                 elevation={0}
                 sx={{
                   p: 1,
-                  borderRadius: 2.5,
+                  borderRadius: 2.85,
                   border: `1px solid ${row.tone.border}`,
                   bgcolor: row.tone.bg,
                   minWidth: 0
@@ -666,7 +671,7 @@ export default function SlaOverviewTab({
           gap: 1.25,
           gridTemplateColumns: {
             xs: '1fr',
-            xl: '1.45fr 1fr'
+            xl: '1.55fr 0.95fr'
           },
           alignItems: 'start',
           minWidth: 0
@@ -674,30 +679,31 @@ export default function SlaOverviewTab({
       >
         <SectionCard
           title="Monthly Performance Story"
-          subtitle="Average SLA with impacted and breaching link counts for the latest six months in range."
-          minHeight={248}
+          subtitle="Average SLA with impacted and breaching link counts by month."
+          minHeight={228}
           action={<Chip size="small" label={`Target ${SLA_TARGET}%`} sx={{ fontWeight: 700 }} />}
           tone="#0f766e"
+          bodySx={{ px: 1, py: 0.85 }}
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly trend..." />
           ) : monthTrend.length ? (
-            <ResponsiveContainer width="100%" height={248}>
+            <ResponsiveContainer width="100%" height={214}>
               <ComposedChart data={monthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="yearMonth" />
-                <YAxis yAxisId="left" domain={monthlySlaDomain} tickFormatter={(value) => `${value}%`} width={52} />
-                <YAxis yAxisId="right" orientation="right" width={56} />
+                <XAxis dataKey="yearMonth" tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="left" domain={monthlySlaDomain} tickFormatter={(value) => `${value}%`} width={52} tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" width={54} tick={{ fontSize: 11 }} />
                 <Tooltip
                   formatter={(value, name) => {
                     if (name === 'Average SLA') return [fmtPct(value), name]
                     return [fmtCount(value), name]
                   }}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} iconSize={9} />
                 <ReferenceLine yAxisId="left" y={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" name="SLA Target" />
-                <Bar yAxisId="right" dataKey="impactedLinks" fill="#f59e0b" name="Impacted Links" radius={[4, 4, 0, 0]} />
-                <Bar yAxisId="right" dataKey="breachLinks" fill="#dc2626" name="Breaching Links" radius={[4, 4, 0, 0]} />
+                <Bar yAxisId="right" dataKey="impactedLinks" fill="#f59e0b" name="Impacted Links" radius={[5, 5, 0, 0]} />
+                <Bar yAxisId="right" dataKey="breachLinks" fill="#dc2626" name="Breaching Links" radius={[5, 5, 0, 0]} />
                 <Line yAxisId="left" type="monotone" dataKey="avgUptimePct" stroke="#0f766e" strokeWidth={3} dot={{ r: 3 }} name="Average SLA" />
               </ComposedChart>
             </ResponsiveContainer>
@@ -709,76 +715,57 @@ export default function SlaOverviewTab({
         <Box sx={{ display: 'grid', gap: 1.25, minWidth: 0 }}>
           <SectionCard
             title="Worst Performing ISPs"
-            subtitle="Top six weakest performers in range. Click a bar to open that ISP in the explorer."
-            minHeight={210}
+            subtitle="Top six weakest performers in range. Click a row to open that ISP in the explorer."
+            minHeight={228}
             action={<Chip size="small" label={`Top ${worstIspRows.length || 0}`} sx={{ fontWeight: 700 }} />}
             tone="#dc2626"
+            bodySx={{ px: 1, py: 0.95 }}
           >
             {focusLoading && !worstIspRows.length ? (
               <ChartFallback message="Loading ISP watchlist..." />
             ) : worstIspRows.length ? (
-              <ResponsiveContainer width="100%" height={210}>
-                <BarChart
-                  data={worstIspRows}
-                  layout="vertical"
-                  margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
-                  onClick={(state) => {
-                    const isp = state?.activePayload?.[0]?.payload?.isp
-                    if (isp) onSelectIsp?.(isp)
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
-                  <XAxis type="number" domain={[95, 100]} tickFormatter={(value) => `${value}%`} />
-                  <YAxis type="category" dataKey="shortIsp" width={120} tick={{ fontSize: 12 }} />
-                  <Tooltip
-                    formatter={(value, name) => {
-                      if (name === 'Average SLA') return [fmtPct(value), name]
-                      return [fmtCount(value), name]
-                    }}
-                    labelFormatter={(label, payload) => payload?.[0]?.payload?.isp || label}
-                  />
-                  <ReferenceLine x={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" />
-                  <Bar dataKey="avgUptimePct" fill="#dc2626" name="Average SLA" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <ChartFallback />
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="Service Type Pressure"
-            subtitle="Highest impacted service types in range. Click a bar to filter the dashboard."
-            minHeight={180}
-            action={<Chip size="small" label={`${serviceRows.length || 0} visible`} sx={{ fontWeight: 700 }} />}
-            tone="#1d4ed8"
-          >
-            {focusLoading && !serviceRows.length ? (
-              <ChartFallback message="Loading service pressure..." />
-            ) : serviceRows.length ? (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart
-                  data={serviceRows}
-                  layout="vertical"
-                  margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
-                  onClick={(state) => {
-                    const service = state?.activePayload?.[0]?.payload?.label
-                    if (service) onSelectServiceType?.(service)
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
-                  <XAxis type="number" />
-                  <YAxis type="category" dataKey="shortLabel" width={116} tick={{ fontSize: 12 }} />
-                  <Tooltip
-                    formatter={(value, name) => {
-                      if (name === 'Impacted Links') return [fmtCount(value), name]
-                      return [fmtPct(value), name]
-                    }}
-                    labelFormatter={(label, payload) => payload?.[0]?.payload?.label || label}
-                  />
-                  <Bar dataKey="impactedLinks" fill="#1d4ed8" name="Impacted Links" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <Stack spacing={0.85}>
+                {worstIspRows.map((row) => {
+                  const width = Math.max(8, Math.min(100, ((Number(row.avgUptimePct || 0) - 95) / 5) * 100))
+                  return (
+                    <Paper
+                      key={`${row.rank}-${row.isp}`}
+                      elevation={0}
+                      onClick={() => onSelectIsp?.(row.isp)}
+                      sx={{
+                        p: 0.95,
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 2.8,
+                        cursor: 'pointer',
+                        transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
+                        '&:hover': {
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 10px 24px rgba(15, 23, 42, 0.08)',
+                          borderColor: '#fecaca'
+                        }
+                      }}
+                    >
+                      <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                          <Chip size="small" label={`#${row.rank}`} sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#991b1b' }} />
+                          <Typography variant="body2" fontWeight={800} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {row.isp}
+                          </Typography>
+                        </Stack>
+                        <Chip size="small" label={fmtPct(row.avgUptimePct)} sx={{ fontWeight: 800, bgcolor: '#fef2f2', color: '#b91c1c' }} />
+                      </Stack>
+                      <Box sx={{ mt: 0.8, height: 8, borderRadius: 999, bgcolor: '#fee2e2', overflow: 'hidden' }}>
+                        <Box sx={{ width: `${width}%`, height: '100%', bgcolor: '#dc2626' }} />
+                      </Box>
+                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.7 }}>
+                        <Typography variant="caption" sx={{ opacity: 0.76 }}>Links {fmtCount(row.linkCount)}</Typography>
+                        <Typography variant="caption" sx={{ opacity: 0.76 }}>Breaches {fmtCount(row.breachLinks)}</Typography>
+                        <Typography variant="caption" sx={{ opacity: 0.76 }}>Worst {fmtPct(row.worstUptimePct)}</Typography>
+                      </Stack>
+                    </Paper>
+                  )
+                })}
+              </Stack>
             ) : (
               <ChartFallback />
             )}
@@ -801,22 +788,23 @@ export default function SlaOverviewTab({
         <SectionCard
           title="Product Group SLA By Month"
           subtitle="Monthly average SLA by grouped product family across the selected range."
-          minHeight={248}
+          minHeight={228}
           action={<Chip size="small" label={activeProductGroups.join(' / ') || 'No groups'} sx={{ fontWeight: 700 }} />}
           tone="#7c3aed"
+          bodySx={{ px: 1, py: 0.85 }}
         >
           {focusLoading && !productMonthTrend.length ? (
             <ChartFallback message="Loading grouped product SLA..." />
           ) : productMonthTrend.length && activeProductGroups.length ? (
-            <ResponsiveContainer width="100%" height={248}>
+            <ResponsiveContainer width="100%" height={214}>
               <ComposedChart data={productMonthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="yearMonth" />
-                <YAxis domain={productSlaDomain} tickFormatter={(value) => `${value}%`} width={52} />
+                <XAxis dataKey="yearMonth" tick={{ fontSize: 11 }} />
+                <YAxis domain={productSlaDomain} tickFormatter={(value) => `${value}%`} width={52} tick={{ fontSize: 11 }} />
                 <Tooltip
                   formatter={(value, name) => [hasNumericValue(value) ? fmtPct(value) : 'N/A', `${name} SLA`]}
                 />
-                <Legend />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} iconSize={9} />
                 <ReferenceLine y={SLA_TARGET} stroke="#dc2626" strokeDasharray="5 4" name="SLA Target" />
                 {activeProductGroups.map((label) => (
                   <Line
@@ -841,20 +829,21 @@ export default function SlaOverviewTab({
         <SectionCard
           title="Monthly Contact Ratios"
           subtitle="Ticket and outage ratios relative to the active link base for the latest six months in range."
-          minHeight={248}
+          minHeight={228}
           action={<Chip size="small" label={latestMonth?.yearMonth || 'No data'} sx={{ fontWeight: 700 }} />}
           tone="#0f172a"
+          bodySx={{ px: 1, py: 0.85 }}
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly ratios..." />
           ) : monthTrend.length ? (
-            <ResponsiveContainer width="100%" height={248}>
+            <ResponsiveContainer width="100%" height={214}>
               <ComposedChart data={monthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="yearMonth" />
-                <YAxis tickFormatter={(value) => `${Number(value).toFixed(1)}%`} width={58} />
+                <XAxis dataKey="yearMonth" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={(value) => `${Number(value).toFixed(1)}%`} width={58} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(value) => [`${Number(value || 0).toFixed(2)}%`, 'Ratio']} />
-                <Legend />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} iconSize={9} />
                 <Line type="monotone" dataKey="ticketContactRatioPct" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 3 }} name="Ticket Contact Ratio" />
                 <Line type="monotone" dataKey="outageImpactRatioPct" stroke="#0f172a" strokeWidth={3} dot={{ r: 3 }} name="Outage Impact Ratio" />
                 <Line type="monotone" dataKey="uniqueOutageImpactRatioPct" stroke="#7c3aed" strokeWidth={3} dot={{ r: 3 }} name="Unique Outage Impact Ratio" />

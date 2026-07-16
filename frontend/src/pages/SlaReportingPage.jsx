@@ -80,7 +80,7 @@ function ExplorerStatCard({ label, value, subtext, tone = '#0f172a' }) {
       elevation={0}
       sx={{
         p: 1.15,
-        borderRadius: 2.5,
+        borderRadius: 2.8,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
         background: `linear-gradient(180deg, ${alphaHex(tone, '10')} 0%, #ffffff 48%, #ffffff 100%)`,
@@ -1379,11 +1379,12 @@ export default function SlaReportingPage() {
             <Typography variant="caption" sx={{ minWidth: 78, opacity: 0.75, fontWeight: 700 }}>
               Quick Range
             </Typography>
-            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(3))} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>Last 3M</Button>
-            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(6))} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>Last 6M</Button>
-            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(12))} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>Last 12M</Button>
-            <Button size="small" variant="outlined" onClick={() => setRange(ytdRange())} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>YTD</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(3))} sx={{ borderRadius: 3.25, textTransform: 'none', fontWeight: 700 }}>Last 3M</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(6))} sx={{ borderRadius: 3.25, textTransform: 'none', fontWeight: 700 }}>Last 6M</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(12))} sx={{ borderRadius: 3.25, textTransform: 'none', fontWeight: 700 }}>Last 12M</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(ytdRange())} sx={{ borderRadius: 3.25, textTransform: 'none', fontWeight: 700 }}>YTD</Button>
             <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} sx={{ fontWeight: 700 }} />
+            <Chip size="small" label={`Months ${fmtCount(overview?.months?.length || 0)}`} sx={{ fontWeight: 700, bgcolor: '#f8fafc', color: '#0f172a' }} />
             {productGroupFilter ? <Chip size="small" label={`Group ${productGroupFilter}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} /> : null}
             {productTypeFilter ? <Chip size="small" label={`Product ${productTypeFilter}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} /> : null}
             {serviceTypeFilter ? <Chip size="small" label={`Service ${serviceTypeFilter}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} /> : null}
@@ -1391,7 +1392,7 @@ export default function SlaReportingPage() {
         </Stack>
       </Paper>
 
-      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
+      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 3.25, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
         <Tabs
           value={activeTab}
           onChange={(_, value) => setActiveTab(value)}
@@ -1731,21 +1732,101 @@ export default function SlaReportingPage() {
         }}
         fullWidth
         maxWidth="xl"
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: 4,
+            overflow: 'hidden',
+            boxShadow: '0 24px 56px rgba(15, 23, 42, 0.22)'
+          }
+        }}
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
-          <Typography variant="h6" component="span">
-            FRG Details: {openLink}
-          </Typography>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={() => exportOpenLinkDetails().catch(console.error)}
-            disabled={!detail || exportingDetail}
+        <DialogTitle
+          sx={{
+            px: 1.5,
+            py: 1.35,
+            background: 'linear-gradient(135deg, #0f766e 0%, #155e75 58%, #142a45 100%)',
+            color: '#fff',
+            borderBottom: '1px solid rgba(255,255,255,0.12)'
+          }}
+        >
+          <Stack
+            direction={{ xs: 'column', lg: 'row' }}
+            spacing={1.25}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', lg: 'center' }}
           >
-            {exportingDetail ? 'Exporting...' : 'Export Detail'}
-          </Button>
+            <Stack spacing={0.55} sx={{ minWidth: 0 }}>
+              <Typography variant="overline" sx={{ letterSpacing: 1, opacity: 0.72 }}>
+                FRG Drilldown
+              </Typography>
+              <Typography variant="h6" component="div" sx={{ fontWeight: 900, lineHeight: 1.1, overflowWrap: 'anywhere' }}>
+                FRG Details: {openLink}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8, maxWidth: 760 }}>
+                Monthly SLA evidence, ticket context, and outage overlap for the selected link.
+              </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} useFlexGap flexWrap="wrap">
+                <Chip
+                  size="small"
+                  label={`${fmtCount(detail?.details?.length || 0)} months loaded`}
+                  sx={{ fontWeight: 800, bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.18)' }}
+                />
+                {detail?.from || detail?.to ? (
+                  <Chip
+                    size="small"
+                    label={`Range ${detail?.from || '-'} to ${detail?.to || '-'}`}
+                    sx={{ fontWeight: 800, bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.18)' }}
+                  />
+                ) : null}
+              </Stack>
+            </Stack>
+
+            <Stack direction="row" spacing={0.9} alignItems="center">
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => exportOpenLinkDetails().catch(console.error)}
+                disabled={!detail || exportingDetail}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 800,
+                  borderRadius: 2.8,
+                  bgcolor: '#ffffff',
+                  color: '#0f172a',
+                  boxShadow: 'none',
+                  '&:hover': {
+                    bgcolor: '#f8fafc',
+                    boxShadow: 'none'
+                  }
+                }}
+              >
+                {exportingDetail ? 'Exporting...' : 'Export Detail'}
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  setOpenLink('')
+                  setDetailError('')
+                }}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 800,
+                  borderRadius: 2.8,
+                  color: '#fff',
+                  borderColor: 'rgba(255,255,255,0.28)',
+                  '&:hover': {
+                    borderColor: 'rgba(255,255,255,0.4)',
+                    bgcolor: 'rgba(255,255,255,0.08)'
+                  }
+                }}
+              >
+                Close
+              </Button>
+            </Stack>
+          </Stack>
         </DialogTitle>
-        <DialogContent dividers sx={{ overflowX: 'hidden' }}>
+        <DialogContent dividers sx={{ overflowX: 'hidden', bgcolor: '#f8fafc', p: 1.25 }}>
           {detailLoading ? (
             <Box py={3} textAlign="center">
               <CircularProgress size={24} />
@@ -1757,32 +1838,80 @@ export default function SlaReportingPage() {
             <Stack spacing={1.2}>
               {(detail.details || []).map((m) => {
                 const timeline = buildMonthlyTimelineData(m)
+                const monthTone = Number(m.sla?.uptimePct || 100) < SLA_TARGET
+                  ? '#dc2626'
+                  : Number(m.sla?.downtimeHours || 0) > 0
+                    ? '#f59e0b'
+                    : '#0f766e'
                 return (
-                  <Accordion key={m.yearMonth} defaultExpanded={m.yearMonth === detail.to}>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Accordion
+                    key={m.yearMonth}
+                    defaultExpanded={m.yearMonth === detail.to}
+                    sx={{
+                      overflow: 'hidden',
+                      border: '1px solid #e5e7eb',
+                      borderLeft: `4px solid ${monthTone}`,
+                      borderRadius: 3.25,
+                      bgcolor: '#fff',
+                      boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+                      '&:before': {
+                        display: 'none'
+                      }
+                    }}
+                  >
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreIcon />}
+                      sx={{
+                        px: 1.25,
+                        py: 0.2,
+                        background: `linear-gradient(180deg, ${alphaHex(monthTone, '0c')} 0%, #ffffff 100%)`,
+                        '& .MuiAccordionSummary-content': {
+                          my: 1
+                        }
+                      }}
+                    >
                       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', md: 'center' }}>
                         <Typography variant="subtitle2" fontWeight={700}>{m.yearMonth}</Typography>
-                        <Chip size="small" label={`SLA ${fmtPct(m.sla?.uptimePct)}`} color={pctChipColor(m.sla?.uptimePct)} />
-                        <Chip size="small" label={`Downtime ${fmtHours(m.sla?.downtimeHours)}`} />
-                        <Chip size="small" label={`Active ${fmtHours(m.sla?.activeHours)}`} />
-                        <Chip size="small" label={`Tickets ${m.tickets?.length || 0}`} />
-                        <Chip size="small" label={`Outages ${m.outages?.length || 0}`} />
-                        <Chip size="small" label={`Linked tickets ${m.overlap?.linkedTickets || 0}`} />
-                        <Chip size="small" label={`Overlap tickets ${m.overlap?.overlapTickets || 0}`} />
-                        <Chip size="small" label={`Overlap pairs ${m.overlap?.overlapPairs || 0}`} />
+                        <Chip size="small" label={`SLA ${fmtPct(m.sla?.uptimePct)}`} color={pctChipColor(m.sla?.uptimePct)} sx={{ fontWeight: 800 }} />
+                        <Chip size="small" label={`Downtime ${fmtHours(m.sla?.downtimeHours)}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
+                        <Chip size="small" label={`Active ${fmtHours(m.sla?.activeHours)}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
+                        <Chip size="small" label={`Tickets ${m.tickets?.length || 0}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
+                        <Chip size="small" label={`Outages ${m.outages?.length || 0}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
+                        <Chip size="small" label={`Linked tickets ${m.overlap?.linkedTickets || 0}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
+                        <Chip size="small" label={`Overlap tickets ${m.overlap?.overlapTickets || 0}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
+                        <Chip size="small" label={`Overlap pairs ${m.overlap?.overlapPairs || 0}`} sx={{ fontWeight: 800, bgcolor: '#fff', border: '1px solid #e5e7eb' }} />
                       </Stack>
                     </AccordionSummary>
-                    <AccordionDetails>
+                    <AccordionDetails sx={{ p: 1.2, background: 'linear-gradient(180deg, #fcfdff 0%, #ffffff 100%)' }}>
                       {timeline ? (
-                        <Paper elevation={0} sx={{ mb: 1.2, p: 1, border: '1px solid #eee' }}>
-                          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                            Monthly Uptime Timeline
-                          </Typography>
-                          <Typography variant="caption" sx={{ display: 'block', mb: 0.75, opacity: 0.8 }}>
-                            Green = up, red = down. Hover red periods for outage/ticket details. Orange dots are non-downtime tickets.
-                          </Typography>
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            mb: 1.2,
+                            p: 1.1,
+                            border: '1px solid #e5e7eb',
+                            borderRadius: 3,
+                            background: `linear-gradient(135deg, ${alphaHex(monthTone, '09')} 0%, #ffffff 22%, #ffffff 100%)`,
+                            boxShadow: '0 10px 20px rgba(15, 23, 42, 0.04)'
+                          }}
+                        >
+                          <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.9} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} sx={{ mb: 0.7 }}>
+                            <Box>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                Monthly Uptime Timeline
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>
+                                Green = up, red = down. Hover red periods for outage or ticket details. Orange dots are non-downtime tickets.
+                              </Typography>
+                            </Box>
+                            <Stack direction="row" spacing={0.75}>
+                              <Chip size="small" label="Up" sx={{ fontWeight: 800, bgcolor: '#dcfce7', color: '#166534' }} />
+                              <Chip size="small" label="Down" sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#991b1b' }} />
+                              <Chip size="small" label="Ticket only" sx={{ fontWeight: 800, bgcolor: '#ffedd5', color: '#9a3412' }} />
+                            </Stack>
+                          </Stack>
                           <Box sx={{ width: '100%' }}>
-                            <Box sx={{ display: 'flex', width: '100%', height: 20, borderRadius: 1, overflow: 'hidden', border: '1px solid #ddd' }}>
+                            <Box sx={{ display: 'flex', width: '100%', height: 22, borderRadius: 2.5, overflow: 'hidden', border: '1px solid #dbe2ea', boxShadow: 'inset 0 1px 2px rgba(15, 23, 42, 0.04)' }}>
                               {timeline.days.map((d) => {
                                 const downEvents = d.downEvents || []
                                 const otherTickets = d.otherTickets || []
@@ -1826,7 +1955,7 @@ export default function SlaReportingPage() {
                                       sx={{
                                         flex: 1,
                                         bgcolor: d.isDown ? '#d32f2f' : '#2e7d32',
-                                        borderRight: d.day < timeline.days.length ? '1px solid rgba(255,255,255,0.35)' : 'none',
+                                        borderRight: d.day < timeline.days.length ? '1px solid rgba(255,255,255,0.38)' : 'none',
                                         cursor: 'pointer'
                                       }}
                                     />
@@ -1859,9 +1988,33 @@ export default function SlaReportingPage() {
                         </Paper>
                       ) : null}
 
-                      <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Tickets</Typography>
-                      <Box sx={{ width: '100%', overflowX: 'auto' }}>
-                        <Table size="small" sx={{ minWidth: 720 }}>
+                      <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden', mb: 1.2 }}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ px: 1.15, py: 0.9, bgcolor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+                          <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Tickets</Typography>
+                            <Typography variant="caption" sx={{ opacity: 0.74 }}>Evidence captured for this FRG in {m.yearMonth}.</Typography>
+                          </Box>
+                          <Chip size="small" label={`${fmtCount(m.tickets?.length || 0)} rows`} sx={{ fontWeight: 800 }} />
+                        </Stack>
+                        <Box sx={{ width: '100%', overflowX: 'auto' }}>
+                          <Table
+                            size="small"
+                            sx={{
+                              minWidth: 720,
+                              '& .MuiTableCell-head': {
+                                bgcolor: '#f8fafc',
+                                fontWeight: 800,
+                                fontSize: 12.25,
+                                borderBottom: '1px solid #e5e7eb'
+                              },
+                              '& .MuiTableCell-body': {
+                                fontSize: 12.5
+                              },
+                              '& .MuiTableBody-root .MuiTableRow-root:nth-of-type(odd)': {
+                                bgcolor: '#fcfcfd'
+                              }
+                            }}
+                          >
                           <TableHead>
                             <TableRow>
                               <TableCell>Ticket ID</TableCell>
@@ -1890,13 +2043,38 @@ export default function SlaReportingPage() {
                             )}
                           </TableBody>
                         </Table>
-                      </Box>
+                        </Box>
+                      </Paper>
 
-                    <Divider sx={{ my: 1.2 }} />
+                    <Divider sx={{ my: 1.1, borderColor: '#e5e7eb' }} />
 
-                    <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Outages</Typography>
+                    <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ px: 1.15, py: 0.9, bgcolor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+                        <Box>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Outages</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.74 }}>Resolved outage history mapped to this FRG in {m.yearMonth}.</Typography>
+                        </Box>
+                        <Chip size="small" label={`${fmtCount(m.outages?.length || 0)} rows`} sx={{ fontWeight: 800 }} />
+                      </Stack>
                     <Box sx={{ width: '100%', overflowX: 'auto' }}>
-                      <Table size="small" sx={{ minWidth: 900 }}>
+                      <Table
+                        size="small"
+                        sx={{
+                          minWidth: 900,
+                          '& .MuiTableCell-head': {
+                            bgcolor: '#f8fafc',
+                            fontWeight: 800,
+                            fontSize: 12.25,
+                            borderBottom: '1px solid #e5e7eb'
+                          },
+                          '& .MuiTableCell-body': {
+                            fontSize: 12.5
+                          },
+                          '& .MuiTableBody-root .MuiTableRow-root:nth-of-type(odd)': {
+                            bgcolor: '#fcfcfd'
+                          }
+                        }}
+                      >
                         <TableHead>
                           <TableRow>
                             <TableCell>Outage Ref</TableCell>
@@ -1922,12 +2100,13 @@ export default function SlaReportingPage() {
                           ))}
                           {!m.outages?.length && (
                             <TableRow>
-                              <TableCell colSpan={7}>No outages in this month.</TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
+                            <TableCell colSpan={7}>No outages in this month.</TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                     </Box>
+                    </Paper>
                     </AccordionDetails>
                   </Accordion>
                 )

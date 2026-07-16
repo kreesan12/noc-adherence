@@ -39,7 +39,7 @@ function SummaryCard({ label, value, tone, subtext }) {
       elevation={0}
       sx={{
         p: 1.2,
-        borderRadius: 2.5,
+        borderRadius: 2.8,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
         background: `linear-gradient(180deg, ${alphaHex(tone, '10')} 0%, #ffffff 46%, #ffffff 100%)`,
@@ -63,7 +63,7 @@ function SummaryCard({ label, value, tone, subtext }) {
 
 function SectionCard({ title, subtitle, children, minHeight = 300, tone = '#0f172a', action = null }) {
   return (
-    <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, height: '100%', minWidth: 0, overflow: 'hidden', boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
+    <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3.25, height: '100%', minWidth: 0, overflow: 'hidden', boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
       <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ px: 1.35, py: 1.15, borderBottom: '1px solid #eef2f7', background: sectionSurface(tone) }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="subtitle2" fontWeight={800}>
@@ -113,7 +113,7 @@ function EmptyTableRow({ colSpan, message }) {
 
 function LoadingBlock({ message }) {
   return (
-    <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #e5e7eb', borderRadius: 3 }}>
+    <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #e5e7eb', borderRadius: 3.25 }}>
       <Typography variant="body2">{message}</Typography>
     </Paper>
   )
@@ -129,7 +129,7 @@ export default function SlaOutagesTab({ loading, error, outageData, fmtCount, fm
 
   return (
     <Stack spacing={1.5}>
-      <Paper elevation={0} sx={{ p: 1.25, border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)', background: 'linear-gradient(180deg, #fff7f7 0%, #ffffff 100%)' }}>
+      <Paper elevation={0} sx={{ p: 1.25, border: '1px solid #e5e7eb', borderRadius: 3.25, boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)', background: 'linear-gradient(180deg, #fff7f7 0%, #ffffff 100%)' }}>
         <Stack spacing={1.1}>
           <Box>
             <Typography variant="overline" sx={{ letterSpacing: 0.9, color: '#dc2626' }}>

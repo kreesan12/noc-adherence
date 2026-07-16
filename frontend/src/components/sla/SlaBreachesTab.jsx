@@ -22,7 +22,7 @@ function StatCard({ label, value, tone = '#0f172a', subtext }) {
       elevation={0}
       sx={{
         p: 1.2,
-        borderRadius: 2.5,
+        borderRadius: 2.8,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
         bgcolor: '#fff',
@@ -62,7 +62,7 @@ function SlaProgressCell({ value, fmtPct }) {
         value={pct}
         sx={{
           height: 7,
-          borderRadius: 3,
+          borderRadius: 3.25,
           backgroundColor: '#e5e7eb',
           '& .MuiLinearProgress-bar': {
             backgroundColor: color
@@ -227,7 +227,7 @@ export default function SlaBreachesTab({
         sx={{
           p: 1.25,
           border: '1px solid #e5e7eb',
-          borderRadius: 3,
+          borderRadius: 3.25,
           minWidth: 0,
           overflow: 'hidden',
           boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
@@ -297,7 +297,7 @@ export default function SlaBreachesTab({
 
       {error ? <Alert severity="error">{error}</Alert> : null}
 
-      <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, minWidth: 0, overflow: 'hidden', boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
+      <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3.25, minWidth: 0, overflow: 'hidden', boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
         <Box sx={{ width: '100%', overflowX: 'auto' }}>
           <DataGrid
             rows={rows}
