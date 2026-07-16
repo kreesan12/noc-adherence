@@ -267,22 +267,26 @@ r.get('/overview', verifyToken, async (req, res) => {
       ),
       () => prisma.$queryRawUnsafe(
         `
-        SELECT DISTINCT
-          COALESCE(k.product_group, 'FTTB') AS product_group,
-          COALESCE(k.product_type, 'Unknown') AS product_type,
-          COALESCE(k.service_type, 'Unknown') AS service_type
-        FROM public.sla_monthly_kpi k
-        WHERE k.year_month >= $1
-          AND k.year_month <= $2
-        ORDER BY
-          CASE COALESCE(k.product_group, 'FTTB')
-            WHEN 'FTTB' THEN 1
-            WHEN 'FTTH' THEN 2
-            WHEN 'FTTC' THEN 3
-            ELSE 4
-          END,
-          COALESCE(k.product_type, 'Unknown'),
-          COALESCE(k.service_type, 'Unknown')
+        SELECT
+          product_group,
+          product_type,
+          service_type
+        FROM (
+          SELECT DISTINCT
+            COALESCE(k.product_group, 'FTTB') AS product_group,
+            COALESCE(k.product_type, 'Unknown') AS product_type,
+            COALESCE(k.service_type, 'Unknown') AS service_type,
+            CASE COALESCE(k.product_group, 'FTTB')
+              WHEN 'FTTB' THEN 1
+              WHEN 'FTTH' THEN 2
+              WHEN 'FTTC' THEN 3
+              ELSE 4
+            END AS product_group_sort
+          FROM public.sla_monthly_kpi k
+          WHERE k.year_month >= $1
+            AND k.year_month <= $2
+        ) options
+        ORDER BY product_group_sort, product_type, service_type
         `,
         fromKey,
         toKey
@@ -640,22 +644,26 @@ r.get('/overview/options', verifyToken, async (req, res) => {
   }, async () => {
     const rows = await prisma.$queryRawUnsafe(
       `
-      SELECT DISTINCT
-        COALESCE(l.product_group, 'FTTB') AS product_group,
-        COALESCE(l.product_type, 'Unknown') AS product_type,
-        COALESCE(l.service_type, 'Unknown') AS service_type
-      FROM public.sla_link_monthly_fact l
-      WHERE l.year_month >= $1
-        AND l.year_month <= $2
-      ORDER BY
-        CASE COALESCE(l.product_group, 'FTTB')
-          WHEN 'FTTB' THEN 1
-          WHEN 'FTTH' THEN 2
-          WHEN 'FTTC' THEN 3
-          ELSE 4
-        END,
-        COALESCE(l.product_type, 'Unknown'),
-        COALESCE(l.service_type, 'Unknown')
+      SELECT
+        product_group,
+        product_type,
+        service_type
+      FROM (
+        SELECT DISTINCT
+          COALESCE(l.product_group, 'FTTB') AS product_group,
+          COALESCE(l.product_type, 'Unknown') AS product_type,
+          COALESCE(l.service_type, 'Unknown') AS service_type,
+          CASE COALESCE(l.product_group, 'FTTB')
+            WHEN 'FTTB' THEN 1
+            WHEN 'FTTH' THEN 2
+            WHEN 'FTTC' THEN 3
+            ELSE 4
+          END AS product_group_sort
+        FROM public.sla_link_monthly_fact l
+        WHERE l.year_month >= $1
+          AND l.year_month <= $2
+      ) options
+      ORDER BY product_group_sort, product_type, service_type
       `,
       fromKey,
       toKey
@@ -1772,22 +1780,26 @@ r.get('/summary', verifyToken, async (req, res) => {
       ),
       () => prisma.$queryRawUnsafe(
         `
-        SELECT DISTINCT
-          COALESCE(l.product_group, 'FTTB') AS product_group,
-          COALESCE(l.product_type, 'Unknown') AS product_type,
-          COALESCE(l.service_type, 'Unknown') AS service_type
-        FROM public.sla_link_monthly_fact l
-        WHERE l.year_month >= $1
-          AND l.year_month <= $2
-        ORDER BY
-          CASE COALESCE(l.product_group, 'FTTB')
-            WHEN 'FTTB' THEN 1
-            WHEN 'FTTH' THEN 2
-            WHEN 'FTTC' THEN 3
-            ELSE 4
-          END,
-          COALESCE(l.product_type, 'Unknown'),
-          COALESCE(l.service_type, 'Unknown')
+        SELECT
+          product_group,
+          product_type,
+          service_type
+        FROM (
+          SELECT DISTINCT
+            COALESCE(l.product_group, 'FTTB') AS product_group,
+            COALESCE(l.product_type, 'Unknown') AS product_type,
+            COALESCE(l.service_type, 'Unknown') AS service_type,
+            CASE COALESCE(l.product_group, 'FTTB')
+              WHEN 'FTTB' THEN 1
+              WHEN 'FTTH' THEN 2
+              WHEN 'FTTC' THEN 3
+              ELSE 4
+            END AS product_group_sort
+          FROM public.sla_link_monthly_fact l
+          WHERE l.year_month >= $1
+            AND l.year_month <= $2
+        ) options
+        ORDER BY product_group_sort, product_type, service_type
         `,
         fromKey,
         toKey
