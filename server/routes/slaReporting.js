@@ -143,11 +143,9 @@ async function runSequentially(tasks) {
 }
 
 r.get('/overview', verifyToken, async (req, res) => {
-  const { fromKey, toKey, months, fromTs, toTsExcl } = resolveRange(req.query)
+  const { fromKey, toKey, months } = resolveRange(req.query)
   const productType = normalizeFilter(req.query.productType)
   const serviceType = normalizeFilter(req.query.serviceType)
-  const fromTsText = toTimestampParam(fromTs)
-  const toTsText = toTimestampParam(toTsExcl)
 
   const [
     cardRows,
@@ -184,31 +182,6 @@ r.get('/overview', verifyToken, async (req, res) => {
           SUM(EXTRACT(EPOCH FROM total_downtime)) / 3600.0 AS downtime_hours
         FROM link_month
         GROUP BY 1, 2
-      ),
-      ticket_rollup AS (
-        SELECT
-          COUNT(*)::int AS ticket_count,
-          COUNT(*) FILTER (WHERE t."Category" = $5)::int AS service_impacting_count
-        FROM public.tickets_output t
-        LEFT JOIN link_meta lm
-          ON lm.frogfootlinklabel = t.frg
-        WHERE t.created_date < $6::timestamp
-          AND COALESCE(t.impact_stop_time, t.created_date) >= $7::timestamp
-          AND ($3::text = '' OR COALESCE(NULLIF(t.product_type, ''), COALESCE(lm.product_type, 'Unknown')) = $3)
-          AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
-      ),
-      outage_rollup AS (
-        SELECT
-          COUNT(DISTINCT o.outage_ref)::int AS outage_count
-        FROM public.outage_resolvers os
-        JOIN public.outages_outage o
-          ON o.outage_ref = os.outageref
-        LEFT JOIN link_meta lm
-          ON lm.frogfootlinklabel = os.frogfootlinklabel
-        WHERE o.impact_start < $6::timestamp
-          AND COALESCE(o.impact_stop, o.impact_start) >= $7::timestamp
-          AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
-          AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
       )
       SELECT
         COALESCE((SELECT COUNT(*)::int FROM link_rollup), 0) AS total_links,
@@ -216,20 +189,12 @@ r.get('/overview', verifyToken, async (req, res) => {
         COALESCE((SELECT COUNT(*)::int FROM link_rollup WHERE avg_uptime_pct < ${SLA_TARGET}), 0) AS breach_links,
         COALESCE((SELECT ROUND(AVG(avg_uptime_pct), 2) FROM link_rollup), 0) AS avg_uptime_pct,
         COALESCE((SELECT ROUND(MIN(worst_uptime_pct), 2) FROM link_rollup), 0) AS worst_uptime_pct,
-        COALESCE((SELECT ROUND(SUM(downtime_hours)::numeric, 2) FROM link_rollup), 0) AS total_downtime_hours,
-        tr.ticket_count,
-        tr.service_impacting_count,
-        orl.outage_count
-      FROM ticket_rollup tr
-      CROSS JOIN outage_rollup orl
+        COALESCE((SELECT ROUND(SUM(downtime_hours)::numeric, 2) FROM link_rollup), 0) AS total_downtime_hours
       `,
       fromKey,
       toKey,
       productType,
-      serviceType,
-      DOWNTIME_CATEGORY,
-      toTsText,
-      fromTsText
+      serviceType
     ),
     () => prisma.$queryRawUnsafe(
       `
@@ -273,14 +238,74 @@ r.get('/overview', verifyToken, async (req, res) => {
       avgUptimePct: toNum(cards.avg_uptime_pct, 0),
       worstUptimePct: toNum(cards.worst_uptime_pct, 0),
       totalDowntimeHours: toNum(cards.total_downtime_hours, 0),
-      ticketCount: toNum(cards.ticket_count, 0),
-      serviceImpactingTickets: toNum(cards.service_impacting_count, 0),
-      outageCount: toNum(cards.outage_count, 0)
+      ticketCount: null,
+      serviceImpactingTickets: null,
+      outageCount: null
     },
     monthTrend: [],
     worstIsps: [],
     productPerformance: [],
     servicePerformance: []
+  })
+})
+
+r.get('/overview/ops', verifyToken, async (req, res) => {
+  const { fromKey, toKey } = resolveRange(req.query)
+  const productType = normalizeFilter(req.query.productType)
+  const serviceType = normalizeFilter(req.query.serviceType)
+
+  const [ticketRows, outageRows] = await runSequentially([
+    () => prisma.$queryRawUnsafe(
+      `
+      ${LINK_META_CTE}
+      SELECT
+        COUNT(*)::int AS ticket_count,
+        COUNT(*) FILTER (WHERE t."Category" = $3)::int AS service_impacting_count
+      FROM public.tickets_output t
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = t.frg
+      WHERE t.year_month >= $1
+        AND t.year_month <= $2
+        AND ($4::text = '' OR COALESCE(NULLIF(t.product_type, ''), COALESCE(lm.product_type, 'Unknown')) = $4)
+        AND ($5::text = '' OR COALESCE(lm.service_type, 'Unknown') = $5)
+      `,
+      fromKey,
+      toKey,
+      DOWNTIME_CATEGORY,
+      productType,
+      serviceType
+    ),
+    () => prisma.$queryRawUnsafe(
+      `
+      ${LINK_META_CTE}
+      SELECT
+        COUNT(DISTINCT os.outageref)::int AS outage_count
+      FROM public.outage_resolvers os
+      LEFT JOIN link_meta lm
+        ON lm.frogfootlinklabel = os.frogfootlinklabel
+      WHERE os.year_month >= $1
+        AND os.year_month <= $2
+        AND ($3::text = '' OR COALESCE(lm.product_type, 'Unknown') = $3)
+        AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
+      `,
+      fromKey,
+      toKey,
+      productType,
+      serviceType
+    )
+  ])
+
+  const ticketCard = ticketRows?.[0] || {}
+  const outageCard = outageRows?.[0] || {}
+
+  res.json({
+    from: fromKey,
+    to: toKey,
+    cards: {
+      ticketCount: toNum(ticketCard.ticket_count, 0),
+      serviceImpactingTickets: toNum(ticketCard.service_impacting_count, 0),
+      outageCount: toNum(outageCard.outage_count, 0)
+    }
   })
 })
 

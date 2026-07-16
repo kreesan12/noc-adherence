@@ -237,6 +237,8 @@ export default function SlaReportingPage() {
   const [overviewTrendError, setOverviewTrendError] = useState('')
   const [overviewFocusLoading, setOverviewFocusLoading] = useState(false)
   const [overviewFocusError, setOverviewFocusError] = useState('')
+  const [overviewOpsLoading, setOverviewOpsLoading] = useState(false)
+  const [overviewOpsError, setOverviewOpsError] = useState('')
   const [overview, setOverview] = useState({
     months: [],
     productTypes: [],
@@ -372,12 +374,19 @@ export default function SlaReportingPage() {
     setOverviewError('')
     setOverviewTrendError('')
     setOverviewFocusError('')
+    setOverviewOpsError('')
     setOverview((state) => ({
       ...state,
       monthTrend: [],
       worstIsps: [],
       productPerformance: [],
-      servicePerformance: []
+      servicePerformance: [],
+      cards: {
+        ...(state.cards || {}),
+        ticketCount: null,
+        serviceImpactingTickets: null,
+        outageCount: null
+      }
     }))
     try {
       const params = getOverviewParams()
@@ -396,6 +405,7 @@ export default function SlaReportingPage() {
         })
       }))
       if (activeTab === 'overview') {
+        void loadOverviewOps(params)
         void loadOverviewTrend(params)
         void loadOverviewFocus(params)
       }
@@ -423,6 +433,28 @@ export default function SlaReportingPage() {
       setOverviewTrendError(String(msg))
     } finally {
       setOverviewTrendLoading(false)
+    }
+  }
+
+  async function loadOverviewOps(providedParams = null) {
+    setOverviewOpsLoading(true)
+    setOverviewOpsError('')
+    try {
+      const res = await api.get('/sla-reporting/overview/ops', {
+        params: providedParams || getOverviewParams()
+      })
+      setOverview((state) => ({
+        ...state,
+        cards: {
+          ...(state.cards || {}),
+          ...(res.data?.cards || {})
+        }
+      }))
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Operational counters failed to load'
+      setOverviewOpsError(String(msg))
+    } finally {
+      setOverviewOpsLoading(false)
     }
   }
 
@@ -1118,6 +1150,7 @@ export default function SlaReportingPage() {
               <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
               <Chip size="small" label={`Links ${fmtCount(overview.cards?.totalLinks || 0)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
               <Chip size="small" label={`Average ${fmtPct(overview.cards?.avgUptimePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={overviewOpsLoading ? 'Ops loading' : 'Ops ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
               <Chip size="small" label={overviewTrendLoading ? 'Trend loading' : 'Trend ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
               <Chip size="small" label={overviewFocusLoading ? 'Insights loading' : 'Insights ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
             </Stack>
@@ -1301,7 +1334,7 @@ export default function SlaReportingPage() {
           overview={overview}
           insights={overviewInsights}
           trendLoading={overviewTrendLoading}
-          trendError={overviewTrendError}
+          trendError={[overviewTrendError, overviewOpsError].filter(Boolean).join(' ')}
           focusLoading={overviewFocusLoading}
           focusError={overviewFocusError}
           fmtPct={fmtPct}
