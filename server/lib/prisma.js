@@ -1,8 +1,15 @@
+import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
+
+dotenv.config()
+dotenv.config({ path: '.env.local', override: true })
 
 const globalForPrisma = globalThis
 
 function buildPrismaClientOptions() {
+  const isProduction = process.env.NODE_ENV === 'production'
+  const defaultConnectionLimit = isProduction ? '5' : '10'
+  const defaultPoolTimeout = isProduction ? '20' : '60'
   const options = {
     log: process.env.NODE_ENV === 'production'
       ? ['error', 'warn']
@@ -19,14 +26,14 @@ function buildPrismaClientOptions() {
   if (!url.searchParams.has('connection_limit')) {
     url.searchParams.set(
       'connection_limit',
-      process.env.PRISMA_CONNECTION_LIMIT || '5'
+      process.env.PRISMA_CONNECTION_LIMIT || defaultConnectionLimit
     )
   }
 
   if (!url.searchParams.has('pool_timeout')) {
     url.searchParams.set(
       'pool_timeout',
-      process.env.PRISMA_POOL_TIMEOUT || '20'
+      process.env.PRISMA_POOL_TIMEOUT || defaultPoolTimeout
     )
   }
 

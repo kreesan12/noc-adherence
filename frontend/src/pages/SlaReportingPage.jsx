@@ -15,6 +15,8 @@ import {
   Divider,
   Paper,
   Stack,
+  Tab,
+  Tabs,
   Table,
   TableBody,
   TableCell,
@@ -29,18 +31,30 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import api from '../api'
+import SlaOverviewTab from '../components/sla/SlaOverviewTab'
+import SlaBreachesTab from '../components/sla/SlaBreachesTab'
+import SlaOutagesTab from '../components/sla/SlaOutagesTab'
+import SlaTicketsTab from '../components/sla/SlaTicketsTab'
+import { downloadWorkbook } from '../utils/slaExport'
 
 const DEFAULT_ISP_PAGE_SIZE = 50
+const DEFAULT_BREACH_PAGE_SIZE = 100
 const DOWNTIME_CATEGORY = 'service impacting'
+const SLA_TARGET = 99.5
 
 function fmtPct(v) {
-  if (v == null || Number.isNaN(Number(v))) return '—'
+  if (v == null || Number.isNaN(Number(v))) return '-'
   return `${Number(v).toFixed(2)}%`
 }
 
 function fmtHours(v) {
   if (v == null || Number.isNaN(Number(v))) return '0.00h'
   return `${Number(v).toFixed(2)}h`
+}
+
+function fmtCount(v) {
+  if (v == null || Number.isNaN(Number(v))) return '0'
+  return new Intl.NumberFormat().format(Number(v))
 }
 
 function pctChipColor(v) {
@@ -51,7 +65,7 @@ function pctChipColor(v) {
 }
 
 function fmtTs(v) {
-  if (!v) return '—'
+  if (!v) return '-'
   const d = dayjs(v)
   return d.isValid() ? d.format('YYYY-MM-DD HH:mm') : String(v)
 }
@@ -61,6 +75,27 @@ function defaultRange() {
   const to = toMonth.format('YYYY-MM')
   const from = toMonth.subtract(2, 'month').format('YYYY-MM')
   return { from, to }
+}
+
+function recentMonthRange(monthCount) {
+  const safeCount = Math.max(1, Number(monthCount) || 1)
+  const toMonth = dayjs().subtract(1, 'month')
+  return {
+    from: toMonth.subtract(safeCount - 1, 'month').format('YYYY-MM'),
+    to: toMonth.format('YYYY-MM')
+  }
+}
+
+function ytdRange() {
+  const toMonth = dayjs().subtract(1, 'month')
+  return {
+    from: `${toMonth.year()}-01`,
+    to: toMonth.format('YYYY-MM')
+  }
+}
+
+function safeFilePart(value) {
+  return String(value || 'all').replace(/[^a-z0-9_-]+/gi, '-')
 }
 
 function toDateSafe(v) {
@@ -172,12 +207,83 @@ function buildMonthlyTimelineData(monthDetail) {
   return { days }
 }
 
+function DetailField({ label, value }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" sx={{ display: 'block', textTransform: 'uppercase', letterSpacing: 0.4, opacity: 0.66 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+        {value || '-'}
+      </Typography>
+    </Box>
+  )
+}
+
 export default function SlaReportingPage() {
+  const [activeTab, setActiveTab] = useState('overview')
   const [range, setRange] = useState(defaultRange)
   const [ispSearch, setIspSearch] = useState('')
   const [frgSearch, setFrgSearch] = useState('')
+  const [ispSort, setIspSort] = useState('risk')
+  const [explorerMode, setExplorerMode] = useState('all')
   const [productTypeFilter, setProductTypeFilter] = useState('')
   const [serviceTypeFilter, setServiceTypeFilter] = useState('')
+  const [exportingCurrent, setExportingCurrent] = useState(false)
+  const [exportingDetail, setExportingDetail] = useState(false)
+  const [overviewLoading, setOverviewLoading] = useState(false)
+  const [overviewError, setOverviewError] = useState('')
+  const [overview, setOverview] = useState({
+    months: [],
+    productTypes: [],
+    serviceTypes: [],
+    cards: {},
+    monthTrend: [],
+    worstIsps: [],
+    productPerformance: [],
+    servicePerformance: [],
+    from: null,
+    to: null
+  })
+  const [breachLoading, setBreachLoading] = useState(false)
+  const [breachError, setBreachError] = useState('')
+  const [breachData, setBreachData] = useState({
+    months: [],
+    links: [],
+    totalCount: 0,
+    page: 0,
+    pageSize: DEFAULT_BREACH_PAGE_SIZE,
+    threshold: 99.5,
+    from: null,
+    to: null
+  })
+  const [breachSearch, setBreachSearch] = useState('')
+  const [breachThreshold, setBreachThreshold] = useState('99.5')
+  const [breachPagination, setBreachPagination] = useState({
+    page: 0,
+    pageSize: DEFAULT_BREACH_PAGE_SIZE
+  })
+  const [outageLoading, setOutageLoading] = useState(false)
+  const [outageError, setOutageError] = useState('')
+  const [outageData, setOutageData] = useState({
+    months: [],
+    byMonth: [],
+    byImpactType: [],
+    byCauseClass: [],
+    byRegion: [],
+    byPartyAtFault: [],
+    topOutages: []
+  })
+  const [ticketLoading, setTicketLoading] = useState(false)
+  const [ticketError, setTicketError] = useState('')
+  const [ticketData, setTicketData] = useState({
+    months: [],
+    byMonth: [],
+    byCategory: [],
+    bySeverity: [],
+    byPartyAtFault: [],
+    topTickets: []
+  })
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState({ months: [], isps: [], productTypes: [], serviceTypes: [], from: null, to: null })
   const [linksByIsp, setLinksByIsp] = useState({})
@@ -188,6 +294,45 @@ export default function SlaReportingPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
+  const [selectedOutage, setSelectedOutage] = useState(null)
+  const [selectedTicket, setSelectedTicket] = useState(null)
+
+  function clearFilters() {
+    setRange(defaultRange())
+    setIspSearch('')
+    setFrgSearch('')
+    setIspSort('risk')
+    setExplorerMode('all')
+    setProductTypeFilter('')
+    setServiceTypeFilter('')
+    setBreachSearch('')
+    setBreachThreshold(`${SLA_TARGET}`)
+    setBreachPagination({
+      page: 0,
+      pageSize: DEFAULT_BREACH_PAGE_SIZE
+    })
+    setExpandedIsp('')
+  }
+
+  function openBreachesTab() {
+    setActiveTab('breaches')
+  }
+
+  function focusIsp(ispName) {
+    if (!ispName) return
+    setIspSearch(String(ispName))
+    setActiveTab('explorer')
+  }
+
+  function focusProductType(productType) {
+    if (!productType) return
+    setProductTypeFilter(String(productType))
+  }
+
+  function focusServiceType(serviceType) {
+    if (!serviceType) return
+    setServiceTypeFilter(String(serviceType))
+  }
 
   async function loadSummary() {
     setLoading(true)
@@ -207,6 +352,133 @@ export default function SlaReportingPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadOverview() {
+    setOverviewLoading(true)
+    setOverviewError('')
+    try {
+      const res = await api.get('/sla-reporting/overview', {
+        params: {
+          from: range.from,
+          to: range.to,
+          productType: productTypeFilter,
+          serviceType: serviceTypeFilter
+        }
+      })
+      setOverview(res.data || {
+        months: [],
+        productTypes: [],
+        serviceTypes: [],
+        cards: {},
+        monthTrend: [],
+        worstIsps: [],
+        productPerformance: [],
+        servicePerformance: []
+      })
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load overview'
+      setOverviewError(String(msg))
+    } finally {
+      setOverviewLoading(false)
+    }
+  }
+
+  async function loadBreaches() {
+    setBreachLoading(true)
+    setBreachError('')
+    try {
+      const res = await api.get('/sla-reporting/breaches', {
+        params: {
+          from: range.from,
+          to: range.to,
+          productType: productTypeFilter,
+          serviceType: serviceTypeFilter,
+          threshold: breachThreshold,
+          search: breachSearch,
+          page: breachPagination.page,
+          pageSize: breachPagination.pageSize
+        }
+      })
+      setBreachData(res.data || {
+        months: [],
+        links: [],
+        totalCount: 0,
+        page: 0,
+        pageSize: DEFAULT_BREACH_PAGE_SIZE,
+        threshold: 99.5
+      })
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load breaches'
+      setBreachError(String(msg))
+    } finally {
+      setBreachLoading(false)
+    }
+  }
+
+  async function loadOutageAnalytics() {
+    setOutageLoading(true)
+    setOutageError('')
+    try {
+      const res = await api.get('/sla-reporting/outages/analytics', {
+        params: {
+          from: range.from,
+          to: range.to,
+          productType: productTypeFilter,
+          serviceType: serviceTypeFilter
+        }
+      })
+      setOutageData(res.data || {
+        months: [],
+        byMonth: [],
+        byImpactType: [],
+        byCauseClass: [],
+        byRegion: [],
+        byPartyAtFault: [],
+        topOutages: []
+      })
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load outage analytics'
+      setOutageError(String(msg))
+    } finally {
+      setOutageLoading(false)
+    }
+  }
+
+  async function loadTicketAnalytics() {
+    setTicketLoading(true)
+    setTicketError('')
+    try {
+      const res = await api.get('/sla-reporting/tickets/analytics', {
+        params: {
+          from: range.from,
+          to: range.to,
+          productType: productTypeFilter,
+          serviceType: serviceTypeFilter
+        }
+      })
+      setTicketData(res.data || {
+        months: [],
+        byMonth: [],
+        byCategory: [],
+        bySeverity: [],
+        byPartyAtFault: [],
+        topTickets: []
+      })
+    } catch (err) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to load ticket analytics'
+      setTicketError(String(msg))
+    } finally {
+      setTicketLoading(false)
+    }
+  }
+
+  function refreshCurrentTab() {
+    if (activeTab === 'overview') loadOverview().catch(console.error)
+    if (activeTab === 'breaches') loadBreaches().catch(console.error)
+    if (activeTab === 'outages') loadOutageAnalytics().catch(console.error)
+    if (activeTab === 'tickets') loadTicketAnalytics().catch(console.error)
+    if (activeTab === 'explorer') loadSummary().catch(console.error)
   }
 
   function getIspMeta(ispName) {
@@ -309,22 +581,315 @@ export default function SlaReportingPage() {
     }
   }
 
-  useEffect(() => {
-    loadSummary().catch(console.error)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  function openOutageDetails(outage) {
+    setSelectedOutage(outage || null)
+  }
+
+  function openTicketDetails(ticket) {
+    setSelectedTicket(ticket || null)
+  }
+
+  async function exportCurrentView() {
+    const filterRows = [
+      { Filter: 'From', Value: range.from || '-' },
+      { Filter: 'To', Value: range.to || '-' },
+      { Filter: 'Product Type', Value: productTypeFilter || 'All' },
+      { Filter: 'Service Type', Value: serviceTypeFilter || 'All' },
+      { Filter: 'Explorer ISP Search', Value: ispSearch || '-' },
+      { Filter: 'Explorer FRG Search', Value: frgSearch || '-' }
+    ]
+
+    const fileSuffix = `${safeFilePart(activeTab)}-${safeFilePart(range.from)}-to-${safeFilePart(range.to)}.xlsx`
+    const sheets = [{ name: 'Filters', rows: filterRows }]
+
+    if (activeTab === 'overview') {
+      sheets.push(
+        {
+          name: 'Overview Cards',
+          rows: [
+            { Metric: 'Average SLA', Value: fmtPct(overview.cards?.avgUptimePct) },
+            { Metric: 'Breaching Links', Value: fmtCount(overview.cards?.breachLinks) },
+            { Metric: 'Impacted Links', Value: fmtCount(overview.cards?.impactedLinks) },
+            { Metric: 'Total Downtime', Value: fmtHours(overview.cards?.totalDowntimeHours) },
+            { Metric: 'Tickets', Value: fmtCount(overview.cards?.ticketCount) },
+            { Metric: 'Outages', Value: fmtCount(overview.cards?.outageCount) }
+          ]
+        },
+        { name: 'Monthly Trend', rows: overview.monthTrend || [] },
+        { name: 'Worst ISPs', rows: overview.worstIsps || [] },
+        { name: 'Product Performance', rows: overview.productPerformance || [] },
+        { name: 'Service Performance', rows: overview.servicePerformance || [] }
+      )
+    }
+
+    if (activeTab === 'breaches') {
+      sheets.push({
+        name: 'Breaches',
+        rows: (breachData.links || []).map((row) => ({
+          ISP: row.isp,
+          'FRG Link': row.frogfootlinklabel,
+          Product: row.productType,
+          Service: row.serviceType,
+          'Range Avg SLA': row.avgUptimePct,
+          'Current Month SLA': row.currentMonthUptimePct,
+          'Worst Month SLA': row.worstUptimePct,
+          'Below Threshold Months': row.belowThresholdMonths,
+          'Impacted Months': row.impactedMonths,
+          'Downtime Hours': row.totalDowntimeHours,
+          Tickets: row.ticketCount,
+          'Service Impacting Tickets': row.serviceImpactingTickets,
+          Outages: row.outageCount,
+          ...(row.monthValues || {})
+        }))
+      })
+    }
+
+    if (activeTab === 'outages') {
+      sheets.push(
+        { name: 'By Month', rows: outageData.byMonth || [] },
+        { name: 'Impact Type', rows: outageData.byImpactType || [] },
+        { name: 'Cause Class', rows: outageData.byCauseClass || [] },
+        { name: 'Regions', rows: outageData.byRegion || [] },
+        { name: 'Party At Fault', rows: outageData.byPartyAtFault || [] },
+        { name: 'Top Outages', rows: outageData.topOutages || [] }
+      )
+    }
+
+    if (activeTab === 'tickets') {
+      sheets.push(
+        { name: 'By Month', rows: ticketData.byMonth || [] },
+        { name: 'Categories', rows: ticketData.byCategory || [] },
+        { name: 'Severity', rows: ticketData.bySeverity || [] },
+        { name: 'Party At Fault', rows: ticketData.byPartyAtFault || [] },
+        { name: 'Top Tickets', rows: ticketData.topTickets || [] }
+      )
+    }
+
+    if (activeTab === 'explorer') {
+      const loadedLinks = Object.entries(linksByIsp).flatMap(([ispName, links]) =>
+        (links || []).map((row) => ({
+          ISP: ispName,
+          'FRG Link': row.frogfootlinklabel,
+          'Avg SLA': row.avgUptimePct,
+          'Worst SLA': row.worstUptimePct,
+          'Impacted Months': row.impactedMonths,
+          'Downtime Hours': row.totalDowntimeHours,
+          ...(row.monthValues || {})
+        }))
+      )
+
+      sheets.push(
+        { name: 'ISP Summary', rows: visibleIsps || [] },
+        { name: 'Loaded Links', rows: loadedLinks }
+      )
+    }
+
+    setExportingCurrent(true)
+    try {
+      await downloadWorkbook(`sla-${fileSuffix}`, sheets)
+    } finally {
+      setExportingCurrent(false)
+    }
+  }
+
+  async function exportOpenLinkDetails() {
+    if (!detail?.details?.length || !openLink) return
+
+    const sheets = [
+      {
+        name: 'Monthly Summary',
+        rows: detail.details.map((month) => ({
+          'Year Month': month.yearMonth,
+          'SLA %': month.sla?.uptimePct,
+          'Downtime Hours': month.sla?.downtimeHours,
+          'Active Hours': month.sla?.activeHours,
+          Tickets: month.tickets?.length || 0,
+          Outages: month.outages?.length || 0,
+          'Linked Tickets': month.overlap?.linkedTickets || 0,
+          'Overlap Tickets': month.overlap?.overlapTickets || 0,
+          'Overlap Pairs': month.overlap?.overlapPairs || 0
+        }))
+      }
+    ]
+
+    ;(detail.details || []).forEach((month) => {
+      sheets.push(
+        { name: `${month.yearMonth} Tickets`, rows: month.tickets || [] },
+        { name: `${month.yearMonth} Outages`, rows: month.outages || [] }
+      )
+    })
+
+    setExportingDetail(true)
+    try {
+      await downloadWorkbook(
+        `sla-link-${safeFilePart(openLink)}-${safeFilePart(detail.from)}-to-${safeFilePart(detail.to)}.xlsx`,
+        sheets
+      )
+    } finally {
+      setExportingDetail(false)
+    }
+  }
 
   useEffect(() => {
-    // These filters change the server query for each ISP detail table.
+    if (activeTab !== 'overview' && overview.months?.length) return
+    loadOverview().catch(console.error)
+  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 'breaches') loadBreaches().catch(console.error)
+  }, [
+    activeTab,
+    range.from,
+    range.to,
+    productTypeFilter,
+    serviceTypeFilter,
+    breachThreshold,
+    breachSearch,
+    breachPagination.page,
+    breachPagination.pageSize
+  ]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 'outages') loadOutageAnalytics().catch(console.error)
+  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 'tickets') loadTicketAnalytics().catch(console.error)
+  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 'explorer') loadSummary().catch(console.error)
+  }, [activeTab, range.from, range.to, productTypeFilter, serviceTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     setLinksByIsp({})
     setLinksMetaByIsp({})
     setExpandedIsp('')
-  }, [frgSearch, productTypeFilter, serviceTypeFilter])
+  }, [frgSearch, productTypeFilter, serviceTypeFilter, range.from, range.to])
+
+  useEffect(() => {
+    setBreachPagination((state) => ({ ...state, page: 0 }))
+  }, [breachSearch, breachThreshold])
 
   const visibleIsps = useMemo(() => {
     const q = ispSearch.trim().toLowerCase()
-    if (!q) return data.isps || []
-    return (data.isps || []).filter((isp) => String(isp.isp || '').toLowerCase().includes(q))
-  }, [data.isps, ispSearch])
+    let rows = [...(data.isps || [])]
+
+    if (q) {
+      rows = rows.filter((isp) => String(isp.isp || '').toLowerCase().includes(q))
+    }
+
+    if (explorerMode === 'impacted') {
+      rows = rows.filter((isp) => Number(isp.impactedLinks || 0) > 0)
+    }
+
+    if (explorerMode === 'breach') {
+      rows = rows.filter((isp) => Number(isp.avgUptimePct || 100) < SLA_TARGET)
+    }
+
+    rows.sort((a, b) => {
+      if (ispSort === 'alphabetical') {
+        return String(a.isp || '').localeCompare(String(b.isp || ''))
+      }
+
+      if (ispSort === 'downtime') {
+        return Number(b.totalDowntimeHours || 0) - Number(a.totalDowntimeHours || 0)
+      }
+
+      if (Number(a.avgUptimePct || 100) !== Number(b.avgUptimePct || 100)) {
+        return Number(a.avgUptimePct || 100) - Number(b.avgUptimePct || 100)
+      }
+
+      return Number(b.totalDowntimeHours || 0) - Number(a.totalDowntimeHours || 0)
+    })
+
+    return rows
+  }, [data.isps, explorerMode, ispSearch, ispSort])
+
+  const explorerSummary = useMemo(() => ({
+    visible: visibleIsps.length,
+    impacted: visibleIsps.filter((isp) => Number(isp.impactedLinks || 0) > 0).length,
+    breaching: visibleIsps.filter((isp) => Number(isp.avgUptimePct || 100) < SLA_TARGET).length
+  }), [visibleIsps])
+
+  const currentTabLoading = (
+    activeTab === 'overview'
+      ? overviewLoading
+      : activeTab === 'breaches'
+        ? breachLoading
+        : activeTab === 'outages'
+          ? outageLoading
+          : activeTab === 'tickets'
+            ? ticketLoading
+            : loading
+  )
+
+  const activeFilterCount = [
+    productTypeFilter,
+    serviceTypeFilter,
+    ispSearch,
+    frgSearch
+  ].filter(Boolean).length
+
+  const overviewInsights = useMemo(() => {
+    const worstIsp = overview.worstIsps?.[0] || null
+    const hottestProduct = [...(overview.productPerformance || [])]
+      .sort((a, b) => Number(b.impactedLinks || 0) - Number(a.impactedLinks || 0))[0] || null
+    const hottestService = [...(overview.servicePerformance || [])]
+      .sort((a, b) => Number(b.impactedLinks || 0) - Number(a.impactedLinks || 0))[0] || null
+    const trend = overview.monthTrend || []
+    const last = trend[trend.length - 1] || null
+    const prev = trend[trend.length - 2] || null
+    const delta = last && prev
+      ? Number(last.avgUptimePct || 0) - Number(prev.avgUptimePct || 0)
+      : null
+
+    return {
+      watchlist: worstIsp ? {
+        badge: worstIsp.isp,
+        message: `${worstIsp.isp} is currently the weakest performer at ${fmtPct(worstIsp.avgUptimePct)} average SLA, with ${fmtCount(worstIsp.breachLinks)} breaching links in range.`,
+        actionLabel: 'Open In Explorer',
+        onAction: () => focusIsp(worstIsp.isp)
+      } : {
+        badge: 'Stable',
+        message: 'No watchlist ISP stands out in the selected range yet.',
+        actionLabel: ''
+      },
+      product: hottestProduct ? {
+        badge: hottestProduct.label,
+        message: `${hottestProduct.label} carries the heaviest impact concentration with ${fmtCount(hottestProduct.impactedLinks)} impacted links out of ${fmtCount(hottestProduct.linkCount)}.`,
+        actionLabel: 'Filter Product',
+        onAction: () => focusProductType(hottestProduct.label)
+      } : {
+        badge: 'No Data',
+        message: 'No product concentration insight is available for this range.',
+        actionLabel: ''
+      },
+      service: hottestService ? {
+        badge: hottestService.label,
+        message: `${hottestService.label} is the busiest service grouping by impact with ${fmtCount(hottestService.impactedLinks)} affected links in the selected range.`,
+        actionLabel: 'Filter Service',
+        onAction: () => focusServiceType(hottestService.label)
+      } : {
+        badge: 'No Data',
+        message: 'No service concentration insight is available for this range.',
+        actionLabel: ''
+      },
+      trend: last ? {
+        badge: last.yearMonth,
+        tone: delta != null && delta < 0 ? '#dc2626' : '#0f766e',
+        message: delta == null
+          ? `Latest month in range is ${last.yearMonth} at ${fmtPct(last.avgUptimePct)} average SLA.`
+          : delta < 0
+            ? `Average SLA worsened by ${Math.abs(delta).toFixed(2)} points into ${last.yearMonth}, now sitting at ${fmtPct(last.avgUptimePct)}.`
+            : `Average SLA improved by ${delta.toFixed(2)} points into ${last.yearMonth}, now sitting at ${fmtPct(last.avgUptimePct)}.`
+      } : {
+        badge: 'No Data',
+        tone: '#0f172a',
+        message: 'Trend insight is not available for the selected range.'
+      }
+    }
+  }, [overview, visibleIsps]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const monthColumns = useMemo(() => {
     return (data.months || []).map((m) => ({
@@ -416,90 +981,325 @@ export default function SlaReportingPage() {
   const columns = useMemo(() => [...baseColumns, ...monthColumns], [baseColumns, monthColumns])
 
   return (
-    <Box px={2} py={1}>
-      <Typography variant="h5" fontWeight={700} mb={1}>
-        ISP SLA Reporting
-      </Typography>
-      <Typography variant="body2" sx={{ mb: 2, opacity: 0.8 }}>
-        View SLA by ISP and FRG link per month. Click a link for full ticket/outage drill-down and overlap checks.
-      </Typography>
+    <Box
+      px={{ xs: 1, md: 2 }}
+      py={1.5}
+      sx={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}
+    >
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 1.5,
+          p: { xs: 1.5, md: 2 },
+          border: '1px solid #0b6b49',
+          borderRadius: 3,
+          color: '#f8fafc',
+          background: 'linear-gradient(135deg, #0b7a4b 0%, #125c6d 58%, #142a45 100%)',
+          boxShadow: '0 20px 40px rgba(15, 23, 42, 0.18)',
+          overflow: 'hidden'
+        }}
+      >
+        <Stack spacing={1.5}>
+          <Stack
+            direction={{ xs: 'column', xl: 'row' }}
+            spacing={1.5}
+            alignItems={{ xs: 'flex-start', xl: 'center' }}
+            justifyContent="space-between"
+            sx={{ minWidth: 0 }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="overline" sx={{ letterSpacing: 1.1, opacity: 0.78 }}>
+                SLA Reporting
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.05 }}>
+                SLA Performance Dashboard
+              </Typography>
+              <Typography variant="body1" sx={{ mt: 0.75, maxWidth: 920, opacity: 0.9 }}>
+                Interactive SLA performance across ISPs, FRG links, outages, and tickets. The page is built to move from an executive view into operational evidence quickly.
+              </Typography>
+            </Box>
 
-      <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid #eee' }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
-          <TextField
-            size="small"
-            label="From"
-            type="month"
-            value={range.from}
-            onChange={(e) => setRange(s => ({ ...s, from: e.target.value }))}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            size="small"
-            label="To"
-            type="month"
-            value={range.to}
-            onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            size="small"
-            select
-            label="Product Type"
-            value={productTypeFilter}
-            onChange={(e) => setProductTypeFilter(e.target.value)}
-            sx={{ minWidth: 180 }}
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              useFlexGap
+              flexWrap="wrap"
+              sx={{ minWidth: 0 }}
+            >
+              <Chip size="small" label={`Range ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`} sx={{ bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 700 }} />
+              <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={`Links ${fmtCount(overview.cards?.totalLinks || 0)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+              <Chip size="small" label={`Average ${fmtPct(overview.cards?.avgUptimePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff' }} />
+            </Stack>
+          </Stack>
+
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ minWidth: 0 }}
           >
-            <MenuItem value="">All Products</MenuItem>
-            {(data.productTypes || []).map((pt) => (
-              <MenuItem key={`pt-${pt}`} value={pt}>{pt}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            size="small"
-            select
-            label="Service Type"
-            value={serviceTypeFilter}
-            onChange={(e) => setServiceTypeFilter(e.target.value)}
-            sx={{ minWidth: 180 }}
-          >
-            <MenuItem value="">All Services</MenuItem>
-            {(data.serviceTypes || []).map((st) => (
-              <MenuItem key={`st-${st}`} value={st}>{st}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            size="small"
-            label="ISP Search"
-            placeholder="e.g. Vox"
-            value={ispSearch}
-            onChange={(e) => setIspSearch(e.target.value)}
-          />
-          <TextField
-            size="small"
-            label="FRG Search"
-            placeholder="e.g. FRG1109853"
-            value={frgSearch}
-            onChange={(e) => setFrgSearch(e.target.value)}
-          />
-          <Button variant="contained" onClick={() => loadSummary().catch(console.error)} disabled={loading}>
-            Refresh
-          </Button>
-          <Chip
-            size="small"
-            label={`Range: ${data.from || range.from || '—'} to ${data.to || range.to || '—'}`}
-            sx={{ fontWeight: 600 }}
-          />
+            <Chip size="small" label="Overview for direction" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
+            <Chip size="small" label="Breaches for watchlist" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
+            <Chip size="small" label="Outages and tickets for evidence" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
+            <Chip size="small" label="Explorer for FRG drilldown" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff' }} />
+          </Stack>
         </Stack>
       </Paper>
 
-      {loading ? (
+      <Paper
+        elevation={0}
+        sx={{
+          p: 1.5,
+          mb: 1.5,
+          border: '1px solid #d8e3dd',
+          borderRadius: 3,
+          bgcolor: '#f7fbf8',
+          overflow: 'hidden'
+        }}
+      >
+        <Stack spacing={1}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1}
+            alignItems={{ xs: 'stretch', md: 'center' }}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ minWidth: 0 }}
+          >
+            <TextField
+              size="small"
+              label="From"
+              type="month"
+              value={range.from}
+              onChange={(e) => setRange(s => ({ ...s, from: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 150 }}
+            />
+            <TextField
+              size="small"
+              label="To"
+              type="month"
+              value={range.to}
+              onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 150 }}
+            />
+            <TextField
+              size="small"
+              select
+              label="Product Type"
+              value={productTypeFilter}
+              onChange={(e) => setProductTypeFilter(e.target.value)}
+              sx={{ minWidth: 180 }}
+            >
+              <MenuItem value="">All Products</MenuItem>
+              {((overview.productTypes && overview.productTypes.length ? overview.productTypes : data.productTypes) || []).map((pt) => (
+                <MenuItem key={`pt-${pt}`} value={pt}>{pt}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              size="small"
+              select
+              label="Service Type"
+              value={serviceTypeFilter}
+              onChange={(e) => setServiceTypeFilter(e.target.value)}
+              sx={{ minWidth: 180 }}
+            >
+              <MenuItem value="">All Services</MenuItem>
+              {((overview.serviceTypes && overview.serviceTypes.length ? overview.serviceTypes : data.serviceTypes) || []).map((st) => (
+                <MenuItem key={`st-${st}`} value={st}>{st}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              size="small"
+              label="Explorer ISP Search"
+              placeholder="e.g. Vox"
+              value={ispSearch}
+              onChange={(e) => setIspSearch(e.target.value)}
+              sx={{ minWidth: 180 }}
+            />
+            <TextField
+              size="small"
+              label="Explorer FRG Search"
+              placeholder="e.g. FRG1109853"
+              value={frgSearch}
+              onChange={(e) => setFrgSearch(e.target.value)}
+              sx={{ minWidth: 200 }}
+            />
+            <Button variant="contained" onClick={refreshCurrentTab} disabled={currentTabLoading}>
+              Refresh
+            </Button>
+            <Button variant="outlined" onClick={clearFilters}>
+              Reset
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => exportCurrentView().catch(console.error)}
+              disabled={exportingCurrent}
+            >
+              {exportingCurrent ? 'Exporting...' : 'Export Current View'}
+            </Button>
+            <Chip
+              size="small"
+              label={`Range: ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`}
+              sx={{ fontWeight: 600 }}
+            />
+          </Stack>
+
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1}
+            alignItems={{ xs: 'stretch', md: 'center' }}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ minWidth: 0 }}
+          >
+            <Typography variant="caption" sx={{ minWidth: 78, opacity: 0.75 }}>
+              Quick Range
+            </Typography>
+            <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(3))}>Last 3M</Button>
+            <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(6))}>Last 6M</Button>
+            <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(12))}>Last 12M</Button>
+            <Button size="small" variant="text" onClick={() => setRange(ytdRange())}>YTD</Button>
+            <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} />
+            {productTypeFilter ? <Chip size="small" label={`Product ${productTypeFilter}`} /> : null}
+            {serviceTypeFilter ? <Chip size="small" label={`Service ${serviceTypeFilter}`} /> : null}
+          </Stack>
+        </Stack>
+      </Paper>
+
+      <Paper elevation={0} sx={{ mb: 1.5, border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, value) => setActiveTab(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            px: 1,
+            minHeight: 56,
+            '& .MuiTab-root': {
+              minHeight: 56,
+              textTransform: 'none',
+              fontWeight: 700
+            },
+            '& .Mui-selected': {
+              color: '#0f766e !important'
+            },
+            '& .MuiTabs-indicator': {
+              height: 3,
+              borderRadius: 999,
+              bgcolor: '#0f766e'
+            }
+          }}
+        >
+          <Tab value="overview" label="Overview" />
+          <Tab value="breaches" label="Breach Monitor" />
+          <Tab value="outages" label="Outages" />
+          <Tab value="tickets" label="Tickets" />
+          <Tab value="explorer" label="Link Explorer" />
+        </Tabs>
+      </Paper>
+
+      {activeTab === 'overview' ? (
+        <SlaOverviewTab
+          loading={overviewLoading}
+          error={overviewError}
+          overview={overview}
+          insights={overviewInsights}
+          fmtPct={fmtPct}
+          fmtHours={fmtHours}
+          fmtCount={fmtCount}
+          onViewBreaches={openBreachesTab}
+          onSelectIsp={focusIsp}
+          onSelectProductType={focusProductType}
+          onSelectServiceType={focusServiceType}
+        />
+      ) : null}
+
+      {activeTab === 'breaches' ? (
+        <SlaBreachesTab
+          loading={breachLoading}
+          error={breachError}
+          breachData={breachData}
+          breachPagination={breachPagination}
+          setBreachPagination={setBreachPagination}
+          breachSearch={breachSearch}
+          setBreachSearch={setBreachSearch}
+          breachThreshold={breachThreshold}
+          setBreachThreshold={setBreachThreshold}
+          fmtCount={fmtCount}
+          fmtPct={fmtPct}
+          fmtHours={fmtHours}
+          pctChipColor={pctChipColor}
+          openLinkDetails={openLinkDetails}
+        />
+      ) : null}
+
+      {activeTab === 'outages' ? (
+        <SlaOutagesTab
+          loading={outageLoading}
+          error={outageError}
+          outageData={outageData}
+          fmtCount={fmtCount}
+          fmtHours={fmtHours}
+          fmtTs={fmtTs}
+          onOpenOutage={openOutageDetails}
+        />
+      ) : null}
+
+      {activeTab === 'tickets' ? (
+        <SlaTicketsTab
+          loading={ticketLoading}
+          error={ticketError}
+          ticketData={ticketData}
+          fmtCount={fmtCount}
+          fmtHours={fmtHours}
+          onOpenTicket={openTicketDetails}
+        />
+      ) : null}
+
+      {activeTab === 'explorer' ? (loading ? (
         <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #eee' }}>
           <CircularProgress size={28} />
           <Typography variant="body2" sx={{ mt: 1.2 }}>Loading SLA data...</Typography>
         </Paper>
       ) : (
         <>
+          <Paper elevation={0} sx={{ p: 1.5, mb: 1.25, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ xs: 'stretch', lg: 'center' }} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+              <TextField
+                size="small"
+                select
+                label="Explorer View"
+                value={explorerMode}
+                onChange={(e) => setExplorerMode(e.target.value)}
+                sx={{ minWidth: 170 }}
+              >
+                <MenuItem value="all">All ISPs</MenuItem>
+                <MenuItem value="impacted">Impacted Only</MenuItem>
+                <MenuItem value="breach">Breaching Only</MenuItem>
+              </TextField>
+              <TextField
+                size="small"
+                select
+                label="ISP Sort"
+                value={ispSort}
+                onChange={(e) => setIspSort(e.target.value)}
+                sx={{ minWidth: 180 }}
+              >
+                <MenuItem value="risk">Highest Risk First</MenuItem>
+                <MenuItem value="downtime">Most Downtime</MenuItem>
+                <MenuItem value="alphabetical">A-Z</MenuItem>
+              </TextField>
+              <Chip size="small" label={`Showing ${fmtCount(explorerSummary.visible)} of ${fmtCount(data.isps?.length || 0)}`} />
+              <Chip size="small" label={`Impacted ${fmtCount(explorerSummary.impacted)}`} color={explorerSummary.impacted ? 'warning' : 'default'} />
+              <Chip size="small" label={`Breaching ${fmtCount(explorerSummary.breaching)}`} color={explorerSummary.breaching ? 'error' : 'success'} />
+            </Stack>
+          </Paper>
+
           {(visibleIsps || []).map((isp) => (
             <Accordion
               key={isp.isp}
@@ -514,7 +1314,7 @@ export default function SlaReportingPage() {
                   }
                 }
               }}
-              sx={{ mb: 1 }}
+              sx={{ mb: 1, overflow: 'hidden' }}
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Stack
@@ -556,25 +1356,27 @@ export default function SlaReportingPage() {
                           <Typography variant="body2">No FRG link records returned for this ISP in the selected range.</Typography>
                         </Paper>
                       ) : (
-                        <DataGrid
-                          rows={rows}
-                          columns={columns}
-                          autoHeight
-                          density="compact"
-                          rowCount={meta.totalCount || rows.length}
-                          pageSizeOptions={[25, 50, 100, 200]}
-                          paginationMode="server"
-                          paginationModel={{ page: meta.page || 0, pageSize: meta.pageSize || DEFAULT_ISP_PAGE_SIZE }}
-                          onPaginationModelChange={(model) => {
-                            loadIspLinks(isp.isp, model.page, model.pageSize).catch(console.error)
-                          }}
-                          loading={Boolean(meta.loading)}
-                          slots={{ toolbar: GridToolbar }}
-                          slotProps={{
-                            toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
-                          }}
-                          sx={{ border: 0 }}
-                        />
+                        <Box sx={{ width: '100%', overflowX: 'auto' }}>
+                          <DataGrid
+                            rows={rows}
+                            columns={columns}
+                            autoHeight
+                            density="compact"
+                            rowCount={meta.totalCount || rows.length}
+                            pageSizeOptions={[25, 50, 100, 200]}
+                            paginationMode="server"
+                            paginationModel={{ page: meta.page || 0, pageSize: meta.pageSize || DEFAULT_ISP_PAGE_SIZE }}
+                            onPaginationModelChange={(model) => {
+                              loadIspLinks(isp.isp, model.page, model.pageSize).catch(console.error)
+                            }}
+                            loading={Boolean(meta.loading)}
+                            slots={{ toolbar: GridToolbar }}
+                            slotProps={{
+                              toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
+                            }}
+                            sx={{ border: 0, minWidth: 1080 }}
+                          />
+                        </Box>
                       )}
                     </Box>
                   )
@@ -593,7 +1395,7 @@ export default function SlaReportingPage() {
             </Paper>
           )}
         </>
-      )}
+      )) : null}
 
       <Dialog
         open={Boolean(openLink)}
@@ -604,10 +1406,20 @@ export default function SlaReportingPage() {
         fullWidth
         maxWidth="xl"
       >
-        <DialogTitle>
-          FRG Details: {openLink}
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+          <Typography variant="h6" component="span">
+            FRG Details: {openLink}
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => exportOpenLinkDetails().catch(console.error)}
+            disabled={!detail || exportingDetail}
+          >
+            {exportingDetail ? 'Exporting...' : 'Export Detail'}
+          </Button>
         </DialogTitle>
-        <DialogContent dividers>
+        <DialogContent dividers sx={{ overflowX: 'hidden' }}>
           {detailLoading ? (
             <Box py={3} textAlign="center">
               <CircularProgress size={24} />
@@ -722,70 +1534,74 @@ export default function SlaReportingPage() {
                       ) : null}
 
                       <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Tickets</Typography>
-                      <Table size="small">
-                        <TableHead>
-                        <TableRow>
-                          <TableCell>Ticket ID</TableCell>
-                          <TableCell>Created</TableCell>
-                          <TableCell>Stop</TableCell>
-                          <TableCell>Category</TableCell>
-                          <TableCell>Linked Outage</TableCell>
-                          <TableCell>Overlaps</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {(m.tickets || []).map((t) => (
-                          <TableRow key={`${m.yearMonth}-${t.ticket_id}-${t.created_date || ''}`}>
-                            <TableCell>{t.ticket_id || '—'}</TableCell>
-                            <TableCell>{fmtTs(t.created_date)}</TableCell>
-                            <TableCell>{fmtTs(t.impact_stop_time)}</TableCell>
-                            <TableCell>{t.category || '—'}</TableCell>
-                            <TableCell>{t.linkedOutageRef || '—'}</TableCell>
-                            <TableCell>{(t.overlapOutageRefs || []).join(', ') || '—'}</TableCell>
-                          </TableRow>
-                        ))}
-                        {!m.tickets?.length && (
-                          <TableRow>
-                            <TableCell colSpan={6}>No tickets in this month.</TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
+                      <Box sx={{ width: '100%', overflowX: 'auto' }}>
+                        <Table size="small" sx={{ minWidth: 720 }}>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Ticket ID</TableCell>
+                              <TableCell>Created</TableCell>
+                              <TableCell>Stop</TableCell>
+                              <TableCell>Category</TableCell>
+                              <TableCell>Linked Outage</TableCell>
+                              <TableCell>Overlaps</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(m.tickets || []).map((t) => (
+                              <TableRow key={`${m.yearMonth}-${t.ticket_id}-${t.created_date || ''}`}>
+                                <TableCell>{t.ticket_id || '-'}</TableCell>
+                                <TableCell>{fmtTs(t.created_date)}</TableCell>
+                                <TableCell>{fmtTs(t.impact_stop_time)}</TableCell>
+                                <TableCell>{t.category || '-'}</TableCell>
+                                <TableCell>{t.linkedOutageRef || '-'}</TableCell>
+                                <TableCell>{(t.overlapOutageRefs || []).join(', ') || '-'}</TableCell>
+                              </TableRow>
+                            ))}
+                            {!m.tickets?.length && (
+                              <TableRow>
+                                <TableCell colSpan={6}>No tickets in this month.</TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </Box>
 
                     <Divider sx={{ my: 1.2 }} />
 
                     <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Outages</Typography>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Outage Ref</TableCell>
-                          <TableCell>Start</TableCell>
-                          <TableCell>Stop</TableCell>
-                          <TableCell>Impact</TableCell>
-                          <TableCell>Force Majeure</TableCell>
-                          <TableCell>Title</TableCell>
-                          <TableCell>Summary</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {(m.outages || []).map((o) => (
-                          <TableRow key={`${m.yearMonth}-${o.outage_ref}`}>
-                            <TableCell>{o.outage_ref || '—'}</TableCell>
-                            <TableCell>{fmtTs(o.impact_start)}</TableCell>
-                            <TableCell>{fmtTs(o.impact_stop)}</TableCell>
-                            <TableCell>{o.impact_type || '—'}</TableCell>
-                            <TableCell>{o.force_majeure || '—'}</TableCell>
-                            <TableCell>{o.outagetitle || '—'}</TableCell>
-                            <TableCell>{o.summary || '—'}</TableCell>
-                          </TableRow>
-                        ))}
-                        {!m.outages?.length && (
+                    <Box sx={{ width: '100%', overflowX: 'auto' }}>
+                      <Table size="small" sx={{ minWidth: 900 }}>
+                        <TableHead>
                           <TableRow>
-                            <TableCell colSpan={7}>No outages in this month.</TableCell>
+                            <TableCell>Outage Ref</TableCell>
+                            <TableCell>Start</TableCell>
+                            <TableCell>Stop</TableCell>
+                            <TableCell>Impact</TableCell>
+                            <TableCell>Force Majeure</TableCell>
+                            <TableCell>Title</TableCell>
+                            <TableCell>Summary</TableCell>
                           </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
+                        </TableHead>
+                        <TableBody>
+                          {(m.outages || []).map((o) => (
+                            <TableRow key={`${m.yearMonth}-${o.outage_ref}`}>
+                              <TableCell>{o.outage_ref || '-'}</TableCell>
+                              <TableCell>{fmtTs(o.impact_start)}</TableCell>
+                              <TableCell>{fmtTs(o.impact_stop)}</TableCell>
+                              <TableCell>{o.impact_type || '-'}</TableCell>
+                              <TableCell>{o.force_majeure || '-'}</TableCell>
+                              <TableCell>{o.outagetitle || '-'}</TableCell>
+                              <TableCell>{o.summary || '-'}</TableCell>
+                            </TableRow>
+                          ))}
+                          {!m.outages?.length && (
+                            <TableRow>
+                              <TableCell colSpan={7}>No outages in this month.</TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </Box>
                     </AccordionDetails>
                   </Accordion>
                 )
@@ -796,6 +1612,129 @@ export default function SlaReportingPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={Boolean(selectedOutage)}
+        onClose={() => setSelectedOutage(null)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>
+          Outage Detail: {selectedOutage?.outageRef || '-'}
+        </DialogTitle>
+        <DialogContent dividers sx={{ overflowX: 'hidden' }}>
+          {selectedOutage ? (
+            <Stack spacing={1.25}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} useFlexGap flexWrap="wrap">
+                <Chip size="small" label={`Month ${selectedOutage.yearMonth || '-'}`} />
+                <Chip size="small" label={`Affected Links ${fmtCount(selectedOutage.affectedLinks)}`} color={selectedOutage.affectedLinks ? 'warning' : 'default'} />
+                <Chip size="small" label={`Duration ${fmtHours(selectedOutage.durationHours)}`} color={selectedOutage.durationHours ? 'error' : 'default'} />
+                <Chip size="small" label={selectedOutage.impactType || 'Unknown impact'} />
+              </Stack>
+
+              <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e5e7eb' }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.25,
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }
+                  }}
+                >
+                  <DetailField label="Impact Type" value={selectedOutage.impactType} />
+                  <DetailField label="Cause Class" value={selectedOutage.causeClass} />
+                  <DetailField label="Region" value={selectedOutage.region} />
+                  <DetailField label="Party At Fault" value={selectedOutage.partyAtFault} />
+                  <DetailField label="Impact Start" value={fmtTs(selectedOutage.impactStart)} />
+                  <DetailField label="Impact Stop" value={fmtTs(selectedOutage.impactStop)} />
+                  <DetailField label="Affected Links" value={fmtCount(selectedOutage.affectedLinks)} />
+                  <DetailField label="Duration Hours" value={fmtHours(selectedOutage.durationHours)} />
+                </Box>
+              </Paper>
+
+              <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e5e7eb' }}>
+                <Typography variant="caption" sx={{ display: 'block', textTransform: 'uppercase', letterSpacing: 0.4, opacity: 0.66, mb: 0.5 }}>
+                  Summary
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                  {selectedOutage.summary || 'No outage summary captured for this record.'}
+                </Typography>
+              </Paper>
+            </Stack>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedTicket)}
+        onClose={() => setSelectedTicket(null)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+          <Typography variant="h6" component="span">
+            Ticket Detail: {selectedTicket?.ticketId || '-'}
+          </Typography>
+          {selectedTicket?.frg ? (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => {
+                const frg = selectedTicket.frg
+                setSelectedTicket(null)
+                openLinkDetails(frg).catch(console.error)
+              }}
+            >
+              Open FRG Timeline
+            </Button>
+          ) : null}
+        </DialogTitle>
+        <DialogContent dividers sx={{ overflowX: 'hidden' }}>
+          {selectedTicket ? (
+            <Stack spacing={1.25}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} useFlexGap flexWrap="wrap">
+                <Chip size="small" label={`FRG ${selectedTicket.frg || '-'}`} />
+                <Chip size="small" label={`Month ${selectedTicket.yearMonth || '-'}`} />
+                <Chip size="small" label={selectedTicket.category || 'Unknown category'} color={String(selectedTicket.category || '').toLowerCase() === DOWNTIME_CATEGORY ? 'warning' : 'default'} />
+                <Chip size="small" label={`Final ${fmtHours(selectedTicket.finalHours)}`} color={selectedTicket.finalHours ? 'error' : 'default'} />
+              </Stack>
+
+              <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e5e7eb' }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.25,
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }
+                  }}
+                >
+                  <DetailField label="Created" value={fmtTs(selectedTicket.createdDate)} />
+                  <DetailField label="Impact Stop" value={fmtTs(selectedTicket.impactStopTime)} />
+                  <DetailField label="Severity" value={selectedTicket.severity} />
+                  <DetailField label="Party At Fault" value={selectedTicket.partyAtFault} />
+                  <DetailField label="Product Type" value={selectedTicket.productType} />
+                  <DetailField label="Service Type" value={selectedTicket.serviceType} />
+                  <DetailField label="Site Access" value={selectedTicket.siteAccessTimes} />
+                  <DetailField label="FRG Link" value={selectedTicket.frg} />
+                </Box>
+              </Paper>
+
+              <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e5e7eb' }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.25,
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }
+                  }}
+                >
+                  <DetailField label="Raw Downtime" value={fmtHours(selectedTicket.rawHours)} />
+                  <DetailField label="Excluded Site Access" value={fmtHours(selectedTicket.excludedHours)} />
+                  <DetailField label="Final Downtime" value={fmtHours(selectedTicket.finalHours)} />
+                </Box>
+              </Paper>
+            </Stack>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Box>
   )
 }
+
