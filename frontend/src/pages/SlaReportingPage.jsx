@@ -70,6 +70,38 @@ function fmtTs(v) {
   return d.isValid() ? d.format('YYYY-MM-DD HH:mm') : String(v)
 }
 
+function alphaHex(color, alpha) {
+  return `${color}${alpha}`
+}
+
+function ExplorerStatCard({ label, value, subtext, tone = '#0f172a' }) {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: 1.15,
+        borderRadius: 2.5,
+        border: '1px solid #e5e7eb',
+        borderTop: `4px solid ${tone}`,
+        background: `linear-gradient(180deg, ${alphaHex(tone, '10')} 0%, #ffffff 48%, #ffffff 100%)`,
+        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.04)'
+      }}
+    >
+      <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.72 }}>
+        {label}
+      </Typography>
+      <Typography variant="h6" sx={{ mt: 0.35, fontWeight: 900, lineHeight: 1.05, overflowWrap: 'anywhere' }}>
+        {value}
+      </Typography>
+      {subtext ? (
+        <Typography variant="body2" sx={{ mt: 0.55, fontSize: 12.5, opacity: 0.72 }}>
+          {subtext}
+        </Typography>
+      ) : null}
+    </Paper>
+  )
+}
+
 function defaultRange() {
   const toMonth = dayjs().subtract(1, 'month')
   const to = toMonth.format('YYYY-MM')
@@ -238,7 +270,7 @@ export default function SlaReportingPage() {
   const [overviewTrendError, setOverviewTrendError] = useState('')
   const [overviewFocusLoading, setOverviewFocusLoading] = useState(false)
   const [overviewFocusError, setOverviewFocusError] = useState('')
-  const [overviewOpsLoading, setOverviewOpsLoading] = useState(false)
+  const [, setOverviewOpsLoading] = useState(false)
   const [overviewOpsError, setOverviewOpsError] = useState('')
   const [overview, setOverview] = useState({
     months: [],
@@ -958,6 +990,28 @@ export default function SlaReportingPage() {
     breaching: visibleIsps.filter((isp) => Number(isp.avgUptimePct || 100) < SLA_TARGET).length
   }), [visibleIsps])
 
+  const explorerWorstIsp = useMemo(() => {
+    if (!visibleIsps.length) return null
+    return [...visibleIsps].sort((a, b) => {
+      if (Number(a.avgUptimePct || 100) !== Number(b.avgUptimePct || 100)) {
+        return Number(a.avgUptimePct || 100) - Number(b.avgUptimePct || 100)
+      }
+      return Number(b.totalDowntimeHours || 0) - Number(a.totalDowntimeHours || 0)
+    })[0]
+  }, [visibleIsps])
+
+  const explorerModeLabel = explorerMode === 'impacted'
+    ? 'Impacted only'
+    : explorerMode === 'breach'
+      ? 'Breaching only'
+      : 'All ISPs'
+
+  const explorerSortLabel = ispSort === 'downtime'
+    ? 'Most downtime'
+    : ispSort === 'alphabetical'
+      ? 'A-Z'
+      : 'Highest risk'
+
   const currentTabLoading = (
     activeTab === 'overview'
       ? overviewLoading
@@ -1137,7 +1191,7 @@ export default function SlaReportingPage() {
         elevation={0}
         sx={{
           mb: 1.25,
-          p: { xs: 1.25, md: 1.5 },
+          p: { xs: 1, md: 1.1 },
           border: '1px solid #0b6b49',
           borderRadius: 3,
           color: '#f8fafc',
@@ -1146,57 +1200,9 @@ export default function SlaReportingPage() {
           overflow: 'hidden'
         }}
       >
-        <Stack spacing={1.2}>
-          <Stack
-            direction={{ xs: 'column', xl: 'row' }}
-            spacing={1.5}
-            alignItems={{ xs: 'flex-start', xl: 'center' }}
-            justifyContent="space-between"
-            sx={{ minWidth: 0 }}
-          >
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="overline" sx={{ letterSpacing: 1.1, opacity: 0.78 }}>
-                SLA Reporting
-              </Typography>
-              <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.05 }}>
-                SLA Performance Dashboard
-              </Typography>
-              <Typography variant="body2" sx={{ mt: 0.5, maxWidth: 840, opacity: 0.9 }}>
-                Interactive SLA performance across ISPs, FRG links, outages, and tickets. The page is built to move from an executive view into operational evidence quickly.
-              </Typography>
-            </Box>
-
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1}
-              useFlexGap
-              flexWrap="wrap"
-              sx={{ minWidth: 0 }}
-            >
-              <Chip size="small" label={`Range ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`} sx={{ bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 700, border: '1px solid rgba(255,255,255,0.14)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={`Links ${fmtCount(overview.cards?.totalLinks || 0)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={`Average ${fmtPct(overview.cards?.avgUptimePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={overviewOpsLoading ? 'Ops loading' : 'Ops ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={overviewTrendLoading ? 'Trend loading' : 'Trend ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-              <Chip size="small" label={overviewFocusLoading ? 'Insights loading' : 'Insights ready'} sx={{ bgcolor: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }} />
-            </Stack>
-          </Stack>
-
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
-            useFlexGap
-            flexWrap="wrap"
-            sx={{ minWidth: 0 }}
-          >
-            <Chip size="small" label="Overview for direction" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
-            <Chip size="small" label="Breaches for watchlist" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
-            <Chip size="small" label="Outages and tickets for evidence" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
-            <Chip size="small" label="Explorer for FRG drilldown" sx={{ bgcolor: 'rgba(255,255,255,0.10)', color: '#fff', border: '1px solid rgba(255,255,255,0.10)' }} />
-          </Stack>
-        </Stack>
+        <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.02 }}>
+          SLA Performance Dashboard
+        </Typography>
       </Paper>
 
       <Paper
@@ -1482,41 +1488,100 @@ export default function SlaReportingPage() {
       ) : null}
 
       {activeTab === 'explorer' ? (loading ? (
-        <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #eee' }}>
+        <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
           <CircularProgress size={28} />
           <Typography variant="body2" sx={{ mt: 1.2 }}>Loading SLA data...</Typography>
         </Paper>
       ) : (
         <>
-          <Paper elevation={0} sx={{ p: 1.25, mb: 1.1, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ xs: 'stretch', lg: 'center' }} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
-              <TextField
-                size="small"
-                select
-                label="Explorer View"
-                value={explorerMode}
-                onChange={(e) => setExplorerMode(e.target.value)}
-                sx={{ minWidth: 170 }}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 1.25,
+              mb: 1.1,
+              border: '1px solid #e5e7eb',
+              borderRadius: 3,
+              overflow: 'hidden',
+              boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+              background: 'linear-gradient(180deg, #f7fbff 0%, #ffffff 100%)'
+            }}
+          >
+            <Stack spacing={1.1}>
+              <Box>
+                <Typography variant="overline" sx={{ letterSpacing: 0.9, color: '#1d4ed8' }}>
+                  Link Explorer
+                </Typography>
+                <Typography variant="body2" sx={{ opacity: 0.74 }}>
+                  Open an ISP to inspect FRG-level SLA movement, monthly evidence, and drilldown detail.
+                </Typography>
+              </Box>
+
+              <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ xs: 'stretch', lg: 'center' }} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
+                <TextField
+                  size="small"
+                  select
+                  label="Explorer View"
+                  value={explorerMode}
+                  onChange={(e) => setExplorerMode(e.target.value)}
+                  sx={{ minWidth: 170 }}
+                >
+                  <MenuItem value="all">All ISPs</MenuItem>
+                  <MenuItem value="impacted">Impacted Only</MenuItem>
+                  <MenuItem value="breach">Breaching Only</MenuItem>
+                </TextField>
+                <TextField
+                  size="small"
+                  select
+                  label="ISP Sort"
+                  value={ispSort}
+                  onChange={(e) => setIspSort(e.target.value)}
+                  sx={{ minWidth: 180 }}
+                >
+                  <MenuItem value="risk">Highest Risk First</MenuItem>
+                  <MenuItem value="downtime">Most Downtime</MenuItem>
+                  <MenuItem value="alphabetical">A-Z</MenuItem>
+                </TextField>
+                <Chip size="small" label={`Mode ${explorerModeLabel}`} sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                <Chip size="small" label={`Sort ${explorerSortLabel}`} sx={{ fontWeight: 700 }} />
+                <Chip size="small" label={`Filters ${fmtCount(activeFilterCount)}`} sx={{ fontWeight: 700 }} />
+              </Stack>
+
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'repeat(2, minmax(0, 1fr))',
+                    xl: 'repeat(4, minmax(0, 1fr))'
+                  }
+                }}
               >
-                <MenuItem value="all">All ISPs</MenuItem>
-                <MenuItem value="impacted">Impacted Only</MenuItem>
-                <MenuItem value="breach">Breaching Only</MenuItem>
-              </TextField>
-              <TextField
-                size="small"
-                select
-                label="ISP Sort"
-                value={ispSort}
-                onChange={(e) => setIspSort(e.target.value)}
-                sx={{ minWidth: 180 }}
-              >
-                <MenuItem value="risk">Highest Risk First</MenuItem>
-                <MenuItem value="downtime">Most Downtime</MenuItem>
-                <MenuItem value="alphabetical">A-Z</MenuItem>
-              </TextField>
-              <Chip size="small" label={`Showing ${fmtCount(explorerSummary.visible)} of ${fmtCount(data.isps?.length || 0)}`} />
-              <Chip size="small" label={`Impacted ${fmtCount(explorerSummary.impacted)}`} color={explorerSummary.impacted ? 'warning' : 'default'} />
-              <Chip size="small" label={`Breaching ${fmtCount(explorerSummary.breaching)}`} color={explorerSummary.breaching ? 'error' : 'success'} />
+                <ExplorerStatCard
+                  label="Showing"
+                  value={`${fmtCount(explorerSummary.visible)} / ${fmtCount(data.isps?.length || 0)}`}
+                  subtext="Visible ISPs after explorer mode and search filters."
+                  tone="#1d4ed8"
+                />
+                <ExplorerStatCard
+                  label="Impacted ISPs"
+                  value={fmtCount(explorerSummary.impacted)}
+                  subtext="ISPs with any impacted links in the visible set."
+                  tone="#f59e0b"
+                />
+                <ExplorerStatCard
+                  label="Breaching ISPs"
+                  value={fmtCount(explorerSummary.breaching)}
+                  subtext={`ISPs sitting below ${SLA_TARGET}% average SLA.`}
+                  tone="#dc2626"
+                />
+                <ExplorerStatCard
+                  label="Weakest Visible ISP"
+                  value={explorerWorstIsp?.isp || '-'}
+                  subtext={explorerWorstIsp ? `Average ${fmtPct(explorerWorstIsp.avgUptimePct)} | Downtime ${fmtHours(explorerWorstIsp.totalDowntimeHours)}` : 'No ISP loaded in the current explorer slice.'}
+                  tone="#0f172a"
+                />
+              </Box>
             </Stack>
           </Paper>
 
@@ -1534,22 +1599,43 @@ export default function SlaReportingPage() {
                   }
                 }
               }}
-              sx={{ mb: 1, overflow: 'hidden' }}
+              sx={{
+                mb: 1,
+                overflow: 'hidden',
+                border: '1px solid #e5e7eb',
+                borderLeft: `4px solid ${Number(isp.avgUptimePct || 100) < SLA_TARGET ? '#dc2626' : Number(isp.impactedLinks || 0) > 0 ? '#f59e0b' : '#0f766e'}`,
+                borderRadius: 3,
+                boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)',
+                bgcolor: '#fff',
+                '&:before': {
+                  display: 'none'
+                }
+              }}
             >
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{
+                  px: 1.25,
+                  py: 0.25,
+                  background: 'linear-gradient(180deg, #fbfdff 0%, #ffffff 100%)',
+                  '& .MuiAccordionSummary-content': {
+                    my: 1
+                  }
+                }}
+              >
                 <Stack
                   direction={{ xs: 'column', md: 'row' }}
                   spacing={1}
                   alignItems={{ xs: 'flex-start', md: 'center' }}
                   sx={{ width: '100%' }}
                 >
-                  <Typography variant="subtitle1" fontWeight={700}>{isp.isp}</Typography>
+                  <Typography variant="subtitle1" fontWeight={800}>{isp.isp}</Typography>
                   {getIspMeta(isp.isp).loading ? <CircularProgress size={16} /> : null}
-                  <Chip size="small" label={`Links ${isp.linkCount}`} />
-                  <Chip size="small" label={`Impacted ${isp.impactedLinks}`} color={isp.impactedLinks > 0 ? 'warning' : 'success'} />
-                  <Chip size="small" label={`Avg ${fmtPct(isp.avgUptimePct)}`} color={pctChipColor(isp.avgUptimePct)} />
-                  <Chip size="small" label={`Worst ${fmtPct(isp.worstUptimePct)}`} color={pctChipColor(isp.worstUptimePct)} />
-                  <Chip size="small" label={`Downtime ${fmtHours(isp.totalDowntimeHours)}`} />
+                  <Chip size="small" label={`Links ${isp.linkCount}`} sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label={`Impacted ${isp.impactedLinks}`} color={isp.impactedLinks > 0 ? 'warning' : 'success'} sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label={`Avg ${fmtPct(isp.avgUptimePct)}`} color={pctChipColor(isp.avgUptimePct)} sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label={`Worst ${fmtPct(isp.worstUptimePct)}`} color={pctChipColor(isp.worstUptimePct)} sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label={`Downtime ${fmtHours(isp.totalDowntimeHours)}`} sx={{ fontWeight: 700 }} />
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ p: 0 }}>
@@ -1567,12 +1653,12 @@ export default function SlaReportingPage() {
                       ) : null}
 
                       {meta.loading && !rows.length ? (
-                        <Box py={2} textAlign="center">
+                        <Box py={2.25} textAlign="center">
                           <CircularProgress size={22} />
                           <Typography variant="body2" sx={{ mt: 1 }}>Loading links...</Typography>
                         </Box>
                       ) : hasNoRows ? (
-                        <Paper elevation={0} sx={{ p: 1.5, borderTop: '1px solid #eee' }}>
+                        <Paper elevation={0} sx={{ p: 1.5, borderTop: '1px solid #eee', borderRadius: 0 }}>
                           <Typography variant="body2">No FRG link records returned for this ISP in the selected range.</Typography>
                         </Paper>
                       ) : (
@@ -1594,7 +1680,27 @@ export default function SlaReportingPage() {
                             slotProps={{
                               toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } }
                             }}
-                            sx={{ border: 0, minWidth: 920, fontSize: 12.5 }}
+                            sx={{
+                              border: 0,
+                              minWidth: 920,
+                              fontSize: 12.5,
+                              '& .MuiDataGrid-columnHeaders': {
+                                bgcolor: '#f8fafc',
+                                borderBottom: '1px solid #e5e7eb'
+                              },
+                              '& .MuiDataGrid-columnHeaderTitle': {
+                                fontWeight: 800,
+                                fontSize: 12.25
+                              },
+                              '& .MuiDataGrid-row:hover': {
+                                bgcolor: '#f8fafc'
+                              },
+                              '& .MuiDataGrid-toolbarContainer': {
+                                p: 1,
+                                borderBottom: '1px solid #eef2f7',
+                                bgcolor: '#fcfcfd'
+                              }
+                            }}
                           />
                         </Box>
                       )}
@@ -1606,7 +1712,7 @@ export default function SlaReportingPage() {
           ))}
 
           {!visibleIsps?.length && (
-            <Paper elevation={0} sx={{ p: 2, border: '1px solid #eee' }}>
+            <Paper elevation={0} sx={{ p: 2, border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
               <Typography variant="body2">
                 {data.isps?.length
                   ? 'No ISPs match your current search.'
