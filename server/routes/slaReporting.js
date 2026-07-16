@@ -180,7 +180,7 @@ r.get('/overview', verifyToken, async (req, res) => {
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
   const sql = `
-    ${needsServiceMeta ? `${LINK_META_CTE},` : ''}
+    ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
     isp_base AS (
       SELECT
         i.frogfootlinklabel,
@@ -348,7 +348,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
   const sql = `
-    ${needsServiceMeta ? `${LINK_META_CTE},` : ''}
+    ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
     isp_base AS (
       SELECT
         i.frogfootlinklabel,
@@ -433,7 +433,7 @@ r.get('/overview/isps', verifyToken, async (req, res) => {
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
   const sql = `
-    ${needsServiceMeta ? `${LINK_META_CTE},` : ''}
+    ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
     isp_base AS (
       SELECT
         COALESCE(NULLIF(i.isp, ''), 'Unknown') AS isp,
@@ -1460,7 +1460,7 @@ r.get('/summary', verifyToken, async (req, res) => {
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
   const summarySql = `
-    ${needsServiceMeta ? `${LINK_META_CTE},` : ''}
+    ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
     isp_base AS (
       SELECT
         COALESCE(NULLIF(i.isp, ''), 'Unknown') AS isp,
@@ -1589,7 +1589,7 @@ r.get('/isp/:isp/links', verifyToken, async (req, res) => {
       ${needsServiceMeta ? "AND ($7::text = '' OR COALESCE(lm.service_type, 'Unknown') = $7)" : ''}
   `
   const rowsSql = `
-    ${needsServiceMeta ? `${LINK_META_CTE},` : ''}
+    ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
     isp_base AS (
       SELECT
         i.frogfootlinklabel,
