@@ -1139,7 +1139,7 @@ export default function SlaReportingPage() {
           mb: 1.25,
           p: { xs: 1.25, md: 1.5 },
           border: '1px solid #0b6b49',
-          borderRadius: 4,
+          borderRadius: 3,
           color: '#f8fafc',
           background: 'linear-gradient(135deg, #0b7a4b 0%, #125c6d 58%, #142a45 100%)',
           boxShadow: '0 18px 36px rgba(15, 23, 42, 0.18)',
@@ -1205,7 +1205,7 @@ export default function SlaReportingPage() {
           p: 1.25,
           mb: 1.25,
           border: '1px solid #d8e3dd',
-          borderRadius: 4,
+          borderRadius: 3,
           bgcolor: '#f7fbf8',
           background: 'linear-gradient(180deg, #fbfefd 0%, #f7fbf8 100%)',
           boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
@@ -1213,107 +1213,154 @@ export default function SlaReportingPage() {
         }}
       >
         <Stack spacing={1}>
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
-            alignItems={{ xs: 'stretch', md: 'center' }}
-            useFlexGap
-            flexWrap="wrap"
-            sx={{ minWidth: 0 }}
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1,
+              gridTemplateColumns: {
+                xs: '1fr',
+                xl: '1.45fr 1fr'
+              }
+            }}
           >
-            <TextField
-              size="small"
-              label="From"
-              type="month"
-              value={range.from}
-              onChange={(e) => setRange(s => ({ ...s, from: e.target.value }))}
-              InputLabelProps={{ shrink: true }}
-              sx={{ minWidth: 138 }}
-            />
-            <TextField
-              size="small"
-              label="To"
-              type="month"
-              value={range.to}
-              onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
-              InputLabelProps={{ shrink: true }}
-              sx={{ minWidth: 138 }}
-            />
-            <TextField
-              size="small"
-              select
-              label="Product Group"
-              value={productGroupFilter}
-              onChange={(e) => setProductGroupFilter(e.target.value)}
-              sx={{ minWidth: 154 }}
+            <Box
+              sx={{
+                p: 1,
+                borderRadius: 2.5,
+                border: '1px solid #dce8e1',
+                bgcolor: '#ffffff',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)'
+              }}
             >
-              <MenuItem value="">All Groups</MenuItem>
-              {((overview.productGroups && overview.productGroups.length ? overview.productGroups : data.productGroups) || []).map((pg) => (
-                <MenuItem key={`pg-${pg}`} value={pg}>{pg}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              size="small"
-              select
-              label="Product Type"
-              value={productTypeFilter}
-              onChange={(e) => setProductTypeFilter(e.target.value)}
-              sx={{ minWidth: 166 }}
+              <Typography variant="overline" sx={{ letterSpacing: 0.9, color: '#0f766e' }}>
+                Range And Scope
+              </Typography>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                alignItems={{ xs: 'stretch', md: 'center' }}
+                useFlexGap
+                flexWrap="wrap"
+                sx={{ minWidth: 0, mt: 0.5 }}
+              >
+                <TextField
+                  size="small"
+                  label="From"
+                  type="month"
+                  value={range.from}
+                  onChange={(e) => setRange(s => ({ ...s, from: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ minWidth: 138 }}
+                />
+                <TextField
+                  size="small"
+                  label="To"
+                  type="month"
+                  value={range.to}
+                  onChange={(e) => setRange(s => ({ ...s, to: e.target.value }))}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ minWidth: 138 }}
+                />
+                <TextField
+                  size="small"
+                  select
+                  label="Product Group"
+                  value={productGroupFilter}
+                  onChange={(e) => setProductGroupFilter(e.target.value)}
+                  sx={{ minWidth: 154 }}
+                >
+                  <MenuItem value="">All Groups</MenuItem>
+                  {((overview.productGroups && overview.productGroups.length ? overview.productGroups : data.productGroups) || []).map((pg) => (
+                    <MenuItem key={`pg-${pg}`} value={pg}>{pg}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  select
+                  label="Product Type"
+                  value={productTypeFilter}
+                  onChange={(e) => setProductTypeFilter(e.target.value)}
+                  sx={{ minWidth: 166 }}
+                >
+                  <MenuItem value="">All Products</MenuItem>
+                  {((overview.productTypes && overview.productTypes.length ? overview.productTypes : data.productTypes) || []).map((pt) => (
+                    <MenuItem key={`pt-${pt}`} value={pt}>{pt}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  select
+                  label="Service Type"
+                  value={serviceTypeFilter}
+                  onChange={(e) => setServiceTypeFilter(e.target.value)}
+                  sx={{ minWidth: 166 }}
+                >
+                  <MenuItem value="">All Services</MenuItem>
+                  {((overview.serviceTypes && overview.serviceTypes.length ? overview.serviceTypes : data.serviceTypes) || []).map((st) => (
+                    <MenuItem key={`st-${st}`} value={st}>{st}</MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+            </Box>
+
+            <Box
+              sx={{
+                p: 1,
+                borderRadius: 2.5,
+                border: '1px solid #dce8e1',
+                bgcolor: '#ffffff',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.85)'
+              }}
             >
-              <MenuItem value="">All Products</MenuItem>
-              {((overview.productTypes && overview.productTypes.length ? overview.productTypes : data.productTypes) || []).map((pt) => (
-                <MenuItem key={`pt-${pt}`} value={pt}>{pt}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              size="small"
-              select
-              label="Service Type"
-              value={serviceTypeFilter}
-              onChange={(e) => setServiceTypeFilter(e.target.value)}
-              sx={{ minWidth: 166 }}
-            >
-              <MenuItem value="">All Services</MenuItem>
-              {((overview.serviceTypes && overview.serviceTypes.length ? overview.serviceTypes : data.serviceTypes) || []).map((st) => (
-                <MenuItem key={`st-${st}`} value={st}>{st}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              size="small"
-              label="Explorer ISP Search"
-              placeholder="e.g. Vox"
-              value={ispSearch}
-              onChange={(e) => setIspSearch(e.target.value)}
-              sx={{ minWidth: 170 }}
-            />
-            <TextField
-              size="small"
-              label="Explorer FRG Search"
-              placeholder="e.g. FRG1109853"
-              value={frgSearch}
-              onChange={(e) => setFrgSearch(e.target.value)}
-              sx={{ minWidth: 186 }}
-            />
-            <Button size="small" variant="contained" onClick={refreshCurrentTab} disabled={currentTabLoading}>
-              Refresh
-            </Button>
-            <Button size="small" variant="outlined" onClick={clearFilters}>
-              Reset
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => exportCurrentView().catch(console.error)}
-              disabled={exportingCurrent}
-            >
-              {exportingCurrent ? 'Exporting...' : 'Export Current View'}
-            </Button>
-            <Chip
-              size="small"
-              label={`Range: ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`}
-              sx={{ fontWeight: 600 }}
-            />
-          </Stack>
+              <Typography variant="overline" sx={{ letterSpacing: 0.9, color: '#1d4ed8' }}>
+                Explorer And Actions
+              </Typography>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                alignItems={{ xs: 'stretch', md: 'center' }}
+                useFlexGap
+                flexWrap="wrap"
+                sx={{ minWidth: 0, mt: 0.5 }}
+              >
+                <TextField
+                  size="small"
+                  label="Explorer ISP Search"
+                  placeholder="e.g. Vox"
+                  value={ispSearch}
+                  onChange={(e) => setIspSearch(e.target.value)}
+                  sx={{ minWidth: 170 }}
+                />
+                <TextField
+                  size="small"
+                  label="Explorer FRG Search"
+                  placeholder="e.g. FRG1109853"
+                  value={frgSearch}
+                  onChange={(e) => setFrgSearch(e.target.value)}
+                  sx={{ minWidth: 186 }}
+                />
+                <Button size="small" variant="contained" onClick={refreshCurrentTab} disabled={currentTabLoading}>
+                  Refresh
+                </Button>
+                <Button size="small" variant="outlined" onClick={clearFilters}>
+                  Reset
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => exportCurrentView().catch(console.error)}
+                  disabled={exportingCurrent}
+                >
+                  {exportingCurrent ? 'Exporting...' : 'Export Current View'}
+                </Button>
+                <Chip
+                  size="small"
+                  label={`Range: ${overview.from || data.from || range.from || '-'} to ${overview.to || data.to || range.to || '-'}`}
+                  sx={{ fontWeight: 700, bgcolor: '#ecfdf5', color: '#166534' }}
+                />
+              </Stack>
+            </Box>
+          </Box>
 
           <Stack
             direction={{ xs: 'column', md: 'row' }}
@@ -1323,22 +1370,22 @@ export default function SlaReportingPage() {
             flexWrap="wrap"
             sx={{ minWidth: 0 }}
           >
-            <Typography variant="caption" sx={{ minWidth: 78, opacity: 0.75 }}>
+            <Typography variant="caption" sx={{ minWidth: 78, opacity: 0.75, fontWeight: 700 }}>
               Quick Range
             </Typography>
-            <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(3))}>Last 3M</Button>
-            <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(6))}>Last 6M</Button>
-            <Button size="small" variant="text" onClick={() => setRange(recentMonthRange(12))}>Last 12M</Button>
-            <Button size="small" variant="text" onClick={() => setRange(ytdRange())}>YTD</Button>
-            <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} />
-            {productGroupFilter ? <Chip size="small" label={`Group ${productGroupFilter}`} /> : null}
-            {productTypeFilter ? <Chip size="small" label={`Product ${productTypeFilter}`} /> : null}
-            {serviceTypeFilter ? <Chip size="small" label={`Service ${serviceTypeFilter}`} /> : null}
+            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(3))} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>Last 3M</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(6))} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>Last 6M</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(recentMonthRange(12))} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>Last 12M</Button>
+            <Button size="small" variant="outlined" onClick={() => setRange(ytdRange())} sx={{ borderRadius: 3, textTransform: 'none', fontWeight: 700 }}>YTD</Button>
+            <Chip size="small" label={`Tab ${activeTab.replace('-', ' ')}`} sx={{ fontWeight: 700 }} />
+            {productGroupFilter ? <Chip size="small" label={`Group ${productGroupFilter}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} /> : null}
+            {productTypeFilter ? <Chip size="small" label={`Product ${productTypeFilter}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} /> : null}
+            {serviceTypeFilter ? <Chip size="small" label={`Service ${serviceTypeFilter}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} /> : null}
           </Stack>
         </Stack>
       </Paper>
 
-      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 4, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
+      <Paper elevation={0} sx={{ mb: 1.25, border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
         <Tabs
           value={activeTab}
           onChange={(_, value) => setActiveTab(value)}
@@ -1358,7 +1405,7 @@ export default function SlaReportingPage() {
             },
             '& .MuiTabs-indicator': {
               height: 3,
-              borderRadius: 999,
+              borderRadius: 3,
               bgcolor: '#0f766e'
             }
           }}

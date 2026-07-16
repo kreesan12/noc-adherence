@@ -8,6 +8,8 @@ import {
   Typography
 } from '@mui/material'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -67,6 +69,20 @@ function buildPercentDomain(rows, keys, floor = 98) {
   return [lower, upper > lower ? upper : Math.min(100, lower + 0.5)]
 }
 
+function buildHeatTone(rate) {
+  const pct = Number(rate || 0)
+  if (pct >= 12) {
+    return { bg: '#fee2e2', border: '#fecaca', text: '#991b1b', accent: '#dc2626' }
+  }
+  if (pct >= 6) {
+    return { bg: '#ffedd5', border: '#fed7aa', text: '#9a3412', accent: '#f97316' }
+  }
+  if (pct >= 2) {
+    return { bg: '#fef3c7', border: '#fde68a', text: '#92400e', accent: '#f59e0b' }
+  }
+  return { bg: '#dcfce7', border: '#bbf7d0', text: '#166534', accent: '#16a34a' }
+}
+
 function formatChange(value, digits = 2) {
   const n = Number(value || 0)
   if (!Number.isFinite(n) || n === 0) return 'Flat'
@@ -92,7 +108,7 @@ function buildTrendChip(current, previous, key, { digits = 2, invert = false, su
   }
 }
 
-function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend = null }) {
+function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend = null, spark = null }) {
   return (
     <Paper
       elevation={0}
@@ -101,7 +117,7 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
         p: 1.35,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
-        borderRadius: 3.5,
+        borderRadius: 3,
         background: cardSurface(tone),
         boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
         minHeight: rows.length ? 148 : 118,
@@ -176,7 +192,7 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
                 minWidth: 0,
                 px: 0.9,
                 py: 0.5,
-                borderRadius: 2,
+                borderRadius: 1.5,
                 bgcolor: alphaHex(tone, '0a'),
                 border: `1px solid ${alphaHex(tone, '12')}`
               }}
@@ -191,6 +207,22 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
           ))}
         </Stack>
       ) : null}
+
+      {spark?.data?.length > 1 ? (
+        <Box sx={{ mt: rows.length ? 0.95 : 1.15, pt: 0.55, borderTop: `1px solid ${alphaHex(tone, '12')}` }}>
+          <ResponsiveContainer width="100%" height={42}>
+            <AreaChart data={spark.data} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
+              <Area
+                type="monotone"
+                dataKey={spark.dataKey}
+                stroke={spark.color || tone}
+                fill={alphaHex(spark.color || tone, '18')}
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Box>
+      ) : null}
     </Paper>
   )
 }
@@ -203,7 +235,7 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
         p: 1.3,
         border: '1px solid #e5e7eb',
         borderLeft: `4px solid ${tone}`,
-        borderRadius: 3.5,
+        borderRadius: 3,
         minHeight: 126,
         minWidth: 0,
         background: `linear-gradient(135deg, ${alphaHex(tone, '10')} 0%, #ffffff 30%, #ffffff 100%)`,
@@ -262,7 +294,7 @@ function SectionCard({ title, subtitle, children, minHeight = 280, action = null
       elevation={0}
       sx={{
         border: '1px solid #e5e7eb',
-        borderRadius: 4,
+        borderRadius: 3,
         minWidth: 0,
         overflow: 'hidden',
         background: '#ffffff',
@@ -363,6 +395,24 @@ export default function SlaOverviewTab({
   const activeProductGroups = PRODUCT_ORDER.filter((label) =>
     productMonthTrend.some((row) => hasNumericValue(row?.[label]))
   )
+  const monthlyRiskStrip = monthTrend.map((row) => {
+    const totalLinks = Number(row.totalLinks || 0)
+    const breachRate = totalLinks ? (Number(row.breachLinks || 0) / totalLinks) * 100 : 0
+    const impactedRate = totalLinks ? (Number(row.impactedLinks || 0) / totalLinks) * 100 : 0
+    return {
+      ...row,
+      breachRate,
+      impactedRate,
+      tone: buildHeatTone(breachRate)
+    }
+  })
+  const sparkByKey = {
+    avgUptimePct: monthTrend.map((row) => ({ yearMonth: row.yearMonth, value: Number(row.avgUptimePct || 0) })),
+    breachLinks: monthTrend.map((row) => ({ yearMonth: row.yearMonth, value: Number(row.breachLinks || 0) })),
+    impactedLinks: monthTrend.map((row) => ({ yearMonth: row.yearMonth, value: Number(row.impactedLinks || 0) })),
+    ticketCount: monthTrend.map((row) => ({ yearMonth: row.yearMonth, value: Number(row.ticketCount || 0) })),
+    outageCount: monthTrend.map((row) => ({ yearMonth: row.yearMonth, value: Number(row.outageCount || 0) }))
+  }
   const worstIspRows = (overview?.worstIsps || []).slice(0, 6).map((row, index) => ({
     ...row,
     rank: index + 1,
@@ -420,6 +470,7 @@ export default function SlaOverviewTab({
           subtext={`${fmtCount(cards.totalLinks)} links in selected range`}
           trend={buildTrendChip(latestMonth, previousMonth, 'avgUptimePct', { digits: 2, suffix: ' pts' })}
           tone="#0f766e"
+          spark={{ data: sparkByKey.avgUptimePct, dataKey: 'value', color: '#0f766e' }}
         />
         <MetricCard
           label="SLA by Product Group"
@@ -434,6 +485,7 @@ export default function SlaOverviewTab({
           subtext={`Below ${SLA_TARGET}% across the selected range`}
           trend={buildTrendChip(latestMonth, previousMonth, 'breachLinks', { digits: 0, invert: true })}
           tone="#dc2626"
+          spark={{ data: sparkByKey.breachLinks, dataKey: 'value', color: '#dc2626' }}
         />
         <MetricCard
           label="Impacted Links"
@@ -441,6 +493,7 @@ export default function SlaOverviewTab({
           subtext="Any month below 100% availability"
           trend={buildTrendChip(latestMonth, previousMonth, 'impactedLinks', { digits: 0, invert: true })}
           tone="#f59e0b"
+          spark={{ data: sparkByKey.impactedLinks, dataKey: 'value', color: '#f59e0b' }}
         />
         <MetricCard
           label="Tickets"
@@ -448,6 +501,7 @@ export default function SlaOverviewTab({
           subtext="Ticket contacts in selected range"
           trend={buildTrendChip(latestMonth, previousMonth, 'ticketCount', { digits: 0, invert: true })}
           tone="#1d4ed8"
+          spark={{ data: sparkByKey.ticketCount, dataKey: 'value', color: '#1d4ed8' }}
         />
         <MetricCard
           label="Outages"
@@ -459,6 +513,7 @@ export default function SlaOverviewTab({
           ]}
           trend={buildTrendChip(latestMonth, previousMonth, 'outageCount', { digits: 0, invert: true })}
           tone="#0f172a"
+          spark={{ data: sparkByKey.outageCount, dataKey: 'value', color: '#0f172a' }}
         />
         <MetricCard
           label="Monthly Ratios"
@@ -487,6 +542,79 @@ export default function SlaOverviewTab({
           tone="#334155"
         />
       </Box>
+
+      <SectionCard
+        title="Monthly Risk Strip"
+        subtitle="Compact month-by-month view of breach intensity and impact density across the selected range."
+        minHeight={108}
+        tone="#f59e0b"
+        action={<Chip size="small" label={`${monthTrend.length || 0} months`} sx={{ fontWeight: 700 }} />}
+        bodySx={{ py: 1, px: 1.1 }}
+      >
+        {monthlyRiskStrip.length ? (
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 0.9,
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                lg: `repeat(${Math.min(Math.max(monthlyRiskStrip.length, 1), 6)}, minmax(0, 1fr))`
+              }
+            }}
+          >
+            {monthlyRiskStrip.map((row) => (
+              <Paper
+                key={row.yearMonth}
+                elevation={0}
+                sx={{
+                  p: 1,
+                  borderRadius: 2.5,
+                  border: `1px solid ${row.tone.border}`,
+                  bgcolor: row.tone.bg,
+                  minWidth: 0
+                }}
+              >
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, color: row.tone.text }}>
+                      {row.yearMonth}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: row.tone.text, opacity: 0.9 }}>
+                      Breach rate {row.breachRate.toFixed(2)}%
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small"
+                    label={fmtPct(row.avgUptimePct)}
+                    sx={{
+                      bgcolor: '#fff',
+                      color: row.tone.text,
+                      border: `1px solid ${row.tone.border}`,
+                      fontWeight: 700
+                    }}
+                  />
+                </Stack>
+                <Box sx={{ mt: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.35 }}>
+                    <Typography variant="caption" sx={{ color: row.tone.text }}>Breaches</Typography>
+                    <Typography variant="caption" sx={{ color: row.tone.text, fontWeight: 700 }}>{fmtCount(row.breachLinks)}</Typography>
+                  </Box>
+                  <Box sx={{ height: 6, borderRadius: 3, bgcolor: '#fff', overflow: 'hidden' }}>
+                    <Box sx={{ width: `${Math.min(100, Math.max(6, row.breachRate * 6))}%`, height: '100%', bgcolor: row.tone.accent }} />
+                  </Box>
+                </Box>
+                <Stack direction="row" spacing={1.2} sx={{ mt: 0.9, flexWrap: 'wrap' }}>
+                  <Typography variant="caption" sx={{ color: row.tone.text }}>Impacted {fmtCount(row.impactedLinks)}</Typography>
+                  <Typography variant="caption" sx={{ color: row.tone.text }}>Impact rate {row.impactedRate.toFixed(2)}%</Typography>
+                </Stack>
+              </Paper>
+            ))}
+          </Box>
+        ) : (
+          <ChartFallback message="No month-level risk pattern available." />
+        )}
+      </SectionCard>
 
       <Box
         sx={{
@@ -568,8 +696,8 @@ export default function SlaOverviewTab({
                 />
                 <Legend />
                 <ReferenceLine yAxisId="left" y={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" name="SLA Target" />
-                <Bar yAxisId="right" dataKey="impactedLinks" fill="#f59e0b" name="Impacted Links" radius={[6, 6, 0, 0]} />
-                <Bar yAxisId="right" dataKey="breachLinks" fill="#dc2626" name="Breaching Links" radius={[6, 6, 0, 0]} />
+                <Bar yAxisId="right" dataKey="impactedLinks" fill="#f59e0b" name="Impacted Links" radius={[4, 4, 0, 0]} />
+                <Bar yAxisId="right" dataKey="breachLinks" fill="#dc2626" name="Breaching Links" radius={[4, 4, 0, 0]} />
                 <Line yAxisId="left" type="monotone" dataKey="avgUptimePct" stroke="#0f766e" strokeWidth={3} dot={{ r: 3 }} name="Average SLA" />
               </ComposedChart>
             </ResponsiveContainer>
@@ -610,7 +738,7 @@ export default function SlaOverviewTab({
                     labelFormatter={(label, payload) => payload?.[0]?.payload?.isp || label}
                   />
                   <ReferenceLine x={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" />
-                  <Bar dataKey="avgUptimePct" fill="#dc2626" name="Average SLA" radius={[0, 6, 6, 0]} />
+                  <Bar dataKey="avgUptimePct" fill="#dc2626" name="Average SLA" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -648,7 +776,7 @@ export default function SlaOverviewTab({
                     }}
                     labelFormatter={(label, payload) => payload?.[0]?.payload?.label || label}
                   />
-                  <Bar dataKey="impactedLinks" fill="#1d4ed8" name="Impacted Links" radius={[0, 6, 6, 0]} />
+                  <Bar dataKey="impactedLinks" fill="#1d4ed8" name="Impacted Links" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

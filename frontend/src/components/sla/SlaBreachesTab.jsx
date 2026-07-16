@@ -12,6 +12,39 @@ import {
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 
+function alphaHex(color, alpha) {
+  return `${color}${alpha}`
+}
+
+function StatCard({ label, value, tone = '#0f172a', subtext }) {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: 1.2,
+        borderRadius: 2.5,
+        border: '1px solid #e5e7eb',
+        borderTop: `4px solid ${tone}`,
+        bgcolor: '#fff',
+        background: `linear-gradient(180deg, ${alphaHex(tone, '10')} 0%, #ffffff 44%, #ffffff 100%)`,
+        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.04)'
+      }}
+    >
+      <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.72 }}>
+        {label}
+      </Typography>
+      <Typography variant="h6" sx={{ mt: 0.35, fontWeight: 900, lineHeight: 1 }}>
+        {value}
+      </Typography>
+      {subtext ? (
+        <Typography variant="body2" sx={{ mt: 0.65, fontSize: 12.5, opacity: 0.72 }}>
+          {subtext}
+        </Typography>
+      ) : null}
+    </Paper>
+  )
+}
+
 function SlaProgressCell({ value, fmtPct }) {
   const pct = Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : 0
   const color =
@@ -29,7 +62,7 @@ function SlaProgressCell({ value, fmtPct }) {
         value={pct}
         sx={{
           height: 7,
-          borderRadius: 999,
+          borderRadius: 3,
           backgroundColor: '#e5e7eb',
           '& .MuiLinearProgress-bar': {
             backgroundColor: color
@@ -189,34 +222,82 @@ export default function SlaBreachesTab({
 
   return (
     <Stack spacing={1.5}>
-      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid #e5e7eb', minWidth: 0, overflow: 'hidden' }}>
-        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ xs: 'stretch', lg: 'center' }} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
-          <TextField
-            size="small"
-            label="Search FRG / ISP"
-            value={breachSearch}
-            onChange={(e) => setBreachSearch(e.target.value)}
-            sx={{ minWidth: 220 }}
-          />
-          <TextField
-            size="small"
-            label="SLA Threshold"
-            type="number"
-            value={breachThreshold}
-            onChange={(e) => setBreachThreshold(e.target.value)}
-            inputProps={{ step: '0.1' }}
-            sx={{ width: 140 }}
-          />
-          <Chip size="small" label={`Breaches ${fmtCount(summary.total)}`} color={summary.total ? 'error' : 'success'} />
-          <Chip size="small" label={`ISPs Affected ${fmtCount(summary.uniqueIsps)}`} />
-          <Chip size="small" label={`Worst Link ${summary.worstLink || '-'}`} />
-          <Chip size="small" label={`Worst SLA ${fmtPct(summary.worstSla)}`} color={pctChipColor(summary.worstSla)} />
+      <Paper
+        elevation={0}
+        sx={{
+          p: 1.25,
+          border: '1px solid #e5e7eb',
+          borderRadius: 3,
+          minWidth: 0,
+          overflow: 'hidden',
+          boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+          background: 'linear-gradient(180deg, #fff7f7 0%, #ffffff 100%)'
+        }}
+      >
+        <Stack spacing={1.1}>
+          <Stack
+            direction={{ xs: 'column', lg: 'row' }}
+            spacing={1}
+            alignItems={{ xs: 'stretch', lg: 'center' }}
+            justifyContent="space-between"
+            sx={{ minWidth: 0 }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="overline" sx={{ letterSpacing: 0.9, color: '#dc2626' }}>
+                Breach Monitor
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.74 }}>
+                Focus the dataset on links breaching the SLA threshold across the selected range.
+              </Typography>
+            </Box>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} useFlexGap flexWrap="wrap">
+              <TextField
+                size="small"
+                label="Search FRG / ISP"
+                value={breachSearch}
+                onChange={(e) => setBreachSearch(e.target.value)}
+                sx={{ minWidth: 220 }}
+              />
+              <TextField
+                size="small"
+                label="SLA Threshold"
+                type="number"
+                value={breachThreshold}
+                onChange={(e) => setBreachThreshold(e.target.value)}
+                inputProps={{ step: '0.1' }}
+                sx={{ width: 140 }}
+              />
+            </Stack>
+          </Stack>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1,
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                xl: 'repeat(4, minmax(0, 1fr))'
+              }
+            }}
+          >
+            <StatCard label="Breaching Links" value={fmtCount(summary.total)} tone="#dc2626" subtext="Rows matching the threshold in the selected range." />
+            <StatCard label="ISPs Affected" value={fmtCount(summary.uniqueIsps)} tone="#1d4ed8" subtext="Distinct ISPs represented in the breach set." />
+            <StatCard label="Worst Link" value={summary.worstLink || '-'} tone="#0f172a" subtext="Current highest-risk FRG at the top of the list." />
+            <StatCard label="Worst SLA" value={fmtPct(summary.worstSla)} tone="#f59e0b" subtext="Lowest range-average SLA in the current breach list." />
+          </Box>
+
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} useFlexGap flexWrap="wrap">
+            <Chip size="small" label={`Threshold ${breachThreshold || '99.5'}%`} sx={{ fontWeight: 700, bgcolor: '#fee2e2', color: '#991b1b' }} />
+            <Chip size="small" label={`Months ${fmtCount((breachData.months || []).length)}`} sx={{ fontWeight: 700 }} />
+            <Chip size="small" label={`Loaded ${fmtCount(rows.length)} rows on page`} sx={{ fontWeight: 700 }} />
+          </Stack>
         </Stack>
       </Paper>
 
       {error ? <Alert severity="error">{error}</Alert> : null}
 
-      <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', minWidth: 0, overflow: 'hidden' }}>
+      <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, minWidth: 0, overflow: 'hidden', boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
         <Box sx={{ width: '100%', overflowX: 'auto' }}>
           <DataGrid
             rows={rows}
@@ -233,7 +314,27 @@ export default function SlaBreachesTab({
             slotProps={{
               toolbar: { showQuickFilter: false }
             }}
-            sx={{ border: 0, minWidth: 1240, fontSize: 12.5 }}
+            sx={{
+              border: 0,
+              minWidth: 1240,
+              fontSize: 12.5,
+              '& .MuiDataGrid-columnHeaders': {
+                bgcolor: '#f8fafc',
+                borderBottom: '1px solid #e5e7eb'
+              },
+              '& .MuiDataGrid-columnHeaderTitle': {
+                fontWeight: 800,
+                fontSize: 12.25
+              },
+              '& .MuiDataGrid-row:hover': {
+                bgcolor: '#f8fafc'
+              },
+              '& .MuiDataGrid-toolbarContainer': {
+                p: 1,
+                borderBottom: '1px solid #eef2f7',
+                bgcolor: '#fcfcfd'
+              }
+            }}
           />
         </Box>
       </Paper>
