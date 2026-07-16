@@ -418,7 +418,8 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         i.year_month,
         i."uptime%"::numeric AS uptime_pct,
         COALESCE(i.unique_links_affected, 0)::int AS unique_links_affected,
-        COALESCE(i.tickets, 0)::int AS tickets
+        COALESCE(i.tickets, 0)::int AS tickets,
+        COALESCE(i.outages, 0)::int AS outage_impacts
       FROM public.isp_table i
       ${needsServiceMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = i.frogfootlinklabel' : ''}
       WHERE i.frogfootlinklabel IS NOT NULL
@@ -434,7 +435,8 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         ROUND(AVG(i.uptime_pct), 2) AS avg_uptime_pct,
         COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.unique_links_affected > 0)::int AS impacted_links,
         COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.uptime_pct < ${SLA_TARGET})::int AS breach_links,
-        SUM(i.tickets)::int AS ticket_count
+        SUM(i.tickets)::int AS ticket_count,
+        SUM(i.outage_impacts)::int AS outage_impact_count
       FROM isp_base i
       GROUP BY i.year_month
     )
@@ -445,10 +447,10 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       m.impacted_links,
       m.breach_links,
       m.ticket_count,
+      m.outage_impact_count,
       NULL::int AS service_impacting_tickets,
       0::int AS outage_count,
-      0::int AS outage_impact_count,
-      0::int AS unique_outage_impacted_links
+      0::int AS unique_outage_count
     FROM month_rollup m
     ORDER BY m.year_month
   `
@@ -467,11 +469,9 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       outage_base AS (
         SELECT DISTINCT
           o.year_month,
-          o.outage_ref,
-          os.frogfootlinklabel
-        FROM public.outage_resolvers os
-        JOIN public.outages_outage o
-          ON o.outage_ref = os.outageref
+          o.outage_ref
+        FROM public.outages_outage o
+        ${needsOutageMeta ? 'JOIN public.outage_resolvers os ON os.outageref = o.outage_ref' : ''}
         ${needsOutageMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = os.frogfootlinklabel' : ''}
         WHERE o.outage_ref IS NOT NULL
           AND o.year_month >= $1
@@ -481,9 +481,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       )
       SELECT
         ob.year_month,
-        COUNT(DISTINCT ob.outage_ref)::int AS outage_count,
-        COUNT(*)::int AS outage_impact_count,
-        COUNT(DISTINCT ob.frogfootlinklabel)::int AS unique_outage_impacted_links
+        COUNT(DISTINCT ob.outage_ref)::int AS outage_count
       FROM outage_base ob
       GROUP BY ob.year_month
       ORDER BY ob.year_month
@@ -492,10 +490,13 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       ? [fromKey, toKey, productType, serviceType]
       : [fromKey, toKey]
 
-    const [monthRows, outageRows] = await runSequentially([
-      () => prisma.$queryRawUnsafe(sql, ...sqlArgs),
-      () => prisma.$queryRawUnsafe(outageSql, ...outageArgs)
-    ])
+    const monthRows = await prisma.$queryRawUnsafe(sql, ...sqlArgs)
+    let outageRows = []
+    try {
+      outageRows = await prisma.$queryRawUnsafe(outageSql, ...outageArgs)
+    } catch {
+      outageRows = []
+    }
     const monthMap = Object.fromEntries(months.map((month) => [month, {
       yearMonth: month,
       totalLinks: 0,
@@ -506,7 +507,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       serviceImpactingTickets: 0,
       outageCount: 0,
       outageImpactCount: 0,
-      uniqueOutageImpactedLinks: 0,
+      uniqueOutageCount: 0,
       ticketContactRatioPct: 0,
       outageImpactRatioPct: 0,
       uniqueOutageImpactRatioPct: 0
@@ -524,8 +525,8 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         ticketCount: toNum(row.ticket_count, 0),
         serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
         outageCount: 0,
-        outageImpactCount: 0,
-        uniqueOutageImpactedLinks: 0,
+        outageImpactCount: toNum(row.outage_impact_count, 0),
+        uniqueOutageCount: 0,
         ticketContactRatioPct: 0,
         outageImpactRatioPct: 0,
         uniqueOutageImpactRatioPct: 0
@@ -538,8 +539,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       monthMap[key] = {
         ...monthMap[key],
         outageCount: toNum(row.outage_count, 0),
-        outageImpactCount: toNum(row.outage_impact_count, 0),
-        uniqueOutageImpactedLinks: toNum(row.unique_outage_impacted_links, 0)
+        uniqueOutageCount: toNum(row.outage_count, 0)
       }
     }
 
@@ -550,7 +550,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         ...current,
         ticketContactRatioPct: totalLinks ? (toNum(current.ticketCount, 0) / totalLinks) * 100 : 0,
         outageImpactRatioPct: totalLinks ? (toNum(current.outageImpactCount, 0) / totalLinks) * 100 : 0,
-        uniqueOutageImpactRatioPct: totalLinks ? (toNum(current.uniqueOutageImpactedLinks, 0) / totalLinks) * 100 : 0
+        uniqueOutageImpactRatioPct: totalLinks ? (toNum(current.uniqueOutageCount, 0) / totalLinks) * 100 : 0
       }
     }
 
@@ -642,6 +642,9 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
   const serviceType = normalizeFilter(req.query.serviceType)
   const needsServiceMeta = Boolean(serviceType)
   const productGroupExpr = buildProductGroupExpr("COALESCE(NULLIF(i.producttype, ''), 'Unknown')")
+  const groupArgs = needsServiceMeta
+    ? [fromKey, toKey, productType, serviceType]
+    : [fromKey, toKey, productType]
 
   const payload = await withCachedResponse('sla-overview-groups', {
     fromKey,
@@ -677,10 +680,7 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
         GROUP BY COALESCE(i.product_group, 'FTTB')
         ORDER BY ${PRODUCT_GROUP_ORDER_SQL}
         `,
-        fromKey,
-        toKey,
-        productType,
-        serviceType
+        ...groupArgs
       )
     ])
 
