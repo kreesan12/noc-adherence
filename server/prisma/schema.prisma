@@ -339,6 +339,20 @@ model BlankDailyLightIssue {
   @@map("blank_daily_light_issue")
 }
 
+model SlaProductTypeMap {
+  id             Int      @id @default(autoincrement())
+  rawProductType String   @unique @map("raw_product_type")
+  productGroup   String   @map("product_group")
+  sortOrder      Int      @default(99) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([productGroup], map: "idx_sla_product_type_map_group")
+  @@index([isActive], map: "idx_sla_product_type_map_active")
+  @@map("SlaProductTypeMap")
+}
+
 model StagedZendeskTicket {
   id                Int                          @id @default(autoincrement())
   reference         String                       @unique

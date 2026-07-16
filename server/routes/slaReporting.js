@@ -7,14 +7,6 @@ const DOWNTIME_CATEGORY = 'Service impacting'
 const SLA_TARGET = 99.5
 const RESPONSE_CACHE_TTL_MS = 60 * 1000
 const responseCache = new Map()
-const PRODUCT_GROUP_ORDER_SQL = `
-  CASE label
-    WHEN 'FTTB' THEN 1
-    WHEN 'FTTH' THEN 2
-    WHEN 'FTTC' THEN 3
-    ELSE 4
-  END
-`
 const LINK_META_CTE = `
 WITH link_meta AS (
   SELECT
@@ -50,6 +42,17 @@ function buildProductGroupExpr(expr) {
       WHEN LOWER(COALESCE(${expr}, '')) LIKE '%home%' OR LOWER(COALESCE(${expr}, '')) LIKE '%air%' THEN 'FTTH'
       WHEN LOWER(COALESCE(${expr}, '')) LIKE '%rise%' THEN 'FTTC'
       ELSE 'FTTB'
+    END
+  `
+}
+
+function buildProductGroupOrderExpr(expr) {
+  return `
+    CASE COALESCE(${expr}, 'FTTB')
+      WHEN 'FTTB' THEN 1
+      WHEN 'FTTH' THEN 2
+      WHEN 'FTTC' THEN 3
+      ELSE 4
     END
   `
 }
@@ -435,8 +438,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         ROUND(AVG(i.uptime_pct), 2) AS avg_uptime_pct,
         COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.unique_links_affected > 0)::int AS impacted_links,
         COUNT(DISTINCT i.frogfootlinklabel) FILTER (WHERE i.uptime_pct < ${SLA_TARGET})::int AS breach_links,
-        SUM(i.tickets)::int AS ticket_count,
-        SUM(i.outage_impacts)::int AS outage_impact_count
+        SUM(i.tickets)::int AS ticket_count
       FROM isp_base i
       GROUP BY i.year_month
     )
@@ -447,9 +449,9 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       m.impacted_links,
       m.breach_links,
       m.ticket_count,
-      m.outage_impact_count,
       NULL::int AS service_impacting_tickets,
       0::int AS outage_count,
+      0::int AS outage_impact_count,
       0::int AS unique_outage_count
     FROM month_rollup m
     ORDER BY m.year_month
@@ -467,11 +469,13 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
     const outageSql = `
       ${needsOutageMeta ? `${LINK_META_CTE},` : 'WITH'}
       outage_base AS (
-        SELECT DISTINCT
+        SELECT
           o.year_month,
-          o.outage_ref
-        FROM public.outages_outage o
-        ${needsOutageMeta ? 'JOIN public.outage_resolvers os ON os.outageref = o.outage_ref' : ''}
+          o.outage_ref,
+          os.frogfootlinklabel
+        FROM public.outage_resolvers os
+        JOIN public.outages_outage o
+          ON os.outageref = o.outage_ref
         ${needsOutageMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = os.frogfootlinklabel' : ''}
         WHERE o.outage_ref IS NOT NULL
           AND o.year_month >= $1
@@ -481,7 +485,9 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       )
       SELECT
         ob.year_month,
-        COUNT(DISTINCT ob.outage_ref)::int AS outage_count
+        COUNT(DISTINCT ob.outage_ref)::int AS outage_count,
+        COUNT(*)::int AS outage_impact_count,
+        COUNT(DISTINCT ob.frogfootlinklabel)::int AS unique_outage_count
       FROM outage_base ob
       GROUP BY ob.year_month
       ORDER BY ob.year_month
@@ -525,7 +531,7 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
         ticketCount: toNum(row.ticket_count, 0),
         serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
         outageCount: 0,
-        outageImpactCount: toNum(row.outage_impact_count, 0),
+        outageImpactCount: 0,
         uniqueOutageCount: 0,
         ticketContactRatioPct: 0,
         outageImpactRatioPct: 0,
@@ -539,7 +545,8 @@ r.get('/overview/trend', verifyToken, async (req, res) => {
       monthMap[key] = {
         ...monthMap[key],
         outageCount: toNum(row.outage_count, 0),
-        uniqueOutageCount: toNum(row.outage_count, 0)
+        outageImpactCount: toNum(row.outage_impact_count, 0),
+        uniqueOutageCount: toNum(row.unique_outage_count, 0)
       }
     }
 
@@ -640,11 +647,9 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
   const { fromKey, toKey } = resolveRange(req.query)
   const productType = normalizeFilter(req.query.productType)
   const serviceType = normalizeFilter(req.query.serviceType)
-  const needsServiceMeta = Boolean(serviceType)
   const productGroupExpr = buildProductGroupExpr("COALESCE(NULLIF(i.producttype, ''), 'Unknown')")
-  const groupArgs = needsServiceMeta
-    ? [fromKey, toKey, productType, serviceType]
-    : [fromKey, toKey, productType]
+  const groupOrderExpr = buildProductGroupOrderExpr("COALESCE(i.product_group, 'FTTB')")
+  const groupArgs = [fromKey, toKey, productType, serviceType]
 
   const payload = await withCachedResponse('sla-overview-groups', {
     fromKey,
@@ -655,20 +660,30 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
     const [productRows] = await runSequentially([
       () => prisma.$queryRawUnsafe(
         `
-        ${needsServiceMeta ? `${LINK_META_CTE},` : 'WITH'}
+        ${LINK_META_CTE},
+        product_type_map AS (
+          SELECT
+            ptm.raw_product_type,
+            ptm.product_group
+          FROM public."SlaProductTypeMap" ptm
+          WHERE COALESCE(ptm.is_active, true) = true
+        ),
         isp_base AS (
           SELECT
             i.frogfootlinklabel,
-            ${productGroupExpr} AS product_group,
+            COALESCE(NULLIF(ptm.product_group, ''), ${productGroupExpr}) AS product_group,
             i."uptime%"::numeric AS uptime_pct,
             COALESCE(i.unique_links_affected, 0)::int AS unique_links_affected
           FROM public.isp_table i
-          ${needsServiceMeta ? 'LEFT JOIN link_meta lm ON lm.frogfootlinklabel = i.frogfootlinklabel' : ''}
+          LEFT JOIN link_meta lm
+            ON lm.frogfootlinklabel = i.frogfootlinklabel
+          LEFT JOIN product_type_map ptm
+            ON ptm.raw_product_type = COALESCE(NULLIF(i.producttype, ''), 'Unknown')
           WHERE i.frogfootlinklabel IS NOT NULL
             AND i.year_month >= $1
             AND i.year_month <= $2
             AND ($3::text = '' OR COALESCE(NULLIF(i.producttype, ''), 'Unknown') = $3)
-            ${needsServiceMeta ? "AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)" : ''}
+            AND ($4::text = '' OR COALESCE(lm.service_type, 'Unknown') = $4)
         )
         SELECT
           COALESCE(i.product_group, 'FTTB') AS label,
@@ -678,7 +693,7 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
           ROUND(MIN(i.uptime_pct), 2) AS worst_uptime_pct
         FROM isp_base i
         GROUP BY COALESCE(i.product_group, 'FTTB')
-        ORDER BY ${PRODUCT_GROUP_ORDER_SQL}
+        ORDER BY ${groupOrderExpr}
         `,
         ...groupArgs
       )

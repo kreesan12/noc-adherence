@@ -420,27 +420,68 @@ export default function SlaOverviewTab({
 
         <SectionCard
           title="Worst Performing ISPs"
-          subtitle="Average SLA order for the weakest performers in the selected range. Click a bar to open that ISP in the explorer."
+          subtitle="Average SLA order for the weakest performers in the selected range. Click a row to open that ISP in the explorer."
         >
           {focusLoading && !overview.worstIsps?.length ? (
             <ChartFallback message="Loading ISP watchlist..." />
           ) : overview.worstIsps?.length ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={[...overview.worstIsps].reverse()} layout="vertical" margin={{ left: 0, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" domain={[95, 100]} tickFormatter={(value) => `${value}%`} />
-                <YAxis type="category" dataKey="isp" width={112} />
-                <Tooltip />
-                <Bar
-                  dataKey="avgUptimePct"
-                  fill="#dc2626"
-                  radius={[0, 6, 6, 0]}
-                  name="Average SLA"
-                  cursor="pointer"
-                  onClick={(row) => onSelectIsp?.(row?.isp)}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <Stack spacing={1} sx={{ minHeight: 280 }}>
+              {overview.worstIsps.map((row, index) => {
+                const fillPct = Math.max(0, Math.min(100, ((Number(row.avgUptimePct || 95) - 95) / 5) * 100))
+                return (
+                  <Paper
+                    key={`${row.isp}-${index}`}
+                    elevation={0}
+                    onClick={() => onSelectIsp?.(row?.isp)}
+                    sx={{
+                      p: 1,
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      transition: 'border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease',
+                      '&:hover': {
+                        borderColor: '#0f766e',
+                        boxShadow: '0 8px 18px rgba(15, 118, 110, 0.10)',
+                        transform: 'translateY(-1px)'
+                      }
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                      <Chip size="small" label={`#${index + 1}`} sx={{ fontWeight: 700 }} />
+                      <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0, flex: 1, overflowWrap: 'anywhere' }}>
+                        {row.isp}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={fmtPct(row.avgUptimePct)}
+                        color={Number(row.avgUptimePct || 0) < SLA_TARGET ? 'error' : 'success'}
+                        sx={{ fontWeight: 700 }}
+                      />
+                    </Stack>
+                    <Stack direction="row" spacing={1.5} sx={{ mt: 0.85, flexWrap: 'wrap' }}>
+                      <Typography variant="caption" sx={{ opacity: 0.78 }}>
+                        Links {fmtCount(row.linkCount)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.78 }}>
+                        Breaches {fmtCount(row.breachLinks)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.78 }}>
+                        Worst {fmtPct(row.worstUptimePct)}
+                      </Typography>
+                    </Stack>
+                    <Box sx={{ mt: 1, height: 8, borderRadius: 999, bgcolor: '#fee2e2', overflow: 'hidden' }}>
+                      <Box
+                        sx={{
+                          width: `${fillPct}%`,
+                          height: '100%',
+                          bgcolor: '#dc2626'
+                        }}
+                      />
+                    </Box>
+                  </Paper>
+                )
+              })}
+            </Stack>
           ) : (
             <ChartFallback />
           )}
