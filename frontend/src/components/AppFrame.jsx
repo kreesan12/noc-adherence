@@ -14,7 +14,7 @@ export default function AppFrame({ drawerWidth, children }) {
     <Box
       sx={{
         ml: reserveDrawer ? { xs: 0, md: `${drawerWidth}px` } : 0,
-        p: reserveDrawer ? { xs: 0, md: 3 } : 0,
+        p: reserveDrawer ? { xs: 0, md: 2 } : 0,
         width: reserveDrawer ? { xs: '100%', md: `calc(100% - ${drawerWidth}px)` } : '100%',
         maxWidth: '100%',
         minWidth: 0,

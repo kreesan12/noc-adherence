@@ -72,17 +72,17 @@ export default function UserStatus({ inDrawer = false }) {
   }
 
   const avatarSx = inDrawer
-    ? { width: 32, height: 32, fontSize: 13, bgcolor: 'rgba(255,255,255,0.18)', color: '#fff' }
-    : { width: 28, height: 28, fontSize: 13 }
+    ? { width: 28, height: 28, fontSize: 12, bgcolor: 'rgba(255,255,255,0.18)', color: '#fff' }
+    : { width: 26, height: 26, fontSize: 12 }
 
   if (inDrawer) {
     return (
       <Paper
         elevation={0}
         sx={{
-          px: 1.25,
-          py: 1,
-          borderRadius: 2,
+          px: 1,
+          py: 0.85,
+          borderRadius: 1.75,
           border: '1px solid rgba(255,255,255,0.18)',
           bgcolor: 'rgba(255,255,255,0.12)',
           color: '#fff',
@@ -90,8 +90,8 @@ export default function UserStatus({ inDrawer = false }) {
         }}
       >
         {user ? (
-          <Stack spacing={1}>
-            <Stack direction="row" spacing={1} alignItems="center">
+          <Stack spacing={0.8}>
+            <Stack direction="row" spacing={0.85} alignItems="center">
               <Avatar sx={avatarSx}>
                 {initials || <PersonRoundedIcon fontSize="small" />}
               </Avatar>
@@ -105,7 +105,7 @@ export default function UserStatus({ inDrawer = false }) {
                   variant="filled"
                   color={chip.color}
                   label={chip.label}
-                  sx={{ mt: 0.5, height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }}
+                  sx={{ mt: 0.35, height: 18, '& .MuiChip-label': { px: 0.65, fontSize: 10 } }}
                 />
               </Box>
             </Stack>
@@ -117,6 +117,8 @@ export default function UserStatus({ inDrawer = false }) {
               onClick={handleLogout}
               sx={{
                 alignSelf: 'stretch',
+                minHeight: 30,
+                fontSize: 11.5,
                 color: '#fff',
                 borderColor: 'rgba(255,255,255,0.35)',
                 '&:hover': {
@@ -141,16 +143,16 @@ export default function UserStatus({ inDrawer = false }) {
   }
 
   return (
-    <Box sx={{ position: 'fixed', top: 12, right: 12, zIndex: 2100 }}>
+    <Box sx={{ position: 'fixed', top: 10, right: 10, zIndex: 2100 }}>
       <Paper
         elevation={3}
         sx={{
-          px: 1.25,
-          py: 0.75,
+          px: 1,
+          py: 0.55,
           borderRadius: 999,
           display: 'flex',
           alignItems: 'center',
-          gap: 1,
+          gap: 0.85,
           border: '1px solid',
           borderColor: 'divider',
           bgcolor: 'background.paper'
@@ -163,7 +165,7 @@ export default function UserStatus({ inDrawer = false }) {
             </Avatar>
 
             <Stack spacing={0} sx={{ mr: 0.5 }}>
-              <Typography variant="body2" sx={{ lineHeight: 1.2, fontWeight: 600 }}>
+              <Typography variant="body2" sx={{ lineHeight: 1.15, fontWeight: 600, fontSize: 12 }}>
                 {user.name}
               </Typography>
               <Stack direction="row" spacing={0.5} alignItems="center">
@@ -172,7 +174,7 @@ export default function UserStatus({ inDrawer = false }) {
                   variant="filled"
                   color={chip.color}
                   label={chip.label}
-                  sx={{ height: 20, '& .MuiChip-label': { px: 0.75, fontSize: 11 } }}
+                  sx={{ height: 18, '& .MuiChip-label': { px: 0.65, fontSize: 10 } }}
                 />
               </Stack>
             </Stack>

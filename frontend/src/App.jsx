@@ -76,7 +76,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import UserStatus from './components/UserStatus'
 
 /* ─── Drawer styling ────────────────────────────────────── */
-const DRAWER_WIDTH = 250
+const DRAWER_WIDTH = 228
 
 const StyledDrawer = styled(Drawer)(() => ({
   '& .MuiDrawer-paper': {
@@ -185,7 +185,7 @@ function SideNav() {
 
   return (
     <StyledDrawer variant="permanent">
-      <Box sx={{ px: 1.5, pt: 1.5, pb: 0.5 }}>
+      <Box sx={{ px: 1, pt: 1, pb: 0.25 }}>
         <UserStatus inDrawer />
       </Box>
 
@@ -195,11 +195,11 @@ function SideNav() {
             disableSticky
             sx={{
               lineHeight: 1.2,
-              fontSize: 18,
+              fontSize: 15,
               fontWeight: 700,
               color: '#fff',
               bgcolor: 'transparent',
-              mt: 1,
+              mt: 0.5,
             }}
           />
         }
@@ -208,14 +208,14 @@ function SideNav() {
           <Box key={section.title}>
             <ListItemButton
               onClick={() => setOpenState(o => ({ ...o, [section.title]: !o[section.title] }))}
-              sx={{ px: 2, py: 1 }}
+              sx={{ px: 1.5, py: 0.75 }}
             >
               <ListItemText
                 primary={section.title}
                 primaryTypographyProps={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  letterSpacing: 0.5,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  letterSpacing: 0.35,
                   color: '#fff',
                 }}
               />
@@ -230,19 +230,28 @@ function SideNav() {
                     component={Link}
                     to={item.path}
                     sx={{
-                      pl: 4,
-                      mb: 0.5,
+                      pl: 2.75,
+                      pr: 1.25,
+                      py: 0.55,
+                      mb: 0.35,
                       borderRadius: 1,
                       bgcolor: isActive(location.pathname, item.path)
                         ? 'rgba(255,255,255,0.15)'
                         : 'transparent',
                       '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
                     }}
-                  >
-                    <ListItemIcon sx={{ color:'#fff', minWidth:32 }}>
+                    >
+                    <ListItemIcon sx={{ color:'#fff', minWidth:28 }}>
                       {item.icon}
                     </ListItemIcon>
-                    <ListItemText primary={item.label}/>
+                    <ListItemText
+                      primary={item.label}
+                      primaryTypographyProps={{
+                        fontSize: 12.5,
+                        fontWeight: isActive(location.pathname, item.path) ? 700 : 500,
+                        lineHeight: 1.2,
+                      }}
+                    />
                   </ListItemButton>
                 ))}
               </List>

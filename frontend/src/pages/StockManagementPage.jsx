@@ -82,6 +82,44 @@ const NOT_WH_STATUS_OPTIONS = [
   { value: 'SCRAP', label: 'Scrap' }
 ]
 
+const MASTER_ITEM_CELL_SX = {
+  width: 248,
+  minWidth: 248,
+  maxWidth: 248,
+  whiteSpace: 'normal'
+}
+
+const MASTER_SECTION_CELL_SX = {
+  width: 112,
+  minWidth: 112,
+  maxWidth: 112,
+  whiteSpace: 'normal'
+}
+
+const MASTER_MATCH_CELL_SX = {
+  width: 80,
+  minWidth: 80,
+  maxWidth: 80
+}
+
+const MASTER_METRIC_CELL_SX = {
+  width: 64,
+  minWidth: 64,
+  maxWidth: 64
+}
+
+const MASTER_MONEY_CELL_SX = {
+  width: 84,
+  minWidth: 84,
+  maxWidth: 84
+}
+
+const MASTER_REGION_CELL_SX = {
+  width: 38,
+  minWidth: 38,
+  maxWidth: 38
+}
+
 function fmtCount(value) {
   if (value == null || Number.isNaN(Number(value))) return '0'
   return new Intl.NumberFormat().format(Number(value))
@@ -1074,39 +1112,40 @@ export default function StockManagementPage() {
                     <Table
                       size="small"
                       sx={{
-                        minWidth: 1360,
+                        minWidth: 1254,
+                        tableLayout: 'fixed',
                         '& .MuiTableCell-root': {
-                          py: 0.45,
-                          px: 0.6,
-                          fontSize: 11.2,
+                          py: 0.34,
+                          px: 0.45,
+                          fontSize: 10.6,
                           whiteSpace: 'nowrap'
                         },
                         '& .MuiTableHead-root .MuiTableCell-root': {
-                          fontSize: 10.8,
+                          fontSize: 10.2,
                           fontWeight: 800
                         }
                       }}
                     >
                       <TableHead>
                         <TableRow>
-                          <TableCell>Item</TableCell>
-                          <TableCell>Section</TableCell>
-                          <TableCell>Match</TableCell>
-                          <TableCell align="right">Required</TableCell>
-                          <TableCell align="right">WH Available</TableCell>
-                          <TableCell align="right">Not WH</TableCell>
-                          <TableCell align="right">Ordered</TableCell>
-                          <TableCell align="right">Gap</TableCell>
-                          <TableCell align="right">Unit Cost</TableCell>
-                          <TableCell align="right">Gap Cost</TableCell>
-                          <TableCell align="right">CPT</TableCell>
-                          <TableCell align="right">JHB</TableCell>
-                          <TableCell align="right">DBN</TableCell>
-                          <TableCell align="right">PEL</TableCell>
-                          <TableCell align="right">BFN</TableCell>
-                          <TableCell align="right">GEO</TableCell>
-                          <TableCell align="right">POL</TableCell>
-                          <TableCell align="right">NEL</TableCell>
+                          <TableCell sx={MASTER_ITEM_CELL_SX}>Item</TableCell>
+                          <TableCell sx={MASTER_SECTION_CELL_SX}>Section</TableCell>
+                          <TableCell sx={MASTER_MATCH_CELL_SX}>Match</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Required</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>WH Avail</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Not WH</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Ord.</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Gap</TableCell>
+                          <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>Unit Cost</TableCell>
+                          <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>Gap Cost</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>CPT</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>JHB</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>DBN</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>PEL</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>BFN</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>GEO</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>POL</TableCell>
+                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>NEL</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1114,45 +1153,83 @@ export default function StockManagementPage() {
                           const tone = statusTone(row)
                           return (
                             <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
-                              <TableCell sx={{ minWidth: 220, maxWidth: 220 }}>
-                                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 11.6, lineHeight: 1.2 }}>
+                              <TableCell sx={MASTER_ITEM_CELL_SX}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 700,
+                                    fontSize: 10.8,
+                                    lineHeight: 1.12,
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden',
+                                    whiteSpace: 'normal',
+                                    wordBreak: 'break-word'
+                                  }}
+                                >
                                   {row.itemDescription}
                                 </Typography>
-                                <Typography variant="caption" sx={{ opacity: 0.72, fontSize: 10.5, lineHeight: 1.1, display: 'block' }}>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    opacity: 0.72,
+                                    fontSize: 9.7,
+                                    lineHeight: 1.06,
+                                    display: 'block',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                  }}
+                                >
                                   {row.stockCode || 'No stock code'}
                                 </Typography>
                               </TableCell>
-                              <TableCell sx={{ minWidth: 104, maxWidth: 104, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {row.sectionName || 'General'}
+                              <TableCell sx={MASTER_SECTION_CELL_SX}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontSize: 10.1,
+                                    lineHeight: 1.1,
+                                    whiteSpace: 'normal',
+                                    wordBreak: 'break-word',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden'
+                                  }}
+                                >
+                                  {row.sectionName || 'General'}
+                                </Typography>
                               </TableCell>
-                              <TableCell>
+                              <TableCell sx={MASTER_MATCH_CELL_SX}>
                                 <Chip
                                   size="small"
                                   label={row.matchStatus}
                                   color={matchTone(row)}
-                                  sx={{ fontWeight: 700, height: 21, '& .MuiChip-label': { px: 0.8, fontSize: 10.7 } }}
+                                  sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.65, fontSize: 9.9 } }}
                                 />
                               </TableCell>
-                              <TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell>
-                              <TableCell align="right">
+                              <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.requiredTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
                                 <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
                                   {fmtCount(row.availableTotal)}
                                 </Typography>
                               </TableCell>
-                              <TableCell align="right">{fmtCount(row.notInWarehouses)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.orderedStock)}</TableCell>
-                              <TableCell align="right">
+                              <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.notInWarehouses)}</TableCell>
+                              <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.orderedStock)}</TableCell>
+                              <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
                                 <Typography
                                   component="span"
                                   sx={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    minWidth: 42,
-                                    px: 0.7,
+                                    minWidth: 38,
+                                    px: 0.55,
                                     py: 0.1,
                                     borderRadius: 999,
                                     fontWeight: 900,
+                                    fontSize: 10.2,
                                     color: row.shortage > 0 ? '#b91c1c' : '#166534',
                                     bgcolor: row.shortage > 0 ? '#fee2e2' : '#dcfce7'
                                   }}
@@ -1160,16 +1237,16 @@ export default function StockManagementPage() {
                                   {fmtCount(row.shortage)}
                                 </Typography>
                               </TableCell>
-                              <TableCell align="right">{fmtMoney(row.unitCost)}</TableCell>
-                              <TableCell align="right">{fmtMoney(row.gapCost)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.cptTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.jhbTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.dbnTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.pelTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.bfnTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.geoTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.polTotal)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.nelTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>{fmtMoney(row.unitCost)}</TableCell>
+                              <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>{fmtMoney(row.gapCost)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.cptTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.jhbTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.dbnTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.pelTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.bfnTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.geoTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.polTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.nelTotal)}</TableCell>
                             </TableRow>
                           )
                         })}

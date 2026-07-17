@@ -21,7 +21,7 @@ export default createTheme({
     error: { main: '#DC2626' }
   },
 
-  shape: { borderRadius: 10 },
+  shape: { borderRadius: 8 },
 
   typography: {
     fontFamily: [
@@ -34,14 +34,20 @@ export default createTheme({
       'Arial',
       'sans-serif'
     ].join(','),
-    h5: { fontWeight: 950, letterSpacing: -0.4 },
-    h6: { fontWeight: 900, letterSpacing: -0.3 },
-    button: { fontWeight: 900, textTransform: 'none' }
+    h5: { fontWeight: 950, letterSpacing: -0.4, fontSize: '1.45rem' },
+    h6: { fontWeight: 900, letterSpacing: -0.3, fontSize: '1.08rem' },
+    subtitle1: { fontSize: '0.92rem' },
+    subtitle2: { fontSize: '0.84rem', fontWeight: 700 },
+    body1: { fontSize: '0.9rem' },
+    body2: { fontSize: '0.82rem' },
+    caption: { fontSize: '0.74rem' },
+    button: { fontWeight: 900, textTransform: 'none', fontSize: '0.82rem' }
   },
 
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        html: { fontSize: '14px' },
         body: { backgroundColor: '#F3F6FB' },
         '#root': { minHeight: '100vh' }
       }
@@ -61,9 +67,39 @@ export default createTheme({
       defaultProps: { disableElevation: true },
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          paddingInline: 14,
-          paddingBlock: 12
+          borderRadius: 10,
+          minHeight: 34,
+          paddingInline: 12,
+          paddingBlock: 7
+        }
+      }
+    },
+
+    MuiTextField: {
+      defaultProps: { size: 'small' }
+    },
+
+    MuiInputBase: {
+      styleOverrides: {
+        root: {
+          borderRadius: 10,
+          fontSize: '0.84rem'
+        }
+      }
+    },
+
+    MuiOutlinedInput: {
+      styleOverrides: {
+        input: {
+          padding: '9px 11px'
+        }
+      }
+    },
+
+    MuiInputLabel: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.8rem'
         }
       }
     },
@@ -89,7 +125,59 @@ export default createTheme({
 
     MuiChip: {
       styleOverrides: {
-        root: { borderRadius: 999, fontWeight: 800 }
+        root: {
+          borderRadius: 999,
+          fontWeight: 800,
+          height: 22,
+          '& .MuiChip-label': {
+            paddingInline: 8,
+            fontSize: '0.74rem'
+          }
+        }
+      }
+    },
+
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          padding: '8px 10px',
+          fontSize: '0.82rem'
+        },
+        head: {
+          fontSize: '0.76rem',
+          fontWeight: 800
+        }
+      }
+    },
+
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          minHeight: 36,
+          paddingInline: 10,
+          paddingBlock: 8,
+          fontSize: '0.82rem'
+        }
+      }
+    },
+
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          minHeight: 34,
+          fontSize: '0.84rem'
+        }
+      }
+    },
+
+    MuiCardContent: {
+      styleOverrides: {
+        root: {
+          padding: 14,
+          '&:last-child': {
+            paddingBottom: 14
+          }
+        }
       }
     }
   }
