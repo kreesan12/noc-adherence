@@ -73,6 +73,8 @@ const REQUIRED_SPARE_FIELDS = [
   { key: 'requiredNel', region: 'NEL' }
 ]
 
+const STOCK_REGIONS = REQUIRED_SPARE_FIELDS.map((field) => field.region)
+
 const NOT_WH_STATUS_OPTIONS = [
   { value: 'PENDING_REVIEW', label: 'Pending review' },
   { value: 'TESTING_IN_PROGRESS', label: 'Testing in progress' },
@@ -431,6 +433,40 @@ export default function StockManagementPage() {
       }))
       .sort((left, right) => left.division.localeCompare(right.division))
   }, [filteredItemRows])
+
+  const regionWatchlist = useMemo(() => {
+    const itemRows = (data?.items || []).filter((row) => row.rowType === 'ITEM')
+
+    return STOCK_REGIONS.map((region) => {
+      const regionKey = `${region.toLowerCase()}Total`
+      const rows = itemRows
+        .map((row) => {
+          const required = Number(row.requiredByRegion?.[region] || 0)
+          const warehouseAvailable = Number(row[regionKey] || 0)
+          const notWh = Number(row.regionFieldTotals?.[region] || 0)
+          const gap = Math.max(required - warehouseAvailable, 0)
+          const unitCost = Number(row.unitCost || 0)
+          return {
+            row,
+            required,
+            warehouseAvailable,
+            notWh,
+            gap,
+            gapCost: Number((gap * unitCost).toFixed(2))
+          }
+        })
+        .filter((entry) => entry.gap > 0)
+        .sort((left, right) => right.gap - left.gap || right.gapCost - left.gapCost || String(left.row.itemDescription || '').localeCompare(String(right.row.itemDescription || '')))
+
+      return {
+        region,
+        totalGap: rows.reduce((sum, entry) => sum + entry.gap, 0),
+        totalGapCost: Number(rows.reduce((sum, entry) => sum + entry.gapCost, 0).toFixed(2)),
+        affectedItems: rows.length,
+        topItems: rows.slice(0, 4)
+      }
+    }).filter((entry) => entry.affectedItems > 0)
+  }, [data])
 
   const reviewRows = useMemo(() => {
     return (data?.matchReviewItems || []).filter((row) => {
@@ -1059,6 +1095,105 @@ export default function StockManagementPage() {
               </TableContainer>
             </SectionCard>
           </Box>
+
+          <SectionCard
+            title="Regional Watchlist"
+            subtitle="Top warehouse-usable shortages by region. Not WH stock stays visible for context but remains excluded from the gap logic."
+            action={<Chip size="small" label={`${fmtCount(regionWatchlist.length)} active regions`} sx={{ fontWeight: 700 }} />}
+          >
+            {regionWatchlist.length ? (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 0.72,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(2, minmax(0, 1fr))',
+                    xl: 'repeat(4, minmax(0, 1fr))'
+                  }
+                }}
+              >
+                {regionWatchlist.map((region) => (
+                  <Paper
+                    key={region.region}
+                    variant="outlined"
+                    sx={{
+                      p: 0.78,
+                      borderRadius: 2.2,
+                      borderColor: '#d8e6df',
+                      background: 'linear-gradient(180deg, rgba(248,250,252,0.9) 0%, rgba(255,255,255,1) 100%)'
+                    }}
+                  >
+                    <Stack spacing={0.55}>
+                      <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 900, fontSize: 13 }}>
+                            {region.region}
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: 10.5, opacity: 0.72 }}>
+                            {fmtCount(region.affectedItems)} items below regional minimum
+                          </Typography>
+                        </Box>
+                        <Stack spacing={0.35} alignItems="flex-end">
+                          <Chip size="small" label={`Gap ${fmtCount(region.totalGap)}`} sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#b91c1c', height: 22 }} />
+                          <Chip size="small" label={fmtMoney(region.totalGapCost)} sx={{ fontWeight: 800, bgcolor: '#eff6ff', color: '#1d4ed8', height: 22 }} />
+                        </Stack>
+                      </Stack>
+
+                      <Stack spacing={0.42}>
+                        {region.topItems.map((entry) => (
+                          <Paper
+                            key={`${region.region}-${entry.row.id}`}
+                            variant="outlined"
+                            onClick={() => setSelectedItem(entry.row)}
+                            sx={{
+                              p: 0.6,
+                              borderRadius: 1.8,
+                              cursor: 'pointer',
+                              borderColor: '#e2e8f0',
+                              transition: 'all 0.15s ease',
+                              '&:hover': {
+                                borderColor: '#0f766e',
+                                boxShadow: '0 10px 20px rgba(15, 118, 110, 0.08)',
+                                transform: 'translateY(-1px)'
+                              }
+                            }}
+                          >
+                            <Stack spacing={0.3}>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontWeight: 800,
+                                  fontSize: 11.1,
+                                  lineHeight: 1.18,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden'
+                                }}
+                              >
+                                {entry.row.itemDescription}
+                              </Typography>
+                              <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                                <Chip size="small" label={`Req ${fmtCount(entry.required)}`} sx={{ height: 20, '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
+                                <Chip size="small" label={`WH ${fmtCount(entry.warehouseAvailable)}`} sx={{ height: 20, bgcolor: '#dcfce7', color: '#166534', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
+                                <Chip size="small" label={`Not WH ${fmtCount(entry.notWh)}`} sx={{ height: 20, bgcolor: '#fff7ed', color: '#c2410c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
+                                <Chip size="small" label={`Gap ${fmtCount(entry.gap)}`} sx={{ height: 20, bgcolor: '#fee2e2', color: '#b91c1c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4, fontWeight: 800 } }} />
+                              </Stack>
+                            </Stack>
+                          </Paper>
+                        ))}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Box>
+            ) : (
+              <Alert severity="success" sx={{ borderRadius: 2.2 }}>
+                No regional shortages are currently open against the configured minimum spares.
+              </Alert>
+            )}
+          </SectionCard>
         </Stack>
       ) : null}
 
