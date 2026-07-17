@@ -42,12 +42,14 @@ import rocAppointmentsRoutes from './routes/rocAppointments.js'
 import techAppointmentsRoutes from './routes/techAppointments.js'
 import techAuthRoutes from './routes/techAuth.js'
 import slaReportingRoutes from './routes/slaReporting.js'
+import stockManagementRoutes from './routes/stockManagement.js'
 
-// ✅ Overtime (single source of truth)
+// Overtime (single source of truth)
 import overtimeRoutes from './routes/overtime.js'
 import overtimeExportRoutes from './routes/overtimeExportRoutes.js'
 
 dotenv.config()
+dotenv.config({ path: '.env.local', override: true })
 
 // ---- Crash guards (prevents Heroku restart loops) ----
 process.on('unhandledRejection', (err) => {
@@ -58,37 +60,62 @@ process.on('uncaughtException', (err) => {
 })
 
 const app = express()
+const disableBackgroundWatchers = process.env.DISABLE_BACKGROUND_WATCHERS === '1'
+
+const configuredOrigins = String(process.env.CLIENT_ORIGIN || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+
+const defaultLocalOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+]
+
+const allowedOrigins = configuredOrigins.length > 0
+  ? configuredOrigins
+  : defaultLocalOrigins
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+
+    callback(new Error(`CORS blocked for origin ${origin}`))
+  },
+  credentials: true
+}
 
 /**
  * Start WA and watchers once on boot.
  * Watchers are safe even if WA is not ready yet (sendSlaAlert waits for readiness).
  */
-;(async () => {
-  try {
-    // Don’t hard-block boot forever. WA can still come up async.
-    await initWhatsApp({ waitForReady: false })
-    console.log('[WA] init complete, starting watchers')
+if (!disableBackgroundWatchers) {
+  ;(async () => {
+    try {
+      // Don't hard-block boot forever. WA can still come up async.
+      await initWhatsApp({ waitForReady: false })
+      console.log('[WA] init complete, starting watchers')
 
-    startNldOutageWatcher(sendSlaAlert)
-    startVipTicketWatcher(sendSlaAlert)
-  } catch (e) {
-    console.error('[WA] init failed, watchers still starting (send will retry):', e?.message || e)
-    // Still start watchers so they can send when WA is ready later.
-    try { startNldOutageWatcher(sendSlaAlert) } catch {}
-    try { startVipTicketWatcher(sendSlaAlert) } catch {}
-  }
-})()
+      startNldOutageWatcher(sendSlaAlert)
+      startVipTicketWatcher(sendSlaAlert)
+    } catch (e) {
+      console.error('[WA] init failed, watchers still starting (send will retry):', e?.message || e)
+      // Still start watchers so they can send when WA is ready later.
+      try { startNldOutageWatcher(sendSlaAlert) } catch {}
+      try { startVipTicketWatcher(sendSlaAlert) } catch {}
+    }
+  })()
+} else {
+  console.log('[Startup] Background watchers disabled for local development')
+}
 
 /* ---------- CORS / common middleware ---------- */
-app.use(cors({
-  origin: process.env.CLIENT_ORIGIN,
-  credentials: true
-}))
+app.use(cors(corsOptions))
 
-app.options('*', cors({
-  origin: process.env.CLIENT_ORIGIN,
-  credentials: true
-}))
+app.options('*', cors(corsOptions))
 
 app.use(express.json({ limit: '100mb' }))
 app.use(express.urlencoded({ limit: '100mb', extended: true }))
@@ -167,14 +194,14 @@ app.use(
   supervisorRoutes(prisma)
 )
 
-/* ✅ Overtime (protected) */
+/* Overtime (protected) */
 app.use(
   '/api/overtime',
   verifyToken,
   overtimeRoutes(prisma)
 )
 
-/* ✅ Overtime export (protected) */
+/* Overtime export (protected) */
 app.use(
   '/api/overtime/export',
   verifyToken,
@@ -206,6 +233,7 @@ app.use('/api', nldMonitoringRoutes)
 app.use('/api', nodes)
 app.use('/api/engineering', engineeringRoutes)
 app.use('/api/sla-reporting', slaReportingRoutes)
+app.use('/api/stock-management', stockManagementRoutes)
 
 app.use(
   '/api/managers',
@@ -221,4 +249,4 @@ app.use((err, _req, res, _next) => {
 
 /* ---------- Start server ---------- */
 const PORT = process.env.PORT || 4000
-app.listen(PORT, () => console.log(`API • http://localhost:${PORT}`))
+app.listen(PORT, () => console.log(`API - http://localhost:${PORT}`))

@@ -38,6 +38,7 @@ import MapIcon                from '@mui/icons-material/Map'
 import AvTimerIcon            from '@mui/icons-material/AvTimer'
 import BuildIcon              from '@mui/icons-material/Build'
 import InsightsIcon           from '@mui/icons-material/Insights'
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 
 /* ── pages ──────────────────────────────────────────────── */
 import AdherencePage  from './pages/AdherencePage'
@@ -63,6 +64,7 @@ import OvertimeManagerPage from './pages/OvertimeManagerPage'
 import SignaturePage from './pages/SignaturePage'
 import RocAppointmentsPage from './pages/RocAppointmentsPage'
 import SlaReportingPage from './pages/SlaReportingPage'
+import StockManagementPage from './pages/StockManagementPage'
 
 import TechMyDayPage from './pages/TechMyDayPage.jsx'
 import TechAppointmentDetailPage from './pages/TechAppointmentDetailPage.jsx'
@@ -167,6 +169,12 @@ function SideNav() {
       title: 'SLA REPORTING',
       items: [
         { label:'ISP SLA Dashboard', path:'/sla-reporting', icon:<InsightsIcon/> },
+      ],
+    },
+    {
+      title: 'STOCK MANAGEMENT',
+      items: [
+        { label:'Stock Master', path:'/stock-management', icon:<Inventory2OutlinedIcon/> },
       ],
     },
   ]
@@ -306,6 +314,7 @@ export default function App() {
                 <Route path="/nld-admin"        element={<CircuitEditorPage/>}/>
                 <Route path="/engineering/nld-services" element={<NldServicesPage />}/>
                 <Route path="/sla-reporting" element={<SlaReportingPage />}/>
+                <Route path="/stock-management" element={<StockManagementPage />}/>
                 <Route path="/overtime/capture" element={<OvertimeCapturePage />}/>
                 <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />}/>
                 <Route path="/overtime/manager" element={<OvertimeManagerPage />}/>

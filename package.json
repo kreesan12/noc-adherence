@@ -1,4 +1,9 @@
 {
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:server": "npm --prefix server run dev",
+    "build:frontend": "npm --prefix frontend run build"
+  },
   "devDependencies": {
     "prisma": "^6.11.0"
   },

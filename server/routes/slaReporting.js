@@ -429,40 +429,34 @@ r.get('/overview', verifyToken, async (req, res) => {
       ),
       () => prisma.$queryRawUnsafe(
         `
-        WITH monthly_group AS (
+        WITH link_rollup AS (
           SELECT
-            COALESCE(k.product_group, 'FTTB') AS label,
-            k.year_month,
-            COALESCE(SUM(k.total_links), 0)::int AS total_links,
-            COALESCE(SUM(k.impacted_links), 0)::int AS impacted_links,
-            COALESCE(MIN(k.worst_uptime_pct), 0)::numeric AS worst_uptime_pct,
-            COALESCE(
-              SUM(COALESCE(k.avg_uptime_pct, 0) * COALESCE(k.total_links, 0))
-              / NULLIF(SUM(COALESCE(k.total_links, 0)), 0),
-              0
-            ) AS avg_uptime_pct
-          FROM public.sla_monthly_kpi k
-          WHERE k.year_month >= $1
-            AND k.year_month <= $2
-            AND ($3::text = '' OR COALESCE(k.product_group, 'FTTB') = $3)
-            AND ($4::text = '' OR COALESCE(k.product_type, 'Unknown') = $4)
-            AND ($5::text = '' OR COALESCE(k.service_type, 'Unknown') = $5)
-          GROUP BY COALESCE(k.product_group, 'FTTB'), k.year_month
+            COALESCE(l.product_group, 'FTTB') AS label,
+            l.frogfootlinklabel,
+            AVG(COALESCE(l.uptime_pct, 100))::numeric AS avg_uptime_pct,
+            MIN(COALESCE(l.uptime_pct, 100))::numeric AS worst_uptime_pct,
+            SUM(COALESCE(l.impacted, 0))::int AS impacted_months,
+            SUM(COALESCE(l.breach, 0))::int AS breach_months,
+            SUM(COALESCE(l.ticket_count, 0))::int AS ticket_count,
+            SUM(COALESCE(l.service_impacting_ticket_count, 0))::int AS service_impacting_tickets
+          FROM public.sla_link_monthly_fact l
+          WHERE l.year_month >= $1
+            AND l.year_month <= $2
+            AND ($3::text = '' OR COALESCE(l.product_group, 'FTTB') = $3)
+            AND ($4::text = '' OR COALESCE(l.product_type, 'Unknown') = $4)
+            AND ($5::text = '' OR COALESCE(l.service_type, 'Unknown') = $5)
+          GROUP BY 1, 2
         )
         SELECT
           label,
-          MAX(total_links)::int AS link_count,
-          MAX(impacted_links)::int AS impacted_links,
-          COALESCE(
-            ROUND(
-              SUM(avg_uptime_pct * total_links)
-              / NULLIF(SUM(total_links), 0),
-              2
-            ),
-            0
-          ) AS avg_uptime_pct,
+          COUNT(*)::int AS link_count,
+          COALESCE(SUM(CASE WHEN impacted_months > 0 THEN 1 ELSE 0 END), 0)::int AS impacted_links,
+          COALESCE(SUM(CASE WHEN breach_months > 0 THEN 1 ELSE 0 END), 0)::int AS breach_links,
+          COALESCE(SUM(ticket_count), 0)::int AS ticket_count,
+          COALESCE(SUM(service_impacting_tickets), 0)::int AS service_impacting_tickets,
+          COALESCE(ROUND(AVG(avg_uptime_pct)::numeric, 2), 0) AS avg_uptime_pct,
           COALESCE(ROUND(MIN(worst_uptime_pct), 2), 0) AS worst_uptime_pct
-        FROM monthly_group
+        FROM link_rollup
         GROUP BY label
         ORDER BY
           CASE label
@@ -681,6 +675,9 @@ r.get('/overview', verifyToken, async (req, res) => {
         label: String(row.label || 'Unknown'),
         linkCount: toNum(row.link_count, 0),
         impactedLinks: toNum(row.impacted_links, 0),
+        breachLinks: toNum(row.breach_links, 0),
+        ticketCount: toNum(row.ticket_count, 0),
+        serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
         avgUptimePct: toNum(row.avg_uptime_pct, 0),
         worstUptimePct: toNum(row.worst_uptime_pct, 0)
       })),
@@ -1036,7 +1033,10 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
             l.frogfootlinklabel,
             AVG(COALESCE(l.uptime_pct, 100))::numeric AS avg_uptime_pct,
             MIN(COALESCE(l.uptime_pct, 100))::numeric AS worst_uptime_pct,
-            SUM(COALESCE(l.impacted, 0))::int AS impacted_months
+            SUM(COALESCE(l.impacted, 0))::int AS impacted_months,
+            SUM(COALESCE(l.breach, 0))::int AS breach_months,
+            SUM(COALESCE(l.ticket_count, 0))::int AS ticket_count,
+            SUM(COALESCE(l.service_impacting_ticket_count, 0))::int AS service_impacting_tickets
           FROM public.sla_link_monthly_fact l
           WHERE l.year_month >= $1
             AND l.year_month <= $2
@@ -1049,6 +1049,9 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
           label,
           COUNT(*)::int AS link_count,
           COALESCE(SUM(CASE WHEN impacted_months > 0 THEN 1 ELSE 0 END), 0)::int AS impacted_links,
+          COALESCE(SUM(CASE WHEN breach_months > 0 THEN 1 ELSE 0 END), 0)::int AS breach_links,
+          COALESCE(SUM(ticket_count), 0)::int AS ticket_count,
+          COALESCE(SUM(service_impacting_tickets), 0)::int AS service_impacting_tickets,
           COALESCE(ROUND(AVG(avg_uptime_pct)::numeric, 2), 0) AS avg_uptime_pct,
           COALESCE(ROUND(MIN(worst_uptime_pct)::numeric, 2), 0) AS worst_uptime_pct
         FROM link_rollup
@@ -1111,6 +1114,9 @@ r.get('/overview/groups', verifyToken, async (req, res) => {
         label: String(row.label || 'Unknown'),
         linkCount: toNum(row.link_count, 0),
         impactedLinks: toNum(row.impacted_links, 0),
+        breachLinks: toNum(row.breach_links, 0),
+        ticketCount: toNum(row.ticket_count, 0),
+        serviceImpactingTickets: toNum(row.service_impacting_tickets, 0),
         avgUptimePct: toNum(row.avg_uptime_pct, 0),
         worstUptimePct: toNum(row.worst_uptime_pct, 0)
       })),

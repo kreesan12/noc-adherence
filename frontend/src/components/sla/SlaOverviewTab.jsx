@@ -99,7 +99,7 @@ function buildTrendChip(current, previous, key, { digits = 2, invert = false, su
   if (!current) return null
   if (!previous) {
     return {
-      label: `${current.yearMonth} baseline`,
+      label: 'Baseline',
       tone: '#64748b',
       textColor: '#0f172a'
     }
@@ -108,25 +108,41 @@ function buildTrendChip(current, previous, key, { digits = 2, invert = false, su
   const delta = Number(current[key] || 0) - Number(previous[key] || 0)
   const good = invert ? delta <= 0 : delta >= 0
   return {
-    label: `${formatChange(delta, digits)}${suffix} vs ${previous.yearMonth}`,
+    label: `${formatChange(delta, digits)}${suffix}`,
     tone: good ? '#dcfce7' : '#fee2e2',
     textColor: good ? '#166534' : '#991b1b'
   }
 }
 
-function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend = null, spark = null, icon = null }) {
+function formatAverageCount(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  return new Intl.NumberFormat().format(Math.ceil(n))
+}
+
+function MetricCard({
+  label,
+  value,
+  subtext,
+  rows = [],
+  tone = '#0f172a',
+  trend = null,
+  spark = null,
+  icon = null,
+  inlineValue = false
+}) {
   return (
     <Paper
       elevation={0}
       sx={{
         position: 'relative',
-        p: 1.15,
+        p: 0.72,
         border: '1px solid #e5e7eb',
         borderTop: `4px solid ${tone}`,
-        borderRadius: 3.25,
+        borderRadius: 3,
         background: cardSurface(tone),
         boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
-        minHeight: rows.length ? 142 : 112,
+        minHeight: rows.length ? 118 : 86,
         minWidth: 0,
         overflow: 'hidden',
         transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
@@ -137,14 +153,14 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
         }
       }}
     >
-      <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0 }}>
-        <Stack spacing={0.8} sx={{ minWidth: 0, flex: 1 }}>
-          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+      <Stack direction="row" spacing={0.65} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0 }}>
+        <Stack spacing={0.55} sx={{ minWidth: 0, flex: 1 }}>
+          <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
             <Box
               sx={{
-                width: 24,
-                height: 24,
-                borderRadius: 1.75,
+                width: 20,
+                height: 20,
+                borderRadius: 1.5,
                 bgcolor: alphaHex(tone, '14'),
                 color: tone,
                 display: 'flex',
@@ -156,26 +172,50 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
               {icon || (
                 <Box
                   sx={{
-                    width: 9,
-                    height: 9,
+                    width: 8,
+                    height: 8,
                     borderRadius: '50%',
                     bgcolor: tone,
-                    boxShadow: `0 0 0 5px ${alphaHex(tone, '14')}`
+                    boxShadow: `0 0 0 4px ${alphaHex(tone, '14')}`
                   }}
                 />
               )}
             </Box>
-            <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.7, opacity: 0.72 }}>
-              {label}
-            </Typography>
+            {inlineValue ? (
+              <Stack
+                direction="row"
+                spacing={0.6}
+                alignItems="baseline"
+                useFlexGap
+                flexWrap="wrap"
+                sx={{ minWidth: 0 }}
+              >
+                <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.62, opacity: 0.72, fontSize: 10.7 }}>
+                  {label}
+                </Typography>
+                <Typography
+                  component="span"
+                  fontWeight={900}
+                  sx={{ lineHeight: 1, letterSpacing: '-0.01em', color: '#0f172a', fontSize: 14 }}
+                >
+                  {value}
+                </Typography>
+              </Stack>
+            ) : (
+              <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.62, opacity: 0.72, fontSize: 10.7 }}>
+                {label}
+              </Typography>
+            )}
           </Stack>
-          <Typography
-            variant="h5"
-            fontWeight={900}
-            sx={{ lineHeight: 1, letterSpacing: '-0.02em', color: '#0f172a', fontSize: 29 }}
-          >
-            {value}
-          </Typography>
+          {!inlineValue ? (
+            <Typography
+              variant="h5"
+              fontWeight={900}
+              sx={{ lineHeight: 1, letterSpacing: '-0.01em', color: '#0f172a', fontSize: 14.5 }}
+            >
+              {value}
+            </Typography>
+          ) : null}
         </Stack>
         {trend ? (
           <Chip
@@ -186,9 +226,11 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
               color: trend.textColor,
               border: `1px solid ${trend.textColor}22`,
               fontWeight: 700,
+              height: 20,
+              fontSize: 10,
               maxWidth: '100%',
               '& .MuiChip-label': {
-                px: 1
+                px: 0.72
               }
             }}
           />
@@ -196,13 +238,13 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
       </Stack>
 
       {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.7, opacity: 0.72, fontSize: 12, maxWidth: 260 }}>
+        <Typography variant="body2" sx={{ mt: 0.35, opacity: 0.72, fontSize: 10.45, maxWidth: 260, lineHeight: 1.28 }}>
           {subtext}
         </Typography>
       ) : null}
 
       {rows.length ? (
-        <Stack spacing={0.55} sx={{ mt: 0.95 }}>
+        <Stack spacing={0.4} sx={{ mt: 0.62 }}>
           {rows.map((row) => (
             <Stack
               key={row.label}
@@ -212,17 +254,17 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
               alignItems="center"
               sx={{
                 minWidth: 0,
-                px: 0.8,
-                py: 0.4,
-                borderRadius: 1.75,
+                px: 0.62,
+                py: 0.24,
+                borderRadius: 1.5,
                 bgcolor: alphaHex(tone, '0a'),
                 border: `1px solid ${alphaHex(tone, '12')}`
               }}
             >
-              <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 11.75 }}>
+              <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 10.5, lineHeight: 1.2 }}>
                 {row.label}
               </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 11.75, textAlign: 'right' }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 10.5, textAlign: 'right', lineHeight: 1.2 }}>
                 {row.value}
               </Typography>
             </Stack>
@@ -231,8 +273,8 @@ function MetricCard({ label, value, subtext, rows = [], tone = '#0f172a', trend 
       ) : null}
 
       {spark?.data?.length > 1 ? (
-        <Box sx={{ mt: rows.length ? 0.95 : 1.15, pt: 0.55, borderTop: `1px solid ${alphaHex(tone, '12')}` }}>
-          <ResponsiveContainer width="100%" height={38}>
+        <Box sx={{ mt: rows.length ? 0.72 : 0.85, pt: 0.38, borderTop: `1px solid ${alphaHex(tone, '12')}` }}>
+          <ResponsiveContainer width="100%" height={28}>
             <AreaChart data={spark.data} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
               <Area
                 type="monotone"
@@ -254,58 +296,67 @@ function InsightCard({ title, badge, message, tone = '#0f172a', actionLabel, onA
     <Paper
       elevation={0}
       sx={{
-        p: 1.3,
+        p: 0.95,
         border: '1px solid #e5e7eb',
         borderLeft: `4px solid ${tone}`,
-        borderRadius: 3.25,
-        minHeight: 126,
+        borderRadius: 3,
+        minHeight: 100,
         minWidth: 0,
         background: `linear-gradient(135deg, ${alphaHex(tone, '10')} 0%, #ffffff 30%, #ffffff 100%)`,
         boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)'
       }}
     >
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.05 }}>
-        <Typography variant="subtitle2" fontWeight={800}>
-          {title}
-        </Typography>
-        {badge ? (
-          <Chip
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.8} sx={{ mb: 0.65 }}>
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="subtitle2" fontWeight={800}>
+            {title}
+          </Typography>
+          {badge ? (
+            <Chip
+              size="small"
+              label={badge}
+              sx={{
+                bgcolor: alphaHex(tone, '12'),
+                color: tone,
+                border: `1px solid ${alphaHex(tone, '24')}`,
+                fontWeight: 700,
+                height: 20,
+                '& .MuiChip-label': {
+                  px: 0.7,
+                  fontSize: 10.5
+                }
+              }}
+            />
+          ) : null}
+        </Stack>
+        {actionLabel && onAction ? (
+          <Button
             size="small"
-            label={badge}
+            variant="outlined"
+            onClick={onAction}
             sx={{
-              bgcolor: alphaHex(tone, '12'),
+              textTransform: 'none',
+              fontWeight: 700,
+              borderColor: alphaHex(tone, '48'),
               color: tone,
-              border: `1px solid ${alphaHex(tone, '24')}`,
-              fontWeight: 700
+              minHeight: 24,
+              px: 0.85,
+              fontSize: 10.6,
+              whiteSpace: 'nowrap',
+              '&:hover': {
+                borderColor: tone,
+                bgcolor: alphaHex(tone, '0f')
+              }
             }}
-          />
+          >
+            {actionLabel}
+          </Button>
         ) : null}
       </Stack>
 
-      <Typography variant="body2" sx={{ opacity: 0.82, minHeight: 48, fontSize: 13, lineHeight: 1.45 }}>
+      <Typography variant="body2" sx={{ opacity: 0.82, minHeight: 38, fontSize: 11.75, lineHeight: 1.35 }}>
         {message}
       </Typography>
-
-      {actionLabel && onAction ? (
-        <Button
-          size="small"
-          variant="outlined"
-          onClick={onAction}
-          sx={{
-            mt: 1.3,
-            textTransform: 'none',
-            fontWeight: 700,
-            borderColor: alphaHex(tone, '48'),
-            color: tone,
-            '&:hover': {
-              borderColor: tone,
-              bgcolor: alphaHex(tone, '0f')
-            }
-          }}
-        >
-          {actionLabel}
-        </Button>
-      ) : null}
     </Paper>
   )
 }
@@ -316,7 +367,7 @@ function SectionCard({ title, subtitle, children, minHeight = 280, action = null
       elevation={0}
       sx={{
         border: '1px solid #e5e7eb',
-        borderRadius: 3.25,
+        borderRadius: 3,
         minWidth: 0,
         overflow: 'hidden',
         background: '#ffffff',
@@ -330,8 +381,8 @@ function SectionCard({ title, subtitle, children, minHeight = 280, action = null
         alignItems="flex-start"
         sx={{
           minWidth: 0,
-          px: 1.35,
-          py: 1.15,
+          px: 1.1,
+          py: 0.85,
           borderBottom: '1px solid #eef2f7',
           background: sectionSurface(tone)
         }}
@@ -341,14 +392,14 @@ function SectionCard({ title, subtitle, children, minHeight = 280, action = null
             {title}
           </Typography>
           {subtitle ? (
-            <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 12.5 }}>
+            <Typography variant="body2" sx={{ opacity: 0.72, fontSize: 11.4, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {subtitle}
             </Typography>
           ) : null}
         </Box>
         {action ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
       </Stack>
-      <Box sx={{ px: 1.25, py: 1.15, minHeight, ...bodySx }}>{children}</Box>
+      <Box sx={{ px: 1, py: 0.9, minHeight, ...bodySx }}>{children}</Box>
     </Paper>
   )
 }
@@ -357,7 +408,7 @@ function ChartFallback({ message = 'No data available for this view.' }) {
   return (
     <Box
       sx={{
-        minHeight: 220,
+        minHeight: 184,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -400,6 +451,7 @@ export default function SlaOverviewTab({
   const productMonthTrend = (overview?.productMonthTrend || []).slice(-6)
   const latestMonth = monthTrend[monthTrend.length - 1] || null
   const previousMonth = monthTrend[monthTrend.length - 2] || null
+  const monthCount = Math.max(monthTrend.length, 1)
   const monthlySlaDomain = buildPercentDomain(monthTrend, ['avgUptimePct'], 98)
   const productSlaDomain = buildPercentDomain(productMonthTrend, PRODUCT_ORDER, 98)
   const productRows = PRODUCT_ORDER.map((label) => {
@@ -409,6 +461,12 @@ export default function SlaOverviewTab({
       value: row ? fmtPct(row.avgUptimePct) : 'N/A'
     }
   })
+  const productCountSummary = (key) => PRODUCT_ORDER
+    .map((label) => {
+      const row = (overview?.productPerformance || []).find((entry) => entry.label === label)
+      return fmtCount(row?.[key] || 0)
+    })
+    .join(' / ')
   const activeProductGroups = PRODUCT_ORDER.filter((label) =>
     productMonthTrend.some((row) => hasNumericValue(row?.[label]))
   )
@@ -421,6 +479,13 @@ export default function SlaOverviewTab({
       breachRate,
       impactedRate,
       tone: buildHeatTone(breachRate)
+    }
+  })
+  const productCountRows = (key) => PRODUCT_ORDER.map((label) => {
+    const row = (overview?.productPerformance || []).find((entry) => entry.label === label)
+    return {
+      label,
+      value: fmtCount(row?.[key] || 0)
     }
   })
   const sparkByKey = {
@@ -456,7 +521,7 @@ export default function SlaOverviewTab({
   }
 
   return (
-    <Stack spacing={1.5}>
+    <Stack spacing={1}>
       {trendError || focusError ? (
         <Alert severity="warning">
           {[trendError, focusError].filter(Boolean).join(' ')}
@@ -466,7 +531,7 @@ export default function SlaOverviewTab({
       <Box
         sx={{
           display: 'grid',
-          gap: 1.25,
+          gap: 0.95,
           gridTemplateColumns: {
             xs: '1fr',
             sm: 'repeat(2, minmax(0, 1fr))',
@@ -477,46 +542,64 @@ export default function SlaOverviewTab({
         }}
       >
         <MetricCard
-          label="SLA by Product Group"
+          label="SLA"
           value={fmtPct(cards.avgUptimePct)}
-          subtext={`${fmtCount(cards.totalLinks)} links across the selected range`}
+          subtext={`Total base ${fmtCount(cards.totalLinks)} links in selected range`}
           rows={productRows}
           tone="#2563eb"
           trend={buildTrendChip(latestMonth, previousMonth, 'avgUptimePct', { digits: 2, suffix: ' pts' })}
+          spark={{ data: sparkByKey.avgUptimePct, dataKey: 'value', color: '#2563eb' }}
           icon={<Inventory2OutlinedIcon sx={{ fontSize: 15 }} />}
+          inlineValue
         />
         <MetricCard
           label="Breaching Links"
           value={fmtCount(cards.breachLinks)}
-          subtext={`Below ${SLA_TARGET}% across the selected range`}
+          subtext={`Total below ${SLA_TARGET}% across the selected range`}
+          rows={[
+            { label: 'Avg / month', value: formatAverageCount((monthTrend.reduce((sum, row) => sum + Number(row.breachLinks || 0), 0)) / monthCount) },
+            ...productCountRows('breachLinks')
+          ]}
           trend={buildTrendChip(latestMonth, previousMonth, 'breachLinks', { digits: 0, invert: true })}
           tone="#dc2626"
           spark={{ data: sparkByKey.breachLinks, dataKey: 'value', color: '#dc2626' }}
           icon={<CrisisAlertOutlinedIcon sx={{ fontSize: 15 }} />}
+          inlineValue
         />
         <MetricCard
           label="Impacted Links"
           value={fmtCount(cards.impactedLinks)}
-          subtext="Any month below 100% availability"
+          subtext="Total links with any month below 100% availability"
+          rows={[
+            { label: 'Avg / month', value: formatAverageCount((monthTrend.reduce((sum, row) => sum + Number(row.impactedLinks || 0), 0)) / monthCount) },
+            ...productCountRows('impactedLinks')
+          ]}
           trend={buildTrendChip(latestMonth, previousMonth, 'impactedLinks', { digits: 0, invert: true })}
           tone="#f59e0b"
           spark={{ data: sparkByKey.impactedLinks, dataKey: 'value', color: '#f59e0b' }}
           icon={<WarningAmberRoundedIcon sx={{ fontSize: 16 }} />}
+          inlineValue
         />
         <MetricCard
           label="Tickets"
           value={fmtCount(cards.ticketCount)}
-          subtext="Ticket contacts in selected range"
+          subtext={`Service impacting ${fmtCount(cards.serviceImpactingTickets)}`}
+          rows={[
+            { label: 'Avg / month', value: formatAverageCount(cards.ticketCount / monthCount) },
+            { label: 'FTTB / FTTH / FTTC', value: productCountSummary('ticketCount') }
+          ]}
           trend={buildTrendChip(latestMonth, previousMonth, 'ticketCount', { digits: 0, invert: true })}
           tone="#1d4ed8"
           spark={{ data: sparkByKey.ticketCount, dataKey: 'value', color: '#1d4ed8' }}
           icon={<ConfirmationNumberOutlinedIcon sx={{ fontSize: 15 }} />}
+          inlineValue
         />
         <MetricCard
           label="Outages"
           value={fmtCount(cards.outageCount)}
-          subtext="Unique outage refs in selected range"
+          subtext="Total unique outage refs in selected range"
           rows={[
+            { label: 'Avg / month', value: formatAverageCount(cards.outageCount / monthCount) },
             { label: 'Minor incidents (<20 clients)', value: fmtCount(cards.minorOutageCount) },
             { label: 'Major outages (20+ clients)', value: fmtCount(cards.majorOutageCount) }
           ]}
@@ -524,6 +607,7 @@ export default function SlaOverviewTab({
           tone="#0f172a"
           spark={{ data: sparkByKey.outageCount, dataKey: 'value', color: '#0f172a' }}
           icon={<BoltOutlinedIcon sx={{ fontSize: 15 }} />}
+          inlineValue
         />
         <MetricCard
           label="Monthly Ratios"
@@ -545,16 +629,17 @@ export default function SlaOverviewTab({
           ]}
           tone="#7c3aed"
           icon={<QueryStatsOutlinedIcon sx={{ fontSize: 15 }} />}
+          inlineValue
         />
       </Box>
 
       <SectionCard
         title="Monthly Risk Strip"
         subtitle="Compact month-by-month view of breach intensity and impact density across the selected range."
-        minHeight={108}
+        minHeight={90}
         tone="#f59e0b"
-        action={<Chip size="small" label={`${monthTrend.length || 0} months`} sx={{ fontWeight: 700 }} />}
-        bodySx={{ py: 1, px: 1.1 }}
+        action={<Chip size="small" label={`${monthTrend.length || 0} months`} sx={{ fontWeight: 700, height: 22, '& .MuiChip-label': { px: 0.9, fontSize: 10.8 } }} />}
+        bodySx={{ py: 0.75, px: 0.85 }}
       >
         {monthlyRiskStrip.length ? (
           <Box
@@ -573,8 +658,8 @@ export default function SlaOverviewTab({
                 key={row.yearMonth}
                 elevation={0}
                 sx={{
-                  p: 1,
-                  borderRadius: 2.85,
+                  p: 0.85,
+                  borderRadius: 2.5,
                   border: `1px solid ${row.tone.border}`,
                   bgcolor: row.tone.bg,
                   minWidth: 0
@@ -624,7 +709,7 @@ export default function SlaOverviewTab({
       <Box
         sx={{
           display: 'grid',
-          gap: 1.25,
+          gap: 0.95,
           gridTemplateColumns: {
             xs: '1fr',
             md: 'repeat(2, minmax(0, 1fr))',
@@ -668,10 +753,11 @@ export default function SlaOverviewTab({
       <Box
         sx={{
           display: 'grid',
-          gap: 1.25,
+          gap: 0.95,
           gridTemplateColumns: {
             xs: '1fr',
-            xl: '1.55fr 0.95fr'
+            lg: 'repeat(2, minmax(0, 1fr))',
+            xl: 'repeat(3, minmax(0, 1fr))'
           },
           alignItems: 'start',
           minWidth: 0
@@ -679,28 +765,28 @@ export default function SlaOverviewTab({
       >
         <SectionCard
           title="Monthly Performance Story"
-          subtitle="Average SLA with impacted and breaching link counts by month."
-          minHeight={228}
-          action={<Chip size="small" label={`Target ${SLA_TARGET}%`} sx={{ fontWeight: 700 }} />}
+          subtitle="SLA, impacted links, and breaching links by month."
+          minHeight={184}
+          action={<Chip size="small" label={`Target ${SLA_TARGET}%`} sx={{ fontWeight: 700, height: 22, '& .MuiChip-label': { px: 0.9, fontSize: 10.8 } }} />}
           tone="#0f766e"
-          bodySx={{ px: 1, py: 0.85 }}
+          bodySx={{ px: 0.75, py: 0.55 }}
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly trend..." />
           ) : monthTrend.length ? (
-            <ResponsiveContainer width="100%" height={214}>
+            <ResponsiveContainer width="100%" height={160}>
               <ComposedChart data={monthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="yearMonth" tick={{ fontSize: 11 }} />
-                <YAxis yAxisId="left" domain={monthlySlaDomain} tickFormatter={(value) => `${value}%`} width={52} tick={{ fontSize: 11 }} />
-                <YAxis yAxisId="right" orientation="right" width={54} tick={{ fontSize: 11 }} />
+                <XAxis dataKey="yearMonth" tick={{ fontSize: 10 }} />
+                <YAxis yAxisId="left" domain={monthlySlaDomain} tickFormatter={(value) => `${value}%`} width={46} tick={{ fontSize: 10 }} />
+                <YAxis yAxisId="right" orientation="right" width={48} tick={{ fontSize: 10 }} />
                 <Tooltip
                   formatter={(value, name) => {
                     if (name === 'Average SLA') return [fmtPct(value), name]
                     return [fmtCount(value), name]
                   }}
                 />
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} iconSize={9} />
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} iconSize={8} />
                 <ReferenceLine yAxisId="left" y={SLA_TARGET} stroke="#0f766e" strokeDasharray="5 4" name="SLA Target" />
                 <Bar yAxisId="right" dataKey="impactedLinks" fill="#f59e0b" name="Impacted Links" radius={[5, 5, 0, 0]} />
                 <Bar yAxisId="right" dataKey="breachLinks" fill="#dc2626" name="Breaching Links" radius={[5, 5, 0, 0]} />
@@ -712,99 +798,26 @@ export default function SlaOverviewTab({
           )}
         </SectionCard>
 
-        <Box sx={{ display: 'grid', gap: 1.25, minWidth: 0 }}>
-          <SectionCard
-            title="Worst Performing ISPs"
-            subtitle="Top six weakest performers in range. Click a row to open that ISP in the explorer."
-            minHeight={228}
-            action={<Chip size="small" label={`Top ${worstIspRows.length || 0}`} sx={{ fontWeight: 700 }} />}
-            tone="#dc2626"
-            bodySx={{ px: 1, py: 0.95 }}
-          >
-            {focusLoading && !worstIspRows.length ? (
-              <ChartFallback message="Loading ISP watchlist..." />
-            ) : worstIspRows.length ? (
-              <Stack spacing={0.85}>
-                {worstIspRows.map((row) => {
-                  const width = Math.max(8, Math.min(100, ((Number(row.avgUptimePct || 0) - 95) / 5) * 100))
-                  return (
-                    <Paper
-                      key={`${row.rank}-${row.isp}`}
-                      elevation={0}
-                      onClick={() => onSelectIsp?.(row.isp)}
-                      sx={{
-                        p: 0.95,
-                        border: '1px solid #e5e7eb',
-                        borderRadius: 2.8,
-                        cursor: 'pointer',
-                        transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
-                        '&:hover': {
-                          transform: 'translateY(-1px)',
-                          boxShadow: '0 10px 24px rgba(15, 23, 42, 0.08)',
-                          borderColor: '#fecaca'
-                        }
-                      }}
-                    >
-                      <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0 }}>
-                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                          <Chip size="small" label={`#${row.rank}`} sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#991b1b' }} />
-                          <Typography variant="body2" fontWeight={800} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {row.isp}
-                          </Typography>
-                        </Stack>
-                        <Chip size="small" label={fmtPct(row.avgUptimePct)} sx={{ fontWeight: 800, bgcolor: '#fef2f2', color: '#b91c1c' }} />
-                      </Stack>
-                      <Box sx={{ mt: 0.8, height: 8, borderRadius: 999, bgcolor: '#fee2e2', overflow: 'hidden' }}>
-                        <Box sx={{ width: `${width}%`, height: '100%', bgcolor: '#dc2626' }} />
-                      </Box>
-                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.7 }}>
-                        <Typography variant="caption" sx={{ opacity: 0.76 }}>Links {fmtCount(row.linkCount)}</Typography>
-                        <Typography variant="caption" sx={{ opacity: 0.76 }}>Breaches {fmtCount(row.breachLinks)}</Typography>
-                        <Typography variant="caption" sx={{ opacity: 0.76 }}>Worst {fmtPct(row.worstUptimePct)}</Typography>
-                      </Stack>
-                    </Paper>
-                  )
-                })}
-              </Stack>
-            ) : (
-              <ChartFallback />
-            )}
-          </SectionCard>
-        </Box>
-      </Box>
-
-      <Box
-        sx={{
-          display: 'grid',
-          gap: 1.25,
-          gridTemplateColumns: {
-            xs: '1fr',
-            xl: '1fr 1fr'
-          },
-          alignItems: 'start',
-          minWidth: 0
-        }}
-      >
         <SectionCard
           title="Product Group SLA By Month"
-          subtitle="Monthly average SLA by grouped product family across the selected range."
-          minHeight={228}
-          action={<Chip size="small" label={activeProductGroups.join(' / ') || 'No groups'} sx={{ fontWeight: 700 }} />}
+          subtitle="Grouped product SLA trend across the selected range."
+          minHeight={184}
+          action={<Chip size="small" label={activeProductGroups.join(' / ') || 'No groups'} sx={{ fontWeight: 700, height: 22, '& .MuiChip-label': { px: 0.9, fontSize: 10.8 } }} />}
           tone="#7c3aed"
-          bodySx={{ px: 1, py: 0.85 }}
+          bodySx={{ px: 0.75, py: 0.55 }}
         >
           {focusLoading && !productMonthTrend.length ? (
             <ChartFallback message="Loading grouped product SLA..." />
           ) : productMonthTrend.length && activeProductGroups.length ? (
-            <ResponsiveContainer width="100%" height={214}>
+            <ResponsiveContainer width="100%" height={160}>
               <ComposedChart data={productMonthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="yearMonth" tick={{ fontSize: 11 }} />
-                <YAxis domain={productSlaDomain} tickFormatter={(value) => `${value}%`} width={52} tick={{ fontSize: 11 }} />
+                <XAxis dataKey="yearMonth" tick={{ fontSize: 10 }} />
+                <YAxis domain={productSlaDomain} tickFormatter={(value) => `${value}%`} width={46} tick={{ fontSize: 10 }} />
                 <Tooltip
                   formatter={(value, name) => [hasNumericValue(value) ? fmtPct(value) : 'N/A', `${name} SLA`]}
                 />
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} iconSize={9} />
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} iconSize={8} />
                 <ReferenceLine y={SLA_TARGET} stroke="#dc2626" strokeDasharray="5 4" name="SLA Target" />
                 {activeProductGroups.map((label) => (
                   <Line
@@ -828,22 +841,22 @@ export default function SlaOverviewTab({
 
         <SectionCard
           title="Monthly Contact Ratios"
-          subtitle="Ticket and outage ratios relative to the active link base for the latest six months in range."
-          minHeight={228}
-          action={<Chip size="small" label={latestMonth?.yearMonth || 'No data'} sx={{ fontWeight: 700 }} />}
+          subtitle="Ticket and outage ratios against the active link base."
+          minHeight={184}
+          action={<Chip size="small" label={latestMonth?.yearMonth || 'No data'} sx={{ fontWeight: 700, height: 22, '& .MuiChip-label': { px: 0.9, fontSize: 10.8 } }} />}
           tone="#0f172a"
-          bodySx={{ px: 1, py: 0.85 }}
+          bodySx={{ px: 0.75, py: 0.55 }}
         >
           {trendLoading && !monthTrend.length ? (
             <ChartFallback message="Loading monthly ratios..." />
           ) : monthTrend.length ? (
-            <ResponsiveContainer width="100%" height={214}>
+            <ResponsiveContainer width="100%" height={160}>
               <ComposedChart data={monthTrend} margin={{ left: 0, right: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="yearMonth" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(value) => `${Number(value).toFixed(1)}%`} width={58} tick={{ fontSize: 11 }} />
+                <XAxis dataKey="yearMonth" tick={{ fontSize: 10 }} />
+                <YAxis tickFormatter={(value) => `${Number(value).toFixed(1)}%`} width={54} tick={{ fontSize: 10 }} />
                 <Tooltip formatter={(value) => [`${Number(value || 0).toFixed(2)}%`, 'Ratio']} />
-                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} iconSize={9} />
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} iconSize={8} />
                 <Line type="monotone" dataKey="ticketContactRatioPct" stroke="#1d4ed8" strokeWidth={3} dot={{ r: 3 }} name="Ticket Contact Ratio" />
                 <Line type="monotone" dataKey="outageImpactRatioPct" stroke="#0f172a" strokeWidth={3} dot={{ r: 3 }} name="Outage Impact Ratio" />
                 <Line type="monotone" dataKey="uniqueOutageImpactRatioPct" stroke="#7c3aed" strokeWidth={3} dot={{ r: 3 }} name="Unique Outage Impact Ratio" />
@@ -854,6 +867,64 @@ export default function SlaOverviewTab({
           )}
         </SectionCard>
       </Box>
+
+      <SectionCard
+        title="Worst Performing ISPs"
+        subtitle="Top six weakest performers in range. Click a row to open that ISP in the explorer."
+        minHeight={192}
+        action={<Chip size="small" label={`Top ${worstIspRows.length || 0}`} sx={{ fontWeight: 700, height: 22, '& .MuiChip-label': { px: 0.9, fontSize: 10.8 } }} />}
+        tone="#dc2626"
+        bodySx={{ px: 0.85, py: 0.7 }}
+      >
+        {focusLoading && !worstIspRows.length ? (
+          <ChartFallback message="Loading ISP watchlist..." />
+        ) : worstIspRows.length ? (
+          <Stack spacing={0.75}>
+            {worstIspRows.map((row) => {
+              const width = Math.max(8, Math.min(100, ((Number(row.avgUptimePct || 0) - 95) / 5) * 100))
+              return (
+                <Paper
+                  key={`${row.rank}-${row.isp}`}
+                  elevation={0}
+                  onClick={() => onSelectIsp?.(row.isp)}
+                  sx={{
+                    p: 0.72,
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 2.5,
+                    cursor: 'pointer',
+                    transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
+                    '&:hover': {
+                      transform: 'translateY(-1px)',
+                      boxShadow: '0 10px 24px rgba(15, 23, 42, 0.08)',
+                      borderColor: '#fecaca'
+                    }
+                  }}
+                >
+                  <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start" sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                      <Chip size="small" label={`#${row.rank}`} sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#991b1b' }} />
+                      <Typography variant="body2" fontWeight={800} sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {row.isp}
+                      </Typography>
+                    </Stack>
+                    <Chip size="small" label={fmtPct(row.avgUptimePct)} sx={{ fontWeight: 800, bgcolor: '#fef2f2', color: '#b91c1c' }} />
+                  </Stack>
+                  <Box sx={{ mt: 0.55, height: 7, borderRadius: 999, bgcolor: '#fee2e2', overflow: 'hidden' }}>
+                    <Box sx={{ width: `${width}%`, height: '100%', bgcolor: '#dc2626' }} />
+                  </Box>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.45 }}>
+                    <Typography variant="caption" sx={{ opacity: 0.76, fontSize: 10.5 }}>Links {fmtCount(row.linkCount)}</Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.76, fontSize: 10.5 }}>Breaches {fmtCount(row.breachLinks)}</Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.76, fontSize: 10.5 }}>Worst {fmtPct(row.worstUptimePct)}</Typography>
+                  </Stack>
+                </Paper>
+              )
+            })}
+          </Stack>
+        ) : (
+          <ChartFallback />
+        )}
+      </SectionCard>
     </Stack>
   )
 }

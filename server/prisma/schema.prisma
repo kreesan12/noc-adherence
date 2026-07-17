@@ -339,6 +339,84 @@ model BlankDailyLightIssue {
   @@map("blank_daily_light_issue")
 }
 
+enum StockTemplateRowType {
+  SECTION
+  ITEM
+}
+
+model StockTemplateItem {
+  id                     Int                  @id @default(autoincrement())
+  rowOrder               Int                  @unique @map("row_order")
+  rowType                StockTemplateRowType @map("row_type")
+  sectionName            String?              @map("section_name")
+  itemDescription        String?              @map("item_description")
+  stockCode              String?              @map("stock_code")
+  unitPriceZar           String?              @map("unit_price_zar")
+  unitPriceUsd           String?              @map("unit_price_usd")
+  division               String?
+  requiredCpt            Int                  @default(0) @map("required_cpt")
+  requiredJhb            Int                  @default(0) @map("required_jhb")
+  requiredDbn            Int                  @default(0) @map("required_dbn")
+  requiredPel            Int                  @default(0) @map("required_pel")
+  requiredBfn            Int                  @default(0) @map("required_bfn")
+  requiredGeo            Int                  @default(0) @map("required_geo")
+  requiredPol            Int                  @default(0) @map("required_pol")
+  requiredNel            Int                  @default(0) @map("required_nel")
+  manualMatchItemNo      String?              @map("manual_match_item_no")
+  manualMatchDescription String?              @map("manual_match_description")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+
+  @@index([rowType], map: "idx_stock_template_item_row_type")
+  @@index([division], map: "idx_stock_template_item_division")
+  @@map("stock_template_item")
+}
+
+model StockImportRun {
+  id                 Int                     @id @default(autoincrement())
+  reportDate         DateTime?               @map("report_date")
+  sourceFilename     String?                 @map("source_filename")
+  sourceEmailId      String?                 @map("source_email_id")
+  sourceSubject      String?                 @map("source_subject")
+  statusRowCount     Int                     @default(0) @map("status_row_count")
+  matchedItemCount   Int                     @default(0) @map("matched_item_count")
+  lowConfidenceCount Int                     @default(0) @map("low_confidence_count")
+  unresolvedItemCount Int                    @default(0) @map("unresolved_item_count")
+  unknownSiteCount   Int                     @default(0) @map("unknown_site_count")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  statusRows         StockStatusCurrentRow[]
+
+  @@index([createdAt], map: "idx_stock_import_run_created_at")
+  @@map("stock_import_run")
+}
+
+model StockStatusCurrentRow {
+  id                     Int            @id @default(autoincrement())
+  importRunId            Int            @map("import_run_id")
+  importRun              StockImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  itemNo                 String         @map("item_no")
+  itemDescription        String         @map("item_description")
+  itemShortName          String?        @map("item_short_name")
+  itemClass              String?        @map("item_class")
+  siteId                 String?        @map("site_id")
+  itemGenericDescription String?        @map("item_generic_description")
+  itemTrackingOption     String?        @map("item_tracking_option")
+  qtyOnOrder             Int            @default(0) @map("qty_on_order")
+  qtyAllocated           Int            @default(0) @map("qty_allocated")
+  qtyOnHand              Int            @default(0) @map("qty_on_hand")
+  qtyAvailable           Int            @default(0) @map("qty_available")
+  valuationText          String?        @map("valuation_text")
+  regionHint             String?        @map("region_hint")
+  isWarehouseLike        Boolean        @default(false) @map("is_warehouse_like")
+  createdAt              DateTime       @default(now()) @map("created_at")
+
+  @@index([itemNo], map: "idx_stock_status_current_row_item_no")
+  @@index([siteId], map: "idx_stock_status_current_row_site_id")
+  @@index([regionHint], map: "idx_stock_status_current_row_region_hint")
+  @@index([importRunId], map: "idx_stock_status_current_row_import_run_id")
+  @@map("stock_status_current_row")
+}
+
 model SlaProductTypeMap {
   id             Int      @id @default(autoincrement())
   rawProductType String   @unique @map("raw_product_type")

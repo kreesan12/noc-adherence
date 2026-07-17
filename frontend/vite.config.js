@@ -1,20 +1,32 @@
-// vite.config.js
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// ---------------------------------------------------------------------------
-//  ▸  jsxRuntime: 'automatic'  ➜ compiler injects the React import for you
-//  ▸  include regexp still limits Babel to .jsx / .tsx files
-//  ▸  base remains unchanged for GitHub-Pages style hosting
-// ---------------------------------------------------------------------------
-export default defineConfig({
-  base: '/noc-adherence/',
-  plugins: [
-    react({
-      include: [/\.jsx?$/, /\.tsx?$/],
-      jsxRuntime: 'automatic'
-      // (nothing else is required – @vitejs/plugin-react already wires
-      //  up @babel/preset-react for you using the options above)
-    })
-  ]
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const devApiTarget = env.VITE_DEV_API_TARGET || 'http://localhost:4000'
+  const devPort = Number(env.VITE_PORT || 5173)
+
+  return {
+    base: command === 'serve' ? '/' : '/noc-adherence/',
+    plugins: [
+      react({
+        include: [/\.jsx?$/, /\.tsx?$/],
+        jsxRuntime: 'automatic'
+      })
+    ],
+    server: {
+      host: '0.0.0.0',
+      port: devPort,
+      proxy: {
+        '/api': {
+          target: devApiTarget,
+          changeOrigin: true
+        },
+        '/whatsapp': {
+          target: devApiTarget,
+          changeOrigin: true
+        }
+      }
+    }
+  }
 })
