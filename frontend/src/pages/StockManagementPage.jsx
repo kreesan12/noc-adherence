@@ -74,6 +74,7 @@ const REQUIRED_SPARE_FIELDS = [
 ]
 
 const STOCK_REGIONS = REQUIRED_SPARE_FIELDS.map((field) => field.region)
+const REGION_WATCHLIST_PREVIEW_COUNT = 5
 
 const NOT_WH_STATUS_OPTIONS = [
   { value: 'PENDING_REVIEW', label: 'Pending review' },
@@ -328,6 +329,7 @@ export default function StockManagementPage() {
   const [minimumForm, setMinimumForm] = useState(buildRequiredSpareForm(null))
   const [reviewSelections, setReviewSelections] = useState({})
   const [deleteReviewItem, setDeleteReviewItem] = useState(false)
+  const [regionWatchlistExpanded, setRegionWatchlistExpanded] = useState({})
   const [createForm, setCreateForm] = useState(createTemplateFormState())
   const [creatingTemplateItem, setCreatingTemplateItem] = useState(false)
   const [divisionExpansion, setDivisionExpansion] = useState({})
@@ -463,7 +465,7 @@ export default function StockManagementPage() {
         totalGap: rows.reduce((sum, entry) => sum + entry.gap, 0),
         totalGapCost: Number(rows.reduce((sum, entry) => sum + entry.gapCost, 0).toFixed(2)),
         affectedItems: rows.length,
-        topItems: rows.slice(0, 4)
+        rows
       }
     }).filter((entry) => entry.affectedItems > 0)
   }, [data])
@@ -1018,51 +1020,6 @@ export default function StockManagementPage() {
               </ResponsiveContainer>
             </SectionCard>
 
-            <SectionCard title="Import Control" subtitle="Latest import health and a short run history.">
-              <Stack spacing={0.72}>
-                <Paper variant="outlined" sx={{ p: 0.82 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Latest Stock Report</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.35, fontSize: 11.3 }}>Report date: {fmtDateTime(latestImport?.reportDate)}</Typography>
-                  <Typography variant="body2" sx={{ fontSize: 11.3 }}>Imported: {fmtDateTime(latestImport?.createdAt)}</Typography>
-                  <Typography variant="body2" sx={{ fontSize: 11.3 }}>Source file: {latestImport?.sourceFilename || 'N/A'}</Typography>
-                </Paper>
-                <Paper variant="outlined" sx={{ p: 0.82 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.4 }}>Recent Import History</Typography>
-                  <Stack spacing={0.35}>
-                    {(data?.importHistory || []).slice(0, 5).map((row) => (
-                      <Stack key={row.id} direction="row" justifyContent="space-between" spacing={1}>
-                        <Typography variant="caption" sx={{ fontSize: 10.6 }}>{fmtDateTime(row.reportDate || row.createdAt)}</Typography>
-                        <Typography variant="caption" sx={{ fontSize: 10.6 }}>{fmtCount(row.statusRowCount)} rows</Typography>
-                      </Stack>
-                    ))}
-                  </Stack>
-                </Paper>
-              </Stack>
-            </SectionCard>
-          </Box>
-
-          <Box
-            sx={{
-              display: 'grid',
-              gap: 0.8,
-              gridTemplateColumns: {
-                xs: '1fr',
-                xl: '0.9fr 1.1fr'
-              }
-            }}
-          >
-            <SectionCard title="Division Pressure" subtitle="Divisions carrying the highest low-stock count right now.">
-              <ResponsiveContainer width="100%" height={215}>
-                <BarChart data={divisionChart} layout="vertical" margin={{ left: 24, right: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="division" width={92} tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Bar dataKey="low" fill="#f59e0b" radius={[0, 4, 4, 0]} name="Low Stock Items" />
-                </BarChart>
-              </ResponsiveContainer>
-            </SectionCard>
-
             <SectionCard title="Low Stock Watchlist" subtitle="Highest usable-stock gaps against required spares, with derived cost exposure.">
               <TableContainer sx={{ maxHeight: 215 }}>
                 <Table size="small" stickyHeader>
@@ -1113,80 +1070,118 @@ export default function StockManagementPage() {
                   }
                 }}
               >
-                {regionWatchlist.map((region) => (
-                  <Paper
-                    key={region.region}
-                    variant="outlined"
-                    sx={{
-                      p: 0.78,
-                      borderRadius: 2.2,
-                      borderColor: '#d8e6df',
-                      background: 'linear-gradient(180deg, rgba(248,250,252,0.9) 0%, rgba(255,255,255,1) 100%)'
-                    }}
-                  >
-                    <Stack spacing={0.55}>
-                      <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 900, fontSize: 13 }}>
-                            {region.region}
-                          </Typography>
-                          <Typography variant="caption" sx={{ fontSize: 10.5, opacity: 0.72 }}>
-                            {fmtCount(region.affectedItems)} items below regional minimum
-                          </Typography>
-                        </Box>
-                        <Stack spacing={0.35} alignItems="flex-end">
-                          <Chip size="small" label={`Gap ${fmtCount(region.totalGap)}`} sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#b91c1c', height: 22 }} />
-                          <Chip size="small" label={fmtMoney(region.totalGapCost)} sx={{ fontWeight: 800, bgcolor: '#eff6ff', color: '#1d4ed8', height: 22 }} />
-                        </Stack>
-                      </Stack>
+                {regionWatchlist.map((region) => {
+                  const isExpanded = Boolean(regionWatchlistExpanded[region.region])
+                  const hasMore = region.rows.length > REGION_WATCHLIST_PREVIEW_COUNT
+                  const visibleRows = isExpanded ? region.rows : region.rows.slice(0, REGION_WATCHLIST_PREVIEW_COUNT)
 
-                      <Stack spacing={0.42}>
-                        {region.topItems.map((entry) => (
-                          <Paper
-                            key={`${region.region}-${entry.row.id}`}
-                            variant="outlined"
-                            onClick={() => setSelectedItem(entry.row)}
-                            sx={{
-                              p: 0.6,
-                              borderRadius: 1.8,
-                              cursor: 'pointer',
-                              borderColor: '#e2e8f0',
-                              transition: 'all 0.15s ease',
-                              '&:hover': {
-                                borderColor: '#0f766e',
-                                boxShadow: '0 10px 20px rgba(15, 118, 110, 0.08)',
-                                transform: 'translateY(-1px)'
-                              }
-                            }}
-                          >
-                            <Stack spacing={0.3}>
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontWeight: 800,
-                                  fontSize: 11.1,
-                                  lineHeight: 1.18,
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden'
-                                }}
-                              >
-                                {entry.row.itemDescription}
-                              </Typography>
-                              <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
-                                <Chip size="small" label={`Req ${fmtCount(entry.required)}`} sx={{ height: 20, '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
-                                <Chip size="small" label={`WH ${fmtCount(entry.warehouseAvailable)}`} sx={{ height: 20, bgcolor: '#dcfce7', color: '#166534', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
-                                <Chip size="small" label={`Not WH ${fmtCount(entry.notWh)}`} sx={{ height: 20, bgcolor: '#fff7ed', color: '#c2410c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
-                                <Chip size="small" label={`Gap ${fmtCount(entry.gap)}`} sx={{ height: 20, bgcolor: '#fee2e2', color: '#b91c1c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4, fontWeight: 800 } }} />
+                  return (
+                    <Paper
+                      key={region.region}
+                      variant="outlined"
+                      sx={{
+                        p: 0.78,
+                        borderRadius: 2.2,
+                        borderColor: '#d8e6df',
+                        background: 'linear-gradient(180deg, rgba(248,250,252,0.9) 0%, rgba(255,255,255,1) 100%)'
+                      }}
+                    >
+                      <Stack spacing={0.55}>
+                        <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 900, fontSize: 13 }}>
+                              {region.region}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontSize: 10.5, opacity: 0.72 }}>
+                              {fmtCount(region.affectedItems)} items below regional minimum
+                              {hasMore ? ` • showing ${isExpanded ? 'all' : `top ${REGION_WATCHLIST_PREVIEW_COUNT}`}` : ''}
+                            </Typography>
+                          </Box>
+                          <Stack spacing={0.35} alignItems="flex-end">
+                            <Chip size="small" label={`Gap ${fmtCount(region.totalGap)}`} sx={{ fontWeight: 800, bgcolor: '#fee2e2', color: '#b91c1c', height: 22 }} />
+                            <Chip size="small" label={fmtMoney(region.totalGapCost)} sx={{ fontWeight: 800, bgcolor: '#eff6ff', color: '#1d4ed8', height: 22 }} />
+                          </Stack>
+                        </Stack>
+
+                        <Stack spacing={0.42}>
+                          {visibleRows.map((entry) => (
+                            <Paper
+                              key={`${region.region}-${entry.row.id}`}
+                              variant="outlined"
+                              onClick={() => setSelectedItem(entry.row)}
+                              sx={{
+                                p: 0.6,
+                                borderRadius: 1.8,
+                                cursor: 'pointer',
+                                borderColor: '#e2e8f0',
+                                transition: 'all 0.15s ease',
+                                '&:hover': {
+                                  borderColor: '#0f766e',
+                                  boxShadow: '0 10px 20px rgba(15, 118, 110, 0.08)',
+                                  transform: 'translateY(-1px)'
+                                }
+                              }}
+                            >
+                              <Stack spacing={0.3}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 800,
+                                    fontSize: 11.1,
+                                    lineHeight: 1.18,
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden'
+                                  }}
+                                >
+                                  {entry.row.itemDescription}
+                                </Typography>
+                                <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                                  <Chip size="small" label={`Req ${fmtCount(entry.required)}`} sx={{ height: 20, '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
+                                  <Chip size="small" label={`WH ${fmtCount(entry.warehouseAvailable)}`} sx={{ height: 20, bgcolor: '#dcfce7', color: '#166534', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
+                                  <Chip size="small" label={`Not WH ${fmtCount(entry.notWh)}`} sx={{ height: 20, bgcolor: '#fff7ed', color: '#c2410c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
+                                  <Chip size="small" label={`Gap ${fmtCount(entry.gap)}`} sx={{ height: 20, bgcolor: '#fee2e2', color: '#b91c1c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4, fontWeight: 800 } }} />
+                                </Stack>
                               </Stack>
-                            </Stack>
-                          </Paper>
-                        ))}
+                            </Paper>
+                          ))}
+                        </Stack>
+
+                        {hasMore ? (
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.75}>
+                            <Typography variant="caption" sx={{ fontSize: 10.5, opacity: 0.72 }}>
+                              {isExpanded
+                                ? `Showing all ${fmtCount(region.rows.length)} items`
+                                : `${fmtCount(region.rows.length - REGION_WATCHLIST_PREVIEW_COUNT)} more items hidden`}
+                            </Typography>
+                            <Button
+                              size="small"
+                              variant="text"
+                              onClick={() => {
+                                setRegionWatchlistExpanded((current) => ({
+                                  ...current,
+                                  [region.region]: !isExpanded
+                                }))
+                              }}
+                              sx={{
+                                minWidth: 0,
+                                px: 0.55,
+                                py: 0.15,
+                                fontSize: 10.8,
+                                fontWeight: 800,
+                                textTransform: 'none',
+                                borderRadius: 1.6
+                              }}
+                            >
+                              {isExpanded ? 'Show less' : `Show all ${fmtCount(region.rows.length)}`}
+                            </Button>
+                          </Stack>
+                        ) : null}
                       </Stack>
-                    </Stack>
-                  </Paper>
-                ))}
+                    </Paper>
+                  )
+                })}
               </Box>
             ) : (
               <Alert severity="success" sx={{ borderRadius: 2.2 }}>
@@ -1194,6 +1189,51 @@ export default function StockManagementPage() {
               </Alert>
             )}
           </SectionCard>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 0.8,
+              gridTemplateColumns: {
+                xs: '1fr',
+                xl: '0.9fr 1.1fr'
+              }
+            }}
+          >
+            <SectionCard title="Division Pressure" subtitle="Divisions carrying the highest low-stock count right now.">
+              <ResponsiveContainer width="100%" height={215}>
+                <BarChart data={divisionChart} layout="vertical" margin={{ left: 24, right: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="division" width={92} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="low" fill="#f59e0b" radius={[0, 4, 4, 0]} name="Low Stock Items" />
+                </BarChart>
+              </ResponsiveContainer>
+            </SectionCard>
+
+            <SectionCard title="Import Control" subtitle="Latest import health and a short run history.">
+              <Stack spacing={0.72}>
+                <Paper variant="outlined" sx={{ p: 0.82 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Latest Stock Report</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.35, fontSize: 11.3 }}>Report date: {fmtDateTime(latestImport?.reportDate)}</Typography>
+                  <Typography variant="body2" sx={{ fontSize: 11.3 }}>Imported: {fmtDateTime(latestImport?.createdAt)}</Typography>
+                  <Typography variant="body2" sx={{ fontSize: 11.3 }}>Source file: {latestImport?.sourceFilename || 'N/A'}</Typography>
+                </Paper>
+                <Paper variant="outlined" sx={{ p: 0.82 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.4 }}>Recent Import History</Typography>
+                  <Stack spacing={0.35}>
+                    {(data?.importHistory || []).slice(0, 5).map((row) => (
+                      <Stack key={row.id} direction="row" justifyContent="space-between" spacing={1}>
+                        <Typography variant="caption" sx={{ fontSize: 10.6 }}>{fmtDateTime(row.reportDate || row.createdAt)}</Typography>
+                        <Typography variant="caption" sx={{ fontSize: 10.6 }}>{fmtCount(row.statusRowCount)} rows</Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </Paper>
+              </Stack>
+            </SectionCard>
+          </Box>
         </Stack>
       ) : null}
 
