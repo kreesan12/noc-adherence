@@ -2,6 +2,7 @@ import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
 import {
+  applyStockTemplateReviewChanges,
   buildStockTemplateWorkbookBuffer,
   getCurrentStockDataset,
   importCurrentStockStatusWorkbook,
@@ -127,6 +128,24 @@ r.put('/template-items/:id/required-spares', async (req, res) => {
   const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
   const item = dataset.items.find((row) => row.id === id)
   res.json(item)
+})
+
+r.post('/template-items/:id/review-actions', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: 'Invalid item id' })
+  }
+
+  try {
+    const result = await applyStockTemplateReviewChanges(prisma, id, {
+      deleteOriginal: Boolean(req.body?.deleteOriginal),
+      additions: Array.isArray(req.body?.additions) ? req.body.additions : []
+    })
+    res.json(result)
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500
+    res.status(statusCode).json({ error: error?.message || 'Failed to apply stock review changes' })
+  }
 })
 
 r.post('/refresh', async (_req, res) => {

@@ -26,3 +26,8 @@ export async function updateStockRequiredSpares(id, payload) {
   const { data } = await api.put(`/stock-management/template-items/${id}/required-spares`, payload)
   return data
 }
+
+export async function applyStockReviewActions(id, payload) {
+  const { data } = await api.post(`/stock-management/template-items/${id}/review-actions`, payload)
+  return data
+}

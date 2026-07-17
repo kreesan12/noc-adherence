@@ -4,12 +4,14 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
   MenuItem,
   Paper,
   Stack,
@@ -45,6 +47,7 @@ import {
   YAxis
 } from 'recharts'
 import {
+  applyStockReviewActions,
   exportStockTemplateWorkbook,
   fetchStockDashboard,
   refreshStockDashboard,
@@ -220,9 +223,12 @@ export default function StockManagementPage() {
   const [selectedItem, setSelectedItem] = useState(null)
   const [reviewItem, setReviewItem] = useState(null)
   const [savingOverride, setSavingOverride] = useState(false)
+  const [applyingReviewChanges, setApplyingReviewChanges] = useState(false)
   const [editingMinimums, setEditingMinimums] = useState(false)
   const [savingMinimums, setSavingMinimums] = useState(false)
   const [minimumForm, setMinimumForm] = useState(buildRequiredSpareForm(null))
+  const [reviewSelections, setReviewSelections] = useState({})
+  const [deleteReviewItem, setDeleteReviewItem] = useState(false)
   const [toast, setToast] = useState(null)
 
   const loadData = async ({ showLoading = true } = {}) => {
@@ -254,6 +260,11 @@ export default function StockManagementPage() {
 
     setMinimumForm(buildRequiredSpareForm(selectedItem))
   }, [selectedItem])
+
+  useEffect(() => {
+    setReviewSelections({})
+    setDeleteReviewItem(false)
+  }, [reviewItem])
 
   const divisions = useMemo(() => {
     const list = (data?.divisionSummary || []).map((row) => row.division).filter(Boolean)
@@ -421,6 +432,72 @@ export default function StockManagementPage() {
       })
     } finally {
       setSavingOverride(false)
+    }
+  }
+
+  const selectedReviewCandidates = useMemo(() => {
+    if (!reviewItem) return []
+    return (reviewItem.candidateMatches || []).filter((candidate) => reviewSelections[candidate.itemNo])
+  }, [reviewItem, reviewSelections])
+
+  const toggleReviewCandidate = (candidate) => {
+    if (!candidate?.itemNo) return
+    setReviewSelections((current) => ({
+      ...current,
+      [candidate.itemNo]: !current[candidate.itemNo]
+    }))
+  }
+
+  const saveReviewChanges = async () => {
+    if (!reviewItem) return
+    if (!deleteReviewItem && !selectedReviewCandidates.length) {
+      setToast({
+        severity: 'warning',
+        message: 'Select at least one close match or choose to delete the template item'
+      })
+      return
+    }
+
+    setApplyingReviewChanges(true)
+    try {
+      const result = await applyStockReviewActions(reviewItem.id, {
+        deleteOriginal: deleteReviewItem,
+        additions: selectedReviewCandidates.map((candidate) => ({
+          itemNo: candidate.itemNo,
+          itemDescription: candidate.itemDescription
+        }))
+      })
+
+      setData(result.dataset)
+
+      if (selectedItem?.id === reviewItem.id && deleteReviewItem) {
+        setSelectedItem(null)
+      } else if (selectedItem?.id) {
+        const refreshedSelected = result.dataset?.items?.find((row) => row.id === selectedItem.id)
+        if (refreshedSelected) {
+          setSelectedItem(refreshedSelected)
+        }
+      }
+
+      const messages = []
+      if (deleteReviewItem) messages.push('template item removed')
+      if (selectedReviewCandidates.length) {
+        messages.push(`${selectedReviewCandidates.length} close ${selectedReviewCandidates.length === 1 ? 'match' : 'matches'} added`)
+      }
+
+      setReviewItem(null)
+      setToast({
+        severity: 'success',
+        message: `${reviewItem.itemDescription}: ${messages.join(' and ')}`
+      })
+    } catch (err) {
+      console.error(err)
+      setToast({
+        severity: 'error',
+        message: err?.response?.data?.error || err?.message || 'Failed to apply stock review changes'
+      })
+    } finally {
+      setApplyingReviewChanges(false)
     }
   }
 
@@ -1045,35 +1122,102 @@ export default function StockManagementPage() {
               <Alert severity={reviewItem.matchMethod === 'unmatched' ? 'warning' : 'info'}>
                 Current match: {reviewItem.matchedItemNo || 'No active match'} | Confidence {reviewItem.matchMethod === 'unmatched' ? '0.00' : Number(reviewItem.matchScore || 0).toFixed(2)}
               </Alert>
+              <Alert severity="info">
+                Add one or more close matches as new template rows. If you replace the item with exactly one close match, the current minimum spares move across automatically. If you add multiple rows, new rows start with zero minimum spares so we do not double count.
+              </Alert>
               <Stack spacing={0.8}>
                 {(reviewItem.candidateMatches || []).map((candidate) => (
                   <Paper key={`${reviewItem.id}-${candidate.itemNo}`} variant="outlined" sx={{ p: 1 }}>
                     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
                       <Box sx={{ minWidth: 0 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{candidate.itemNo}</Typography>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                          <Checkbox
+                            size="small"
+                            checked={Boolean(reviewSelections[candidate.itemNo])}
+                            onChange={() => toggleReviewCandidate(candidate)}
+                            sx={{ p: 0.2 }}
+                          />
+                          <Typography variant="body2" sx={{ fontWeight: 800 }}>{candidate.itemNo}</Typography>
+                          {reviewItem.matchedItemNo === candidate.itemNo ? (
+                            <Chip size="small" color="success" label="Current match" sx={{ fontWeight: 700 }} />
+                          ) : null}
+                        </Stack>
                         <Typography variant="body2" sx={{ opacity: 0.78 }}>{candidate.itemDescription}</Typography>
                         <Typography variant="caption" sx={{ opacity: 0.72 }}>Score {Number(candidate.score || 0).toFixed(2)}</Typography>
                       </Box>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        onClick={() => applySuggestion(reviewItem, candidate)}
-                        disabled={savingOverride}
-                        sx={{ textTransform: 'none', fontWeight: 800, alignSelf: 'flex-start' }}
-                      >
-                        Use This Match
-                      </Button>
+                      <Stack direction="row" spacing={0.8} sx={{ alignSelf: 'flex-start' }}>
+                        <Button
+                          size="small"
+                          variant={reviewSelections[candidate.itemNo] ? 'contained' : 'outlined'}
+                          color={reviewSelections[candidate.itemNo] ? 'success' : 'inherit'}
+                          onClick={() => toggleReviewCandidate(candidate)}
+                          disabled={applyingReviewChanges || savingOverride}
+                          sx={{ textTransform: 'none', fontWeight: 800 }}
+                        >
+                          {reviewSelections[candidate.itemNo] ? 'Selected' : 'Add to Template'}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => applySuggestion(reviewItem, candidate)}
+                          disabled={savingOverride || applyingReviewChanges}
+                          sx={{ textTransform: 'none', fontWeight: 800 }}
+                        >
+                          Use This Match
+                        </Button>
+                      </Stack>
                     </Stack>
                   </Paper>
                 ))}
               </Stack>
+              <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 2.5, bgcolor: '#f8fafc' }}>
+                <Stack spacing={0.8}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                      Template actions
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={`${selectedReviewCandidates.length} selected`}
+                      color={selectedReviewCandidates.length ? 'primary' : 'default'}
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Stack>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={deleteReviewItem}
+                        onChange={(event) => setDeleteReviewItem(event.target.checked)}
+                        disabled={applyingReviewChanges || savingOverride}
+                      />
+                    }
+                    label="Delete this template item completely when saving"
+                    sx={{ m: 0 }}
+                  />
+                  <Typography variant="caption" sx={{ opacity: 0.74 }}>
+                    This will rebuild the template order, rerun stock matching, and refresh the live stock totals straight after save.
+                  </Typography>
+                  <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 0.4, flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="warning"
+                      onClick={saveReviewChanges}
+                      disabled={applyingReviewChanges || savingOverride || (!deleteReviewItem && !selectedReviewCandidates.length)}
+                      sx={{ textTransform: 'none', fontWeight: 800 }}
+                    >
+                      {applyingReviewChanges ? 'Saving...' : 'Save Review Changes'}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
               <Divider />
               <Button
                 size="small"
                 variant="outlined"
                 color="warning"
                 onClick={() => clearSuggestion(reviewItem)}
-                disabled={savingOverride}
+                disabled={savingOverride || applyingReviewChanges}
                 sx={{ textTransform: 'none', fontWeight: 800, alignSelf: 'flex-start' }}
               >
                 Clear Manual Override

@@ -859,6 +859,171 @@ export async function getCurrentStockDataset(prisma, { forceFresh = false } = {}
   return dataset
 }
 
+function createStockTemplateError(message, statusCode = 400) {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  return error
+}
+
+function buildRequiredSparePayload(source, carryRequiredSpares) {
+  if (!carryRequiredSpares) {
+    return {
+      requiredCpt: 0,
+      requiredJhb: 0,
+      requiredDbn: 0,
+      requiredPel: 0,
+      requiredBfn: 0,
+      requiredGeo: 0,
+      requiredPol: 0,
+      requiredNel: 0
+    }
+  }
+
+  return {
+    requiredCpt: source.requiredCpt,
+    requiredJhb: source.requiredJhb,
+    requiredDbn: source.requiredDbn,
+    requiredPel: source.requiredPel,
+    requiredBfn: source.requiredBfn,
+    requiredGeo: source.requiredGeo,
+    requiredPol: source.requiredPol,
+    requiredNel: source.requiredNel
+  }
+}
+
+function buildReviewClone(source, candidate, carryRequiredSpares) {
+  return {
+    rowType: source.rowType,
+    sectionName: source.sectionName,
+    itemDescription: candidate.itemDescription,
+    stockCode: candidate.itemNo,
+    unitPriceZar: source.unitPriceZar,
+    unitPriceUsd: source.unitPriceUsd,
+    division: source.division,
+    manualMatchItemNo: candidate.itemNo,
+    manualMatchDescription: candidate.itemDescription,
+    ...buildRequiredSparePayload(source, carryRequiredSpares)
+  }
+}
+
+export async function applyStockTemplateReviewChanges(prisma, templateItemId, { deleteOriginal = false, additions = [] } = {}) {
+  const source = await prisma.stockTemplateItem.findUnique({ where: { id: templateItemId } })
+  if (!source) {
+    throw createStockTemplateError('Template item not found', 404)
+  }
+
+  if (source.rowType !== 'ITEM') {
+    throw createStockTemplateError('Review actions can only be applied to item rows')
+  }
+
+  const normalizedAdditions = uniqueBy(
+    (Array.isArray(additions) ? additions : [])
+      .map((candidate) => ({
+        itemNo: cleanCell(candidate?.itemNo),
+        itemDescription: cleanCell(candidate?.itemDescription)
+      }))
+      .filter((candidate) => candidate.itemNo),
+    (candidate) => candidate.itemNo
+  )
+
+  if (!deleteOriginal && !normalizedAdditions.length) {
+    throw createStockTemplateError('Select at least one close match or choose to delete the template item')
+  }
+
+  let approvedCandidates = []
+  if (normalizedAdditions.length) {
+    const statusRows = await prisma.stockStatusCurrentRow.findMany({
+      orderBy: [{ itemNo: 'asc' }, { siteId: 'asc' }]
+    })
+    const indexes = buildStatusItemGroups(statusRows)
+    const reviewState = buildProjectedItem(source, indexes)
+    const candidateMap = new Map((reviewState.candidateMatches || []).map((candidate) => [candidate.itemNo, candidate]))
+
+    approvedCandidates = normalizedAdditions.map((candidate) => {
+      const matched = candidateMap.get(candidate.itemNo)
+      if (!matched) {
+        throw createStockTemplateError(`Candidate ${candidate.itemNo} is no longer available for this review item`)
+      }
+      return {
+        itemNo: matched.itemNo,
+        itemDescription: matched.itemDescription
+      }
+    })
+  }
+
+  const orderedRows = await prisma.stockTemplateItem.findMany({
+    orderBy: [{ rowOrder: 'asc' }, { id: 'asc' }]
+  })
+  if (!orderedRows.some((row) => row.id === templateItemId)) {
+    throw createStockTemplateError('Template item not found', 404)
+  }
+
+  const finalRows = []
+  for (const row of orderedRows) {
+    if (row.id !== templateItemId) {
+      finalRows.push({ kind: 'existing', id: row.id })
+      continue
+    }
+
+    if (!deleteOriginal) {
+      finalRows.push({ kind: 'existing', id: row.id })
+    }
+
+    approvedCandidates.forEach((candidate, index) => {
+      const carryRequiredSpares = deleteOriginal && approvedCandidates.length === 1 && index === 0
+      finalRows.push({
+        kind: 'new',
+        data: buildReviewClone(source, candidate, carryRequiredSpares)
+      })
+    })
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (let index = 0; index < orderedRows.length; index += 1) {
+      await tx.stockTemplateItem.update({
+        where: { id: orderedRows[index].id },
+        data: { rowOrder: -1_000_000 - index }
+      })
+    }
+
+    if (deleteOriginal) {
+      await tx.stockTemplateItem.delete({ where: { id: templateItemId } })
+    }
+
+    for (let index = 0; index < finalRows.length; index += 1) {
+      const nextRowOrder = TEMPLATE_DATA_ROW_START_INDEX + 1 + index
+      const entry = finalRows[index]
+      if (entry.kind === 'new') {
+        await tx.stockTemplateItem.create({
+          data: {
+            ...entry.data,
+            rowOrder: nextRowOrder
+          }
+        })
+      } else {
+        await tx.stockTemplateItem.update({
+          where: { id: entry.id },
+          data: { rowOrder: nextRowOrder }
+        })
+      }
+    }
+  }, {
+    maxWait: 10_000,
+    timeout: 120_000
+  })
+
+  invalidateStockManagementCache()
+  const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
+
+  return {
+    dataset,
+    meta: {
+      deletedOriginal: deleteOriginal,
+      addedCount: approvedCandidates.length
+    }
+  }
+}
+
 async function gmailClientFromEnv() {
   const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN } = process.env
   if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
