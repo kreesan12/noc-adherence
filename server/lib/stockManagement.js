@@ -125,6 +125,11 @@ const projectionCache = {
   createdAt: 0
 }
 
+const runRateCache = {
+  value: null,
+  createdAt: 0
+}
+
 function cleanCell(value) {
   return String(value ?? '').replace(/\r?\n/g, ' ').trim()
 }
@@ -293,6 +298,8 @@ async function runBatches(items, batchSize, worker) {
 export function invalidateStockManagementCache() {
   projectionCache.value = null
   projectionCache.createdAt = 0
+  runRateCache.value = null
+  runRateCache.createdAt = 0
 }
 
 export function getTemplateHeaderRows() {
@@ -770,6 +777,46 @@ function buildProjectedItem(templateItem, indexes) {
   }
 }
 
+function buildRegionWatchlistRows(itemRows) {
+  return REGION_ORDER.map((region) => {
+    const regionKey = region.toLowerCase()
+    const rows = itemRows
+      .map((row) => {
+        const required = Number(row.requiredByRegion?.[region] || 0)
+        const warehouseAvailable = Number(row[`${regionKey}Total`] || 0)
+        const notWh = Number(row.regionFieldTotals?.[region] || 0)
+        const gap = Math.max(required - warehouseAvailable, 0)
+        return {
+          id: row.id,
+          row: {
+            id: row.id,
+            itemDescription: row.itemDescription
+          },
+          itemDescription: row.itemDescription,
+          stockCode: row.stockCode,
+          sectionName: row.sectionName,
+          division: row.division,
+          required,
+          warehouseAvailable,
+          notWh,
+          gap,
+          unitCost: Number(row.unitCost || 0),
+          gapCost: Number((gap * Number(row.unitCost || 0)).toFixed(2))
+        }
+      })
+      .filter((entry) => entry.gap > 0)
+      .sort((left, right) => right.gap - left.gap || right.gapCost - left.gapCost || String(left.itemDescription || '').localeCompare(String(right.itemDescription || '')))
+
+    return {
+      region,
+      totalGap: rows.reduce((sum, entry) => sum + entry.gap, 0),
+      totalGapCost: Number(rows.reduce((sum, entry) => sum + Number(entry.gapCost || 0), 0).toFixed(2)),
+      affectedItems: rows.length,
+      rows
+    }
+  }).filter((entry) => entry.affectedItems > 0)
+}
+
 function buildCurrentDataset(templateItems, statusRows, latestImport, importHistory, notWarehouseActions = []) {
   const indexes = buildStatusItemGroups(statusRows)
   const actionMap = new Map(
@@ -786,6 +833,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
   const lowStockRows = itemRows
     .filter((row) => row.belowMinimum)
     .sort((left, right) => right.shortage - left.shortage || right.gapCost - left.gapCost || left.itemDescription.localeCompare(right.itemDescription))
+  const regionWatchlist = buildRegionWatchlistRows(itemRows)
 
   const notWarehouseItems = itemRows
     .flatMap((row) => (row.siteBreakdown || [])
@@ -874,7 +922,8 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     },
     regionSummary,
     divisionSummary: [...divisionMap.values()].sort((left, right) => right.lowStockCount - left.lowStockCount || left.division.localeCompare(right.division)),
-    lowStockItems: lowStockRows.slice(0, 20),
+    lowStockItems: lowStockRows,
+    regionWatchlist,
     sectionOptions: templateItems.filter((row) => row.rowType === 'SECTION').map((row) => row.itemDescription || row.sectionName).filter(Boolean),
     matchReviewItems: [...lowConfidenceRows, ...unresolvedRows].sort((left, right) => {
       if (left.matchMethod === 'unmatched' && right.matchMethod !== 'unmatched') return -1
@@ -918,6 +967,341 @@ export async function getCurrentStockDataset(prisma, { forceFresh = false } = {}
 
   projectionCache.value = dataset
   projectionCache.createdAt = Date.now()
+  return dataset
+}
+
+async function ensureLatestStockHistoryBackfill(prisma) {
+  const latestRun = await prisma.stockImportRun.findFirst({
+    orderBy: { createdAt: 'desc' }
+  })
+
+  if (!latestRun) return false
+
+  const historyCount = await prisma.stockStatusHistoryRow.count({
+    where: { importRunId: latestRun.id }
+  })
+  if (historyCount > 0) return false
+
+  const currentRows = await prisma.stockStatusCurrentRow.findMany({
+    where: { importRunId: latestRun.id },
+    orderBy: [{ itemNo: 'asc' }, { siteId: 'asc' }]
+  })
+
+  if (!currentRows.length) return false
+
+  for (let index = 0; index < currentRows.length; index += 500) {
+    const batch = currentRows.slice(index, index + 500)
+    await prisma.stockStatusHistoryRow.createMany({
+      data: batch.map((row) => ({
+        importRunId: row.importRunId,
+        itemNo: row.itemNo,
+        itemDescription: row.itemDescription,
+        itemShortName: row.itemShortName,
+        itemClass: row.itemClass,
+        siteId: row.siteId,
+        itemGenericDescription: row.itemGenericDescription,
+        itemTrackingOption: row.itemTrackingOption,
+        qtyOnOrder: row.qtyOnOrder,
+        qtyAllocated: row.qtyAllocated,
+        qtyOnHand: row.qtyOnHand,
+        qtyAvailable: row.qtyAvailable,
+        valuationText: row.valuationText,
+        regionHint: row.regionHint,
+        isWarehouseLike: row.isWarehouseLike
+      }))
+    })
+  }
+
+  return true
+}
+
+function buildRunRateRowMeta(row, region) {
+  return {
+    templateItemId: row.id,
+    itemDescription: row.itemDescription,
+    stockCode: row.stockCode,
+    sectionName: row.sectionName,
+    division: row.division,
+    region
+  }
+}
+
+function monthKeyFromValue(value) {
+  return dayjs(value).format('YYYY-MM')
+}
+
+export async function getStockRunRateDataset(prisma, { forceFresh = false } = {}) {
+  if (!forceFresh && runRateCache.value && (Date.now() - runRateCache.createdAt) < 60_000) {
+    return runRateCache.value
+  }
+
+  const seededCurrentSnapshot = await ensureLatestStockHistoryBackfill(prisma)
+  const cutoffDate = dayjs().subtract(400, 'day').toDate()
+
+  const [templateItems, importRuns] = await Promise.all([
+    prisma.stockTemplateItem.findMany({
+      where: { rowType: 'ITEM' },
+      orderBy: { rowOrder: 'asc' }
+    }),
+    prisma.stockImportRun.findMany({
+      where: {
+        OR: [
+          { reportDate: { gte: cutoffDate } },
+          { createdAt: { gte: cutoffDate } }
+        ]
+      },
+      orderBy: { createdAt: 'asc' }
+    })
+  ])
+
+  if (!importRuns.length || !templateItems.length) {
+    const emptyDataset = {
+      generatedAt: new Date().toISOString(),
+      summary: {
+        monthsTracked: 0,
+        snapshotsTracked: 0,
+        activeItemCount: 0,
+        latestSnapshotDate: null,
+        currentMonthUsage: 0,
+        currentMonthProjectedUsage: 0
+      },
+      monthOptions: [],
+      defaultMonth: dayjs().format('YYYY-MM'),
+      monthSummary: [],
+      rows: [],
+      seededCurrentSnapshot,
+      hasEnoughHistory: false
+    }
+    runRateCache.value = emptyDataset
+    runRateCache.createdAt = Date.now()
+    return emptyDataset
+  }
+
+  const historyRows = await prisma.stockStatusHistoryRow.findMany({
+    where: {
+      importRunId: { in: importRuns.map((row) => row.id) }
+    },
+    orderBy: [{ importRunId: 'asc' }, { itemNo: 'asc' }, { siteId: 'asc' }]
+  })
+
+  const rowsByRun = new Map()
+  historyRows.forEach((row) => {
+    const current = rowsByRun.get(row.importRunId) || []
+    current.push(row)
+    rowsByRun.set(row.importRunId, current)
+  })
+
+  const orderedRuns = importRuns
+    .map((run) => ({
+      ...run,
+      snapshotDate: run.reportDate || run.createdAt
+    }))
+    .filter((run) => rowsByRun.has(run.id))
+    .sort((left, right) => new Date(left.snapshotDate).getTime() - new Date(right.snapshotDate).getTime())
+
+  const seriesMap = new Map()
+
+  for (const run of orderedRuns) {
+    const indexes = buildStatusItemGroups(rowsByRun.get(run.id) || [])
+    for (const templateItem of templateItems) {
+      const projected = buildProjectedItem(templateItem, indexes)
+      for (const region of REGION_ORDER) {
+        const regionKey = region.toLowerCase()
+        const required = Number(projected.requiredByRegion?.[region] || 0)
+        const warehouseAvailable = Number(projected[`${regionKey}Total`] || 0)
+        const fieldAvailable = Number(projected.regionFieldTotals?.[region] || 0)
+        const orderedStock = Number(projected.orderedStock || 0)
+
+        if (!required && !warehouseAvailable && !fieldAvailable && !orderedStock && projected.matchMethod === 'unmatched') {
+          continue
+        }
+
+        const key = `${projected.id}::${region}`
+        const current = seriesMap.get(key) || {
+          ...buildRunRateRowMeta(projected, region),
+          matchedItemNo: projected.matchedItemNo || null,
+          snapshots: []
+        }
+
+        current.matchedItemNo = projected.matchedItemNo || current.matchedItemNo || null
+        current.snapshots.push({
+          runId: run.id,
+          snapshotDate: run.snapshotDate,
+          warehouseAvailable,
+          fieldAvailable,
+          orderedStock,
+          required
+        })
+
+        seriesMap.set(key, current)
+      }
+    }
+  }
+
+  const monthSummaryMap = new Map()
+  const rows = []
+  const latestSnapshotDate = orderedRuns.at(-1)?.snapshotDate || null
+  const latestMonth = latestSnapshotDate ? monthKeyFromValue(latestSnapshotDate) : dayjs().format('YYYY-MM')
+
+  for (const series of seriesMap.values()) {
+    const snapshots = [...series.snapshots].sort((left, right) => new Date(left.snapshotDate).getTime() - new Date(right.snapshotDate).getTime())
+    if (!snapshots.length) continue
+
+    const monthBuckets = new Map()
+    for (const snapshot of snapshots) {
+      const yearMonth = monthKeyFromValue(snapshot.snapshotDate)
+      const current = monthBuckets.get(yearMonth) || {
+        yearMonth,
+        templateItemId: series.templateItemId,
+        itemDescription: series.itemDescription,
+        stockCode: series.stockCode,
+        sectionName: series.sectionName,
+        division: series.division,
+        region: series.region,
+        matchedItemNo: series.matchedItemNo,
+        usageQty: 0,
+        restockQty: 0,
+        snapshots: []
+      }
+      current.snapshots.push(snapshot)
+      monthBuckets.set(yearMonth, current)
+    }
+
+    for (let index = 1; index < snapshots.length; index += 1) {
+      const previous = snapshots[index - 1]
+      const current = snapshots[index]
+      const yearMonth = monthKeyFromValue(current.snapshotDate)
+      const bucket = monthBuckets.get(yearMonth)
+      bucket.usageQty += Math.max(previous.warehouseAvailable - current.warehouseAvailable, 0)
+      bucket.restockQty += Math.max(current.warehouseAvailable - previous.warehouseAvailable, 0)
+    }
+
+    for (const bucket of monthBuckets.values()) {
+      const monthSnapshots = bucket.snapshots.sort((left, right) => new Date(left.snapshotDate).getTime() - new Date(right.snapshotDate).getTime())
+      const firstSnapshot = monthSnapshots[0]
+      const lastSnapshot = monthSnapshots.at(-1)
+      const daysTracked = Math.max(
+        dayjs(lastSnapshot.snapshotDate).startOf('day').diff(dayjs(firstSnapshot.snapshotDate).startOf('day'), 'day') + 1,
+        1
+      )
+      const usageQty = Number(bucket.usageQty.toFixed(2))
+      const restockQty = Number(bucket.restockQty.toFixed(2))
+      const avgDailyUsage = Number((usageQty / daysTracked).toFixed(2))
+      const monthDays = dayjs(`${bucket.yearMonth}-01`).daysInMonth()
+      const projectedUsage = Number(((usageQty / daysTracked) * monthDays).toFixed(2))
+      const netChange = Number((lastSnapshot.warehouseAvailable - firstSnapshot.warehouseAvailable).toFixed(2))
+
+      const row = {
+        yearMonth: bucket.yearMonth,
+        templateItemId: bucket.templateItemId,
+        itemDescription: bucket.itemDescription,
+        stockCode: bucket.stockCode,
+        sectionName: bucket.sectionName,
+        division: bucket.division,
+        region: bucket.region,
+        matchedItemNo: bucket.matchedItemNo,
+        usageQty,
+        restockQty,
+        netChange,
+        avgDailyUsage,
+        projectedUsage: bucket.yearMonth === latestMonth ? projectedUsage : usageQty,
+        snapshotCount: monthSnapshots.length,
+        daysTracked,
+        firstSnapshotDate: firstSnapshot.snapshotDate,
+        lastSnapshotDate: lastSnapshot.snapshotDate,
+        startingWarehouse: firstSnapshot.warehouseAvailable,
+        endingWarehouse: lastSnapshot.warehouseAvailable,
+        latestFieldAvailable: lastSnapshot.fieldAvailable,
+        latestOrderedStock: lastSnapshot.orderedStock,
+        required: lastSnapshot.required
+      }
+
+      rows.push(row)
+
+      const monthState = monthSummaryMap.get(bucket.yearMonth) || {
+        yearMonth: bucket.yearMonth,
+        usageQty: 0,
+        restockQty: 0,
+        netChange: 0,
+        projectedUsage: 0,
+        itemCount: 0,
+        movementItemCount: 0,
+        regionMap: new Map()
+      }
+
+      monthState.usageQty += row.usageQty
+      monthState.restockQty += row.restockQty
+      monthState.netChange += row.netChange
+      monthState.projectedUsage += row.projectedUsage
+      monthState.itemCount += 1
+      if (row.usageQty > 0 || row.restockQty > 0) monthState.movementItemCount += 1
+
+      const regionState = monthState.regionMap.get(row.region) || {
+        region: row.region,
+        usageQty: 0,
+        restockQty: 0,
+        netChange: 0,
+        itemCount: 0,
+        movementItemCount: 0
+      }
+      regionState.usageQty += row.usageQty
+      regionState.restockQty += row.restockQty
+      regionState.netChange += row.netChange
+      regionState.itemCount += 1
+      if (row.usageQty > 0 || row.restockQty > 0) regionState.movementItemCount += 1
+      monthState.regionMap.set(row.region, regionState)
+      monthSummaryMap.set(bucket.yearMonth, monthState)
+    }
+  }
+
+  const monthSummary = [...monthSummaryMap.values()]
+    .map((month) => ({
+      yearMonth: month.yearMonth,
+      usageQty: Number(month.usageQty.toFixed(2)),
+      restockQty: Number(month.restockQty.toFixed(2)),
+      netChange: Number(month.netChange.toFixed(2)),
+      projectedUsage: Number(month.projectedUsage.toFixed(2)),
+      itemCount: month.itemCount,
+      movementItemCount: month.movementItemCount,
+      regionBreakdown: REGION_ORDER.map((region) => {
+        const current = month.regionMap.get(region) || {
+          region,
+          usageQty: 0,
+          restockQty: 0,
+          netChange: 0,
+          itemCount: 0,
+          movementItemCount: 0
+        }
+        return {
+          ...current,
+          usageQty: Number(current.usageQty.toFixed(2)),
+          restockQty: Number(current.restockQty.toFixed(2)),
+          netChange: Number(current.netChange.toFixed(2))
+        }
+      }).filter((entry) => entry.itemCount > 0)
+    }))
+    .sort((left, right) => left.yearMonth.localeCompare(right.yearMonth))
+
+  const dataset = {
+    generatedAt: new Date().toISOString(),
+    summary: {
+      monthsTracked: monthSummary.length,
+      snapshotsTracked: orderedRuns.length,
+      activeItemCount: new Set(rows.map((row) => row.templateItemId)).size,
+      latestSnapshotDate,
+      currentMonthUsage: Number((monthSummary.find((row) => row.yearMonth === latestMonth)?.usageQty || 0).toFixed(2)),
+      currentMonthProjectedUsage: Number((monthSummary.find((row) => row.yearMonth === latestMonth)?.projectedUsage || 0).toFixed(2))
+    },
+    monthOptions: monthSummary.map((row) => row.yearMonth),
+    defaultMonth: latestMonth,
+    monthSummary,
+    rows: rows.sort((left, right) => right.usageQty - left.usageQty || right.restockQty - left.restockQty || left.itemDescription.localeCompare(right.itemDescription)),
+    seededCurrentSnapshot,
+    hasEnoughHistory: orderedRuns.length > 1
+  }
+
+  runRateCache.value = dataset
+  runRateCache.createdAt = Date.now()
   return dataset
 }
 
@@ -1338,6 +1722,26 @@ export async function importCurrentStockStatusWorkbook(prisma, input, meta = {})
           isWarehouseLike: row.isWarehouseLike
         }))
       })
+
+      await tx.stockStatusHistoryRow.createMany({
+        data: batch.map((row) => ({
+          importRunId: createdRun.id,
+          itemNo: row.itemNo,
+          itemDescription: row.itemDescription,
+          itemShortName: row.itemShortName,
+          itemClass: row.itemClass,
+          siteId: row.siteId,
+          itemGenericDescription: row.itemGenericDescription,
+          itemTrackingOption: row.itemTrackingOption,
+          qtyOnOrder: row.qtyOnOrder,
+          qtyAllocated: row.qtyAllocated,
+          qtyOnHand: row.qtyOnHand,
+          qtyAvailable: row.qtyAvailable,
+          valuationText: row.valuationText,
+          regionHint: row.regionHint,
+          isWarehouseLike: row.isWarehouseLike
+        }))
+      })
     }
 
     return createdRun
@@ -1520,6 +1924,185 @@ export async function buildStockTemplateWorkbookBuffer(prisma) {
   trackingSheet.getCell('A1').value = 'track stock volume changes every month'
   trackingSheet.getCell('A2').value = `Latest report date: ${dataset.latestImport?.reportDate ? dayjs(dataset.latestImport.reportDate).format('YYYY-MM-DD HH:mm') : 'N/A'}`
   trackingSheet.getCell('A3').value = `Generated: ${dayjs().format('YYYY-MM-DD HH:mm')}`
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  return Buffer.from(buffer)
+}
+
+function styleSimpleExportSheet(worksheet, headerRowNumber = 4) {
+  const headerRow = worksheet.getRow(headerRowNumber)
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF155E63' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFD8E3DD' } },
+      bottom: { style: 'thin', color: { argb: 'FFD8E3DD' } },
+      left: { style: 'thin', color: { argb: 'FFD8E3DD' } },
+      right: { style: 'thin', color: { argb: 'FFD8E3DD' } }
+    }
+  })
+}
+
+export async function buildLowStockWatchlistWorkbookBuffer(prisma) {
+  const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Low Stock Watchlist')
+
+  worksheet.getCell('A1').value = 'Low Stock Watchlist'
+  worksheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF0F172A' } }
+  worksheet.getCell('A2').value = `Latest report date: ${dataset.latestImport?.reportDate ? dayjs(dataset.latestImport.reportDate).format('YYYY-MM-DD HH:mm') : 'N/A'}`
+  worksheet.getCell('A3').value = `Generated: ${dayjs().format('YYYY-MM-DD HH:mm')}`
+
+  worksheet.getRow(4).values = [
+    'Item Description',
+    'Stock Code',
+    'Section',
+    'Division',
+    'Matched Item',
+    'Required Total',
+    'Warehouse Available',
+    'Not WH',
+    'Ordered Stock',
+    'Gap',
+    'Unit Cost',
+    'Gap Cost'
+  ]
+  styleSimpleExportSheet(worksheet, 4)
+
+  worksheet.columns = [
+    { width: 42 },
+    { width: 18 },
+    { width: 20 },
+    { width: 18 },
+    { width: 18 },
+    { width: 14 },
+    { width: 16 },
+    { width: 12 },
+    { width: 13 },
+    { width: 12 },
+    { width: 14 },
+    { width: 14 }
+  ]
+  worksheet.views = [{ state: 'frozen', ySplit: 4 }]
+  worksheet.autoFilter = { from: 'A4', to: 'L4' }
+
+  dataset.lowStockItems.forEach((row) => {
+    const added = worksheet.addRow([
+      row.itemDescription || '',
+      row.stockCode || '',
+      row.sectionName || '',
+      row.division || '',
+      row.matchedItemNo || '',
+      Number(row.requiredTotal || 0),
+      Number(row.availableTotal || 0),
+      Number(row.notInWarehouses || 0),
+      Number(row.orderedStock || 0),
+      Number(row.shortage || 0),
+      Number(row.unitCost || 0),
+      Number(row.gapCost || 0)
+    ])
+    added.eachCell((cell, columnNumber) => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+      }
+      if (columnNumber >= 6) {
+        cell.alignment = { horizontal: 'right' }
+      }
+      if (columnNumber === 10 && Number(row.shortage || 0) > 0) {
+        cell.font = { bold: true, color: { argb: 'FFB91C1C' } }
+      }
+      if (columnNumber === 12 && Number(row.gapCost || 0) > 0) {
+        cell.font = { bold: true, color: { argb: 'FF1D4ED8' } }
+      }
+    })
+  })
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  return Buffer.from(buffer)
+}
+
+export async function buildRegionalWatchlistWorkbookBuffer(prisma) {
+  const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
+  const workbook = new ExcelJS.Workbook()
+
+  const summarySheet = workbook.addWorksheet('Regional Summary')
+  summarySheet.getCell('A1').value = 'Regional Stock Watchlist'
+  summarySheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF0F172A' } }
+  summarySheet.getCell('A2').value = `Latest report date: ${dataset.latestImport?.reportDate ? dayjs(dataset.latestImport.reportDate).format('YYYY-MM-DD HH:mm') : 'N/A'}`
+  summarySheet.getCell('A3').value = `Generated: ${dayjs().format('YYYY-MM-DD HH:mm')}`
+  summarySheet.getRow(4).values = ['Region', 'Affected Items', 'Total Gap', 'Total Gap Cost']
+  summarySheet.columns = [
+    { width: 14 },
+    { width: 16 },
+    { width: 14 },
+    { width: 16 }
+  ]
+  summarySheet.views = [{ state: 'frozen', ySplit: 4 }]
+  summarySheet.autoFilter = { from: 'A4', to: 'D4' }
+  styleSimpleExportSheet(summarySheet, 4)
+
+  dataset.regionWatchlist.forEach((region) => {
+    summarySheet.addRow([
+      region.region,
+      Number(region.affectedItems || 0),
+      Number(region.totalGap || 0),
+      Number(region.totalGapCost || 0)
+    ])
+  })
+
+  for (const region of dataset.regionWatchlist) {
+    const worksheet = workbook.addWorksheet(`${region.region} Watchlist`)
+    worksheet.getCell('A1').value = `${region.region} Regional Watchlist`
+    worksheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF0F172A' } }
+    worksheet.getCell('A2').value = `Latest report date: ${dataset.latestImport?.reportDate ? dayjs(dataset.latestImport.reportDate).format('YYYY-MM-DD HH:mm') : 'N/A'}`
+    worksheet.getCell('A3').value = `Generated: ${dayjs().format('YYYY-MM-DD HH:mm')}`
+    worksheet.getRow(4).values = [
+      'Item Description',
+      'Stock Code',
+      'Section',
+      'Division',
+      'Required',
+      'Warehouse Available',
+      'Not WH',
+      'Gap',
+      'Unit Cost',
+      'Gap Cost'
+    ]
+    worksheet.columns = [
+      { width: 42 },
+      { width: 18 },
+      { width: 20 },
+      { width: 18 },
+      { width: 12 },
+      { width: 16 },
+      { width: 12 },
+      { width: 12 },
+      { width: 14 },
+      { width: 14 }
+    ]
+    worksheet.views = [{ state: 'frozen', ySplit: 4 }]
+    worksheet.autoFilter = { from: 'A4', to: 'J4' }
+    styleSimpleExportSheet(worksheet, 4)
+
+    region.rows.forEach((row) => {
+      worksheet.addRow([
+        row.itemDescription || '',
+        row.stockCode || '',
+        row.sectionName || '',
+        row.division || '',
+        Number(row.required || 0),
+        Number(row.warehouseAvailable || 0),
+        Number(row.notWh || 0),
+        Number(row.gap || 0),
+        Number(row.unitCost || 0),
+        Number(row.gapCost || 0)
+      ])
+    })
+  }
 
   const buffer = await workbook.xlsx.writeBuffer()
   return Buffer.from(buffer)

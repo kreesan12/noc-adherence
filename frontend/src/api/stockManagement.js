@@ -17,6 +17,25 @@ export async function exportStockTemplateWorkbook() {
   return response.data
 }
 
+export async function exportLowStockWatchlistWorkbook() {
+  const response = await api.get('/stock-management/export/low-stock', {
+    responseType: 'blob'
+  })
+  return response.data
+}
+
+export async function exportRegionalWatchlistWorkbook() {
+  const response = await api.get('/stock-management/export/regional-watchlist', {
+    responseType: 'blob'
+  })
+  return response.data
+}
+
+export async function fetchStockRunRates() {
+  const { data } = await api.get('/stock-management/run-rates')
+  return data
+}
+
 export async function updateStockMatchOverride(id, payload) {
   const { data } = await api.put(`/stock-management/template-items/${id}/match-override`, payload)
   return data

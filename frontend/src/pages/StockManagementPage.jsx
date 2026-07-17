@@ -54,8 +54,11 @@ import {
 import {
   applyStockReviewActions,
   createStockTemplateItem,
+  exportLowStockWatchlistWorkbook,
+  exportRegionalWatchlistWorkbook,
   exportStockTemplateWorkbook,
   fetchStockDashboard,
+  fetchStockRunRates,
   refreshStockDashboard,
   updateStockNotWarehouseAction,
   updateStockMatchOverride,
@@ -141,6 +144,17 @@ function fmtMoney(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(Number(value))
+}
+
+function fmtDecimal(value, digits = 2) {
+  if (value == null || Number.isNaN(Number(value))) return Number(0).toFixed(digits)
+  return Number(value).toFixed(digits)
+}
+
+function fmtMonthLabel(value) {
+  if (!value) return 'N/A'
+  const d = dayjs(`${value}-01`)
+  return d.isValid() ? d.format('MMM YYYY') : String(value)
 }
 
 function fmtDateTime(value) {
@@ -313,8 +327,16 @@ export default function StockManagementPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [exportingLowStock, setExportingLowStock] = useState(false)
+  const [exportingRegional, setExportingRegional] = useState(false)
   const [error, setError] = useState('')
   const [data, setData] = useState(null)
+  const [runRateData, setRunRateData] = useState(null)
+  const [runRateLoading, setRunRateLoading] = useState(false)
+  const [runRateError, setRunRateError] = useState('')
+  const [runRateMonth, setRunRateMonth] = useState('')
+  const [runRateRegionFilter, setRunRateRegionFilter] = useState('')
+  const [runRateSearch, setRunRateSearch] = useState('')
   const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
   const [divisionFilter, setDivisionFilter] = useState('')
@@ -436,40 +458,6 @@ export default function StockManagementPage() {
       .sort((left, right) => left.division.localeCompare(right.division))
   }, [filteredItemRows])
 
-  const regionWatchlist = useMemo(() => {
-    const itemRows = (data?.items || []).filter((row) => row.rowType === 'ITEM')
-
-    return STOCK_REGIONS.map((region) => {
-      const regionKey = `${region.toLowerCase()}Total`
-      const rows = itemRows
-        .map((row) => {
-          const required = Number(row.requiredByRegion?.[region] || 0)
-          const warehouseAvailable = Number(row[regionKey] || 0)
-          const notWh = Number(row.regionFieldTotals?.[region] || 0)
-          const gap = Math.max(required - warehouseAvailable, 0)
-          const unitCost = Number(row.unitCost || 0)
-          return {
-            row,
-            required,
-            warehouseAvailable,
-            notWh,
-            gap,
-            gapCost: Number((gap * unitCost).toFixed(2))
-          }
-        })
-        .filter((entry) => entry.gap > 0)
-        .sort((left, right) => right.gap - left.gap || right.gapCost - left.gapCost || String(left.row.itemDescription || '').localeCompare(String(right.row.itemDescription || '')))
-
-      return {
-        region,
-        totalGap: rows.reduce((sum, entry) => sum + entry.gap, 0),
-        totalGapCost: Number(rows.reduce((sum, entry) => sum + entry.gapCost, 0).toFixed(2)),
-        affectedItems: rows.length,
-        rows
-      }
-    }).filter((entry) => entry.affectedItems > 0)
-  }, [data])
-
   const reviewRows = useMemo(() => {
     return (data?.matchReviewItems || []).filter((row) => {
       if (divisionFilter && row.division !== divisionFilter) return false
@@ -528,11 +516,43 @@ export default function StockManagementPage() {
     })
   }, [divisionGroups])
 
+  useEffect(() => {
+    if (runRateData?.defaultMonth && (!runRateMonth || !runRateData.monthOptions?.includes(runRateMonth))) {
+      setRunRateMonth(runRateData.defaultMonth)
+    }
+  }, [runRateData, runRateMonth])
+
+  const loadRunRates = async () => {
+    setRunRateLoading(true)
+    setRunRateError('')
+    try {
+      const next = await fetchStockRunRates()
+      setRunRateData(next)
+      return next
+    } catch (err) {
+      console.error(err)
+      setRunRateError(err?.response?.data?.error || err?.message || 'Failed to load stock run rates')
+      throw err
+    } finally {
+      setRunRateLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 1 && !runRateData && !runRateLoading) {
+      loadRunRates().catch(console.error)
+    }
+  }, [tab, runRateData, runRateLoading])
+
   const doRefresh = async () => {
     setRefreshing(true)
     try {
       const result = await refreshStockDashboard()
       await loadData({ showLoading: false })
+      setRunRateData(null)
+      if (tab === 1) {
+        await loadRunRates()
+      }
       setToast({
         severity: 'success',
         message: `Stock refresh complete: ${fmtCount(result.statusRowCount)} rows processed`
@@ -561,6 +581,38 @@ export default function StockManagementPage() {
       })
     } finally {
       setExporting(false)
+    }
+  }
+
+  const doExportLowStock = async () => {
+    setExportingLowStock(true)
+    try {
+      const blob = await exportLowStockWatchlistWorkbook()
+      downloadBlob(blob, `stock-low-stock-${dayjs().format('YYYY-MM-DD')}.xlsx`)
+    } catch (err) {
+      console.error(err)
+      setToast({
+        severity: 'error',
+        message: err?.response?.data?.error || err?.message || 'Low stock export failed'
+      })
+    } finally {
+      setExportingLowStock(false)
+    }
+  }
+
+  const doExportRegionalWatchlist = async () => {
+    setExportingRegional(true)
+    try {
+      const blob = await exportRegionalWatchlistWorkbook()
+      downloadBlob(blob, `stock-regional-watchlist-${dayjs().format('YYYY-MM-DD')}.xlsx`)
+    } catch (err) {
+      console.error(err)
+      setToast({
+        severity: 'error',
+        message: err?.response?.data?.error || err?.message || 'Regional watchlist export failed'
+      })
+    } finally {
+      setExportingRegional(false)
     }
   }
 
@@ -642,7 +694,7 @@ export default function StockManagementPage() {
       const result = await createStockTemplateItem(createForm)
       setData(result.dataset)
       setCreateForm(createTemplateFormState())
-      setTab(1)
+      setTab(2)
       setToast({
         severity: 'success',
         message: `${createForm.itemDescription} added to the master template`
@@ -785,6 +837,7 @@ export default function StockManagementPage() {
 
   const summary = data?.summary || {}
   const latestImport = data?.latestImport || null
+  const regionWatchlist = data?.regionWatchlist || []
   const regionChart = (data?.regionSummary || []).map((row) => ({
     region: row.region,
     required: row.requiredTotal,
@@ -798,6 +851,33 @@ export default function StockManagementPage() {
     available: row.availableTotal,
     required: row.requiredTotal
   }))
+  const selectedRunRateMonth = runRateMonth || runRateData?.defaultMonth || ''
+  const runRateSearchTerm = String(runRateSearch || '').trim().toLowerCase()
+  const selectedRunRateMonthSummary = (runRateData?.monthSummary || []).find((row) => row.yearMonth === selectedRunRateMonth) || null
+  const runRateMonthChart = (runRateData?.monthSummary || []).map((row) => ({
+    month: row.yearMonth,
+    usage: Number(row.usageQty || 0),
+    projected: Number(row.projectedUsage || 0),
+    restock: Number(row.restockQty || 0)
+  }))
+  const runRateRegionChart = (selectedRunRateMonthSummary?.regionBreakdown || []).map((row) => ({
+    region: row.region,
+    usage: Number(row.usageQty || 0),
+    restock: Number(row.restockQty || 0)
+  }))
+  const runRateRowsForMonth = (runRateData?.rows || []).filter((row) => {
+    if (selectedRunRateMonth && row.yearMonth !== selectedRunRateMonth) return false
+    if (divisionFilter && row.division !== divisionFilter) return false
+    if (runRateRegionFilter && row.region !== runRateRegionFilter) return false
+    if (!runRateSearchTerm) return true
+    return [
+      row.itemDescription,
+      row.stockCode,
+      row.sectionName,
+      row.division,
+      row.matchedItemNo
+    ].some((value) => String(value || '').toLowerCase().includes(runRateSearchTerm))
+  })
 
   return (
     <Stack
@@ -968,6 +1048,7 @@ export default function StockManagementPage() {
         }}
       >
         <Tab label="Overview" />
+        <Tab label="Run Rates" />
         <Tab label="Master Stock" />
         <Tab label="Match Review" />
         <Tab label="Add Template Item" />
@@ -1020,8 +1101,26 @@ export default function StockManagementPage() {
               </ResponsiveContainer>
             </SectionCard>
 
-            <SectionCard title="Low Stock Watchlist" subtitle="Highest usable-stock gaps against required spares, with derived cost exposure.">
-              <TableContainer sx={{ maxHeight: 215 }}>
+            <SectionCard
+              title="Low Stock Watchlist"
+              subtitle="Highest usable-stock gaps against required spares, with derived cost exposure."
+              action={(
+                <Stack direction="row" spacing={0.5} alignItems="center">
+                  <Chip size="small" label={`${fmtCount(data?.lowStockItems?.length || 0)} items`} sx={{ fontWeight: 700 }} />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<FileDownloadOutlinedIcon />}
+                    onClick={doExportLowStock}
+                    disabled={exportingLowStock}
+                    sx={{ minHeight: 28, px: 0.75, textTransform: 'none', fontWeight: 800, borderRadius: 1.8 }}
+                  >
+                    {exportingLowStock ? 'Exporting...' : 'Export'}
+                  </Button>
+                </Stack>
+              )}
+            >
+              <TableContainer sx={{ maxHeight: 215, overflowY: 'auto' }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
@@ -1034,7 +1133,7 @@ export default function StockManagementPage() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(data?.lowStockItems || []).slice(0, 10).map((row) => (
+                    {(data?.lowStockItems || []).map((row) => (
                       <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
                         <TableCell>
                           <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
@@ -1056,7 +1155,21 @@ export default function StockManagementPage() {
           <SectionCard
             title="Regional Watchlist"
             subtitle="Top warehouse-usable shortages by region. Not WH stock stays visible for context but remains excluded from the gap logic."
-            action={<Chip size="small" label={`${fmtCount(regionWatchlist.length)} active regions`} sx={{ fontWeight: 700 }} />}
+            action={(
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Chip size="small" label={`${fmtCount(regionWatchlist.length)} active regions`} sx={{ fontWeight: 700 }} />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FileDownloadOutlinedIcon />}
+                  onClick={doExportRegionalWatchlist}
+                  disabled={exportingRegional}
+                  sx={{ minHeight: 28, px: 0.75, textTransform: 'none', fontWeight: 800, borderRadius: 1.8 }}
+                >
+                  {exportingRegional ? 'Exporting...' : 'Export'}
+                </Button>
+              </Stack>
+            )}
           >
             {regionWatchlist.length ? (
               <Box
@@ -1108,7 +1221,10 @@ export default function StockManagementPage() {
                             <Paper
                               key={`${region.region}-${entry.row.id}`}
                               variant="outlined"
-                              onClick={() => setSelectedItem(entry.row)}
+                              onClick={() => {
+                                const fullItem = (data?.items || []).find((row) => row.id === entry.row.id)
+                                setSelectedItem(fullItem || entry.row)
+                              }}
                               sx={{
                                 p: 0.6,
                                 borderRadius: 1.8,
@@ -1238,6 +1354,223 @@ export default function StockManagementPage() {
       ) : null}
 
       {tab === 1 ? (
+        runRateLoading && !runRateData ? (
+          <Paper elevation={0} sx={{ p: 3, border: '1px solid #e2e8f0', borderRadius: 2.6 }}>
+            <Stack direction="row" spacing={1.2} alignItems="center">
+              <CircularProgress size={22} />
+              <Typography>Loading stock run rates...</Typography>
+            </Stack>
+          </Paper>
+        ) : runRateError && !runRateData ? (
+          <Alert severity="error" sx={{ borderRadius: 2.4 }}>{runRateError}</Alert>
+        ) : (
+          <Stack spacing={0.82}>
+            <Alert severity={runRateData?.hasEnoughHistory ? 'info' : 'warning'} sx={{ borderRadius: 2.4 }}>
+              Hack run rates count day-to-day drops in warehouse-usable stock from the daily stock status imports.
+              {runRateData?.hasEnoughHistory
+                ? ' Restocks are shown separately so we can see movement without pretending this is a perfect consumption model.'
+                : ' We only have a starting baseline right now, so usage will become meaningful after more daily imports land.'}
+            </Alert>
+
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 0.72,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))'
+                }
+              }}
+            >
+              <Card title="Months Tracked" value={fmtCount(runRateData?.summary?.monthsTracked || 0)} subtext="Distinct months with stock snapshot history" tone="#0f766e" icon={<Inventory2OutlinedIcon sx={{ fontSize: 16 }} />} />
+              <Card title="Snapshots" value={fmtCount(runRateData?.summary?.snapshotsTracked || 0)} subtext="Daily stock report imports captured for movement tracking" tone="#1d4ed8" icon={<ChecklistOutlinedIcon sx={{ fontSize: 16 }} />} />
+              <Card title="Current Month Use" value={fmtDecimal(runRateData?.summary?.currentMonthUsage || 0)} subtext="Warehouse-usable stock drops counted this month" tone="#dc2626" icon={<WarningAmberRoundedIcon sx={{ fontSize: 16 }} />} />
+              <Card title="Projected Use" value={fmtDecimal(runRateData?.summary?.currentMonthProjectedUsage || 0)} subtext="Simple month projection from the captured daily movement so far" tone="#7c3aed" icon={<RouteOutlinedIcon sx={{ fontSize: 16 }} />} />
+            </Box>
+
+            <SectionCard
+              title="Run Rate Filters"
+              subtitle="Use month, region, and item search to inspect the movement pattern from the imported daily stock sheets."
+              action={(
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => loadRunRates().catch(console.error)}
+                  disabled={runRateLoading}
+                  sx={{ minHeight: 28, px: 0.75, textTransform: 'none', fontWeight: 800, borderRadius: 1.8 }}
+                >
+                  {runRateLoading ? 'Refreshing...' : 'Reload'}
+                </Button>
+              )}
+            >
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 0.65,
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    md: 'repeat(3, minmax(0, 1fr))'
+                  }
+                }}
+              >
+                <TextField
+                  size="small"
+                  select
+                  label="Month"
+                  value={selectedRunRateMonth}
+                  onChange={(event) => setRunRateMonth(event.target.value)}
+                >
+                  {(runRateData?.monthOptions || []).map((value) => (
+                    <MenuItem key={value} value={value}>{fmtMonthLabel(value)}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  select
+                  label="Region"
+                  value={runRateRegionFilter}
+                  onChange={(event) => setRunRateRegionFilter(event.target.value)}
+                >
+                  <MenuItem value="">All Regions</MenuItem>
+                  {STOCK_REGIONS.map((region) => (
+                    <MenuItem key={region} value={region}>{region}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  label="Search Item"
+                  value={runRateSearch}
+                  onChange={(event) => setRunRateSearch(event.target.value)}
+                  placeholder="Description, stock code, division..."
+                  InputProps={{
+                    startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
+                  }}
+                />
+              </Box>
+            </SectionCard>
+
+            {(runRateData?.monthOptions || []).length ? (
+              <>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 0.8,
+                    gridTemplateColumns: {
+                      xs: '1fr',
+                      xl: '1.05fr 0.95fr'
+                    }
+                  }}
+                >
+                  <SectionCard title="Monthly Usage Trend" subtitle="Warehouse-usable decreases are treated as stock usage, while increases show as replenishment or rebalancing.">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={runRateMonthChart} margin={{ left: 0, right: 12, top: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <Tooltip />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="usage" fill="#dc2626" radius={[4, 4, 0, 0]} name="Usage" />
+                        <Bar dataKey="restock" fill="#0f766e" radius={[4, 4, 0, 0]} name="Restock" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </SectionCard>
+
+                  <SectionCard title={`Regional Usage For ${fmtMonthLabel(selectedRunRateMonth)}`} subtitle="Movement split by region for the selected month.">
+                    {(runRateRegionChart || []).length ? (
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={runRateRegionChart} layout="vertical" margin={{ left: 12, right: 12, top: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis type="number" tick={{ fontSize: 11 }} />
+                          <YAxis type="category" dataKey="region" width={54} tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Bar dataKey="usage" fill="#dc2626" radius={[0, 4, 4, 0]} name="Usage" />
+                          <Bar dataKey="restock" fill="#0f766e" radius={[0, 4, 4, 0]} name="Restock" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <Alert severity="info" sx={{ borderRadius: 2.2 }}>
+                        No regional movement is available for the selected month yet.
+                      </Alert>
+                    )}
+                  </SectionCard>
+                </Box>
+
+                <SectionCard
+                  title="Run Rate Detail"
+                  subtitle="Month-level item and region movement from the daily stock snapshots. Usage reflects warehouse stock drops only."
+                  action={<Chip size="small" label={`${fmtCount(runRateRowsForMonth.length)} rows`} sx={{ fontWeight: 700 }} />}
+                >
+                  {selectedRunRateMonthSummary ? (
+                    <Stack spacing={0.7}>
+                      <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap">
+                        <Chip size="small" label={`${fmtMonthLabel(selectedRunRateMonthSummary.yearMonth)}`} sx={{ fontWeight: 700 }} />
+                        <Chip size="small" label={`Usage ${fmtDecimal(selectedRunRateMonthSummary.usageQty)}`} sx={{ fontWeight: 700, bgcolor: '#fee2e2', color: '#b91c1c' }} />
+                        <Chip size="small" label={`Restock ${fmtDecimal(selectedRunRateMonthSummary.restockQty)}`} sx={{ fontWeight: 700, bgcolor: '#dcfce7', color: '#166534' }} />
+                        <Chip size="small" label={`Projected ${fmtDecimal(selectedRunRateMonthSummary.projectedUsage)}`} sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                      </Stack>
+                      <TableContainer sx={{ maxHeight: '54vh' }}>
+                        <Table size="small" stickyHeader>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Item</TableCell>
+                              <TableCell>Region</TableCell>
+                              <TableCell>Division</TableCell>
+                              <TableCell align="right">Start WH</TableCell>
+                              <TableCell align="right">End WH</TableCell>
+                              <TableCell align="right">Usage</TableCell>
+                              <TableCell align="right">Restock</TableCell>
+                              <TableCell align="right">Net</TableCell>
+                              <TableCell align="right">Avg / Day</TableCell>
+                              <TableCell align="right">Required</TableCell>
+                              <TableCell align="right">Ord.</TableCell>
+                              <TableCell align="right">Snapshots</TableCell>
+                              <TableCell>Last Snapshot</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {runRateRowsForMonth.map((row) => (
+                              <TableRow key={`${row.templateItemId}-${row.region}-${row.yearMonth}`} hover>
+                                <TableCell sx={{ minWidth: 240 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
+                                  <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || row.matchedItemNo || 'No stock code'}</Typography>
+                                </TableCell>
+                                <TableCell>{row.region}</TableCell>
+                                <TableCell>{row.division || 'Unassigned'}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.startingWarehouse, 0)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.endingWarehouse, 0)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.usageQty)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.restockQty)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.netChange)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.avgDailyUsage)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.required, 0)}</TableCell>
+                                <TableCell align="right">{fmtDecimal(row.latestOrderedStock, 0)}</TableCell>
+                                <TableCell align="right">{fmtCount(row.snapshotCount)}</TableCell>
+                                <TableCell>{fmtDateTime(row.lastSnapshotDate)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Stack>
+                  ) : (
+                    <Alert severity="info" sx={{ borderRadius: 2.2 }}>
+                      No run rate summary is available for the selected month yet.
+                    </Alert>
+                  )}
+                </SectionCard>
+              </>
+            ) : (
+              <Alert severity="info" sx={{ borderRadius: 2.4 }}>
+                No stock snapshot history is available yet. The daily stock imports will start building the run rate view from this point forward.
+              </Alert>
+            )}
+          </Stack>
+        )
+      ) : null}
+
+      {tab === 2 ? (
         <SectionCard
           title="Master Stock Table"
           subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
@@ -1435,7 +1768,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 2 ? (
+      {tab === 3 ? (
         <SectionCard
           title="Match Review"
           subtitle="Review low-confidence and unmatched items, then lock in an override so the daily refresh stays stable."
@@ -1505,7 +1838,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 3 ? (
+      {tab === 4 ? (
         <SectionCard
           title="Add Template Item"
           subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
@@ -1626,7 +1959,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 4 ? (
+      {tab === 5 ? (
         <SectionCard
           title="Not WH Workflow"
           subtitle="Track field-held stock separately from usable warehouse stock. Save the next action per site line so testing and supplier-return workflows stay visible between daily refreshes."

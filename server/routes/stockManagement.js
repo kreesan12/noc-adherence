@@ -3,9 +3,12 @@ import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
 import {
   applyStockTemplateReviewChanges,
+  buildLowStockWatchlistWorkbookBuffer,
+  buildRegionalWatchlistWorkbookBuffer,
   buildStockTemplateWorkbookBuffer,
   createStockTemplateItem,
   getCurrentStockDataset,
+  getStockRunRateDataset,
   importCurrentStockStatusWorkbook,
   importStockStatusFromGmail,
   importStockTemplateWorkbook,
@@ -45,6 +48,11 @@ function parseWholeNumber(value) {
 
 r.get('/current', async (_req, res) => {
   const dataset = await getCurrentStockDataset(prisma)
+  res.json(dataset)
+})
+
+r.get('/run-rates', async (_req, res) => {
+  const dataset = await getStockRunRateDataset(prisma)
   res.json(dataset)
 })
 
@@ -256,6 +264,22 @@ r.get('/export/template', async (_req, res) => {
   const stamp = new Date().toISOString().slice(0, 10)
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename=\"stock-master-${stamp}.xlsx\"`)
+  res.send(buffer)
+})
+
+r.get('/export/low-stock', async (_req, res) => {
+  const buffer = await buildLowStockWatchlistWorkbookBuffer(prisma)
+  const stamp = new Date().toISOString().slice(0, 10)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename=\"stock-low-stock-watchlist-${stamp}.xlsx\"`)
+  res.send(buffer)
+})
+
+r.get('/export/regional-watchlist', async (_req, res) => {
+  const buffer = await buildRegionalWatchlistWorkbookBuffer(prisma)
+  const stamp = new Date().toISOString().slice(0, 10)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  res.setHeader('Content-Disposition', `attachment; filename=\"stock-regional-watchlist-${stamp}.xlsx\"`)
   res.send(buffer)
 })
 

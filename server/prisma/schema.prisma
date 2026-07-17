@@ -403,6 +403,7 @@ model StockImportRun {
   unknownSiteCount   Int                     @default(0) @map("unknown_site_count")
   createdAt          DateTime                @default(now()) @map("created_at")
   statusRows         StockStatusCurrentRow[]
+  historyRows        StockStatusHistoryRow[]
 
   @@index([createdAt], map: "idx_stock_import_run_created_at")
   @@map("stock_import_run")
@@ -433,6 +434,33 @@ model StockStatusCurrentRow {
   @@index([regionHint], map: "idx_stock_status_current_row_region_hint")
   @@index([importRunId], map: "idx_stock_status_current_row_import_run_id")
   @@map("stock_status_current_row")
+}
+
+model StockStatusHistoryRow {
+  id                     Int            @id @default(autoincrement())
+  importRunId            Int            @map("import_run_id")
+  importRun              StockImportRun @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  itemNo                 String         @map("item_no")
+  itemDescription        String         @map("item_description")
+  itemShortName          String?        @map("item_short_name")
+  itemClass              String?        @map("item_class")
+  siteId                 String?        @map("site_id")
+  itemGenericDescription String?        @map("item_generic_description")
+  itemTrackingOption     String?        @map("item_tracking_option")
+  qtyOnOrder             Int            @default(0) @map("qty_on_order")
+  qtyAllocated           Int            @default(0) @map("qty_allocated")
+  qtyOnHand              Int            @default(0) @map("qty_on_hand")
+  qtyAvailable           Int            @default(0) @map("qty_available")
+  valuationText          String?        @map("valuation_text")
+  regionHint             String?        @map("region_hint")
+  isWarehouseLike        Boolean        @default(false) @map("is_warehouse_like")
+  createdAt              DateTime       @default(now()) @map("created_at")
+
+  @@index([itemNo], map: "idx_stock_status_history_row_item_no")
+  @@index([siteId], map: "idx_stock_status_history_row_site_id")
+  @@index([regionHint], map: "idx_stock_status_history_row_region_hint")
+  @@index([importRunId], map: "idx_stock_status_history_row_import_run_id")
+  @@map("stock_status_history_row")
 }
 
 model SlaProductTypeMap {
