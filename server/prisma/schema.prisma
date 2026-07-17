@@ -366,10 +366,28 @@ model StockTemplateItem {
   manualMatchDescription String?              @map("manual_match_description")
   createdAt              DateTime             @default(now()) @map("created_at")
   updatedAt              DateTime             @updatedAt @map("updated_at")
+  notWarehouseActions    StockNotWarehouseAction[]
 
   @@index([rowType], map: "idx_stock_template_item_row_type")
   @@index([division], map: "idx_stock_template_item_division")
   @@map("stock_template_item")
+}
+
+model StockNotWarehouseAction {
+  id             Int               @id @default(autoincrement())
+  templateItemId Int               @map("template_item_id")
+  templateItem   StockTemplateItem @relation(fields: [templateItemId], references: [id], onDelete: Cascade)
+  siteId         String            @map("site_id")
+  status         String            @default("PENDING_REVIEW")
+  notes          String?           @db.Text
+  updatedBy      String?           @map("updated_by")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  @@unique([templateItemId, siteId], map: "uq_stock_not_warehouse_action_template_site")
+  @@index([status], map: "idx_stock_not_warehouse_action_status")
+  @@index([siteId], map: "idx_stock_not_warehouse_action_site")
+  @@map("stock_not_warehouse_action")
 }
 
 model StockImportRun {

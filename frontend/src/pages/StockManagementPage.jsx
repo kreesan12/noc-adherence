@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
@@ -26,6 +29,8 @@ import {
   TextField,
   Typography
 } from '@mui/material'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
+import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
@@ -48,9 +53,11 @@ import {
 } from 'recharts'
 import {
   applyStockReviewActions,
+  createStockTemplateItem,
   exportStockTemplateWorkbook,
   fetchStockDashboard,
   refreshStockDashboard,
+  updateStockNotWarehouseAction,
   updateStockMatchOverride,
   updateStockRequiredSpares
 } from '../api/stockManagement'
@@ -66,6 +73,15 @@ const REQUIRED_SPARE_FIELDS = [
   { key: 'requiredNel', region: 'NEL' }
 ]
 
+const NOT_WH_STATUS_OPTIONS = [
+  { value: 'PENDING_REVIEW', label: 'Pending review' },
+  { value: 'TESTING_IN_PROGRESS', label: 'Testing in progress' },
+  { value: 'USABLE_PUT_BACK', label: 'Usable - put back in stock' },
+  { value: 'RETURN_TO_SUPPLIER', label: 'Return to supplier' },
+  { value: 'HOLD', label: 'Hold' },
+  { value: 'SCRAP', label: 'Scrap' }
+]
+
 function fmtCount(value) {
   if (value == null || Number.isNaN(Number(value))) return '0'
   return new Intl.NumberFormat().format(Number(value))
@@ -74,6 +90,16 @@ function fmtCount(value) {
 function fmtPct(value) {
   if (value == null || Number.isNaN(Number(value))) return '0.00%'
   return `${Number(value).toFixed(2)}%`
+}
+
+function fmtMoney(value) {
+  if (value == null || Number.isNaN(Number(value))) return 'R0.00'
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: 'ZAR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value))
 }
 
 function fmtDateTime(value) {
@@ -209,6 +235,39 @@ function buildRequiredSpareForm(item) {
   }
 }
 
+function createTemplateFormState() {
+  return {
+    sectionName: '',
+    itemDescription: '',
+    stockCode: '',
+    unitPriceZar: '',
+    unitPriceUsd: '',
+    division: '',
+    requiredCpt: '0',
+    requiredJhb: '0',
+    requiredDbn: '0',
+    requiredPel: '0',
+    requiredBfn: '0',
+    requiredGeo: '0',
+    requiredPol: '0',
+    requiredNel: '0'
+  }
+}
+
+function buildNotWhDrafts(rows = []) {
+  return Object.fromEntries(
+    rows.map((row) => [row.key, { status: row.status || 'PENDING_REVIEW', notes: row.notes || '' }])
+  )
+}
+
+function normalizeCompare(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+}
+
 export default function StockManagementPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -229,6 +288,11 @@ export default function StockManagementPage() {
   const [minimumForm, setMinimumForm] = useState(buildRequiredSpareForm(null))
   const [reviewSelections, setReviewSelections] = useState({})
   const [deleteReviewItem, setDeleteReviewItem] = useState(false)
+  const [createForm, setCreateForm] = useState(createTemplateFormState())
+  const [creatingTemplateItem, setCreatingTemplateItem] = useState(false)
+  const [divisionExpansion, setDivisionExpansion] = useState({})
+  const [notWhDrafts, setNotWhDrafts] = useState({})
+  const [savingNotWhKey, setSavingNotWhKey] = useState('')
   const [toast, setToast] = useState(null)
 
   const loadData = async ({ showLoading = true } = {}) => {
@@ -266,66 +330,127 @@ export default function StockManagementPage() {
     setDeleteReviewItem(false)
   }, [reviewItem])
 
+  useEffect(() => {
+    const notWhRows = data?.notWarehouseItems || []
+    setNotWhDrafts(buildNotWhDrafts(notWhRows))
+  }, [data?.notWarehouseItems])
+
   const divisions = useMemo(() => {
     const list = (data?.divisionSummary || []).map((row) => row.division).filter(Boolean)
     return Array.from(new Set(list))
   }, [data])
 
-  const filteredGroups = useMemo(() => {
-    if (!data?.items?.length) return []
-    const q = String(search || '').trim().toLowerCase()
-    const groups = []
-    let currentGroup = null
+  const searchTerm = useMemo(() => String(search || '').trim().toLowerCase(), [search])
 
-    const matchesFilters = (row) => {
-      if (row.rowType !== 'ITEM') return false
+  const matchesItemFilters = (row) => {
+    if (row.rowType !== 'ITEM') return false
+    if (divisionFilter && row.division !== divisionFilter) return false
+    if (stockFilter === 'low' && !row.belowMinimum) return false
+    if (stockFilter === 'healthy' && row.belowMinimum) return false
+    if (stockFilter === 'zero' && Number(row.availableTotal || 0) !== 0) return false
+    if (matchFilter === 'matched' && row.matchMethod === 'unmatched') return false
+    if (matchFilter === 'review' && !row.isLowConfidence) return false
+    if (matchFilter === 'unmatched' && row.matchMethod !== 'unmatched') return false
+    if (!searchTerm) return true
+    return [
+      row.itemDescription,
+      row.stockCode,
+      row.sectionName,
+      row.division,
+      row.matchedItemNo,
+      row.matchedItemDescription
+    ].some((value) => String(value || '').toLowerCase().includes(searchTerm))
+  }
+
+  const filteredItemRows = useMemo(() => {
+    return (data?.items || []).filter((row) => matchesItemFilters(row))
+  }, [data, divisionFilter, stockFilter, matchFilter, searchTerm])
+
+  const divisionGroups = useMemo(() => {
+    const map = new Map()
+    filteredItemRows.forEach((row) => {
+      const key = row.division || 'Unassigned'
+      const current = map.get(key) || {
+        division: key,
+        rows: [],
+        lowStockCount: 0,
+        gapCostTotal: 0
+      }
+      current.rows.push(row)
+      if (row.belowMinimum) current.lowStockCount += 1
+      current.gapCostTotal += Number(row.gapCost || 0)
+      map.set(key, current)
+    })
+    return [...map.values()]
+      .map((group) => ({
+        ...group,
+        rows: group.rows.sort((left, right) => {
+          if ((left.sectionName || '') !== (right.sectionName || '')) {
+            return String(left.sectionName || '').localeCompare(String(right.sectionName || ''))
+          }
+          return Number(left.rowOrder || 0) - Number(right.rowOrder || 0)
+        })
+      }))
+      .sort((left, right) => left.division.localeCompare(right.division))
+  }, [filteredItemRows])
+
+  const reviewRows = useMemo(() => {
+    return (data?.matchReviewItems || []).filter((row) => {
       if (divisionFilter && row.division !== divisionFilter) return false
-      if (stockFilter === 'low' && !row.belowMinimum) return false
-      if (stockFilter === 'healthy' && row.belowMinimum) return false
-      if (stockFilter === 'zero' && Number(row.availableTotal || 0) !== 0) return false
-      if (matchFilter === 'matched' && row.matchMethod === 'unmatched') return false
-      if (matchFilter === 'review' && !row.isLowConfidence) return false
-      if (matchFilter === 'unmatched' && row.matchMethod !== 'unmatched') return false
-      if (!q) return true
+      if (!searchTerm) return true
       return [
         row.itemDescription,
         row.stockCode,
         row.division,
         row.matchedItemNo,
         row.matchedItemDescription
-      ].some((value) => String(value || '').toLowerCase().includes(q))
-    }
+      ].some((value) => String(value || '').toLowerCase().includes(searchTerm))
+    })
+  }, [data, divisionFilter, searchTerm])
 
-    for (const row of data.items) {
-      if (row.rowType === 'SECTION') {
-        currentGroup = { title: row.itemDescription || row.sectionName || 'Stock Section', rows: [] }
-        groups.push(currentGroup)
-        continue
-      }
-      if (!currentGroup) {
-        currentGroup = { title: 'Stock Items', rows: [] }
-        groups.push(currentGroup)
-      }
-      if (matchesFilters(row)) {
-        currentGroup.rows.push(row)
-      }
-    }
+  const sectionOptions = useMemo(() => Array.from(new Set((data?.sectionOptions || []).filter(Boolean))), [data])
 
-    return groups.filter((group) => group.rows.length > 0)
-  }, [data, search, divisionFilter, stockFilter, matchFilter])
-
-  const reviewRows = useMemo(() => {
-    const q = String(search || '').trim().toLowerCase()
-    return (data?.matchReviewItems || []).filter((row) => {
-      if (!q) return true
+  const notWarehouseRows = useMemo(() => {
+    return (data?.notWarehouseItems || []).filter((row) => {
+      if (divisionFilter && row.division !== divisionFilter) return false
+      if (!searchTerm) return true
       return [
         row.itemDescription,
         row.stockCode,
-        row.matchedItemNo,
-        row.matchedItemDescription
-      ].some((value) => String(value || '').toLowerCase().includes(q))
+        row.division,
+        row.siteId,
+        row.region,
+        row.status,
+        row.notes
+      ].some((value) => String(value || '').toLowerCase().includes(searchTerm))
     })
-  }, [data, search])
+  }, [data, divisionFilter, searchTerm])
+
+  const createDuplicateHints = useMemo(() => {
+    const code = normalizeCompare(createForm.stockCode)
+    const description = normalizeCompare(createForm.itemDescription)
+    if (!code && !description) return []
+    return (data?.items || [])
+      .filter((row) => row.rowType === 'ITEM')
+      .filter((row) => {
+        const sameCode = code && normalizeCompare(row.stockCode) === code
+        const sameDescription = description && normalizeCompare(row.itemDescription) === description
+        return sameCode || sameDescription
+      })
+      .slice(0, 5)
+  }, [data, createForm.stockCode, createForm.itemDescription])
+
+  useEffect(() => {
+    setDivisionExpansion((current) => {
+      const next = { ...current }
+      divisionGroups.forEach((group, index) => {
+        if (typeof next[group.division] !== 'boolean') {
+          next[group.division] = index < 4
+        }
+      })
+      return next
+    })
+  }, [divisionGroups])
 
   const doRefresh = async () => {
     setRefreshing(true)
@@ -435,6 +560,72 @@ export default function StockManagementPage() {
     }
   }
 
+  const saveNewTemplateItem = async () => {
+    setCreatingTemplateItem(true)
+    try {
+      const result = await createStockTemplateItem(createForm)
+      setData(result.dataset)
+      setCreateForm(createTemplateFormState())
+      setTab(1)
+      setToast({
+        severity: 'success',
+        message: `${createForm.itemDescription} added to the master template`
+      })
+    } catch (err) {
+      console.error(err)
+      setToast({
+        severity: 'error',
+        message: err?.response?.data?.error || err?.message || 'Failed to create template item'
+      })
+    } finally {
+      setCreatingTemplateItem(false)
+    }
+  }
+
+  const updateCreateFormField = (key, value) => {
+    setCreateForm((current) => ({
+      ...current,
+      [key]: value
+    }))
+  }
+
+  const updateNotWhDraft = (rowKey, key, value) => {
+    setNotWhDrafts((current) => ({
+      ...current,
+      [rowKey]: {
+        status: current[rowKey]?.status || 'PENDING_REVIEW',
+        notes: current[rowKey]?.notes || '',
+        [key]: value
+      }
+    }))
+  }
+
+  const saveNotWarehouseRow = async (row) => {
+    const draft = notWhDrafts[row.key] || { status: row.status || 'PENDING_REVIEW', notes: row.notes || '' }
+    setSavingNotWhKey(row.key)
+    try {
+      const next = await updateStockNotWarehouseAction({
+        templateItemId: row.templateItemId,
+        siteId: row.siteId,
+        status: draft.status,
+        notes: draft.notes
+      })
+      setData(next)
+      setToast({
+        severity: 'success',
+        message: `${row.itemDescription} at ${row.siteId} updated`
+      })
+    } catch (err) {
+      console.error(err)
+      setToast({
+        severity: 'error',
+        message: err?.response?.data?.error || err?.message || 'Failed to update Not WH action'
+      })
+    } finally {
+      setSavingNotWhKey('')
+    }
+  }
+
   const selectedReviewCandidates = useMemo(() => {
     if (!reviewItem) return []
     return (reviewItem.candidateMatches || []).filter((candidate) => reviewSelections[candidate.itemNo])
@@ -533,12 +724,24 @@ export default function StockManagementPage() {
   }))
 
   return (
-    <Stack spacing={1.2}>
+    <Stack
+      spacing={0.95}
+      sx={{
+        '& .MuiTableCell-root': {
+          py: 0.6,
+          px: 0.85,
+          fontSize: 12.2
+        },
+        '& .MuiChip-root': {
+          height: 24
+        }
+      }}
+    >
       <Paper
         elevation={0}
         sx={{
-          p: 1.4,
-          borderRadius: 3.6,
+          p: 1.1,
+          borderRadius: 3,
           border: '1px solid #d6e4de',
           color: '#fff',
           background: 'linear-gradient(135deg, #0f766e 0%, #155e63 44%, #102a43 100%)',
@@ -550,10 +753,10 @@ export default function StockManagementPage() {
             <Typography variant="overline" sx={{ letterSpacing: 1, opacity: 0.72 }}>
               Stock Management
             </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.02 }}>
+            <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.02, fontSize: 31 }}>
               Assurance And Engineering Stock Control
             </Typography>
-            <Typography variant="body2" sx={{ mt: 0.55, maxWidth: 880, opacity: 0.82 }}>
+            <Typography variant="body2" sx={{ mt: 0.35, maxWidth: 860, opacity: 0.82, fontSize: 12.6 }}>
               The template stays as the master source, the daily stock report feeds the live counts, and warehouse stock is separated from field-held stock for cleaner operational control.
             </Typography>
           </Box>
@@ -568,8 +771,8 @@ export default function StockManagementPage() {
       <Paper
         elevation={0}
         sx={{
-          p: 1,
-          borderRadius: 3,
+          p: 0.85,
+          borderRadius: 2.7,
           border: '1px solid #dce7e2',
           background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
         }}
@@ -587,7 +790,7 @@ export default function StockManagementPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Description, code, division, matched item..."
-              sx={{ minWidth: 260 }}
+              sx={{ minWidth: 220 }}
               InputProps={{
                 startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
               }}
@@ -598,7 +801,7 @@ export default function StockManagementPage() {
               label="Division"
               value={divisionFilter}
               onChange={(e) => setDivisionFilter(e.target.value)}
-              sx={{ minWidth: 160 }}
+              sx={{ minWidth: 138 }}
             >
               <MenuItem value="">All Divisions</MenuItem>
               {divisions.map((division) => (
@@ -611,7 +814,7 @@ export default function StockManagementPage() {
               label="Stock Status"
               value={stockFilter}
               onChange={(e) => setStockFilter(e.target.value)}
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: 132 }}
             >
               <MenuItem value="">All</MenuItem>
               <MenuItem value="low">Below Minimum</MenuItem>
@@ -624,7 +827,7 @@ export default function StockManagementPage() {
               label="Match Quality"
               value={matchFilter}
               onChange={(e) => setMatchFilter(e.target.value)}
-              sx={{ minWidth: 150 }}
+              sx={{ minWidth: 132 }}
             >
               <MenuItem value="">All</MenuItem>
               <MenuItem value="matched">Matched</MenuItem>
@@ -637,7 +840,7 @@ export default function StockManagementPage() {
               startIcon={<SyncRoundedIcon />}
               onClick={doRefresh}
               disabled={refreshing}
-              sx={{ minHeight: 38, borderRadius: 2.8, textTransform: 'none', fontWeight: 800 }}
+              sx={{ minHeight: 34, borderRadius: 2.5, textTransform: 'none', fontWeight: 800, px: 1.1 }}
             >
               {refreshing ? 'Refreshing...' : 'Run Daily Refresh'}
             </Button>
@@ -647,7 +850,7 @@ export default function StockManagementPage() {
               startIcon={<FileDownloadOutlinedIcon />}
               onClick={doExport}
               disabled={exporting}
-              sx={{ minHeight: 38, borderRadius: 2.8, textTransform: 'none', fontWeight: 800 }}
+              sx={{ minHeight: 34, borderRadius: 2.5, textTransform: 'none', fontWeight: 800, px: 1.1 }}
             >
               {exporting ? 'Exporting...' : 'Export Master Workbook'}
             </Button>
@@ -665,17 +868,20 @@ export default function StockManagementPage() {
         value={tab}
         onChange={(_, value) => setTab(value)}
         sx={{
-          minHeight: 44,
+          minHeight: 40,
           '& .MuiTab-root': {
-            minHeight: 44,
+            minHeight: 40,
             textTransform: 'none',
-            fontWeight: 700
+            fontWeight: 700,
+            fontSize: 13
           }
         }}
       >
         <Tab label="Overview" />
         <Tab label="Master Stock" />
         <Tab label="Match Review" />
+        <Tab label="Add Template Item" />
+        <Tab label="Not WH Workflow" />
       </Tabs>
 
       {tab === 0 ? (
@@ -697,7 +903,7 @@ export default function StockManagementPage() {
             <Card title="Ordered Stock" value={fmtCount(summary.orderedStockTotal)} subtext="Outstanding quantities still on order" tone="#1d4ed8" icon={<ChecklistOutlinedIcon sx={{ fontSize: 16 }} />} />
             <Card title="Not In Warehouse" value={fmtCount(summary.notInWarehouseTotal)} subtext="Stock sitting at non-warehouse locations" tone="#c2410c" icon={<RouteOutlinedIcon sx={{ fontSize: 16 }} />} />
             <Card title="Match Coverage" value={fmtPct(summary.matchCoveragePct)} subtext="Template items successfully linked to the stock report" tone="#7c3aed" icon={<CheckCircleOutlineRoundedIcon sx={{ fontSize: 16 }} />} />
-            <Card title="Available vs Required" value={`${fmtCount(summary.availableTotal)} / ${fmtCount(summary.requiredTotal)}`} subtext="Overall available stock against required spares" tone="#0f172a" icon={<WarehouseOutlinedIcon sx={{ fontSize: 16 }} />} />
+            <Card title="WH Available vs Required" value={`${fmtCount(summary.availableTotal)} / ${fmtCount(summary.requiredTotal)}`} subtext="Usable warehouse stock against required spares" tone="#0f172a" icon={<WarehouseOutlinedIcon sx={{ fontSize: 16 }} />} />
           </Box>
 
           <Box
@@ -769,15 +975,17 @@ export default function StockManagementPage() {
               </ResponsiveContainer>
             </SectionCard>
 
-            <SectionCard title="Low Stock Watchlist" subtitle="Highest gaps between required spares and currently available stock.">
+            <SectionCard title="Low Stock Watchlist" subtitle="Highest usable-stock gaps against required spares, with derived cost exposure.">
               <TableContainer sx={{ maxHeight: 250 }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
                       <TableCell>Item</TableCell>
                       <TableCell align="right">Required</TableCell>
-                      <TableCell align="right">Available</TableCell>
+                      <TableCell align="right">WH Available</TableCell>
                       <TableCell align="right">Gap</TableCell>
+                      <TableCell align="right">Unit Cost</TableCell>
+                      <TableCell align="right">Gap Cost</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -790,6 +998,8 @@ export default function StockManagementPage() {
                         <TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell>
                         <TableCell align="right">{fmtCount(row.availableTotal)}</TableCell>
                         <TableCell align="right">{fmtCount(row.shortage)}</TableCell>
+                        <TableCell align="right">{fmtMoney(row.unitCost)}</TableCell>
+                        <TableCell align="right">{fmtMoney(row.gapCost)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -803,79 +1013,117 @@ export default function StockManagementPage() {
       {tab === 1 ? (
         <SectionCard
           title="Master Stock Table"
-          subtitle="Grouped by template section, with live stock totals, match quality, and warehouse separation."
-          action={<Chip size="small" label={`${fmtCount(filteredGroups.reduce((sum, group) => sum + group.rows.length, 0))} visible items`} sx={{ fontWeight: 700 }} />}
+          subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
+          action={<Chip size="small" label={`${fmtCount(filteredItemRows.length)} visible items`} sx={{ fontWeight: 700 }} />}
         >
-          <Stack spacing={1}>
-            {filteredGroups.map((group) => (
-              <Paper key={group.title} variant="outlined" sx={{ borderRadius: 2.6, overflow: 'hidden' }}>
-                <Box sx={{ px: 1.1, py: 0.85, bgcolor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{group.title}</Typography>
-                </Box>
-                <Box sx={{ overflowX: 'auto' }}>
-                  <Table size="small" sx={{ minWidth: 1160 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Item</TableCell>
-                        <TableCell>Division</TableCell>
-                        <TableCell>Match</TableCell>
-                        <TableCell align="right">Required</TableCell>
-                        <TableCell align="right">Available</TableCell>
-                        <TableCell align="right">Not In WH</TableCell>
-                        <TableCell align="right">Ordered</TableCell>
-                        <TableCell align="right">Gap</TableCell>
-                        <TableCell align="right">CPT</TableCell>
-                        <TableCell align="right">JHB</TableCell>
-                        <TableCell align="right">DBN</TableCell>
-                        <TableCell align="right">PEL</TableCell>
-                        <TableCell align="right">BFN</TableCell>
-                        <TableCell align="right">GEO</TableCell>
-                        <TableCell align="right">POL</TableCell>
-                        <TableCell align="right">NEL</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {group.rows.map((row) => {
-                        const tone = statusTone(row)
-                        return (
-                          <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
-                            <TableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
-                              <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
-                            </TableCell>
-                            <TableCell>{row.division || 'Unassigned'}</TableCell>
-                            <TableCell>
-                              <Chip
-                                size="small"
-                                label={row.matchStatus}
-                                color={matchTone(row)}
-                                sx={{ fontWeight: 700 }}
-                              />
-                            </TableCell>
-                            <TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell>
-                            <TableCell align="right">
-                              <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
-                                {fmtCount(row.availableTotal)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell align="right">{fmtCount(row.notInWarehouses)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.orderedStock)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.shortage)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.cptTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.jhbTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.dbnTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.pelTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.bfnTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.geoTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.polTotal)}</TableCell>
-                            <TableCell align="right">{fmtCount(row.nelTotal)}</TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </Box>
-              </Paper>
+          <Stack spacing={0.7}>
+            {divisionGroups.map((group) => (
+              <Accordion
+                key={group.division}
+                disableGutters
+                expanded={Boolean(divisionExpansion[group.division])}
+                onChange={(_, expanded) => {
+                  setDivisionExpansion((current) => ({
+                    ...current,
+                    [group.division]: expanded
+                  }))
+                }}
+                sx={{
+                  borderRadius: '14px !important',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: 'none',
+                  overflow: 'hidden',
+                  '&:before': { display: 'none' }
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={<ExpandMoreRoundedIcon />}
+                  sx={{
+                    minHeight: 46,
+                    px: 1.2,
+                    bgcolor: '#f8fafc',
+                    '& .MuiAccordionSummary-content': { my: 0.7 }
+                  }}
+                >
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} alignItems={{ xs: 'flex-start', md: 'center' }} useFlexGap flexWrap="wrap">
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                      {group.division}
+                    </Typography>
+                    <Chip size="small" label={`${fmtCount(group.rows.length)} items`} sx={{ fontWeight: 700 }} />
+                    <Chip size="small" label={`${fmtCount(group.lowStockCount)} low stock`} sx={{ fontWeight: 700, bgcolor: '#fee2e2', color: '#b91c1c' }} />
+                    <Chip size="small" label={`Gap cost ${fmtMoney(group.gapCostTotal)}`} sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                  </Stack>
+                </AccordionSummary>
+                <AccordionDetails sx={{ p: 0 }}>
+                  <Box sx={{ overflowX: 'auto' }}>
+                    <Table size="small" sx={{ minWidth: 1480 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Item</TableCell>
+                          <TableCell>Section</TableCell>
+                          <TableCell>Match</TableCell>
+                          <TableCell align="right">Required</TableCell>
+                          <TableCell align="right">WH Available</TableCell>
+                          <TableCell align="right">Not WH</TableCell>
+                          <TableCell align="right">Ordered</TableCell>
+                          <TableCell align="right">Gap</TableCell>
+                          <TableCell align="right">Unit Cost</TableCell>
+                          <TableCell align="right">Gap Cost</TableCell>
+                          <TableCell align="right">CPT</TableCell>
+                          <TableCell align="right">JHB</TableCell>
+                          <TableCell align="right">DBN</TableCell>
+                          <TableCell align="right">PEL</TableCell>
+                          <TableCell align="right">BFN</TableCell>
+                          <TableCell align="right">GEO</TableCell>
+                          <TableCell align="right">POL</TableCell>
+                          <TableCell align="right">NEL</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {group.rows.map((row) => {
+                          const tone = statusTone(row)
+                          return (
+                            <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
+                              <TableCell sx={{ minWidth: 280 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
+                                <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
+                              </TableCell>
+                              <TableCell sx={{ minWidth: 140 }}>{row.sectionName || 'General'}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={row.matchStatus}
+                                  color={matchTone(row)}
+                                  sx={{ fontWeight: 700 }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell>
+                              <TableCell align="right">
+                                <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
+                                  {fmtCount(row.availableTotal)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">{fmtCount(row.notInWarehouses)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.orderedStock)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.shortage)}</TableCell>
+                              <TableCell align="right">{fmtMoney(row.unitCost)}</TableCell>
+                              <TableCell align="right">{fmtMoney(row.gapCost)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.cptTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.jhbTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.dbnTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.pelTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.bfnTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.geoTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.polTotal)}</TableCell>
+                              <TableCell align="right">{fmtCount(row.nelTotal)}</TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
             ))}
           </Stack>
         </SectionCard>
@@ -941,6 +1189,221 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
+      {tab === 3 ? (
+        <SectionCard
+          title="Add Template Item"
+          subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
+          action={<Chip size="small" label={`${fmtCount(sectionOptions.length)} known sections`} sx={{ fontWeight: 700 }} />}
+        >
+          <Stack spacing={1}>
+            {createDuplicateHints.length ? (
+              <Alert severity="warning" sx={{ borderRadius: 2.4 }}>
+                A possible duplicate already exists. Review the matches below before saving a new template item.
+              </Alert>
+            ) : null}
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 0.9,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  md: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))'
+                }
+              }}
+            >
+              <TextField
+                size="small"
+                label="Template Section"
+                value={createForm.sectionName}
+                onChange={(event) => updateCreateFormField('sectionName', event.target.value)}
+                placeholder="Use an existing section name if possible"
+              />
+              <TextField
+                size="small"
+                label="Division"
+                value={createForm.division}
+                onChange={(event) => updateCreateFormField('division', event.target.value)}
+                placeholder="Assurance / Engineering ..."
+              />
+              <TextField
+                size="small"
+                label="Item Description"
+                value={createForm.itemDescription}
+                onChange={(event) => updateCreateFormField('itemDescription', event.target.value)}
+                required
+              />
+              <TextField
+                size="small"
+                label="Stock Code"
+                value={createForm.stockCode}
+                onChange={(event) => updateCreateFormField('stockCode', event.target.value)}
+              />
+              <TextField
+                size="small"
+                label="Unit Price ZAR"
+                value={createForm.unitPriceZar}
+                onChange={(event) => updateCreateFormField('unitPriceZar', event.target.value)}
+              />
+              <TextField
+                size="small"
+                label="Unit Price USD"
+                value={createForm.unitPriceUsd}
+                onChange={(event) => updateCreateFormField('unitPriceUsd', event.target.value)}
+              />
+              {REQUIRED_SPARE_FIELDS.map((field) => (
+                <TextField
+                  key={field.key}
+                  size="small"
+                  label={`Required ${field.region}`}
+                  value={createForm[field.key]}
+                  onChange={(event) => updateCreateFormField(field.key, event.target.value)}
+                />
+              ))}
+            </Box>
+
+            {sectionOptions.length ? (
+              <Typography variant="caption" sx={{ opacity: 0.72 }}>
+                Existing sections: {sectionOptions.slice(0, 10).join(' | ')}
+              </Typography>
+            ) : null}
+
+            {createDuplicateHints.length ? (
+              <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.4 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.6 }}>
+                  Possible duplicates
+                </Typography>
+                <Stack spacing={0.45}>
+                  {createDuplicateHints.map((row) => (
+                    <Stack key={row.id} direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={0.7}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.74 }}>
+                        {row.stockCode || 'No stock code'} | {row.division || 'Unassigned'}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Paper>
+            ) : null}
+
+            <Stack direction="row" spacing={0.8} justifyContent="flex-end" useFlexGap flexWrap="wrap">
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => setCreateForm(createTemplateFormState())}
+                sx={{ textTransform: 'none', fontWeight: 800 }}
+              >
+                Reset
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<AddCircleOutlineRoundedIcon />}
+                onClick={saveNewTemplateItem}
+                disabled={creatingTemplateItem || !createForm.itemDescription.trim() || !createForm.division.trim() || createDuplicateHints.length > 0}
+                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.5 }}
+              >
+                {creatingTemplateItem ? 'Saving...' : 'Create Template Item'}
+              </Button>
+            </Stack>
+          </Stack>
+        </SectionCard>
+      ) : null}
+
+      {tab === 4 ? (
+        <SectionCard
+          title="Not WH Workflow"
+          subtitle="Track field-held stock separately from usable warehouse stock. Save the next action per site line so testing and supplier-return workflows stay visible between daily refreshes."
+          action={<Chip size="small" label={`${fmtCount(notWarehouseRows.length)} lines`} sx={{ fontWeight: 700 }} />}
+        >
+          {notWarehouseRows.length ? (
+            <TableContainer sx={{ maxHeight: '70vh' }}>
+              <Table size="small" stickyHeader sx={{ minWidth: 1320 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Item</TableCell>
+                    <TableCell>Division</TableCell>
+                    <TableCell>Site</TableCell>
+                    <TableCell>Region</TableCell>
+                    <TableCell align="right">Qty</TableCell>
+                    <TableCell align="right">Unit Cost</TableCell>
+                    <TableCell align="right">Value</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Notes</TableCell>
+                    <TableCell>Updated</TableCell>
+                    <TableCell align="right">Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {notWarehouseRows.map((row) => {
+                    const draft = notWhDrafts[row.key] || { status: row.status, notes: row.notes }
+                    return (
+                      <TableRow key={row.key} hover>
+                        <TableCell sx={{ minWidth: 240 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
+                        </TableCell>
+                        <TableCell>{row.division || 'Unassigned'}</TableCell>
+                        <TableCell>{row.siteId}</TableCell>
+                        <TableCell>{row.region}</TableCell>
+                        <TableCell align="right">{fmtCount(row.qtyAvailable)}</TableCell>
+                        <TableCell align="right">{fmtMoney(row.unitCost)}</TableCell>
+                        <TableCell align="right">{fmtMoney(row.totalValue)}</TableCell>
+                        <TableCell sx={{ minWidth: 220 }}>
+                          <TextField
+                            size="small"
+                            select
+                            value={draft.status}
+                            onChange={(event) => updateNotWhDraft(row.key, 'status', event.target.value)}
+                            fullWidth
+                          >
+                            {NOT_WH_STATUS_OPTIONS.map((option) => (
+                              <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                            ))}
+                          </TextField>
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 260 }}>
+                          <TextField
+                            size="small"
+                            value={draft.notes}
+                            onChange={(event) => updateNotWhDraft(row.key, 'notes', event.target.value)}
+                            placeholder="Testing notes / supplier return / next step"
+                            fullWidth
+                          />
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 160 }}>
+                          <Typography variant="caption" sx={{ display: 'block' }}>
+                            {row.updatedAt ? fmtDateTime(row.updatedAt) : 'Not saved yet'}
+                          </Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                            {row.updatedBy || ''}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => saveNotWarehouseRow(row)}
+                            disabled={savingNotWhKey === row.key}
+                            sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.2 }}
+                          >
+                            {savingNotWhKey === row.key ? 'Saving...' : 'Save'}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Alert severity="info" sx={{ borderRadius: 2.4 }}>
+              No current Not WH stock lines are visible for the selected filters.
+            </Alert>
+          )}
+        </SectionCard>
+      ) : null}
+
       <Dialog
         open={Boolean(selectedItem)}
         onClose={() => setSelectedItem(null)}
@@ -976,9 +1439,12 @@ export default function StockManagementPage() {
                 <Chip label={selectedItem.division || 'Unassigned'} />
                 <Chip label={selectedItem.matchStatus} color={matchTone(selectedItem)} />
                 <Chip label={`Required ${fmtCount(selectedItem.requiredTotal)}`} />
-                <Chip label={`Available ${fmtCount(selectedItem.availableTotal)}`} />
+                <Chip label={`WH Available ${fmtCount(selectedItem.availableTotal)}`} />
+                <Chip label={`Not WH ${fmtCount(selectedItem.notInWarehouses)}`} />
                 <Chip label={`Ordered ${fmtCount(selectedItem.orderedStock)}`} />
                 <Chip label={`Gap ${fmtCount(selectedItem.shortage)}`} />
+                <Chip label={`Unit cost ${fmtMoney(selectedItem.unitCost)}`} />
+                <Chip label={`Gap cost ${fmtMoney(selectedItem.gapCost)}`} />
               </Stack>
               <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 2.5 }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
@@ -1206,7 +1672,7 @@ export default function StockManagementPage() {
                       disabled={applyingReviewChanges || savingOverride || (!deleteReviewItem && !selectedReviewCandidates.length)}
                       sx={{ textTransform: 'none', fontWeight: 800 }}
                     >
-                      {applyingReviewChanges ? 'Saving...' : 'Save Review Changes'}
+                      {applyingReviewChanges ? 'Saving...' : deleteReviewItem ? 'Delete Original + Add Replacements' : 'Save Review Changes'}
                     </Button>
                   </Stack>
                 </Stack>

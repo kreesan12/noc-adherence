@@ -31,8 +31,8 @@ const STOCK_EXPORT_HEADER_ROW_1 = [
   'Availabele Stock  GEO', '',
   'Availabele Stock  POL', '',
   'Availabele Stock  NEL', '',
-  'Available Stock', 'Ordered Stock', 'MINIMUM SPARES', 'TOTAL STOCK',
-  '', '', '', '', ''
+  'Available Stock', 'Ordered Stock', 'MINIMUM SPARES', 'Warehouse Stock',
+  'Total Stock', 'Unit Cost', 'Gap', 'Gap Cost', ''
 ]
 
 const STOCK_EXPORT_HEADER_ROW_2 = [
@@ -46,8 +46,8 @@ const STOCK_EXPORT_HEADER_ROW_2 = [
   'WAR-FF-GEO', 'TOTAL',
   'WAR-FF-POL', 'TOTAL',
   'WAR-FF-NEL', 'TOTAL',
-  'Not in Warehouses', 'Total', 'Required', 'Available',
-  '', '', '', '', ''
+  'Not in Warehouses', 'Total', 'Required', 'Usable',
+  'All Stock', 'Derived ZAR', 'Qty', 'ZAR', ''
 ]
 
 const REGION_ALIAS_MAP = {
@@ -134,6 +134,13 @@ function toInt(value) {
   if (!raw) return 0
   const parsed = Number(raw.replace(/,/g, ''))
   return Number.isFinite(parsed) ? Math.round(parsed) : 0
+}
+
+function toMoney(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return 0
+  const parsed = Number(raw.replace(/[^0-9.-]+/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function sumRequiredSpares(record) {
@@ -619,6 +626,7 @@ function createEmptyProjectionFields() {
     nelTotal: 0,
     notInWarehouses: 0,
     availableTotal: 0,
+    allAvailableTotal: 0,
     orderedStock: 0,
     unknownSiteQty: 0,
     regionFieldTotals: {
@@ -665,6 +673,8 @@ function buildProjectedItem(templateItem, indexes) {
   const match = chooseMatchForTemplateItem(templateItem, indexes)
   const matchedRows = match.group?.rows || []
   const siteMap = new Map()
+  let totalQtyOnHand = 0
+  let totalValuation = 0
 
   for (const row of matchedRows) {
     const siteId = cleanCell(row.siteId) || 'UNKNOWN'
@@ -672,8 +682,12 @@ function buildProjectedItem(templateItem, indexes) {
     const warehouseField = resolveWarehouseField(siteId, region)
     const qtyAvailable = toInt(row.qtyAvailable)
     const qtyOnOrder = toInt(row.qtyOnOrder)
+    const qtyOnHand = toInt(row.qtyOnHand)
+    const valuation = toMoney(row.valuationText)
 
     projection.orderedStock += qtyOnOrder
+    totalQtyOnHand += qtyOnHand
+    totalValuation += valuation
 
     if (warehouseField) {
       projection[warehouseField] += qtyAvailable
@@ -710,9 +724,10 @@ function buildProjectedItem(templateItem, indexes) {
     projection.bfnTotal,
     projection.geoTotal,
     projection.polTotal,
-    projection.nelTotal,
-    projection.notInWarehouses
+    projection.nelTotal
   ].reduce((sum, value) => sum + Number(value || 0), 0)
+
+  projection.allAvailableTotal = projection.availableTotal + Number(projection.notInWarehouses || 0)
 
   const siteBreakdown = [...siteMap.values()].sort((left, right) => {
     if (right.qtyAvailable !== left.qtyAvailable) return right.qtyAvailable - left.qtyAvailable
@@ -722,6 +737,8 @@ function buildProjectedItem(templateItem, indexes) {
   const shortage = Math.max(requiredTotal - projection.availableTotal, 0)
   const isMatched = Boolean(match.group)
   const isLowConfidence = isMatched && match.score < MATCH_REVIEW_THRESHOLD
+  const unitCost = totalQtyOnHand > 0 ? Number((totalValuation / totalQtyOnHand).toFixed(2)) : 0
+  const gapCost = Number((shortage * unitCost).toFixed(2))
 
   return {
     id: templateItem.id,
@@ -735,6 +752,9 @@ function buildProjectedItem(templateItem, indexes) {
     division: templateItem.division,
     requiredByRegion,
     requiredTotal,
+    totalQtyOnHand,
+    totalValuation,
+    unitCost,
     matchedItemNo: match.group?.itemNo || null,
     matchedItemDescription: match.group?.primaryDescription || null,
     matchMethod: match.method,
@@ -743,14 +763,18 @@ function buildProjectedItem(templateItem, indexes) {
     isLowConfidence,
     ...projection,
     shortage,
+    gapCost,
     belowMinimum: projection.availableTotal < requiredTotal,
     candidateMatches: match.candidates,
     siteBreakdown
   }
 }
 
-function buildCurrentDataset(templateItems, statusRows, latestImport, importHistory) {
+function buildCurrentDataset(templateItems, statusRows, latestImport, importHistory, notWarehouseActions = []) {
   const indexes = buildStatusItemGroups(statusRows)
+  const actionMap = new Map(
+    notWarehouseActions.map((row) => [`${row.templateItemId}::${cleanCell(row.siteId).toUpperCase()}`, row])
+  )
   const projectedRows = templateItems
     .sort((left, right) => left.rowOrder - right.rowOrder)
     .map((item) => buildProjectedItem(item, indexes))
@@ -761,7 +785,32 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
   const unresolvedRows = itemRows.filter((row) => row.matchMethod === 'unmatched')
   const lowStockRows = itemRows
     .filter((row) => row.belowMinimum)
-    .sort((left, right) => right.shortage - left.shortage || left.itemDescription.localeCompare(right.itemDescription))
+    .sort((left, right) => right.shortage - left.shortage || right.gapCost - left.gapCost || left.itemDescription.localeCompare(right.itemDescription))
+
+  const notWarehouseItems = itemRows
+    .flatMap((row) => (row.siteBreakdown || [])
+      .filter((site) => !site.warehouseField && Number(site.qtyAvailable || 0) > 0)
+      .map((site) => {
+        const action = actionMap.get(`${row.id}::${cleanCell(site.siteId).toUpperCase()}`)
+        return {
+          key: `${row.id}::${site.siteId}`,
+          templateItemId: row.id,
+          itemDescription: row.itemDescription,
+          stockCode: row.stockCode,
+          division: row.division,
+          siteId: site.siteId,
+          region: site.region,
+          qtyAvailable: Number(site.qtyAvailable || 0),
+          qtyOnOrder: Number(site.qtyOnOrder || 0),
+          unitCost: Number(row.unitCost || 0),
+          totalValue: Number((Number(site.qtyAvailable || 0) * Number(row.unitCost || 0)).toFixed(2)),
+          status: action?.status || 'PENDING_REVIEW',
+          notes: action?.notes || '',
+          updatedBy: action?.updatedBy || '',
+          updatedAt: action?.updatedAt || null
+        }
+      }))
+    .sort((left, right) => right.qtyAvailable - left.qtyAvailable || left.itemDescription.localeCompare(right.itemDescription))
 
   const regionSummary = REGION_ORDER.map((region) => {
     const regionKey = region.toLowerCase()
@@ -774,7 +823,8 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
       warehouseTotal,
       fieldTotal,
       availableTotal: warehouseTotal + fieldTotal,
-      gap: Math.max(requiredTotal - (warehouseTotal + fieldTotal), 0)
+      usableAvailableTotal: warehouseTotal,
+      gap: Math.max(requiredTotal - warehouseTotal, 0)
     }
   })
 
@@ -786,14 +836,20 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
       itemCount: 0,
       lowStockCount: 0,
       availableTotal: 0,
+      allAvailableTotal: 0,
       requiredTotal: 0,
-      orderedStock: 0
+      orderedStock: 0,
+      notInWarehouseTotal: 0,
+      gapCostTotal: 0
     }
     current.itemCount += 1
     if (row.belowMinimum) current.lowStockCount += 1
     current.availableTotal += Number(row.availableTotal || 0)
+    current.allAvailableTotal += Number(row.allAvailableTotal || 0)
     current.requiredTotal += Number(row.requiredTotal || 0)
     current.orderedStock += Number(row.orderedStock || 0)
+    current.notInWarehouseTotal += Number(row.notInWarehouses || 0)
+    current.gapCostTotal += Number(row.gapCost || 0)
     divisionMap.set(key, current)
   }
 
@@ -810,18 +866,22 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
       orderedStockTotal: itemRows.reduce((sum, row) => sum + Number(row.orderedStock || 0), 0),
       notInWarehouseTotal: itemRows.reduce((sum, row) => sum + Number(row.notInWarehouses || 0), 0),
       availableTotal: itemRows.reduce((sum, row) => sum + Number(row.availableTotal || 0), 0),
+      allAvailableTotal: itemRows.reduce((sum, row) => sum + Number(row.allAvailableTotal || 0), 0),
       requiredTotal: itemRows.reduce((sum, row) => sum + Number(row.requiredTotal || 0), 0),
+      gapCostTotal: Number(itemRows.reduce((sum, row) => sum + Number(row.gapCost || 0), 0).toFixed(2)),
       unknownSiteQtyTotal: itemRows.reduce((sum, row) => sum + Number(row.unknownSiteQty || 0), 0),
       matchCoveragePct: itemRows.length ? Number(((matchedRows.length / itemRows.length) * 100).toFixed(2)) : 0
     },
     regionSummary,
     divisionSummary: [...divisionMap.values()].sort((left, right) => right.lowStockCount - left.lowStockCount || left.division.localeCompare(right.division)),
     lowStockItems: lowStockRows.slice(0, 20),
+    sectionOptions: templateItems.filter((row) => row.rowType === 'SECTION').map((row) => row.itemDescription || row.sectionName).filter(Boolean),
     matchReviewItems: [...lowConfidenceRows, ...unresolvedRows].sort((left, right) => {
       if (left.matchMethod === 'unmatched' && right.matchMethod !== 'unmatched') return -1
       if (left.matchMethod !== 'unmatched' && right.matchMethod === 'unmatched') return 1
       return left.itemDescription.localeCompare(right.itemDescription)
     }),
+    notWarehouseItems,
     items: projectedRows
   }
 }
@@ -831,10 +891,11 @@ export async function getCurrentStockDataset(prisma, { forceFresh = false } = {}
     return projectionCache.value
   }
 
-  const [templateItems, statusRows, importRuns] = await Promise.all([
+  const [templateItems, statusRows, importRuns, notWarehouseActions] = await Promise.all([
     prisma.stockTemplateItem.findMany({ orderBy: { rowOrder: 'asc' } }),
     prisma.stockStatusCurrentRow.findMany({ orderBy: [{ itemNo: 'asc' }, { siteId: 'asc' }] }),
-    prisma.stockImportRun.findMany({ orderBy: { createdAt: 'desc' }, take: 10 })
+    prisma.stockImportRun.findMany({ orderBy: { createdAt: 'desc' }, take: 10 }),
+    prisma.stockNotWarehouseAction.findMany({ orderBy: { updatedAt: 'desc' } })
   ])
 
   const dataset = buildCurrentDataset(
@@ -851,7 +912,8 @@ export async function getCurrentStockDataset(prisma, { forceFresh = false } = {}
       lowConfidenceCount: row.lowConfidenceCount,
       unresolvedItemCount: row.unresolvedItemCount,
       unknownSiteCount: row.unknownSiteCount
-    }))
+    })),
+    notWarehouseActions
   )
 
   projectionCache.value = dataset
@@ -1022,6 +1084,110 @@ export async function applyStockTemplateReviewChanges(prisma, templateItemId, { 
       addedCount: approvedCandidates.length
     }
   }
+}
+
+async function assertTemplateItemNotDuplicate(prisma, { stockCode, itemDescription, excludeId = null }) {
+  const existingItems = await prisma.stockTemplateItem.findMany({
+    where: { rowType: 'ITEM' },
+    select: { id: true, stockCode: true, itemDescription: true }
+  })
+
+  const nextCode = normalizeCode(stockCode || '')
+  const nextDescription = normalizeDescription(itemDescription || '')
+
+  const duplicate = existingItems.find((row) => {
+    if (excludeId && row.id === excludeId) return false
+    const codeMatch = nextCode && normalizeCode(row.stockCode || '') === nextCode
+    const descriptionMatch = nextDescription && normalizeDescription(row.itemDescription || '') === nextDescription
+    return codeMatch || descriptionMatch
+  })
+
+  if (duplicate) {
+    throw createStockTemplateError(`Duplicate template item detected: ${duplicate.itemDescription || duplicate.stockCode || 'Existing row'}`, 409)
+  }
+}
+
+export async function createStockTemplateItem(prisma, data) {
+  await assertTemplateItemNotDuplicate(prisma, {
+    stockCode: data.stockCode,
+    itemDescription: data.itemDescription
+  })
+
+  const aggregate = await prisma.stockTemplateItem.aggregate({
+    _max: { rowOrder: true }
+  })
+  const nextRowOrder = Math.max(Number(aggregate._max.rowOrder || 0) + 1, TEMPLATE_DATA_ROW_START_INDEX + 1)
+
+  const created = await prisma.stockTemplateItem.create({
+    data: {
+      rowOrder: nextRowOrder,
+      rowType: 'ITEM',
+      sectionName: cleanCell(data.sectionName) || null,
+      itemDescription: cleanCell(data.itemDescription) || null,
+      stockCode: cleanCell(data.stockCode) || null,
+      unitPriceZar: cleanCell(data.unitPriceZar) || null,
+      unitPriceUsd: cleanCell(data.unitPriceUsd) || null,
+      division: cleanCell(data.division) || null,
+      requiredCpt: Number(data.requiredCpt || 0),
+      requiredJhb: Number(data.requiredJhb || 0),
+      requiredDbn: Number(data.requiredDbn || 0),
+      requiredPel: Number(data.requiredPel || 0),
+      requiredBfn: Number(data.requiredBfn || 0),
+      requiredGeo: Number(data.requiredGeo || 0),
+      requiredPol: Number(data.requiredPol || 0),
+      requiredNel: Number(data.requiredNel || 0)
+    }
+  })
+
+  invalidateStockManagementCache()
+  const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
+  return {
+    item: dataset.items.find((row) => row.id === created.id) || null,
+    dataset
+  }
+}
+
+export async function upsertStockNotWarehouseAction(prisma, { templateItemId, siteId, status, notes, updatedBy }) {
+  const templateItem = await prisma.stockTemplateItem.findUnique({
+    where: { id: templateItemId }
+  })
+
+  if (!templateItem) {
+    throw createStockTemplateError('Template item not found', 404)
+  }
+
+  if (templateItem.rowType !== 'ITEM') {
+    throw createStockTemplateError('Not warehouse actions can only be saved for item rows')
+  }
+
+  const cleanedSiteId = cleanCell(siteId).toUpperCase()
+  if (!cleanedSiteId) {
+    throw createStockTemplateError('Site ID is required')
+  }
+
+  await prisma.stockNotWarehouseAction.upsert({
+    where: {
+      templateItemId_siteId: {
+        templateItemId,
+        siteId: cleanedSiteId
+      }
+    },
+    update: {
+      status: cleanCell(status) || 'PENDING_REVIEW',
+      notes: cleanCell(notes) || null,
+      updatedBy: cleanCell(updatedBy) || null
+    },
+    create: {
+      templateItemId,
+      siteId: cleanedSiteId,
+      status: cleanCell(status) || 'PENDING_REVIEW',
+      notes: cleanCell(notes) || null,
+      updatedBy: cleanCell(updatedBy) || null
+    }
+  })
+
+  invalidateStockManagementCache()
+  return getCurrentStockDataset(prisma, { forceFresh: true })
 }
 
 async function gmailClientFromEnv() {
@@ -1261,7 +1427,7 @@ function setWorkbookStructure(worksheet) {
     { width: 11 }, { width: 10 },
     { width: 11 }, { width: 10 },
     { width: 14 }, { width: 12 }, { width: 12 }, { width: 12 },
-    { width: 4 }, { width: 4 }, { width: 4 }, { width: 4 }, { width: 4 }
+    { width: 12 }, { width: 12 }, { width: 11 }, { width: 14 }, { width: 4 }
   ]
   applySheetHeaderStyles(worksheet)
 }
@@ -1319,7 +1485,11 @@ export async function buildStockTemplateWorkbookBuffer(prisma) {
       row.notInWarehouses || 0,
       row.orderedStock || 0,
       row.requiredTotal || 0,
-      row.availableTotal || 0
+      row.availableTotal || 0,
+      row.allAvailableTotal || 0,
+      row.unitCost || 0,
+      row.shortage || 0,
+      row.gapCost || 0
     ]
 
     const fillArgb = row.belowMinimum

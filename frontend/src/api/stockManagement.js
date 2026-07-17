@@ -31,3 +31,13 @@ export async function applyStockReviewActions(id, payload) {
   const { data } = await api.post(`/stock-management/template-items/${id}/review-actions`, payload)
   return data
 }
+
+export async function createStockTemplateItem(payload) {
+  const { data } = await api.post('/stock-management/template-items', payload)
+  return data
+}
+
+export async function updateStockNotWarehouseAction(payload) {
+  const { data } = await api.put('/stock-management/not-wh-actions', payload)
+  return data
+}
