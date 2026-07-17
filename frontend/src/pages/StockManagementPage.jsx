@@ -132,20 +132,20 @@ function Card({ title, value, subtext, tone = '#0f172a', icon = null }) {
     <Paper
       elevation={0}
       sx={{
-        p: 1.1,
-        borderRadius: 3,
+        p: 0.9,
+        borderRadius: 2.6,
         border: '1px solid #e2e8f0',
-        borderTop: `4px solid ${tone}`,
+        borderTop: `3px solid ${tone}`,
         background: `radial-gradient(circle at top right, ${alphaHex(tone, '18')} 0%, transparent 34%), linear-gradient(180deg, ${alphaHex(tone, '08')} 0%, #ffffff 52%, #ffffff 100%)`,
         boxShadow: '0 14px 28px rgba(15, 23, 42, 0.05)'
       }}
     >
-      <Stack direction="row" spacing={0.9} alignItems="center" sx={{ mb: 0.55 }}>
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.4 }}>
         <Box
           sx={{
-            width: 28,
-            height: 28,
-            borderRadius: 2,
+            width: 24,
+            height: 24,
+            borderRadius: 1.8,
             bgcolor: alphaHex(tone, '14'),
             color: tone,
             display: 'flex',
@@ -155,15 +155,15 @@ function Card({ title, value, subtext, tone = '#0f172a', icon = null }) {
         >
           {icon}
         </Box>
-        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.8, opacity: 0.78 }}>
+        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.7, opacity: 0.78, fontSize: 10.4 }}>
           {title}
         </Typography>
       </Stack>
-      <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.05, fontSize: 22 }}>
+      <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.02, fontSize: 18.2 }}>
         {value}
       </Typography>
       {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.45, fontSize: 12.2, opacity: 0.72 }}>
+        <Typography variant="body2" sx={{ mt: 0.32, fontSize: 11.1, opacity: 0.72, lineHeight: 1.25 }}>
           {subtext}
         </Typography>
       ) : null}
@@ -176,7 +176,7 @@ function SectionCard({ title, subtitle, action, children }) {
     <Paper
       elevation={0}
       sx={{
-        borderRadius: 3.2,
+        borderRadius: 2.8,
         border: '1px solid #e2e8f0',
         overflow: 'hidden',
         boxShadow: '0 14px 30px rgba(15, 23, 42, 0.05)'
@@ -188,25 +188,25 @@ function SectionCard({ title, subtitle, action, children }) {
         alignItems="flex-start"
         spacing={1}
         sx={{
-          px: 1.25,
-          py: 1,
+          px: 1,
+          py: 0.78,
           borderBottom: '1px solid #edf2f7',
           background: 'linear-gradient(135deg, rgba(15,118,110,0.10) 0%, rgba(255,255,255,0.92) 54%, rgba(241,245,249,0.9) 100%)'
         }}
       >
         <Box sx={{ minWidth: 0 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: 15 }}>
             {title}
           </Typography>
           {subtitle ? (
-            <Typography variant="body2" sx={{ fontSize: 12.4, opacity: 0.72 }}>
+            <Typography variant="body2" sx={{ fontSize: 11.4, opacity: 0.72, lineHeight: 1.25 }}>
               {subtitle}
             </Typography>
           ) : null}
         </Box>
         {action ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
       </Stack>
-      <Box sx={{ p: 1.15 }}>{children}</Box>
+      <Box sx={{ p: 0.9 }}>{children}</Box>
     </Paper>
   )
 }
@@ -725,42 +725,54 @@ export default function StockManagementPage() {
 
   return (
     <Stack
-      spacing={0.95}
+      spacing={0.78}
       sx={{
         '& .MuiTableCell-root': {
-          py: 0.6,
-          px: 0.85,
-          fontSize: 12.2
+          py: 0.5,
+          px: 0.72,
+          fontSize: 11.5
         },
         '& .MuiChip-root': {
-          height: 24
+          height: 22
+        },
+        '& .MuiChip-label': {
+          fontSize: 10.9
+        },
+        '& .MuiInputBase-root': {
+          fontSize: 12
+        },
+        '& .MuiInputLabel-root': {
+          fontSize: 11.5
+        },
+        '& .MuiButton-root': {
+          fontSize: 11.7
         }
       }}
     >
       <Paper
         elevation={0}
         sx={{
-          p: 1.1,
-          borderRadius: 3,
+          p: 0.9,
+          borderRadius: 2.7,
           border: '1px solid #d6e4de',
           color: '#fff',
           background: 'linear-gradient(135deg, #0f766e 0%, #155e63 44%, #102a43 100%)',
           boxShadow: '0 18px 36px rgba(15, 23, 42, 0.12)'
         }}
       >
-        <Stack direction={{ xs: 'column', xl: 'row' }} justifyContent="space-between" spacing={1.2}>
+        <Stack direction={{ xs: 'column', xl: 'row' }} justifyContent="space-between" spacing={0.9}>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="overline" sx={{ letterSpacing: 1, opacity: 0.72 }}>
               Stock Management
             </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.02, fontSize: 31 }}>
+            <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.02, fontSize: 27.5 }}>
               Assurance And Engineering Stock Control
             </Typography>
-            <Typography variant="body2" sx={{ mt: 0.35, maxWidth: 860, opacity: 0.82, fontSize: 12.6 }}>
+            <Typography variant="body2" sx={{ mt: 0.2, maxWidth: 820, opacity: 0.82, fontSize: 11.6, lineHeight: 1.25 }}>
               The template stays as the master source, the daily stock report feeds the live counts, and warehouse stock is separated from field-held stock for cleaner operational control.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignItems="flex-start">
+          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap" alignItems="flex-start">
             <Chip size="small" label={`Coverage ${fmtPct(summary.matchCoveragePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', fontWeight: 700 }} />
             <Chip size="small" label={`Low stock ${fmtCount(summary.lowStockCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', fontWeight: 700 }} />
             <Chip size="small" label={`Latest ${latestImport?.reportDate ? fmtDateTime(latestImport.reportDate) : 'No import yet'}`} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', fontWeight: 700 }} />
@@ -771,26 +783,26 @@ export default function StockManagementPage() {
       <Paper
         elevation={0}
         sx={{
-          p: 0.85,
-          borderRadius: 2.7,
+          p: 0.72,
+          borderRadius: 2.45,
           border: '1px solid #dce7e2',
           background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
         }}
       >
-        <Stack spacing={0.8}>
+        <Stack spacing={0.65}>
           {Number(summary.requiredTotal || 0) === 0 ? (
             <Alert severity="warning" sx={{ borderRadius: 2.5 }}>
               Minimum spares are still zero across the imported template. Open an item in Stock Master and use `Edit minimum spares` to set the baseline.
             </Alert>
           ) : null}
-          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.8} useFlexGap flexWrap="wrap">
+          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap">
             <TextField
               size="small"
               label="Search Stock"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Description, code, division, matched item..."
-              sx={{ minWidth: 220 }}
+              sx={{ minWidth: 200 }}
               InputProps={{
                 startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
               }}
@@ -801,7 +813,7 @@ export default function StockManagementPage() {
               label="Division"
               value={divisionFilter}
               onChange={(e) => setDivisionFilter(e.target.value)}
-              sx={{ minWidth: 138 }}
+              sx={{ minWidth: 122 }}
             >
               <MenuItem value="">All Divisions</MenuItem>
               {divisions.map((division) => (
@@ -814,7 +826,7 @@ export default function StockManagementPage() {
               label="Stock Status"
               value={stockFilter}
               onChange={(e) => setStockFilter(e.target.value)}
-              sx={{ minWidth: 132 }}
+              sx={{ minWidth: 118 }}
             >
               <MenuItem value="">All</MenuItem>
               <MenuItem value="low">Below Minimum</MenuItem>
@@ -827,7 +839,7 @@ export default function StockManagementPage() {
               label="Match Quality"
               value={matchFilter}
               onChange={(e) => setMatchFilter(e.target.value)}
-              sx={{ minWidth: 132 }}
+              sx={{ minWidth: 118 }}
             >
               <MenuItem value="">All</MenuItem>
               <MenuItem value="matched">Matched</MenuItem>
@@ -840,7 +852,7 @@ export default function StockManagementPage() {
               startIcon={<SyncRoundedIcon />}
               onClick={doRefresh}
               disabled={refreshing}
-              sx={{ minHeight: 34, borderRadius: 2.5, textTransform: 'none', fontWeight: 800, px: 1.1 }}
+              sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
             >
               {refreshing ? 'Refreshing...' : 'Run Daily Refresh'}
             </Button>
@@ -850,12 +862,12 @@ export default function StockManagementPage() {
               startIcon={<FileDownloadOutlinedIcon />}
               onClick={doExport}
               disabled={exporting}
-              sx={{ minHeight: 34, borderRadius: 2.5, textTransform: 'none', fontWeight: 800, px: 1.1 }}
+              sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
             >
               {exporting ? 'Exporting...' : 'Export Master Workbook'}
             </Button>
           </Stack>
-          <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap">
             <Chip size="small" label={`Rows in stock report ${fmtCount(latestImport?.statusRowCount || 0)}`} sx={{ fontWeight: 700 }} />
             <Chip size="small" label={`Matched items ${fmtCount(summary.matchedItemCount)}`} sx={{ fontWeight: 700, bgcolor: '#dcfce7', color: '#166534' }} />
             <Chip size="small" label={`Review items ${fmtCount(summary.lowConfidenceCount + summary.unresolvedItemCount)}`} sx={{ fontWeight: 700, bgcolor: '#ffedd5', color: '#c2410c' }} />
@@ -868,12 +880,14 @@ export default function StockManagementPage() {
         value={tab}
         onChange={(_, value) => setTab(value)}
         sx={{
-          minHeight: 40,
+          minHeight: 34,
           '& .MuiTab-root': {
-            minHeight: 40,
+            minHeight: 34,
             textTransform: 'none',
             fontWeight: 700,
-            fontSize: 13
+            fontSize: 12.1,
+            px: 1.1,
+            minWidth: 0
           }
         }}
       >
@@ -885,11 +899,11 @@ export default function StockManagementPage() {
       </Tabs>
 
       {tab === 0 ? (
-        <Stack spacing={1.1}>
+        <Stack spacing={0.82}>
           <Box
             sx={{
               display: 'grid',
-              gap: 0.95,
+              gap: 0.72,
               gridTemplateColumns: {
                 xs: '1fr',
                 sm: 'repeat(2, minmax(0, 1fr))',
@@ -909,7 +923,7 @@ export default function StockManagementPage() {
           <Box
             sx={{
               display: 'grid',
-              gap: 1,
+              gap: 0.8,
               gridTemplateColumns: {
                 xs: '1fr',
                 xl: '1.2fr 0.8fr'
@@ -917,7 +931,7 @@ export default function StockManagementPage() {
             }}
           >
             <SectionCard title="Regional Stock Position" subtitle="Available stock versus required spares, with warehouse and field holdings considered separately.">
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={regionChart} margin={{ left: 0, right: 16, top: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="region" tick={{ fontSize: 11 }} />
@@ -931,20 +945,20 @@ export default function StockManagementPage() {
             </SectionCard>
 
             <SectionCard title="Import Control" subtitle="Latest import health and a short run history.">
-              <Stack spacing={1}>
-                <Paper variant="outlined" sx={{ p: 1 }}>
+              <Stack spacing={0.72}>
+                <Paper variant="outlined" sx={{ p: 0.82 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Latest Stock Report</Typography>
-                  <Typography variant="body2" sx={{ mt: 0.45 }}>Report date: {fmtDateTime(latestImport?.reportDate)}</Typography>
-                  <Typography variant="body2">Imported: {fmtDateTime(latestImport?.createdAt)}</Typography>
-                  <Typography variant="body2">Source file: {latestImport?.sourceFilename || 'N/A'}</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.35, fontSize: 11.3 }}>Report date: {fmtDateTime(latestImport?.reportDate)}</Typography>
+                  <Typography variant="body2" sx={{ fontSize: 11.3 }}>Imported: {fmtDateTime(latestImport?.createdAt)}</Typography>
+                  <Typography variant="body2" sx={{ fontSize: 11.3 }}>Source file: {latestImport?.sourceFilename || 'N/A'}</Typography>
                 </Paper>
-                <Paper variant="outlined" sx={{ p: 1 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.55 }}>Recent Import History</Typography>
-                  <Stack spacing={0.5}>
+                <Paper variant="outlined" sx={{ p: 0.82 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.4 }}>Recent Import History</Typography>
+                  <Stack spacing={0.35}>
                     {(data?.importHistory || []).slice(0, 5).map((row) => (
                       <Stack key={row.id} direction="row" justifyContent="space-between" spacing={1}>
-                        <Typography variant="caption">{fmtDateTime(row.reportDate || row.createdAt)}</Typography>
-                        <Typography variant="caption">{fmtCount(row.statusRowCount)} rows</Typography>
+                        <Typography variant="caption" sx={{ fontSize: 10.6 }}>{fmtDateTime(row.reportDate || row.createdAt)}</Typography>
+                        <Typography variant="caption" sx={{ fontSize: 10.6 }}>{fmtCount(row.statusRowCount)} rows</Typography>
                       </Stack>
                     ))}
                   </Stack>
@@ -956,7 +970,7 @@ export default function StockManagementPage() {
           <Box
             sx={{
               display: 'grid',
-              gap: 1,
+              gap: 0.8,
               gridTemplateColumns: {
                 xs: '1fr',
                 xl: '0.9fr 1.1fr'
@@ -964,7 +978,7 @@ export default function StockManagementPage() {
             }}
           >
             <SectionCard title="Division Pressure" subtitle="Divisions carrying the highest low-stock count right now.">
-              <ResponsiveContainer width="100%" height={250}>
+              <ResponsiveContainer width="100%" height={215}>
                 <BarChart data={divisionChart} layout="vertical" margin={{ left: 24, right: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis type="number" tick={{ fontSize: 11 }} />
@@ -976,7 +990,7 @@ export default function StockManagementPage() {
             </SectionCard>
 
             <SectionCard title="Low Stock Watchlist" subtitle="Highest usable-stock gaps against required spares, with derived cost exposure.">
-              <TableContainer sx={{ maxHeight: 250 }}>
+              <TableContainer sx={{ maxHeight: 215 }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
@@ -1016,7 +1030,7 @@ export default function StockManagementPage() {
           subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
           action={<Chip size="small" label={`${fmtCount(filteredItemRows.length)} visible items`} sx={{ fontWeight: 700 }} />}
         >
-          <Stack spacing={0.7}>
+          <Stack spacing={0.55}>
             {divisionGroups.map((group) => (
               <Accordion
                 key={group.division}
@@ -1039,24 +1053,40 @@ export default function StockManagementPage() {
                 <AccordionSummary
                   expandIcon={<ExpandMoreRoundedIcon />}
                   sx={{
-                    minHeight: 46,
-                    px: 1.2,
+                    minHeight: 40,
+                    px: 0.9,
+                    py: 0.1,
                     bgcolor: '#f8fafc',
-                    '& .MuiAccordionSummary-content': { my: 0.7 }
+                    '& .MuiAccordionSummary-content': { my: 0.35 }
                   }}
                 >
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} alignItems={{ xs: 'flex-start', md: 'center' }} useFlexGap flexWrap="wrap">
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.55} alignItems={{ xs: 'flex-start', md: 'center' }} useFlexGap flexWrap="wrap">
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: 13.2 }}>
                       {group.division}
                     </Typography>
-                    <Chip size="small" label={`${fmtCount(group.rows.length)} items`} sx={{ fontWeight: 700 }} />
-                    <Chip size="small" label={`${fmtCount(group.lowStockCount)} low stock`} sx={{ fontWeight: 700, bgcolor: '#fee2e2', color: '#b91c1c' }} />
-                    <Chip size="small" label={`Gap cost ${fmtMoney(group.gapCostTotal)}`} sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                    <Chip size="small" label={`${fmtCount(group.rows.length)} items`} sx={{ fontWeight: 700, height: 22, '& .MuiChip-label': { px: 0.9, fontSize: 11.2 } }} />
+                    <Chip size="small" label={`${fmtCount(group.lowStockCount)} low`} sx={{ fontWeight: 700, height: 22, bgcolor: '#fee2e2', color: '#b91c1c', '& .MuiChip-label': { px: 0.9, fontSize: 11.2 } }} />
+                    <Chip size="small" label={`Gap ${fmtMoney(group.gapCostTotal)}`} sx={{ fontWeight: 700, height: 22, bgcolor: '#eff6ff', color: '#1d4ed8', '& .MuiChip-label': { px: 0.9, fontSize: 11.2 } }} />
                   </Stack>
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: 0 }}>
                   <Box sx={{ overflowX: 'auto' }}>
-                    <Table size="small" sx={{ minWidth: 1480 }}>
+                    <Table
+                      size="small"
+                      sx={{
+                        minWidth: 1360,
+                        '& .MuiTableCell-root': {
+                          py: 0.45,
+                          px: 0.6,
+                          fontSize: 11.2,
+                          whiteSpace: 'nowrap'
+                        },
+                        '& .MuiTableHead-root .MuiTableCell-root': {
+                          fontSize: 10.8,
+                          fontWeight: 800
+                        }
+                      }}
+                    >
                       <TableHead>
                         <TableRow>
                           <TableCell>Item</TableCell>
@@ -1084,17 +1114,23 @@ export default function StockManagementPage() {
                           const tone = statusTone(row)
                           return (
                             <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
-                              <TableCell sx={{ minWidth: 280 }}>
-                                <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
-                                <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
+                              <TableCell sx={{ minWidth: 220, maxWidth: 220 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 11.6, lineHeight: 1.2 }}>
+                                  {row.itemDescription}
+                                </Typography>
+                                <Typography variant="caption" sx={{ opacity: 0.72, fontSize: 10.5, lineHeight: 1.1, display: 'block' }}>
+                                  {row.stockCode || 'No stock code'}
+                                </Typography>
                               </TableCell>
-                              <TableCell sx={{ minWidth: 140 }}>{row.sectionName || 'General'}</TableCell>
+                              <TableCell sx={{ minWidth: 104, maxWidth: 104, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {row.sectionName || 'General'}
+                              </TableCell>
                               <TableCell>
                                 <Chip
                                   size="small"
                                   label={row.matchStatus}
                                   color={matchTone(row)}
-                                  sx={{ fontWeight: 700 }}
+                                  sx={{ fontWeight: 700, height: 21, '& .MuiChip-label': { px: 0.8, fontSize: 10.7 } }}
                                 />
                               </TableCell>
                               <TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell>
@@ -1105,7 +1141,25 @@ export default function StockManagementPage() {
                               </TableCell>
                               <TableCell align="right">{fmtCount(row.notInWarehouses)}</TableCell>
                               <TableCell align="right">{fmtCount(row.orderedStock)}</TableCell>
-                              <TableCell align="right">{fmtCount(row.shortage)}</TableCell>
+                              <TableCell align="right">
+                                <Typography
+                                  component="span"
+                                  sx={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    minWidth: 42,
+                                    px: 0.7,
+                                    py: 0.1,
+                                    borderRadius: 999,
+                                    fontWeight: 900,
+                                    color: row.shortage > 0 ? '#b91c1c' : '#166534',
+                                    bgcolor: row.shortage > 0 ? '#fee2e2' : '#dcfce7'
+                                  }}
+                                >
+                                  {fmtCount(row.shortage)}
+                                </Typography>
+                              </TableCell>
                               <TableCell align="right">{fmtMoney(row.unitCost)}</TableCell>
                               <TableCell align="right">{fmtMoney(row.gapCost)}</TableCell>
                               <TableCell align="right">{fmtCount(row.cptTotal)}</TableCell>
@@ -1135,8 +1189,18 @@ export default function StockManagementPage() {
           subtitle="Review low-confidence and unmatched items, then lock in an override so the daily refresh stays stable."
           action={<Chip size="small" label={`${fmtCount(reviewRows.length)} items`} sx={{ fontWeight: 700 }} />}
         >
-          <TableContainer>
-            <Table size="small">
+          <TableContainer sx={{ maxHeight: '66vh' }}>
+            <Table
+              size="small"
+              stickyHeader
+              sx={{
+                '& .MuiTableCell-root': {
+                  py: 0.45,
+                  px: 0.6,
+                  fontSize: 11.2
+                }
+              }}
+            >
               <TableHead>
                 <TableRow>
                   <TableCell>Template Item</TableCell>
@@ -1165,7 +1229,7 @@ export default function StockManagementPage() {
                             key={`${row.id}-${candidate.itemNo}`}
                             size="small"
                             label={`${candidate.itemNo} (${Number(candidate.score || 0).toFixed(2)})`}
-                            sx={{ maxWidth: 260 }}
+                            sx={{ maxWidth: 220, height: 21, '& .MuiChip-label': { fontSize: 10.5 } }}
                           />
                         ))}
                       </Stack>
@@ -1176,7 +1240,7 @@ export default function StockManagementPage() {
                         variant="outlined"
                         startIcon={<EditOutlinedIcon />}
                         onClick={() => setReviewItem(row)}
-                        sx={{ textTransform: 'none', fontWeight: 700 }}
+                        sx={{ textTransform: 'none', fontWeight: 700, minHeight: 28, px: 0.9 }}
                       >
                         Review
                       </Button>
@@ -1195,7 +1259,7 @@ export default function StockManagementPage() {
           subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
           action={<Chip size="small" label={`${fmtCount(sectionOptions.length)} known sections`} sx={{ fontWeight: 700 }} />}
         >
-          <Stack spacing={1}>
+          <Stack spacing={0.8}>
             {createDuplicateHints.length ? (
               <Alert severity="warning" sx={{ borderRadius: 2.4 }}>
                 A possible duplicate already exists. Review the matches below before saving a new template item.
@@ -1204,11 +1268,11 @@ export default function StockManagementPage() {
             <Box
               sx={{
                 display: 'grid',
-                gap: 0.9,
+                gap: 0.7,
                 gridTemplateColumns: {
                   xs: '1fr',
                   md: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(4, minmax(0, 1fr))'
+                  xl: 'repeat(5, minmax(0, 1fr))'
                 }
               }}
             >
@@ -1263,21 +1327,21 @@ export default function StockManagementPage() {
             </Box>
 
             {sectionOptions.length ? (
-              <Typography variant="caption" sx={{ opacity: 0.72 }}>
+              <Typography variant="caption" sx={{ opacity: 0.72, fontSize: 10.6 }}>
                 Existing sections: {sectionOptions.slice(0, 10).join(' | ')}
               </Typography>
             ) : null}
 
             {createDuplicateHints.length ? (
-              <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.4 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.6 }}>
+              <Paper variant="outlined" sx={{ p: 0.82, borderRadius: 2.2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.45, fontSize: 13 }}>
                   Possible duplicates
                 </Typography>
-                <Stack spacing={0.45}>
+                <Stack spacing={0.35}>
                   {createDuplicateHints.map((row) => (
                     <Stack key={row.id} direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={0.7}>
-                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.74 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 11.4 }}>{row.itemDescription}</Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.74, fontSize: 10.5 }}>
                         {row.stockCode || 'No stock code'} | {row.division || 'Unassigned'}
                       </Typography>
                     </Stack>
@@ -1286,12 +1350,12 @@ export default function StockManagementPage() {
               </Paper>
             ) : null}
 
-            <Stack direction="row" spacing={0.8} justifyContent="flex-end" useFlexGap flexWrap="wrap">
+            <Stack direction="row" spacing={0.6} justifyContent="flex-end" useFlexGap flexWrap="wrap">
               <Button
                 size="small"
                 variant="outlined"
                 onClick={() => setCreateForm(createTemplateFormState())}
-                sx={{ textTransform: 'none', fontWeight: 800 }}
+                sx={{ textTransform: 'none', fontWeight: 800, minHeight: 29, px: 0.9 }}
               >
                 Reset
               </Button>
@@ -1301,7 +1365,7 @@ export default function StockManagementPage() {
                 startIcon={<AddCircleOutlineRoundedIcon />}
                 onClick={saveNewTemplateItem}
                 disabled={creatingTemplateItem || !createForm.itemDescription.trim() || !createForm.division.trim() || createDuplicateHints.length > 0}
-                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.5 }}
+                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.2, minHeight: 29, px: 0.95 }}
               >
                 {creatingTemplateItem ? 'Saving...' : 'Create Template Item'}
               </Button>
@@ -1318,7 +1382,18 @@ export default function StockManagementPage() {
         >
           {notWarehouseRows.length ? (
             <TableContainer sx={{ maxHeight: '70vh' }}>
-              <Table size="small" stickyHeader sx={{ minWidth: 1320 }}>
+              <Table
+                size="small"
+                stickyHeader
+                sx={{
+                  minWidth: 1180,
+                  '& .MuiTableCell-root': {
+                    py: 0.42,
+                    px: 0.58,
+                    fontSize: 11.1
+                  }
+                }}
+              >
                 <TableHead>
                   <TableRow>
                     <TableCell>Item</TableCell>
@@ -1339,9 +1414,9 @@ export default function StockManagementPage() {
                     const draft = notWhDrafts[row.key] || { status: row.status, notes: row.notes }
                     return (
                       <TableRow key={row.key} hover>
-                        <TableCell sx={{ minWidth: 240 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
+                        <TableCell sx={{ minWidth: 210, maxWidth: 210 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 11.4 }}>{row.itemDescription}</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.72, fontSize: 10.5 }}>{row.stockCode || 'No stock code'}</Typography>
                         </TableCell>
                         <TableCell>{row.division || 'Unassigned'}</TableCell>
                         <TableCell>{row.siteId}</TableCell>
@@ -1349,7 +1424,7 @@ export default function StockManagementPage() {
                         <TableCell align="right">{fmtCount(row.qtyAvailable)}</TableCell>
                         <TableCell align="right">{fmtMoney(row.unitCost)}</TableCell>
                         <TableCell align="right">{fmtMoney(row.totalValue)}</TableCell>
-                        <TableCell sx={{ minWidth: 220 }}>
+                        <TableCell sx={{ minWidth: 180 }}>
                           <TextField
                             size="small"
                             select
@@ -1362,7 +1437,7 @@ export default function StockManagementPage() {
                             ))}
                           </TextField>
                         </TableCell>
-                        <TableCell sx={{ minWidth: 260 }}>
+                        <TableCell sx={{ minWidth: 220 }}>
                           <TextField
                             size="small"
                             value={draft.notes}
@@ -1371,11 +1446,11 @@ export default function StockManagementPage() {
                             fullWidth
                           />
                         </TableCell>
-                        <TableCell sx={{ minWidth: 160 }}>
-                          <Typography variant="caption" sx={{ display: 'block' }}>
+                        <TableCell sx={{ minWidth: 138 }}>
+                          <Typography variant="caption" sx={{ display: 'block', fontSize: 10.4 }}>
                             {row.updatedAt ? fmtDateTime(row.updatedAt) : 'Not saved yet'}
                           </Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                          <Typography variant="caption" sx={{ opacity: 0.7, fontSize: 10.2 }}>
                             {row.updatedBy || ''}
                           </Typography>
                         </TableCell>
@@ -1385,7 +1460,7 @@ export default function StockManagementPage() {
                             variant="contained"
                             onClick={() => saveNotWarehouseRow(row)}
                             disabled={savingNotWhKey === row.key}
-                            sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.2 }}
+                            sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2, minHeight: 28, px: 0.85 }}
                           >
                             {savingNotWhKey === row.key ? 'Saving...' : 'Save'}
                           </Button>
