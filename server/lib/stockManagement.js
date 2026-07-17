@@ -228,7 +228,12 @@ function parseReportDate(value) {
 }
 
 function normalizeSubject(subject) {
-  return String(subject || '').replace(SUBJECT_PREFIX_RE, '').trim().toLowerCase()
+  return String(subject || '')
+    .replace(SUBJECT_PREFIX_RE, '')
+    .replace(/[–—]/g, '-')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .toLowerCase()
 }
 
 function getSubjectHeader(message) {
@@ -878,8 +883,18 @@ async function getAttachmentBuffer(gmail, messageId, attachmentId) {
 }
 
 function buildSubjectNeedles(subject) {
+  const defaultNeedles = [
+    'stock status',
+    'stock status valuation',
+    'minimum stock',
+    'qty on hand',
+    'lvr order point qty',
+    'stock status valuation was executed at',
+    'minimum stock qty on hand lvr order point qty was executed at'
+  ]
+
   return Array.from(new Set(
-    [subject, 'Stock Status', 'Stock Status Valuation']
+    [subject, ...defaultNeedles]
       .map((value) => normalizeSubject(value))
       .filter(Boolean)
   ))
@@ -899,7 +914,7 @@ function pickSpreadsheetAttachment(parts = []) {
 
 export async function fetchStockStatusWorkbookFromGmail() {
   const gmail = await gmailClientFromEnv()
-  const subject = process.env.GMAIL_STOCK_SUBJECT || 'Stock Status'
+  const subject = process.env.GMAIL_STOCK_SUBJECT || 'Stock Status Valuation was executed at'
   const sender = cleanCell(process.env.GMAIL_STOCK_SENDER || '')
   const lookbackDays = Number(process.env.GMAIL_STOCK_LOOKBACK_DAYS || '14') || 14
   const needles = buildSubjectNeedles(subject)
