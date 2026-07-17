@@ -43,11 +43,11 @@ export default function OvertimeCapturePage() {
   }
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h5" sx={{ mb: 2 }}>Overtime capture</Typography>
+    <Box sx={{ p: 1.5 }}>
+      <Typography variant="h6" sx={{ mb: 1.25, fontWeight: 800 }}>Overtime capture</Typography>
 
       <Card>
-        <CardContent sx={{ display: "grid", gap: 2, maxWidth: 520 }}>
+        <CardContent sx={{ display: "grid", gap: 1.25, maxWidth: 500 }}>
           <TextField
             label="Work date"
             type="date"
@@ -92,7 +92,7 @@ export default function OvertimeCapturePage() {
             Submit
           </Button>
 
-          <Typography variant="body2" sx={{ opacity: 0.8 }}>
+          <Typography variant="body2" sx={{ opacity: 0.8, fontSize: 11.5 }}>
             Manual overtime can only be captured within the last 7 days.
           </Typography>
         </CardContent>

@@ -467,7 +467,7 @@ export default function TechAppointmentDetailPage() {
 
   if (!appt) {
     return (
-      <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+      <Box sx={{ maxWidth: 820, mx: 'auto' }}>
         {err ? <Alert severity="error">{err}</Alert> : <Typography>Loading…</Typography>}
       </Box>
     )
@@ -476,9 +476,9 @@ export default function TechAppointmentDetailPage() {
   const trackingLive = shouldTrackForStatus(st)
 
   return (
-    <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-      <Stack spacing={1.5} sx={{ mb: 2 }}>
-        <Typography variant="h5" sx={{ fontWeight: 950 }}>
+    <Box sx={{ maxWidth: 820, mx: 'auto' }}>
+      <Stack spacing={1} sx={{ mb: 1.25 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
           {ticket.externalRef || appt.ticketId}
         </Typography>
 
@@ -502,7 +502,7 @@ export default function TechAppointmentDetailPage() {
       {/* Map + directions */}
       <TechRouteMap ticket={ticket} />
 
-      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+      <Paper sx={{ p: 1.5, mt: 1.5, borderRadius: 2.5 }} variant="outlined">
         <Typography sx={{ fontWeight: 900 }}>
           {ticket.customerName || ''}
         </Typography>
@@ -515,15 +515,15 @@ export default function TechAppointmentDetailPage() {
           {ticket.address || ''}
         </Typography>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={callCustomer} disabled={!ticket.customerPhone || busy} sx={{ borderRadius: 3 }}>
+        <Stack direction="row" spacing={0.75} sx={{ mt: 1.25, flexWrap: 'wrap' }}>
+          <Button variant="outlined" onClick={callCustomer} disabled={!ticket.customerPhone || busy} sx={{ borderRadius: 2 }}>
             Call customer
           </Button>
           <Button
             variant="outlined"
             onClick={async () => { await safeFlushQueue(); await refreshQueueCounts(); await load() }}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Sync now
           </Button>
@@ -533,7 +533,7 @@ export default function TechAppointmentDetailPage() {
               variant="contained"
               onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'EN_ROUTE' })}
               disabled={busy}
-              sx={{ borderRadius: 3 }}
+              sx={{ borderRadius: 2 }}
             >
               Start travel
             </Button>
@@ -555,7 +555,7 @@ export default function TechAppointmentDetailPage() {
             variant="outlined"
             onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'NEAR_SITE' })}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Near site
           </Button>
@@ -563,7 +563,7 @@ export default function TechAppointmentDetailPage() {
             variant="outlined"
             onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'ARRIVED' })}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Arrived
           </Button>
@@ -571,7 +571,7 @@ export default function TechAppointmentDetailPage() {
             variant="outlined"
             onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'IN_PROGRESS' })}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Start work
           </Button>
@@ -580,7 +580,7 @@ export default function TechAppointmentDetailPage() {
             variant="contained"
             onClick={() => queueAndTrySend({ eventType: 'STATUS_CHANGED', status: 'COMPLETED' })}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Mark complete
           </Button>
@@ -588,7 +588,7 @@ export default function TechAppointmentDetailPage() {
             variant="outlined"
             onClick={() => queueAndTrySend({ eventType: 'ASSISTANCE_REQUESTED', status: null, payload: { note: notes || 'Need assistance' } })}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Request assistance
           </Button>
@@ -596,16 +596,16 @@ export default function TechAppointmentDetailPage() {
       </Paper>
 
       {/* ✅ Work Service Order form (based on your PDF) */}
-      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
+      <Paper sx={{ p: 1.5, mt: 1.5, borderRadius: 2.5 }} variant="outlined">
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 900 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
             Work Service Order
           </Typography>
           <Chip size="small" variant="outlined" label="Customer consent + findings" />
         </Stack>
 
-        <Stack spacing={1.5}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+        <Stack spacing={0.75}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField
               label="RT Ticket Ref"
               value={wso.rtTicketRef}
@@ -620,7 +620,7 @@ export default function TechAppointmentDetailPage() {
             />
           </Stack>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField
               label="Link label"
               value={wso.linkLabel}
@@ -643,7 +643,7 @@ export default function TechAppointmentDetailPage() {
             </FormControl>
           </Stack>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField
               label="Hours on site start"
               placeholder="HH:mm"
@@ -660,7 +660,7 @@ export default function TechAppointmentDetailPage() {
             />
           </Stack>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <FormControlLabel
               control={
                 <Checkbox
@@ -724,7 +724,7 @@ export default function TechAppointmentDetailPage() {
             Customer consent
           </Typography>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexWrap: 'wrap' }}>
             <FormControlLabel
               control={<Checkbox checked={wso.consentOver18} onChange={e => setWso(v => ({ ...v, consentOver18: e.target.checked }))} />}
               label="Customer is over 18"
@@ -758,25 +758,25 @@ export default function TechAppointmentDetailPage() {
           ) : null}
 
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            <Button variant="outlined" onClick={saveWSOForm} disabled={busy} sx={{ borderRadius: 3 }}>
+            <Button variant="outlined" onClick={saveWSOForm} disabled={busy} sx={{ borderRadius: 2 }}>
               Save form
             </Button>
           </Stack>
         </Stack>
       </Paper>
 
-      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
-        <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
+      <Paper sx={{ p: 1.5, mt: 1.5, borderRadius: 2.5 }} variant="outlined">
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }} gutterBottom>
           Photos and signature
         </Typography>
 
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-          <Button variant="outlined" component="label" disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button variant="outlined" component="label" disabled={busy} sx={{ borderRadius: 2 }}>
             Upload photo
             <input hidden type="file" accept="image/*" capture="environment" onChange={onPickPhoto} />
           </Button>
 
-          <Button variant="outlined" component="label" disabled={busy} sx={{ borderRadius: 3 }}>
+          <Button variant="outlined" component="label" disabled={busy} sx={{ borderRadius: 2 }}>
             Upload signature
             <input hidden type="file" accept="image/*" capture="user" onChange={onPickSignature} />
           </Button>
@@ -787,8 +787,8 @@ export default function TechAppointmentDetailPage() {
         </Typography>
       </Paper>
 
-      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
-        <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
+      <Paper sx={{ p: 1.5, mt: 1.5, borderRadius: 2.5 }} variant="outlined">
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }} gutterBottom>
           Close out
         </Typography>
 
@@ -801,7 +801,7 @@ export default function TechAppointmentDetailPage() {
           minRows={3}
         />
 
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1.25 }}>
           <FormControl sx={{ minWidth: 260 }} size="small">
             <InputLabel>Unsuccessful reason</InputLabel>
             <Select
@@ -836,13 +836,13 @@ export default function TechAppointmentDetailPage() {
           />
         </Box>
 
-        <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+        <Stack direction="row" spacing={0.75} sx={{ mt: 1.25, flexWrap: 'wrap' }}>
           <Button
             color="success"
             variant="contained"
             onClick={() => doSubmitJobCard('SUCCESSFUL')}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Submit successful
           </Button>
@@ -851,15 +851,15 @@ export default function TechAppointmentDetailPage() {
             variant="contained"
             onClick={() => doSubmitJobCard('UNSUCCESSFUL')}
             disabled={busy}
-            sx={{ borderRadius: 3 }}
+            sx={{ borderRadius: 2 }}
           >
             Submit unsuccessful
           </Button>
         </Stack>
       </Paper>
 
-      <Paper sx={{ p: 2, mt: 2, borderRadius: 4 }} variant="outlined">
-        <Typography variant="h6" sx={{ fontWeight: 900 }} gutterBottom>
+      <Paper sx={{ p: 1.5, mt: 1.5, borderRadius: 2.5 }} variant="outlined">
+        <Typography variant="subtitle1" sx={{ fontWeight: 900 }} gutterBottom>
           Timeline
         </Typography>
 
@@ -868,9 +868,9 @@ export default function TechAppointmentDetailPage() {
             No events yet.
           </Typography>
         ) : (
-          <Stack spacing={1}>
+          <Stack spacing={0.75}>
             {timeline.slice(0, 12).map(ev => (
-              <Paper key={ev.id} variant="outlined" sx={{ p: 1.2, borderRadius: 3 }}>
+              <Paper key={ev.id} variant="outlined" sx={{ p: 1, borderRadius: 2 }}>
                 <Typography variant="body2" sx={{ fontWeight: 900 }}>
                   {ev.eventType}
                 </Typography>

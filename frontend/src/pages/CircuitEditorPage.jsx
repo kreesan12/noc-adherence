@@ -200,13 +200,13 @@ export default function CircuitEditorPage() {
   ]
 
   return (
-    <Box sx={{ p: 2, height: 'calc(100vh - 64px)', overflow: 'auto' }}>
-      <Typography variant="h5" sx={{ mb: 1 }}>Circuit Data Cleanup</Typography>
-      <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+    <Box sx={{ p: 1.5, height: 'calc(100vh - 56px)', overflow: 'auto' }}>
+      <Typography variant="h6" sx={{ mb: 0.75, fontWeight: 800 }}>Circuit Data Cleanup</Typography>
+      <Typography variant="body2" sx={{ mb: 1.25, color: 'text.secondary' }}>
         Edit circuit names, IDs, grouping, and coordinates. Circuits are grouped by NLD for easier review.
       </Typography>
 
-      <Paper sx={{ p: 1.5, mb: 2 }}>
+      <Paper sx={{ p: 1.25, mb: 1.25 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Tooltip title="Add a new circuit row">
             <Button variant="contained" onClick={handleAdd}>Add Circuit</Button>
@@ -218,19 +218,19 @@ export default function CircuitEditorPage() {
       </Paper>
 
       {!groupedRows.length && loading && (
-        <Paper sx={{ p: 3, mb: 2 }}>
+        <Paper sx={{ p: 1.75, mb: 1.25 }}>
           <Typography color="text.secondary">Loading circuits...</Typography>
         </Paper>
       )}
 
       {!groupedRows.length && !loading && (
-        <Paper sx={{ p: 3 }}>
+        <Paper sx={{ p: 1.75 }}>
           <Typography color="text.secondary">No circuits found.</Typography>
         </Paper>
       )}
 
       {groupedRows.map(({ group, items }) => (
-        <Accordion key={group} defaultExpanded disableGutters sx={{ mb: 1.5 }}>
+        <Accordion key={group} defaultExpanded disableGutters sx={{ mb: 1 }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Stack direction="row" spacing={1} alignItems="center">
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{group}</Typography>
@@ -238,7 +238,7 @@ export default function CircuitEditorPage() {
             </Stack>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0 }}>
-            <Paper variant="outlined" sx={{ p: 1 }}>
+            <Paper variant="outlined" sx={{ p: 0.75 }}>
               <DataGrid
                 rows={items}
                 columns={columns}

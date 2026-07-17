@@ -32,9 +32,9 @@ export default function LoginPage () {
   }
 
   return (
-    <Paper sx={{ p:4, maxWidth:360, mx:'auto', mt:10 }}>
-      <Typography variant="h5" gutterBottom>Sign in</Typography>
-      <Stack component="form" onSubmit={handleSubmit} spacing={2}>
+    <Paper sx={{ p: 2.5, maxWidth: 340, mx: 'auto', mt: 7, borderRadius: 2 }}>
+      <Typography variant="h6" sx={{ fontWeight: 800, mb: 1 }}>Sign in</Typography>
+      <Stack component="form" onSubmit={handleSubmit} spacing={1.25}>
         <TextField
           label="Email"
           value={email}
@@ -61,7 +61,7 @@ export default function LoginPage () {
           }}
         />
 
-        {err && <Typography color="error">{err}</Typography>}
+        {err && <Typography color="error" variant="body2">{err}</Typography>}
         <Button type="submit" variant="contained">Login</Button>
       </Stack>
     </Paper>

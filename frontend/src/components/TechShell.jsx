@@ -44,7 +44,7 @@ export default function TechShell() {
 
   if (isLogin) {
     return (
-      <Box sx={{ minHeight: '100vh', px: 2, py: 2 }}>
+      <Box sx={{ minHeight: '100vh', px: 1.25, py: 1.25 }}>
         <Outlet />
       </Box>
     )
@@ -53,13 +53,13 @@ export default function TechShell() {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar position="sticky" elevation={0}>
-        <Toolbar sx={{ gap: 1 }}>
+        <Toolbar sx={{ gap: 0.75, minHeight: '48px !important' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" sx={{ fontWeight: 950, lineHeight: 1.1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
               My Day
             </Typography>
 
-            <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={0.7} sx={{ mt: 0.35, flexWrap: 'wrap' }}>
               <Chip size="small" label={techName ? techName : `Tech ${techId || '-'}`} />
               <Chip size="small" color={navigator.onLine ? 'success' : 'warning'} label={navigator.onLine ? 'Online' : 'Offline'} />
             </Stack>
@@ -74,7 +74,7 @@ export default function TechShell() {
         </Toolbar>
       </AppBar>
 
-      <Box sx={{ px: 2, py: 2, pb: 10 }}>
+      <Box sx={{ px: 1.25, py: 1.25, pb: 8.5 }}>
         <Outlet />
       </Box>
 

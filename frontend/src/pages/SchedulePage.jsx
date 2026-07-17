@@ -132,18 +132,18 @@ export default function SchedulePage () {
   /* ─── render ──────────────────────────────────────── */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ p: 1.5 }}>
         {/* header & week selector */}
         <Box sx={{
           display: 'flex', justifyContent: 'space-between',
-          alignItems: 'center', mb: 2
+          alignItems: 'center', mb: 1.25
         }}>
-          <Typography variant='h6'>
+          <Typography variant='subtitle1' sx={{ fontWeight: 800 }}>
             Week of {weekStart.format('MMM D, YYYY')}
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Button onClick={prevWeek} variant='outlined' sx={{ mr: 1 }}>
+            <Button onClick={prevWeek} variant='outlined' sx={{ mr: 0.75 }}>
               Prev
             </Button>
 
@@ -152,7 +152,7 @@ export default function SchedulePage () {
               views={['day']}
               value={weekStart}
               onChange={d => d && setWeekStart(dayjs(d).startOf('week'))}
-              slotProps={{ textField: { size: 'small', sx:{ mx: 1 } } }}
+              slotProps={{ textField: { size: 'small', sx:{ mx: 0.75 } } }}
             />
 
             {/* Team selector */}
@@ -162,7 +162,7 @@ export default function SchedulePage () {
               size='small'
               value={team}
               onChange={e => setTeam(e.target.value)}
-              sx={{ minWidth: 150, ml: 2 }}
+              sx={{ minWidth: 140, ml: 1 }}
             >
               <MenuItem value=''>All</MenuItem>
               {roles.map(r => (
@@ -170,21 +170,21 @@ export default function SchedulePage () {
               ))}
             </TextField>
 
-            <Button onClick={nextWeek} variant='outlined' sx={{ ml: 1 }}>
+            <Button onClick={nextWeek} variant='outlined' sx={{ ml: 0.75 }}>
               Next
             </Button>
           </Box>
         </Box>
 
         {/* FullCalendar week view */}
-        <Paper variant='outlined' sx={{ mb: 4, p: 0 }}>
+        <Paper variant='outlined' sx={{ mb: 2.5, p: 0 }}>
           <FullCalendar
             key={weekStart.toISOString() + events.length}   /* forces repaint */
             plugins={[timeGridPlugin]}
             initialView='timeGridWeek'
             initialDate={weekStart.toDate()}
             timeZone='local'
-            height={650}
+            height={600}
             headerToolbar={false}
             datesSet={({ start }) => setWeekStart(dayjs(start))}
             events={events}
@@ -198,8 +198,8 @@ export default function SchedulePage () {
         </Paper>
 
         {/* hour-by-hour table */}
-        <Box sx={{ mt:4, overflowX:'auto' }}>
-          <Typography variant='h6' gutterBottom>
+        <Box sx={{ mt:2.5, overflowX:'auto' }}>
+          <Typography variant='subtitle1' sx={{ fontWeight: 800, mb: 0.75 }}>
             Shift Counts by Hour & Day
           </Typography>
           <Table size='small'>

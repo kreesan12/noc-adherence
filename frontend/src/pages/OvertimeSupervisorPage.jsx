@@ -188,24 +188,24 @@ export default function OvertimeSupervisorPage() {
   }, [rows])
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h5">Overtime supervisor</Typography>
+    <Box sx={{ p: 1.5 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.25 }}>
+        <Typography variant="h6" sx={{ fontWeight: 800 }}>Overtime supervisor</Typography>
         <Button variant="outlined" onClick={generateFixed} disabled={!period || loading}>
           Generate fixed overtime
         </Button>
       </Stack>
 
       {period && (
-        <Typography sx={{ mb: 2, opacity: 0.8 }}>
+        <Typography sx={{ mb: 1.25, opacity: 0.8, fontSize: 11.8 }}>
           Period: {period.label} ({dayjs(period.startDate).format("YYYY-MM-DD")} to{" "}
           {dayjs(period.endDate).format("YYYY-MM-DD")})
         </Typography>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 1.25 }}>{error}</Alert>}
 
-      <div style={{ height: 560, width: "100%" }}>
+      <div style={{ height: 520, width: "100%" }}>
         <DataGrid
           rows={rows}
           columns={columns}
@@ -217,10 +217,10 @@ export default function OvertimeSupervisorPage() {
         />
       </div>
 
-      <Box sx={{ mt: 2 }}>
-        <Typography variant="h6">Totals</Typography>
+      <Box sx={{ mt: 1.5 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 0.5 }}>Totals</Typography>
         {totals.map(([name, v]) => (
-          <Typography key={name}>
+          <Typography key={name} variant="body2" sx={{ mb: 0.2 }}>
             {name}: {v.hours.toFixed(2)} hours, {v.payUnits.toFixed(2)} pay units, {v.fixed} fixed lines, {v.manual} manual lines
           </Typography>
         ))}

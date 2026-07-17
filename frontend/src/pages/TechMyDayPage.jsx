@@ -150,27 +150,27 @@ export default function TechMyDayPage() {
   }, [items])
 
   return (
-    <Box sx={{ maxWidth: 860, mx: 'auto' }}>
-      <Stack spacing={1.5} sx={{ mb: 2 }}>
-        <Typography variant="h5" sx={{ fontWeight: 950 }}>
+    <Box sx={{ maxWidth: 820, mx: 'auto' }}>
+      <Stack spacing={1} sx={{ mb: 1.25 }}>
+        <Typography variant="h6" sx={{ fontWeight: 900 }}>
           Tech Appointments
         </Typography>
 
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+        <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
           <Chip size="small" label={techName ? `Logged in: ${techName}` : `Tech ${techId || '-'}`} />
           <Chip size="small" color={navigator.onLine ? 'success' : 'warning'} label={navigator.onLine ? 'Online' : 'Offline'} />
           <Chip size="small" variant="outlined" label={`Queued: ${queueCount}`} />
         </Stack>
 
-        <Paper sx={{ p: 2, borderRadius: 4 }} variant="outlined">
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
+        <Paper sx={{ p: 1.5, borderRadius: 2.5 }} variant="outlined">
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
             <TextField
               label="From"
               type="date"
               value={from}
               onChange={e => setFrom(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              sx={{ width: { xs: '100%', sm: 240 } }}
+              sx={{ width: { xs: '100%', sm: 220 } }}
             />
             <TextField
               label="To"
@@ -178,11 +178,11 @@ export default function TechMyDayPage() {
               value={to}
               onChange={e => setTo(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              sx={{ width: { xs: '100%', sm: 240 } }}
+              sx={{ width: { xs: '100%', sm: 220 } }}
             />
 
-            <Stack direction="row" spacing={1} sx={{ ml: 'auto' }}>
-              <Button variant="outlined" onClick={load} disabled={loading} sx={{ borderRadius: 3 }}>
+            <Stack direction="row" spacing={0.75} sx={{ ml: 'auto' }}>
+              <Button variant="outlined" onClick={load} disabled={loading} sx={{ borderRadius: 2 }}>
                 {loading ? 'Loading…' : 'Refresh'}
               </Button>
             </Stack>
@@ -193,7 +193,7 @@ export default function TechMyDayPage() {
         {info && <Alert severity="info">{info}</Alert>}
       </Stack>
 
-      <Stack spacing={1.5}>
+      <Stack spacing={1}>
         {loading && sorted.length === 0 ? (
           <>
             <Skeleton variant="rounded" height={110} />
@@ -203,7 +203,7 @@ export default function TechMyDayPage() {
         ) : null}
 
         {!loading && sorted.length === 0 ? (
-          <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 4 }}>
+          <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5 }}>
             <Typography sx={{ fontWeight: 900 }}>No appointments</Typography>
             <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.5 }}>
               Nothing scheduled in this date range.
@@ -232,10 +232,10 @@ export default function TechMyDayPage() {
             'Open'
 
           return (
-            <Paper key={a.id} variant="outlined" sx={{ p: 2, borderRadius: 4 }}>
+            <Paper key={a.id} variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
               <Stack direction="row" spacing={1} alignItems="flex-start">
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{ fontWeight: 950, fontSize: 16, lineHeight: 1.2 }}>
+                  <Typography sx={{ fontWeight: 900, fontSize: 14.5, lineHeight: 1.15 }}>
                     {ref}
                   </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.8, mt: 0.2 }}>
@@ -248,12 +248,12 @@ export default function TechMyDayPage() {
                     {addr}
                   </Typography>
 
-                  <Stack direction="row" spacing={1} sx={{ mt: 1.2, flexWrap: 'wrap' }}>
+                  <Stack direction="row" spacing={0.75} sx={{ mt: 0.85, flexWrap: 'wrap' }}>
                     <Chip size="small" variant="outlined" label={`Status: ${a.status || '-'}`} />
                   </Stack>
                 </Box>
 
-                <Stack spacing={1} alignItems="flex-end" sx={{ minWidth: 170 }}>
+                <Stack spacing={0.75} alignItems="flex-end" sx={{ minWidth: 150 }}>
                   {canStartTravel ? (
                     <Button
                       fullWidth
@@ -261,7 +261,7 @@ export default function TechMyDayPage() {
                       startIcon={<DirectionsCarIcon />}
                       disabled={loading}
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); startTravel(a.id) }}
-                      sx={{ borderRadius: 3 }}
+                      sx={{ borderRadius: 2 }}
                     >
                       Start travel
                     </Button>
@@ -270,7 +270,7 @@ export default function TechMyDayPage() {
                       fullWidth
                       variant="outlined"
                       disabled
-                      sx={{ borderRadius: 3 }}
+                      sx={{ borderRadius: 2 }}
                     >
                       {started ? 'Already en route' : 'Closed'}
                     </Button>
@@ -282,7 +282,7 @@ export default function TechMyDayPage() {
                     to={`/tech/appointments/${a.id}`}
                     variant="outlined"
                     endIcon={<ChevronRightIcon />}
-                    sx={{ borderRadius: 3 }}
+                    sx={{ borderRadius: 2 }}
                   >
                     {openLabel}
                   </Button>

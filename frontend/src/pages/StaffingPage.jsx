@@ -479,16 +479,16 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
   /* RENDER */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 1.5 }}>
         <Typography variant="h4" gutterBottom>
           Staffing Forecast &amp; Scheduling
         </Typography>
 
         {/* Solver Controls */}
-        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6" gutterBottom>Solver Controls</Typography>
+        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>Solver Controls</Typography>
 
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <Button
               variant="outlined"
               disabled={!solverRunning}
@@ -498,9 +498,9 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
             </Button>
           </Box>
 
-          <Divider sx={{ my: 2 }} />
+          <Divider sx={{ my: 1.25 }} />
 
-          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
             <Typography variant="body2">Status: <b>{solverPhase}</b></Typography>
             <Typography variant="body2">Elapsed: <b>{formatElapsed(solverElapsedSec)}</b></Typography>
             <Typography variant="body2">Cap: <b>{solverCap ?? '-'}</b></Typography>
@@ -510,19 +510,19 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
             <Typography variant="body2">Last call: <b>{solverLastCallMs == null ? '-' : `${solverLastCallMs} ms`}</b></Typography>
           </Box>
 
-          {solverRunning && <LinearProgress sx={{ mt: 2 }} />}
+          {solverRunning && <LinearProgress sx={{ mt: 1.25 }} />}
 
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 1.25 }}>
             <Typography variant="subtitle2" gutterBottom>Solver log</Typography>
             <Box sx={{
               maxHeight: 220,
               overflowY: 'auto',
               bgcolor: '#0b1020',
               color: '#d7e0ff',
-              p: 1.5,
+              p: 1.25,
               borderRadius: 1,
               fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-              fontSize: 12
+              fontSize: 11.5
             }}>
               {solverLog.length === 0 ? (
                 <div style={{ opacity: 0.75 }}>No log yet</div>
@@ -534,7 +534,7 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
         </Paper>
 
         {/* Main toolbar */}
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
           <FormControl sx={{ minWidth: 140 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
@@ -580,16 +580,16 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
             Calculate 6 Month Forecast
           </Button>
 
-          <Button
-            variant="contained"
-            sx={{ ml: 2 }}
-            disabled={!forecast.length || solverRunning}
-            onClick={assignToStaff}
-          >
+            <Button
+              variant="contained"
+              sx={{ ml: 1 }}
+              disabled={!forecast.length || solverRunning}
+              onClick={assignToStaff}
+            >
             Draft schedule &amp; assign agents
           </Button>
 
-          <Button variant="contained" color="secondary" sx={{ ml: 2 }}
+          <Button variant="contained" color="secondary" sx={{ ml: 1 }}
             disabled={!Object.keys(personSchedule).length || solverRunning}
             onClick={allocateToAgents}>
             Allocate to Agents
@@ -598,8 +598,8 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
 
         {/* REQUIRED HEATMAP */}
         {forecast.length > 0 && (
-          <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Required Agents Heatmap</Typography>
+          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Required Agents Heatmap</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -643,8 +643,8 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
 
         {/* SCHEDULED HEATMAP */}
         {forecast.length > 0 && (
-          <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Scheduled Coverage Heatmap</Typography>
+          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Scheduled Coverage Heatmap</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -678,8 +678,8 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
 
         {/* DEFICIT HEATMAP */}
         {forecast.length > 0 && (
-          <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Under or Over Staffing Heatmap</Typography>
+          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Under or Over Staffing Heatmap</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -716,8 +716,8 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
 
         {/* BLOCKS TABLE */}
         {blocks.length > 0 && (
-          <Box sx={{ mb: 4, overflowX: 'auto' }}>
-            <Typography variant="h6">Assigned Shift Block Types</Typography>
+          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Assigned Shift Block Types</Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -747,18 +747,18 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
 
         {/* CALENDAR */}
         {Object.keys(personSchedule).length > 0 && (
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="h6" gutterBottom>
+          <Box sx={{ mt: 2.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
               6 Month Staff Calendar (waterfall template)
             </Typography>
 
-            <Button variant="outlined" onClick={exportExcel} sx={{ mb: 2 }}>
+            <Button variant="outlined" onClick={exportExcel} sx={{ mb: 1.25 }}>
               Export to Excel
             </Button>
 
             <CalendarView scheduleByEmp={personSchedule} nameFor={nameFor} />
 
-            <Box sx={{ mt: 2, p: 2, bgcolor: '#f9f9f9', borderRadius: 1 }}>
+            <Box sx={{ mt: 1.25, p: 1.25, bgcolor: '#f9f9f9', borderRadius: 1 }}>
               <Typography variant="subtitle1">
                 Full coverage schedule uses {Object.keys(personSchedule).length} agents
                 ({excludeAuto ? 'automation excluded' : 'automation included'}).

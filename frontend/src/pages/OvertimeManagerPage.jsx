@@ -66,21 +66,21 @@ export default function OvertimeManagerPage() {
   ]
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h5">Overtime manager</Typography>
+    <Box sx={{ p: 1.5 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.25 }}>
+        <Typography variant="h6" sx={{ fontWeight: 800 }}>Overtime manager</Typography>
         <Button variant="contained" onClick={exportZip} disabled={!period}>
           Export approved templates
         </Button>
       </Stack>
 
       {period && (
-        <Typography sx={{ mb: 2, opacity: 0.8 }}>
+        <Typography sx={{ mb: 1.25, opacity: 0.8, fontSize: 11.8 }}>
           Period: {period.label}
         </Typography>
       )}
 
-      <div style={{ height: 560, width: "100%" }}>
+      <div style={{ height: 520, width: "100%" }}>
         <DataGrid rows={rows} columns={columns} loading={loading} getRowId={r => r.id} />
       </div>
     </Box>

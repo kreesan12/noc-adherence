@@ -170,6 +170,25 @@ export default createTheme({
       }
     },
 
+    MuiToolbar: {
+      styleOverrides: {
+        root: {
+          minHeight: 48,
+          '@media (min-width: 600px)': {
+            minHeight: 48
+          }
+        }
+      }
+    },
+
+    MuiFormControlLabel: {
+      styleOverrides: {
+        label: {
+          fontSize: '0.82rem'
+        }
+      }
+    },
+
     MuiCardContent: {
       styleOverrides: {
         root: {
@@ -177,6 +196,60 @@ export default createTheme({
           '&:last-child': {
             paddingBottom: 14
           }
+        }
+      }
+    },
+
+    MuiDialogTitle: {
+      styleOverrides: {
+        root: {
+          padding: '12px 14px',
+          fontSize: '0.98rem',
+          fontWeight: 800
+        }
+      }
+    },
+
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          padding: '10px 14px'
+        }
+      }
+    },
+
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          padding: '10px 14px'
+        }
+      }
+    },
+
+    MuiDataGrid: {
+      defaultProps: {
+        rowHeight: 34,
+        columnHeaderHeight: 36
+      },
+      styleOverrides: {
+        root: {
+          fontSize: '0.8rem',
+          borderRadius: 8
+        },
+        columnHeaders: {
+          fontSize: '0.76rem'
+        },
+        columnHeaderTitle: {
+          fontWeight: 800
+        },
+        cell: {
+          paddingInline: 8
+        },
+        footerContainer: {
+          minHeight: 38
+        },
+        toolbarContainer: {
+          padding: '6px 8px'
         }
       }
     }

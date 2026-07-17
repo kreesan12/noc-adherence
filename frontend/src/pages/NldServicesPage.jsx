@@ -66,11 +66,11 @@ const requiredByStep = {
 
 /* ---------------- small helpers ---------------- */
 const Card = ({ title, subtitle, children, right, sx }) => (
-  <Paper variant="outlined" sx={{ p: 2, ...sx }}>
-    <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 1 }}>
+  <Paper variant="outlined" sx={{ p: 1.5, ...sx }}>
+    <Stack direction="row" alignItems="baseline" justifyContent="space-between" sx={{ mb: 0.75 }}>
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{title}</Typography>
-        {subtitle && <Typography variant="body2" color="text.secondary">{subtitle}</Typography>}
+        <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: 14 }}>{title}</Typography>
+        {subtitle && <Typography variant="body2" color="text.secondary" sx={{ fontSize: 11.5 }}>{subtitle}</Typography>}
       </Box>
       {right}
     </Stack>
@@ -372,7 +372,7 @@ export default function NldServicesPage() {
           {/* ====== Capture tab (Stepper) ====== */}
           {tab === 1 && (
             <Box sx={{ overflow: 'auto', pr: 1, pb: 2 }}>
-              <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+              <Paper variant="outlined" sx={{ p: 1.5, mb: 1.25 }}>
                 <Stepper activeStep={activeStep} alternativeLabel>
                   {STEPS.map(label => (
                     <Step key={label}>
@@ -414,7 +414,7 @@ export default function NldServicesPage() {
                         label="CAPACITY" select fullWidth
                         value={form.capacity} onChange={e => setF('capacity', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{ minWidth: 220 }}
+                        sx={{ minWidth: 190 }}
                       >
                         {CAPACITIES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -425,7 +425,7 @@ export default function NldServicesPage() {
                         label="SERVICE TYPE" select fullWidth
                         value={form.serviceType} onChange={e => setF('serviceType', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{ minWidth: 220 }}
+                        sx={{ minWidth: 190 }}
                       >
                         {SERVICE_TYPES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -436,7 +436,7 @@ export default function NldServicesPage() {
                         label="DEPLOYMENT" select fullWidth
                         value={form.deployment} onChange={e => setF('deployment', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{ minWidth: 220 }}
+                        sx={{ minWidth: 190 }}
                       >
                         {DEPLOYMENTS.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -447,7 +447,7 @@ export default function NldServicesPage() {
                         label="NLD ROUTE" select fullWidth
                         value={form.nldRoute} onChange={e => setF('nldRoute', e.target.value)}
                         InputLabelProps={{ shrink: true }}
-                        sx={{ minWidth: 220 }}
+                        sx={{ minWidth: 190 }}
                       >
                         {ROUTES.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                       </TextField>
@@ -567,7 +567,7 @@ export default function NldServicesPage() {
                               onBlur={() => markTouched(['sideAName'])}
                               error={!!(touched.sideAName && isEmpty(form.sideAName))}
                               helperText={touched.sideAName && isEmpty(form.sideAName) ? 'Required' : ' '}
-                              sx={{ minWidth: 320 }}
+                              sx={{ minWidth: 280 }}
                             />
                           )}
                         />
@@ -578,7 +578,7 @@ export default function NldServicesPage() {
                           fullWidth
                           value={form.sideAHandoff}
                           onChange={e => setF('sideAHandoff', e.target.value)}
-                          sx={{ minWidth: 320 }}
+                          sx={{ minWidth: 280 }}
                         />
                       </Grid>
                     </Grid>
@@ -612,7 +612,7 @@ export default function NldServicesPage() {
                               onBlur={() => markTouched(['sideBName'])}
                               error={!!(touched.sideBName && isEmpty(form.sideBName))}
                               helperText={touched.sideBName && isEmpty(form.sideBName) ? 'Required' : ' '}
-                              sx={{ minWidth: 320 }}
+                              sx={{ minWidth: 280 }}
                             />
                           )}
                         />
@@ -623,7 +623,7 @@ export default function NldServicesPage() {
                           fullWidth
                           value={form.sideBHandoff}
                           onChange={e => setF('sideBHandoff', e.target.value)}
-                          sx={{ minWidth: 320 }}
+                          sx={{ minWidth: 280 }}
                         />
                       </Grid>
                     </Grid>
@@ -698,7 +698,7 @@ export default function NldServicesPage() {
                     placeholder="Search customer, FRG, route, node, or Pri..."
                     size="small"
                     InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-                    sx={{ width: { xs: '100%', sm: 380 }, maxWidth: '100%' }}
+                    sx={{ width: { xs: '100%', sm: 340 }, maxWidth: '100%' }}
                   />
                   <Button variant="outlined" onClick={loadList} disabled={loadingList}>Refresh</Button>
                 </Stack>
@@ -827,8 +827,8 @@ export default function NldServicesPage() {
 
               {/* EDIT drawer */}
               <Drawer anchor="right" open={openDrawer} onClose={() => setOpenDrawer(false)}>
-                <Box sx={{ width: 420, p: 2 }}>
-                  <Typography variant="h6" sx={{ mb: 1 }}>Edit NLD Service</Typography>
+                <Box sx={{ width: 380, p: 1.5 }}>
+                  <Typography variant="h6" sx={{ mb: 0.75 }}>Edit NLD Service</Typography>
 
                   {edit ? (
                     <Stack spacing={1.5}>
@@ -932,7 +932,7 @@ export default function NldServicesPage() {
                     placeholder="Search circuit, NLD group, parsed code, router, or mnemonic..."
                     size="small"
                     InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-                    sx={{ width: { xs: '100%', sm: 460 }, maxWidth: '100%' }}
+                    sx={{ width: { xs: '100%', sm: 400 }, maxWidth: '100%' }}
                   />
                   <Button variant="outlined" onClick={loadBlankRx} disabled={blankRxLoading}>
                     {blankRxLoading ? 'Loading...' : 'Refresh'}
@@ -1026,7 +1026,7 @@ export default function NldServicesPage() {
                     placeholder="Search reference, circuit, NLD group, subject, or nodes..."
                     size="small"
                     InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-                    sx={{ width: { xs: '100%', lg: 420 }, maxWidth: '100%' }}
+                    sx={{ width: { xs: '100%', lg: 380 }, maxWidth: '100%' }}
                   />
                   <TextField
                     select
@@ -1135,7 +1135,7 @@ export default function NldServicesPage() {
       </Box>
 
       <Drawer anchor="right" open={!!ticketDrawer} onClose={() => setTicketDrawer(null)}>
-        <Box sx={{ width: { xs: 360, sm: 520 }, p: 2 }}>
+        <Box sx={{ width: { xs: 340, sm: 460 }, p: 1.5 }}>
           <Typography variant="h6" sx={{ mb: 0.5 }}>Staged Ticket Detail</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Review the payload and comment history before real Zendesk API creation.
@@ -1247,4 +1247,5 @@ export default function NldServicesPage() {
     </Box>
   )
 }
+
 

@@ -195,11 +195,11 @@ export default function VolumePage() {
   /* ─── render ─────────────────────────────────────────────── */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p:3 }}>
-        <Typography variant="h4" gutterBottom>Volume Dashboard</Typography>
+      <Box sx={{ p: 1.5 }}>
+        <Typography variant="h5" gutterBottom sx={{ fontWeight: 900, mb: 1.25 }}>Volume Dashboard</Typography>
 
         {/* ── 1) TEAM SELECT ─────────────────────────────── */}
-        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:3, flexWrap:'wrap' }}>
+        <Box sx={{ display:'flex', alignItems:'center', gap:1.2, mb:2, flexWrap:'wrap' }}>
           <FormControl sx={{ minWidth:160 }}>
             <InputLabel>Team</InputLabel>
             <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
@@ -210,10 +210,10 @@ export default function VolumePage() {
 
         {/* ── 2) FORECASTING PANEL ───────────────────────── */}
         <Box sx={{
-          display:'flex', alignItems:'center', gap:2, mb:3, flexWrap:'wrap',
-          bgcolor:'#fafafa', p:2, borderRadius:1
+          display:'flex', alignItems:'center', gap:1.2, mb:2, flexWrap:'wrap',
+          bgcolor:'#fafafa', p:1.25, borderRadius:1.5
         }}>
-          <Typography variant="subtitle1" sx={{ fontWeight:600, mr:1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight:700, mr:0.5 }}>
             Forecasting
           </Typography>
 
@@ -256,15 +256,15 @@ export default function VolumePage() {
           </Button>
 
           {uploadMsg && (
-            <Typography variant="body2" sx={{ ml:1 }}>
+            <Typography variant="body2" sx={{ ml:0.5, fontSize: 11.5 }}>
               {uploadMsg}
             </Typography>
           )}
         </Box>
 
         {/* ── DAILY ACTUAL chart ───────────────────────────── */}
-        <Box sx={{ display:'flex', alignItems:'center', gap:2, mb:4, flexWrap:'wrap' }}>
-          <Typography variant="h6" gutterBottom>Daily Actual Volume</Typography>
+        <Box sx={{ display:'flex', alignItems:'center', gap:1.2, mb:2, flexWrap:'wrap' }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Daily Actual Volume</Typography>
           <DatePicker
             label="Actual from"
             value={startDate}
@@ -283,7 +283,7 @@ export default function VolumePage() {
             label="Show automation contribution"
           />
         </Box>
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={260}>
           <BarChart
             data={dailyData}
             margin={{ top:20,right:30,left:20,bottom:5 }}
@@ -311,10 +311,10 @@ export default function VolumePage() {
         {/* ── HOURLY drill-down (actual) ───────────────────── */}
         {selectedDate && (
           <>
-            <Typography variant="h6" sx={{ mt:4 }}>
+            <Typography variant="subtitle1" sx={{ mt:2.5, fontWeight: 800 }}>
               Hourly Actual for {dayjs(selectedDate).format('YYYY-MM-DD')}
             </Typography>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={250}>
             <BarChart
               data={hourlyData}
               margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
@@ -356,8 +356,8 @@ export default function VolumePage() {
         {/* ── DAILY FORECAST chart ─────────────────────────── */}
         {fcDailyData.length > 0 && (
           <>
-            <Box sx={{ mt:6, display:'flex', gap:2, flexWrap:'wrap', alignItems:'center' }}>
-              <Typography variant="h6" sx={{ mr:2 }}>Daily Forecast Volume</Typography>
+            <Box sx={{ mt:3, display:'flex', gap:1.2, flexWrap:'wrap', alignItems:'center' }}>
+              <Typography variant="subtitle1" sx={{ mr:1, fontWeight: 800 }}>Daily Forecast Volume</Typography>
               <DatePicker
                 label="Forecast - from"
                 value={fcStart}
@@ -371,7 +371,7 @@ export default function VolumePage() {
                 renderInput={p => <TextField {...p} size="small" />}
               />
             </Box>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={260}>
               <BarChart data={fcDailyData} margin={{ top:20,right:30,left:20,bottom:5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />

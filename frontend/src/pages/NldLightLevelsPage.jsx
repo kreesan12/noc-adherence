@@ -654,17 +654,17 @@ export default function NldLightLevelsPage () {
 
   /* ── render ────────────────────────────────────────── */
   return (
-    <Box px={2} py={1}>
-      <Typography variant="h5" fontWeight={700} mb={1.5}>
+    <Box px={1.5} py={0.75}>
+      <Typography variant="h6" fontWeight={800} mb={1}>
         NLD Light-Level Dashboard
       </Typography>
-      <Typography variant="body2" sx={{ mb: 2, opacity: 0.8 }}>
+      <Typography variant="body2" sx={{ mb: 1.25, opacity: 0.8, fontSize: 11.6 }}>
         “Current” values pick the freshest of <strong>Event</strong> vs <strong>Daily</strong> snapshot <em>per side</em>.
         <br/> <strong>As of</strong> shows the freshest timestamp used for the displayed values.
         Deltas compare against the <strong>stored initial baseline</strong>, including any manual initial-value edits.
       </Typography>
 
-      <Paper elevation={0} sx={{ p: 1.5, mb: 1.5, border: '1px solid #eee' }}>
+      <Paper elevation={0} sx={{ p: 1.25, mb: 1.25, border: '1px solid #eee' }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
           <TextField
             size="small"
@@ -672,7 +672,7 @@ export default function NldLightLevelsPage () {
             placeholder="e.g. NLD1"
             value={filters.nld}
             onChange={(e) => setFilters(s => ({ ...s, nld: e.target.value }))}
-            sx={{ minWidth: 180 }}
+            sx={{ minWidth: 160 }}
           />
           <TextField
             size="small"
@@ -680,7 +680,7 @@ export default function NldLightLevelsPage () {
             placeholder="Circuit ID contains..."
             value={filters.circuit}
             onChange={(e) => setFilters(s => ({ ...s, circuit: e.target.value }))}
-            sx={{ minWidth: 220 }}
+            sx={{ minWidth: 200 }}
           />
           <TextField
             size="small"
@@ -689,7 +689,7 @@ export default function NldLightLevelsPage () {
             value={filters.worseDelta}
             onChange={(e) => setFilters(s => ({ ...s, worseDelta: e.target.value }))}
             helperText="Shows rows where A or B worsened by at least this dBm"
-            sx={{ minWidth: 220 }}
+            sx={{ minWidth: 200 }}
             inputProps={{ step: '0.1', min: '0' }}
           />
           <Button variant="outlined" onClick={clearFilters}>Clear</Button>
@@ -707,7 +707,7 @@ export default function NldLightLevelsPage () {
       {Object.entries(groupedFilteredRows).map(([grp, list]) => {
         const ordered = orderCircuitsChain(list)
         return (
-          <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
+          <Accordion key={grp} defaultExpanded sx={{ mb:0.75 }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="subtitle1" fontWeight={600}>
                 {grp}&nbsp;
@@ -756,12 +756,12 @@ export default function NldLightLevelsPage () {
 
       {/* ---------- Edit drawer ---------- */}
       <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)} ModalProps={{ sx: { zIndex: 2400 } }}>
-        <Box p={3} width={320}>
-          <Typography variant="h6" mb={0.5}>Edit Initial Values</Typography>
-          <Typography variant="body2" sx={{ mb: 2, opacity: 0.75 }}>
+        <Box p={2} width={300}>
+          <Typography variant="subtitle1" fontWeight={800} mb={0.5}>Edit Initial Values</Typography>
+          <Typography variant="body2" sx={{ mb: 1.25, opacity: 0.75 }}>
             {edit?.circuitId || ''}
           </Typography>
-          <Stack spacing={2}>
+          <Stack spacing={1.25}>
             <TextField
               label="Initial Rx A (dBm)"
               value={edit?.rxA ?? ''}
@@ -803,12 +803,12 @@ export default function NldLightLevelsPage () {
 
       {/* ---------- Manual event drawer ---------- */}
       <Drawer anchor="right" open={Boolean(manualEvent)} onClose={() => setManualEvent(null)} ModalProps={{ sx: { zIndex: 2400 } }}>
-        <Box p={3} width={360}>
-          <Typography variant="h6" mb={0.5}>Insert Manual Event</Typography>
-          <Typography variant="body2" sx={{ mb: 2, opacity: 0.75 }}>
+        <Box p={2} width={332}>
+          <Typography variant="subtitle1" fontWeight={800} mb={0.5}>Insert Manual Event</Typography>
+          <Typography variant="body2" sx={{ mb: 1.25, opacity: 0.75 }}>
             {manualEvent?.circuitId || ''}
           </Typography>
-          <Stack spacing={2}>
+          <Stack spacing={1.25}>
             <LocalizationProvider dateAdapter={AdapterDayjs}>
               <DateTimePicker
                 label="Event date/time"
@@ -891,14 +891,14 @@ export default function NldLightLevelsPage () {
         open={Boolean(hist)}
         onClose={() => setHist(null)}
         ModalProps={{ sx: { zIndex: 2400 } }}
-        slotProps={{ paper: { sx: { pt: 7, width: 420 } } }}
+        slotProps={{ paper: { sx: { pt: 6, width: 390 } } }}
       >
-        <Box p={3} width={420}>
-          <Typography variant="h6" gutterBottom>Level History</Typography>
+        <Box p={2} width={390}>
+          <Typography variant="subtitle1" fontWeight={800} gutterBottom>Level History</Typography>
 
           {/* Mini sparklines */}
           {!!hist?.length && (
-            <Box sx={{ mb: 1.5 }}>
+            <Box sx={{ mb: 1 }}>
               {(() => {
                 const sorted = [...hist].sort((a,b)=>dayjs(a.changedAt)-dayjs(b.changedAt))
                 const valsA = sorted.map(h => h.rxSiteA).filter(v => v != null)
@@ -915,7 +915,7 @@ export default function NldLightLevelsPage () {
           )}
 
           {hist?.map(h => (
-            <Box key={h.id} mb={1.2} p={1.5} sx={{ borderBottom:'1px solid #eee' }}>
+            <Box key={h.id} mb={0.9} p={1.1} sx={{ borderBottom:'1px solid #eee' }}>
               <Typography variant="body2" fontWeight={700}>
                 {dayjs(h.changedAt).format('YYYY-MM-DD HH:mm')}
               </Typography>

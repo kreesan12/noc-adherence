@@ -154,7 +154,7 @@ export default function WorkforcePage() {
   /* ─── render ───────────────────────────────────────── */
   return (
     <Box>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1.25 }}>
         <Tab label="Movements" />
         <Tab label="Headcount" />
         <Tab label="Vacancies" />
@@ -162,9 +162,9 @@ export default function WorkforcePage() {
 
       {/* ─── MOVEMENTS TAB ────────────────────────────────── */}
       {tab === 0 && (
-        <Paper sx={{ p: 2, bgcolor: 'white' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+        <Paper sx={{ p: 1.5, bgcolor: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.25 }}>
+            <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 800 }}>
               Movements
             </Typography>
             <Button
@@ -205,7 +205,7 @@ export default function WorkforcePage() {
           <Dialog open={openMove} onClose={() => setOpenMove(false)} fullWidth maxWidth="sm">
             <DialogTitle>New Movement</DialogTitle>
             <DialogContent>
-              <Grid container spacing={3} sx={{ pt: 1 }}>
+              <Grid container spacing={2} sx={{ pt: 0.5 }}>
                 {/* 1) From Team */}
                 <Grid item xs={12}>
                   <TextField
@@ -331,8 +331,8 @@ export default function WorkforcePage() {
 
       {/* ─── HEADCOUNT TAB ────────────────────────────────── */}
       {tab === 1 && (
-        <Paper sx={{ p: 2, bgcolor: 'white' }}>
-          <Box mb={2}>
+        <Paper sx={{ p: 1.5, bgcolor: 'white' }}>
+          <Box mb={1.25}>
             <TextField select size="small" value={gran}
               onChange={e => setGran(e.target.value)}
             >
@@ -344,7 +344,7 @@ export default function WorkforcePage() {
             'Loading…'
           ) : (
             <>
-              <Box sx={{ height: 300, mb: 3 }}>
+              <Box sx={{ height: 250, mb: 1.75 }}>
                 <ResponsiveContainer>
                   <BarChart
                     data={Object.values(
@@ -403,7 +403,7 @@ export default function WorkforcePage() {
 
       {/* ─── VACANCIES TAB ────────────────────────────────── */}
       {tab === 2 && (
-        <Paper sx={{ p: 2, bgcolor: 'white' }}>
+        <Paper sx={{ p: 1.5, bgcolor: 'white' }}>
           <TableContainer>
             <Table size="small">
               <TableHead>
