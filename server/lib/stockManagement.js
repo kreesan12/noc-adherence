@@ -239,6 +239,15 @@ function parseReportDate(value) {
   return parsed.isValid() ? parsed.toDate() : null
 }
 
+function parseStockStatusSubjectDate(subject) {
+  const cleaned = String(subject || '').replace(SUBJECT_PREFIX_RE, '').trim()
+  const match = cleaned.match(/(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?)/)
+  if (!match) return null
+
+  const parsed = dayjs(match[1], ['DD/MM/YYYY HH:mm:ss', 'DD/MM/YYYY HH:mm'], true)
+  return parsed.isValid() ? parsed.toDate() : null
+}
+
 function normalizeSubject(subject) {
   return String(subject || '')
     .replace(SUBJECT_PREFIX_RE, '')
@@ -1645,6 +1654,8 @@ export async function fetchStockStatusWorkbookFromGmail() {
     throw new Error('Stock status e-mail not found in Gmail lookback window')
   }
 
+  const candidates = []
+
   for (const summary of messages) {
     const { data: message } = await gmail.users.messages.get({ userId: 'me', id: summary.id })
     const messageSubject = getSubjectHeader(message)
@@ -1654,12 +1665,31 @@ export async function fetchStockStatusWorkbookFromGmail() {
     const attachment = pickSpreadsheetAttachment(parts)
     if (!attachment?.body?.attachmentId) continue
 
-    const buffer = await getAttachmentBuffer(gmail, summary.id, attachment.body.attachmentId)
+    candidates.push({
+      emailId: summary.id,
+      subject: messageSubject,
+      attachmentId: attachment.body.attachmentId,
+      filename: attachment.filename || 'stock-status.xlsx',
+      subjectReportDate: parseStockStatusSubjectDate(messageSubject),
+      internalDate: message.internalDate ? new Date(Number(message.internalDate)) : null
+    })
+  }
+
+  const selected = candidates
+    .sort((left, right) => {
+      const leftTime = left.subjectReportDate?.getTime() ?? left.internalDate?.getTime() ?? 0
+      const rightTime = right.subjectReportDate?.getTime() ?? right.internalDate?.getTime() ?? 0
+      return rightTime - leftTime
+    })[0]
+
+  if (selected) {
+    const buffer = await getAttachmentBuffer(gmail, selected.emailId, selected.attachmentId)
     return {
       buffer,
-      filename: attachment.filename || 'stock-status.xlsx',
-      emailId: summary.id,
-      subject: messageSubject
+      filename: selected.filename,
+      emailId: selected.emailId,
+      subject: selected.subject,
+      subjectReportDate: selected.subjectReportDate
     }
   }
 
@@ -1776,6 +1806,31 @@ export async function importCurrentStockStatusWorkbook(prisma, input, meta = {})
 
 export async function importStockStatusFromGmail(prisma) {
   const fileMeta = await fetchStockStatusWorkbookFromGmail()
+  const existingRun = await prisma.stockImportRun.findFirst({
+    where: {
+      OR: [
+        fileMeta.emailId ? { sourceEmailId: fileMeta.emailId } : null,
+        fileMeta.subject ? { sourceSubject: fileMeta.subject } : null
+      ].filter(Boolean)
+    },
+    orderBy: { id: 'desc' }
+  })
+
+  if (existingRun) {
+    return {
+      skipped: true,
+      reason: 'Latest stock Gmail message already imported',
+      reportDate: existingRun.reportDate,
+      statusRowCount: existingRun.statusRowCount,
+      matchedItemCount: existingRun.matchedItemCount,
+      lowConfidenceCount: existingRun.lowConfidenceCount,
+      unresolvedItemCount: existingRun.unresolvedItemCount,
+      sourceEmailId: existingRun.sourceEmailId,
+      sourceSubject: existingRun.sourceSubject,
+      existingRunId: existingRun.id
+    }
+  }
+
   return importCurrentStockStatusWorkbook(prisma, fileMeta.buffer, fileMeta)
 }
 
