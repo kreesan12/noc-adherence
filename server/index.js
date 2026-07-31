@@ -11,16 +11,6 @@ import audit from './middleware/audit.js'
 import authRoutesFactory, { verifyToken } from './routes/auth.js'
 import prisma from './lib/prisma.js'
 
-import {
-  initWhatsApp,
-  sendSlaAlert,
-  getStatus as getWhatsAppStatus
-} from './whatsappClient.js'
-
-// import { startSlaAckWatcher } from './slaAckWatcher.js'
-import { startNldOutageWatcher } from './nldOutageWatcher.js'
-import { startVipTicketWatcher } from './vipTicketWatcher.js'
-
 import rosterRoutes from './routes/roster.js'
 import scheduleRoutes from './routes/schedule.js'
 import volumeRoutes from './routes/volume.js'
@@ -60,7 +50,7 @@ process.on('uncaughtException', (err) => {
 })
 
 const app = express()
-const disableBackgroundWatchers = process.env.DISABLE_BACKGROUND_WATCHERS === '1'
+const webWhatsAppEnabled = process.env.ENABLE_WEB_WHATSAPP === '1'
 
 const configuredOrigins = String(process.env.CLIENT_ORIGIN || '')
   .split(',')
@@ -88,29 +78,11 @@ const corsOptions = {
   credentials: true
 }
 
-/**
- * Start WA and watchers once on boot.
- * Watchers are safe even if WA is not ready yet (sendSlaAlert waits for readiness).
- */
-if (!disableBackgroundWatchers) {
-  ;(async () => {
-    try {
-      // Don't hard-block boot forever. WA can still come up async.
-      await initWhatsApp({ waitForReady: false })
-      console.log('[WA] init complete, starting watchers')
-
-      startNldOutageWatcher(sendSlaAlert)
-      startVipTicketWatcher(sendSlaAlert)
-    } catch (e) {
-      console.error('[WA] init failed, watchers still starting (send will retry):', e?.message || e)
-      // Still start watchers so they can send when WA is ready later.
-      try { startNldOutageWatcher(sendSlaAlert) } catch {}
-      try { startVipTicketWatcher(sendSlaAlert) } catch {}
-    }
-  })()
-} else {
-  console.log('[Startup] Background watchers disabled for local development')
-}
+console.log(
+  webWhatsAppEnabled
+    ? '[Startup] Web WhatsApp endpoints enabled on this process'
+    : '[Startup] Web process running API-only mode; WhatsApp automation is disabled here'
+)
 
 /* ---------- CORS / common middleware ---------- */
 app.use(cors(corsOptions))
@@ -127,14 +99,42 @@ const authRoutes = authRoutesFactory(prisma)
 /* ---------- WhatsApp endpoints ---------- */
 
 // status check (no auth while testing)
-app.get('/whatsapp/status', (_req, res) => {
-  res.json(getWhatsAppStatus())
+app.get('/whatsapp/status', async (_req, res, next) => {
+  if (!webWhatsAppEnabled) {
+    res.json({
+      enabled: false,
+      ready: false,
+      mode: 'web_api_only',
+      message: 'WhatsApp is disabled on the web dyno to keep the API stable.'
+    })
+    return
+  }
+
+  try {
+    const { getStatus } = await import('./whatsappClient.js')
+    res.json({
+      enabled: true,
+      mode: 'web',
+      ...getStatus()
+    })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // send alert (no auth while testing)
 app.post('/whatsapp/notify', async (req, res, next) => {
+  if (!webWhatsAppEnabled) {
+    res.status(503).json({
+      ok: false,
+      error: 'WhatsApp notifications are disabled on the web dyno.'
+    })
+    return
+  }
+
   try {
     const { message } = req.body || {}
+    const { sendSlaAlert } = await import('./whatsappClient.js')
     await sendSlaAlert(message)
     res.json({ ok: true })
   } catch (err) {
