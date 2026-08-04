@@ -1402,7 +1402,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
   const unresolvedRows = itemRows.filter((row) => row.matchMethod === 'unmatched')
   const lowStockRows = itemRows
     .filter((row) => row.belowMinimum)
-    .sort((left, right) => right.shortage - left.shortage || right.gapCost - left.gapCost || left.itemDescription.localeCompare(right.itemDescription))
+    .sort((left, right) => right.shortage - left.shortage || right.gapCost - left.gapCost || String(left.itemDescription || '').localeCompare(String(right.itemDescription || '')))
   const regionWatchlist = buildRegionWatchlistRows(itemRows)
 
   const notWarehouseItems = itemRows
@@ -1428,7 +1428,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
           updatedAt: action?.updatedAt || null
         }
       }))
-    .sort((left, right) => right.qtyAvailable - left.qtyAvailable || left.itemDescription.localeCompare(right.itemDescription))
+    .sort((left, right) => right.qtyAvailable - left.qtyAvailable || String(left.itemDescription || '').localeCompare(String(right.itemDescription || '')))
 
   const regionSummary = REGION_ORDER.map((region) => {
     const regionKey = region.toLowerCase()
@@ -1501,7 +1501,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
       matchCoveragePct: itemRows.length ? Number(((matchedRows.length / itemRows.length) * 100).toFixed(2)) : 0
     },
     regionSummary,
-    divisionSummary: [...divisionMap.values()].sort((left, right) => right.lowStockCount - left.lowStockCount || left.division.localeCompare(right.division)),
+    divisionSummary: [...divisionMap.values()].sort((left, right) => right.lowStockCount - left.lowStockCount || String(left.division || '').localeCompare(String(right.division || ''))),
     lowStockItems: lowStockRows,
     regionWatchlist,
     sectionOptions: Array.from(new Set([
@@ -1511,7 +1511,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     matchReviewItems: [...lowConfidenceRows, ...unresolvedRows].sort((left, right) => {
       if (left.matchMethod === 'unmatched' && right.matchMethod !== 'unmatched') return -1
       if (left.matchMethod !== 'unmatched' && right.matchMethod === 'unmatched') return 1
-      return left.itemDescription.localeCompare(right.itemDescription)
+      return String(left.itemDescription || '').localeCompare(String(right.itemDescription || ''))
     }),
     notWarehouseItems,
     items: projectedRows
@@ -1855,7 +1855,7 @@ async function buildStockRunRateDataset(prisma) {
     monthOptions: monthSummary.map((row) => row.yearMonth),
     defaultMonth: latestMonth,
     monthSummary,
-    rows: rows.sort((left, right) => right.usageQty - left.usageQty || right.restockQty - left.restockQty || left.itemDescription.localeCompare(right.itemDescription)),
+    rows: rows.sort((left, right) => right.usageQty - left.usageQty || right.restockQty - left.restockQty || String(left.itemDescription || '').localeCompare(String(right.itemDescription || ''))),
     seededCurrentSnapshot,
     hasEnoughHistory: orderedRuns.length > 1
   }
