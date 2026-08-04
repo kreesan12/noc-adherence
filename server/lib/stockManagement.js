@@ -120,6 +120,8 @@ const DEFAULT_WAREHOUSE_FIELD_BY_REGION = {
   NEL: { war: 'nelWarehousePrimary', vox: 'nelWarehousePrimary', fallback: 'nelWarehousePrimary' }
 }
 
+const STOCK_RUN_RATE_SNAPSHOT_KEY = 'current'
+
 const projectionCache = {
   value: null,
   createdAt: 0
@@ -304,6 +306,102 @@ async function runBatches(items, batchSize, worker) {
   }
 }
 
+function cacheRunRateDataset(dataset) {
+  runRateCache.value = dataset
+  runRateCache.createdAt = Date.now()
+  return dataset
+}
+
+function buildEmptyRunRateDataset({ seededCurrentSnapshot = false, latestSnapshotDate = null } = {}) {
+  return {
+    generatedAt: new Date().toISOString(),
+    summary: {
+      monthsTracked: 0,
+      snapshotsTracked: 0,
+      activeItemCount: 0,
+      latestSnapshotDate,
+      currentMonthUsage: 0,
+      currentMonthProjectedUsage: 0
+    },
+    monthOptions: [],
+    defaultMonth: latestSnapshotDate ? dayjs(latestSnapshotDate).format('YYYY-MM') : dayjs().format('YYYY-MM'),
+    monthSummary: [],
+    rows: [],
+    seededCurrentSnapshot,
+    hasEnoughHistory: false
+  }
+}
+
+function toPlainJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value))
+}
+
+function buildDatasetFromStoredRunRateSnapshot(snapshot) {
+  const summary = snapshot?.summary && typeof snapshot.summary === 'object' ? snapshot.summary : {}
+  const latestSnapshotDate =
+    summary.latestSnapshotDate ||
+    (snapshot.latestSnapshotDate instanceof Date
+      ? snapshot.latestSnapshotDate.toISOString()
+      : snapshot.latestSnapshotDate || null)
+
+  return {
+    generatedAt: snapshot.generatedAt instanceof Date ? snapshot.generatedAt.toISOString() : new Date().toISOString(),
+    summary: {
+      monthsTracked: Number(summary.monthsTracked || 0),
+      snapshotsTracked: Number(summary.snapshotsTracked || 0),
+      activeItemCount: Number(summary.activeItemCount || 0),
+      latestSnapshotDate,
+      currentMonthUsage: Number(summary.currentMonthUsage || 0),
+      currentMonthProjectedUsage: Number(summary.currentMonthProjectedUsage || 0)
+    },
+    monthOptions: Array.isArray(snapshot.monthOptions) ? snapshot.monthOptions.map((value) => String(value)) : [],
+    defaultMonth: cleanCell(snapshot.defaultMonth) || (latestSnapshotDate ? dayjs(latestSnapshotDate).format('YYYY-MM') : dayjs().format('YYYY-MM')),
+    monthSummary: Array.isArray(snapshot.monthSummary) ? snapshot.monthSummary : [],
+    rows: Array.isArray(snapshot.rows) ? snapshot.rows : [],
+    seededCurrentSnapshot: Boolean(snapshot.seededCurrentSnapshot),
+    hasEnoughHistory: Boolean(snapshot.hasEnoughHistory)
+  }
+}
+
+async function loadStoredStockRunRateDataset(prisma) {
+  const snapshot = await prisma.stockRunRateSnapshot.findUnique({
+    where: { snapshotKey: STOCK_RUN_RATE_SNAPSHOT_KEY }
+  })
+
+  if (!snapshot) return null
+  return buildDatasetFromStoredRunRateSnapshot(snapshot)
+}
+
+async function persistStockRunRateDataset(prisma, dataset) {
+  const latestImport = await prisma.stockImportRun.findFirst({
+    orderBy: [
+      { reportDate: 'desc' },
+      { createdAt: 'desc' }
+    ],
+    select: { id: true }
+  })
+
+  const payload = {
+    snapshotKey: STOCK_RUN_RATE_SNAPSHOT_KEY,
+    latestImportRunId: latestImport?.id ?? null,
+    latestSnapshotDate: dataset.summary?.latestSnapshotDate ? new Date(dataset.summary.latestSnapshotDate) : null,
+    defaultMonth: cleanCell(dataset.defaultMonth) || dayjs().format('YYYY-MM'),
+    monthOptions: toPlainJson(dataset.monthOptions || []),
+    summary: toPlainJson(dataset.summary || {}),
+    monthSummary: toPlainJson(dataset.monthSummary || []),
+    rows: toPlainJson(dataset.rows || []),
+    hasEnoughHistory: Boolean(dataset.hasEnoughHistory),
+    seededCurrentSnapshot: Boolean(dataset.seededCurrentSnapshot),
+    generatedAt: dataset.generatedAt ? new Date(dataset.generatedAt) : new Date()
+  }
+
+  await prisma.stockRunRateSnapshot.upsert({
+    where: { snapshotKey: STOCK_RUN_RATE_SNAPSHOT_KEY },
+    update: payload,
+    create: payload
+  })
+}
+
 export function invalidateStockManagementCache() {
   projectionCache.value = null
   projectionCache.createdAt = 0
@@ -467,6 +565,7 @@ export async function importStockTemplateWorkbook(prisma, input) {
   })
 
   invalidateStockManagementCache()
+  await rebuildStoredStockRunRateDataset(prisma)
   return { importedRows: records.length }
 }
 
@@ -1039,11 +1138,7 @@ function monthKeyFromValue(value) {
   return dayjs(value).format('YYYY-MM')
 }
 
-export async function getStockRunRateDataset(prisma, { forceFresh = false } = {}) {
-  if (!forceFresh && runRateCache.value && (Date.now() - runRateCache.createdAt) < 60_000) {
-    return runRateCache.value
-  }
-
+async function buildStockRunRateDataset(prisma) {
   const seededCurrentSnapshot = await ensureLatestStockHistoryBackfill(prisma)
   const cutoffDate = dayjs().subtract(400, 'day').toDate()
 
@@ -1064,26 +1159,7 @@ export async function getStockRunRateDataset(prisma, { forceFresh = false } = {}
   ])
 
   if (!importRuns.length || !templateItems.length) {
-    const emptyDataset = {
-      generatedAt: new Date().toISOString(),
-      summary: {
-        monthsTracked: 0,
-        snapshotsTracked: 0,
-        activeItemCount: 0,
-        latestSnapshotDate: null,
-        currentMonthUsage: 0,
-        currentMonthProjectedUsage: 0
-      },
-      monthOptions: [],
-      defaultMonth: dayjs().format('YYYY-MM'),
-      monthSummary: [],
-      rows: [],
-      seededCurrentSnapshot,
-      hasEnoughHistory: false
-    }
-    runRateCache.value = emptyDataset
-    runRateCache.createdAt = Date.now()
-    return emptyDataset
+    return buildEmptyRunRateDataset({ seededCurrentSnapshot })
   }
 
   const historyRows = await prisma.stockStatusHistoryRow.findMany({
@@ -1309,9 +1385,28 @@ export async function getStockRunRateDataset(prisma, { forceFresh = false } = {}
     hasEnoughHistory: orderedRuns.length > 1
   }
 
-  runRateCache.value = dataset
-  runRateCache.createdAt = Date.now()
   return dataset
+}
+
+export async function rebuildStoredStockRunRateDataset(prisma) {
+  const dataset = await buildStockRunRateDataset(prisma)
+  await persistStockRunRateDataset(prisma, dataset)
+  return cacheRunRateDataset(dataset)
+}
+
+export async function getStockRunRateDataset(prisma, { forceFresh = false } = {}) {
+  if (!forceFresh && runRateCache.value && (Date.now() - runRateCache.createdAt) < 60_000) {
+    return runRateCache.value
+  }
+
+  if (!forceFresh) {
+    const storedDataset = await loadStoredStockRunRateDataset(prisma)
+    if (storedDataset) {
+      return cacheRunRateDataset(storedDataset)
+    }
+  }
+
+  return rebuildStoredStockRunRateDataset(prisma)
 }
 
 function createStockTemplateError(message, statusCode = 400) {
@@ -1794,6 +1889,7 @@ export async function importCurrentStockStatusWorkbook(prisma, input, meta = {})
   })
 
   invalidateStockManagementCache()
+  await rebuildStoredStockRunRateDataset(prisma)
   return {
     reportDate: parsed.reportDate,
     statusRowCount: preparedRows.length,

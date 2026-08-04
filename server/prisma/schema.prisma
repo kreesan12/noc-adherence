@@ -404,6 +404,7 @@ model StockImportRun {
   createdAt          DateTime                @default(now()) @map("created_at")
   statusRows         StockStatusCurrentRow[]
   historyRows        StockStatusHistoryRow[]
+  runRateSnapshots   StockRunRateSnapshot[]
 
   @@index([createdAt], map: "idx_stock_import_run_created_at")
   @@map("stock_import_run")
@@ -461,6 +462,25 @@ model StockStatusHistoryRow {
   @@index([regionHint], map: "idx_stock_status_history_row_region_hint")
   @@index([importRunId], map: "idx_stock_status_history_row_import_run_id")
   @@map("stock_status_history_row")
+}
+
+model StockRunRateSnapshot {
+  id                   Int             @id @default(autoincrement())
+  snapshotKey          String          @unique @default("current") @map("snapshot_key")
+  latestImportRunId    Int?            @map("latest_import_run_id")
+  latestImportRun      StockImportRun? @relation(fields: [latestImportRunId], references: [id], onDelete: SetNull)
+  latestSnapshotDate   DateTime?       @map("latest_snapshot_date")
+  defaultMonth         String?         @map("default_month")
+  monthOptions         Json            @map("month_options_json")
+  summary              Json            @map("summary_json")
+  monthSummary         Json            @map("month_summary_json")
+  rows                 Json            @map("rows_json")
+  hasEnoughHistory     Boolean         @default(false) @map("has_enough_history")
+  seededCurrentSnapshot Boolean        @default(false) @map("seeded_current_snapshot")
+  generatedAt          DateTime        @default(now()) @map("generated_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@map("stock_run_rate_snapshot")
 }
 
 model SlaProductTypeMap {
