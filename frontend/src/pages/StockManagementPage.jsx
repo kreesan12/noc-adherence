@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
   Accordion,
@@ -34,7 +34,6 @@ import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRou
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
-import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined'
@@ -60,7 +59,6 @@ import {
   exportStockTemplateWorkbook,
   fetchStockDashboard,
   fetchStockRunRates,
-  importMinimumStockRequirementsWorkbook,
   refreshStockDashboard,
   updateStockNotWarehouseAction,
   updateStockMatchOverride,
@@ -344,10 +342,8 @@ function normalizeCompare(value) {
 }
 
 export default function StockManagementPage() {
-  const minimumWorkbookInputRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [importingMinimumWorkbook, setImportingMinimumWorkbook] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingLowStock, setExportingLowStock] = useState(false)
   const [exportingRegional, setExportingRegional] = useState(false)
@@ -636,40 +632,6 @@ export default function StockManagementPage() {
       })
     } finally {
       setExportingRegional(false)
-    }
-  }
-
-  const triggerMinimumWorkbookImport = () => {
-    minimumWorkbookInputRef.current?.click()
-  }
-
-  const importMinimumWorkbook = async (event) => {
-    const file = event.target?.files?.[0]
-    if (!file) return
-
-    setImportingMinimumWorkbook(true)
-    try {
-      const result = await importMinimumStockRequirementsWorkbook(file)
-      setData(result.dataset)
-      setRunRateData(null)
-      if (tab === 1) {
-        await loadRunRates()
-      }
-      setToast({
-        severity: 'success',
-        message: `${file.name}: ${fmtCount(result.meta?.updatedCount || 0)} existing items updated, ${fmtCount(result.meta?.createdCount || 0)} new items added`
-      })
-    } catch (err) {
-      console.error(err)
-      setToast({
-        severity: 'error',
-        message: err?.response?.data?.error || err?.message || 'Minimum-stock import failed'
-      })
-    } finally {
-      if (event.target) {
-        event.target.value = ''
-      }
-      setImportingMinimumWorkbook(false)
     }
   }
 
@@ -962,13 +924,6 @@ export default function StockManagementPage() {
         }
       }}
     >
-      <input
-        ref={minimumWorkbookInputRef}
-        type="file"
-        accept=".xlsx,.xls"
-        onChange={importMinimumWorkbook}
-        style={{ display: 'none' }}
-      />
       <Paper
         elevation={0}
         sx={{
@@ -1081,16 +1036,6 @@ export default function StockManagementPage() {
               sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
             >
               {refreshing ? 'Refreshing...' : 'Run Daily Refresh'}
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<UploadFileRoundedIcon />}
-              onClick={triggerMinimumWorkbookImport}
-              disabled={importingMinimumWorkbook}
-              sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
-            >
-              {importingMinimumWorkbook ? 'Importing...' : 'Import Minimum Workbook'}
             </Button>
             <Button
               size="small"

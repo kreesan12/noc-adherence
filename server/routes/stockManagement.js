@@ -10,7 +10,6 @@ import {
   getCurrentStockDataset,
   getStockRunRateDataset,
   importCurrentStockStatusWorkbook,
-  importMinimumStockRequirementsWorkbook,
   importStockStatusFromGmail,
   importStockTemplateWorkbook,
   invalidateStockManagementCache,
@@ -297,25 +296,9 @@ r.post('/refresh', async (_req, res) => {
 })
 
 r.post('/import-minimum-requirements', async (req, res) => {
-  const fileDataBase64 = String(req.body?.fileDataBase64 || '').trim()
-  const fileName = String(req.body?.fileName || '').trim() || 'minimum-stock.xlsx'
-
-  if (!fileDataBase64) {
-    return res.status(400).json({ error: 'Workbook payload is required' })
-  }
-
-  try {
-    const buffer = Buffer.from(fileDataBase64, 'base64')
-    const result = await importMinimumStockRequirementsWorkbook(prisma, buffer)
-    refreshRunRatesInBackground()
-    res.json({
-      fileName,
-      ...result
-    })
-  } catch (error) {
-    console.error('[STOCK MINIMUM IMPORT] Failed:', error?.message || error)
-    res.status(500).json({ error: error?.message || 'Failed to import minimum stock workbook' })
-  }
+  res.status(410).json({
+    error: 'Minimum-stock workbook upload is disabled in the web app. Use the manual import script for ad hoc imports.'
+  })
 })
 
 r.get('/export/template', async (_req, res) => {
