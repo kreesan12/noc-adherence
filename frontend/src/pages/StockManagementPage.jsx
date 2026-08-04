@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import dayjs from 'dayjs'
 import {
   Accordion,
@@ -34,6 +34,7 @@ import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRou
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined'
@@ -59,6 +60,7 @@ import {
   exportStockTemplateWorkbook,
   fetchStockDashboard,
   fetchStockRunRates,
+  importMinimumStockRequirementsWorkbook,
   refreshStockDashboard,
   updateStockNotWarehouseAction,
   updateStockMatchOverride,
@@ -182,6 +184,16 @@ function matchTone(item) {
   return 'success'
 }
 
+function confirmedFieldForRequiredKey(key) {
+  return `${key}Confirmed`
+}
+
+function requirementTone(isConfirmed) {
+  return isConfirmed
+    ? { bg: '#dcfce7', color: '#166534', label: 'Confirmed' }
+    : { bg: '#ffedd5', color: '#c2410c', label: 'Unconfirmed' }
+}
+
 function Card({ title, value, subtext, tone = '#0f172a', icon = null }) {
   return (
     <Paper
@@ -280,13 +292,21 @@ function downloadBlob(blob, fileName) {
 function buildRequiredSpareForm(item) {
   return {
     requiredCpt: String(item?.requiredByRegion?.CPT ?? 0),
+    requiredCptConfirmed: item?.requiredConfirmedByRegion?.CPT !== false,
     requiredJhb: String(item?.requiredByRegion?.JHB ?? 0),
+    requiredJhbConfirmed: item?.requiredConfirmedByRegion?.JHB !== false,
     requiredDbn: String(item?.requiredByRegion?.DBN ?? 0),
+    requiredDbnConfirmed: item?.requiredConfirmedByRegion?.DBN !== false,
     requiredPel: String(item?.requiredByRegion?.PEL ?? 0),
+    requiredPelConfirmed: item?.requiredConfirmedByRegion?.PEL !== false,
     requiredBfn: String(item?.requiredByRegion?.BFN ?? 0),
+    requiredBfnConfirmed: item?.requiredConfirmedByRegion?.BFN !== false,
     requiredGeo: String(item?.requiredByRegion?.GEO ?? 0),
+    requiredGeoConfirmed: item?.requiredConfirmedByRegion?.GEO !== false,
     requiredPol: String(item?.requiredByRegion?.POL ?? 0),
-    requiredNel: String(item?.requiredByRegion?.NEL ?? 0)
+    requiredPolConfirmed: item?.requiredConfirmedByRegion?.POL !== false,
+    requiredNel: String(item?.requiredByRegion?.NEL ?? 0),
+    requiredNelConfirmed: item?.requiredConfirmedByRegion?.NEL !== false
   }
 }
 
@@ -324,8 +344,10 @@ function normalizeCompare(value) {
 }
 
 export default function StockManagementPage() {
+  const minimumWorkbookInputRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [importingMinimumWorkbook, setImportingMinimumWorkbook] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingLowStock, setExportingLowStock] = useState(false)
   const [exportingRegional, setExportingRegional] = useState(false)
@@ -412,6 +434,7 @@ export default function StockManagementPage() {
     if (stockFilter === 'low' && !row.belowMinimum) return false
     if (stockFilter === 'healthy' && row.belowMinimum) return false
     if (stockFilter === 'zero' && Number(row.availableTotal || 0) !== 0) return false
+    if (stockFilter === 'unconfirmed' && !row.hasUnconfirmedRequirements) return false
     if (matchFilter === 'matched' && row.matchMethod === 'unmatched') return false
     if (matchFilter === 'review' && !row.isLowConfidence) return false
     if (matchFilter === 'unmatched' && row.matchMethod !== 'unmatched') return false
@@ -613,6 +636,40 @@ export default function StockManagementPage() {
       })
     } finally {
       setExportingRegional(false)
+    }
+  }
+
+  const triggerMinimumWorkbookImport = () => {
+    minimumWorkbookInputRef.current?.click()
+  }
+
+  const importMinimumWorkbook = async (event) => {
+    const file = event.target?.files?.[0]
+    if (!file) return
+
+    setImportingMinimumWorkbook(true)
+    try {
+      const result = await importMinimumStockRequirementsWorkbook(file)
+      setData(result.dataset)
+      setRunRateData(null)
+      if (tab === 1) {
+        await loadRunRates()
+      }
+      setToast({
+        severity: 'success',
+        message: `${file.name}: ${fmtCount(result.meta?.updatedCount || 0)} existing items updated, ${fmtCount(result.meta?.createdCount || 0)} new items added`
+      })
+    } catch (err) {
+      console.error(err)
+      setToast({
+        severity: 'error',
+        message: err?.response?.data?.error || err?.message || 'Minimum-stock import failed'
+      })
+    } finally {
+      if (event.target) {
+        event.target.value = ''
+      }
+      setImportingMinimumWorkbook(false)
     }
   }
 
@@ -905,6 +962,13 @@ export default function StockManagementPage() {
         }
       }}
     >
+      <input
+        ref={minimumWorkbookInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        onChange={importMinimumWorkbook}
+        style={{ display: 'none' }}
+      />
       <Paper
         elevation={0}
         sx={{
@@ -951,6 +1015,11 @@ export default function StockManagementPage() {
               Minimum spares are still zero across the imported template. Open an item in Stock Master and use `Edit minimum spares` to set the baseline.
             </Alert>
           ) : null}
+          {Number(summary.unconfirmedRequirementItemCount || 0) > 0 ? (
+            <Alert severity="warning" sx={{ borderRadius: 2.5 }}>
+              {fmtCount(summary.unconfirmedRequirementItemCount)} template items carry unconfirmed regional minimums. Their gaps are still shown, but review them before placing orders.
+            </Alert>
+          ) : null}
           <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap">
             <TextField
               size="small"
@@ -988,6 +1057,7 @@ export default function StockManagementPage() {
               <MenuItem value="low">Below Minimum</MenuItem>
               <MenuItem value="healthy">Healthy</MenuItem>
               <MenuItem value="zero">Zero Available</MenuItem>
+              <MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
             </TextField>
             <TextField
               size="small"
@@ -1015,6 +1085,16 @@ export default function StockManagementPage() {
             <Button
               size="small"
               variant="outlined"
+              startIcon={<UploadFileRoundedIcon />}
+              onClick={triggerMinimumWorkbookImport}
+              disabled={importingMinimumWorkbook}
+              sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
+            >
+              {importingMinimumWorkbook ? 'Importing...' : 'Import Minimum Workbook'}
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
               startIcon={<FileDownloadOutlinedIcon />}
               onClick={doExport}
               disabled={exporting}
@@ -1027,6 +1107,7 @@ export default function StockManagementPage() {
             <Chip size="small" label={`Rows in stock report ${fmtCount(latestImport?.statusRowCount || 0)}`} sx={{ fontWeight: 700 }} />
             <Chip size="small" label={`Matched items ${fmtCount(summary.matchedItemCount)}`} sx={{ fontWeight: 700, bgcolor: '#dcfce7', color: '#166534' }} />
             <Chip size="small" label={`Review items ${fmtCount(summary.lowConfidenceCount + summary.unresolvedItemCount)}`} sx={{ fontWeight: 700, bgcolor: '#ffedd5', color: '#c2410c' }} />
+            <Chip size="small" label={`Unconfirmed minimums ${fmtCount(summary.unconfirmedRequirementItemCount || 0)}`} sx={{ fontWeight: 700, bgcolor: '#fff7ed', color: '#c2410c' }} />
             <Chip size="small" label={`Unknown-site qty ${fmtCount(summary.unknownSiteQtyTotal)}`} sx={{ fontWeight: 700, bgcolor: '#fef3c7', color: '#92400e' }} />
           </Stack>
         </Stack>
@@ -1137,7 +1218,16 @@ export default function StockManagementPage() {
                       <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
                         <TableCell>
                           <Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
+                          <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" sx={{ mt: 0.2 }}>
+                            <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || 'No stock code'}</Typography>
+                            {row.hasUnconfirmedRequirements ? (
+                              <Chip
+                                size="small"
+                                label={`Unconfirmed ${row.unconfirmedRegions?.join(', ')}`}
+                                sx={{ height: 19, bgcolor: '#fff7ed', color: '#c2410c', '& .MuiChip-label': { px: 0.7, fontSize: 10.1, fontWeight: 800 } }}
+                              />
+                            ) : null}
+                          </Stack>
                         </TableCell>
                         <TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell>
                         <TableCell align="right">{fmtCount(row.availableTotal)}</TableCell>
@@ -1258,6 +1348,9 @@ export default function StockManagementPage() {
                                   <Chip size="small" label={`WH ${fmtCount(entry.warehouseAvailable)}`} sx={{ height: 20, bgcolor: '#dcfce7', color: '#166534', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
                                   <Chip size="small" label={`Not WH ${fmtCount(entry.notWh)}`} sx={{ height: 20, bgcolor: '#fff7ed', color: '#c2410c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4 } }} />
                                   <Chip size="small" label={`Gap ${fmtCount(entry.gap)}`} sx={{ height: 20, bgcolor: '#fee2e2', color: '#b91c1c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4, fontWeight: 800 } }} />
+                                  {entry.requiredConfirmed === false ? (
+                                    <Chip size="small" label="Unconfirmed min" sx={{ height: 20, bgcolor: '#ffedd5', color: '#c2410c', '& .MuiChip-label': { px: 0.7, fontSize: 10.4, fontWeight: 800 } }} />
+                                  ) : null}
                                 </Stack>
                               </Stack>
                             </Paper>
@@ -1678,19 +1771,28 @@ export default function StockManagementPage() {
                                 >
                                   {row.itemDescription}
                                 </Typography>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    opacity: 0.72,
-                                    fontSize: 9.7,
-                                    lineHeight: 1.06,
-                                    display: 'block',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
-                                  }}
-                                >
-                                  {row.stockCode || 'No stock code'}
-                                </Typography>
+                                <Stack direction="row" spacing={0.35} useFlexGap flexWrap="wrap" sx={{ mt: 0.2 }}>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      opacity: 0.72,
+                                      fontSize: 9.7,
+                                      lineHeight: 1.06,
+                                      display: 'block',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
+                                    }}
+                                  >
+                                    {row.stockCode || 'No stock code'}
+                                  </Typography>
+                                  {row.hasUnconfirmedRequirements ? (
+                                    <Chip
+                                      size="small"
+                                      label={`Unconfirmed ${row.unconfirmedRegions?.join(', ')}`}
+                                      sx={{ height: 18, bgcolor: '#fff7ed', color: '#c2410c', '& .MuiChip-label': { px: 0.55, fontSize: 9.6, fontWeight: 800 } }}
+                                    />
+                                  ) : null}
+                                </Stack>
                               </TableCell>
                               <TableCell sx={MASTER_SECTION_CELL_SX}>
                                 <Typography
@@ -2099,6 +2201,14 @@ export default function StockManagementPage() {
                 <Chip label={selectedItem.division || 'Unassigned'} />
                 <Chip label={selectedItem.matchStatus} color={matchTone(selectedItem)} />
                 <Chip label={`Required ${fmtCount(selectedItem.requiredTotal)}`} />
+                <Chip
+                  label={selectedItem.requirementStatus || 'Confirmed'}
+                  sx={{
+                    fontWeight: 800,
+                    bgcolor: selectedItem.hasUnconfirmedRequirements ? '#fff7ed' : '#dcfce7',
+                    color: selectedItem.hasUnconfirmedRequirements ? '#c2410c' : '#166534'
+                  }}
+                />
                 <Chip label={`WH Available ${fmtCount(selectedItem.availableTotal)}`} />
                 <Chip label={`Not WH ${fmtCount(selectedItem.notInWarehouses)}`} />
                 <Chip label={`Ordered ${fmtCount(selectedItem.orderedStock)}`} />
@@ -2141,15 +2251,30 @@ export default function StockManagementPage() {
                         px: 1,
                         py: 0.9,
                         borderRadius: 2,
-                        bgcolor: 'rgba(15, 118, 110, 0.03)'
+                        bgcolor: selectedItem.requiredConfirmedByRegion?.[region] === false ? 'rgba(249, 115, 22, 0.08)' : 'rgba(15, 118, 110, 0.03)',
+                        borderColor: selectedItem.requiredConfirmedByRegion?.[region] === false ? '#fdba74' : undefined
                       }}
                     >
-                      <Typography variant="caption" sx={{ display: 'block', opacity: 0.68 }}>
-                        {region}
-                      </Typography>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
-                        {fmtCount(selectedItem.requiredByRegion?.[region] || 0)}
-                      </Typography>
+                      <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
+                        <Box>
+                          <Typography variant="caption" sx={{ display: 'block', opacity: 0.68 }}>
+                            {region}
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                            {fmtCount(selectedItem.requiredByRegion?.[region] || 0)}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          size="small"
+                          label={requirementTone(selectedItem.requiredConfirmedByRegion?.[region] !== false).label}
+                          sx={{
+                            height: 20,
+                            bgcolor: requirementTone(selectedItem.requiredConfirmedByRegion?.[region] !== false).bg,
+                            color: requirementTone(selectedItem.requiredConfirmedByRegion?.[region] !== false).color,
+                            '& .MuiChip-label': { px: 0.65, fontSize: 10.1, fontWeight: 800 }
+                          }}
+                        />
+                      </Stack>
                     </Paper>
                   ))}
                 </Box>
@@ -2165,24 +2290,46 @@ export default function StockManagementPage() {
                         }
                       }}
                     >
-                      {REQUIRED_SPARE_FIELDS.map(({ key, region }) => (
-                        <TextField
-                          key={key}
-                          size="small"
-                          label={`${region} min`}
-                          value={minimumForm[key]}
-                          onChange={(event) => {
-                            const nextValue = event.target.value
-                            if (/^\d*$/.test(nextValue)) {
-                              setMinimumForm((current) => ({
-                                ...current,
-                                [key]: nextValue
-                              }))
-                            }
-                          }}
-                          inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
-                        />
-                      ))}
+                      {REQUIRED_SPARE_FIELDS.map(({ key, region }) => {
+                        const confirmedKey = confirmedFieldForRequiredKey(key)
+                        return (
+                          <Paper key={key} variant="outlined" sx={{ p: 0.8, borderRadius: 2 }}>
+                            <Stack spacing={0.45}>
+                              <TextField
+                                size="small"
+                                label={`${region} min`}
+                                value={minimumForm[key]}
+                                onChange={(event) => {
+                                  const nextValue = event.target.value
+                                  if (/^\d*$/.test(nextValue)) {
+                                    setMinimumForm((current) => ({
+                                      ...current,
+                                      [key]: nextValue
+                                    }))
+                                  }
+                                }}
+                                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                              />
+                              <FormControlLabel
+                                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 11.1 } }}
+                                control={(
+                                  <Checkbox
+                                    size="small"
+                                    checked={Boolean(minimumForm[confirmedKey])}
+                                    onChange={(event) => {
+                                      setMinimumForm((current) => ({
+                                        ...current,
+                                        [confirmedKey]: event.target.checked
+                                      }))
+                                    }}
+                                  />
+                                )}
+                                label="Confirmed"
+                              />
+                            </Stack>
+                          </Paper>
+                        )
+                      })}
                     </Box>
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Button

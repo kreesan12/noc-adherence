@@ -9,15 +9,33 @@ import customParseFormat from 'dayjs/plugin/customParseFormat.js'
 dayjs.extend(customParseFormat)
 
 const STOCK_TEMPLATE_SHEET = 'Min Stock Master'
+const MINIMUM_STOCK_SHEET = 'Min Stock Master'
 const STOCK_TRACKING_SHEET = 'Montly tracking'
 const STATUS_HEADER_ROW_INDEX = 2
 const TEMPLATE_DATA_ROW_START_INDEX = 2
+const MINIMUM_STOCK_DATA_ROW_START_INDEX = 3
 const SUBJECT_PREFIX_RE = /^(?:\s*(?:re|fw|fwd)\s*:\s*)+/i
 
 const REGION_ORDER = ['CPT', 'JHB', 'DBN', 'PEL', 'BFN', 'GEO', 'POL', 'NEL']
+const REGION_REQUIREMENT_FIELDS = [
+  { region: 'CPT', valueField: 'requiredCpt', confirmedField: 'requiredCptConfirmed', exportColumn: 6 },
+  { region: 'JHB', valueField: 'requiredJhb', confirmedField: 'requiredJhbConfirmed', exportColumn: 7 },
+  { region: 'DBN', valueField: 'requiredDbn', confirmedField: 'requiredDbnConfirmed', exportColumn: 8 },
+  { region: 'PEL', valueField: 'requiredPel', confirmedField: 'requiredPelConfirmed', exportColumn: 9 },
+  { region: 'BFN', valueField: 'requiredBfn', confirmedField: 'requiredBfnConfirmed', exportColumn: 10 },
+  { region: 'GEO', valueField: 'requiredGeo', confirmedField: 'requiredGeoConfirmed', exportColumn: 11 },
+  { region: 'POL', valueField: 'requiredPol', confirmedField: 'requiredPolConfirmed', exportColumn: 12 },
+  { region: 'NEL', valueField: 'requiredNel', confirmedField: 'requiredNelConfirmed', exportColumn: 13 }
+]
 const MATCH_REVIEW_THRESHOLD = 0.75
 const MATCH_ACCEPT_THRESHOLD = 0.58
 const MATCH_MARGIN_THRESHOLD = 0.08
+const MINIMUM_TEMPLATE_MATCH_THRESHOLD = 1.02
+const MINIMUM_TEMPLATE_MATCH_MARGIN = 0.12
+const MINIMUM_TEMPLATE_FUZZY_THRESHOLD = 0.66
+const CONFIRMED_REQUIREMENT_COLORS = new Set(['FF00B050', 'FF008000'])
+const UNCONFIRMED_REQUIREMENT_COLORS = new Set(['FFFF0000', 'FFC00000'])
+const PLACEHOLDER_STOCK_CODES = new Set(['TBC', 'NA', 'N/A', 'UNKNOWN', 'NONE', '-'])
 
 const STOCK_EXPORT_HEADER_ROW_1 = [
   'Stock Items/Description', 'Stock Code ', 'Unit price ZAR', 'Unit price  USD', 'Division',
@@ -32,7 +50,7 @@ const STOCK_EXPORT_HEADER_ROW_1 = [
   'Availabele Stock  POL', '',
   'Availabele Stock  NEL', '',
   'Available Stock', 'Ordered Stock', 'MINIMUM SPARES', 'Warehouse Stock',
-  'Total Stock', 'Unit Cost', 'Gap', 'Gap Cost', ''
+  'Total Stock', 'Unit Cost', 'Gap', 'Gap Cost', 'Requirement Status'
 ]
 
 const STOCK_EXPORT_HEADER_ROW_2 = [
@@ -47,7 +65,7 @@ const STOCK_EXPORT_HEADER_ROW_2 = [
   'WAR-FF-POL', 'TOTAL',
   'WAR-FF-NEL', 'TOTAL',
   'Not in Warehouses', 'Total', 'Required', 'Usable',
-  'All Stock', 'Derived ZAR', 'Qty', 'ZAR', ''
+  'All Stock', 'Derived ZAR', 'Qty', 'ZAR', 'Review'
 ]
 
 const REGION_ALIAS_MAP = {
@@ -120,6 +138,14 @@ const DEFAULT_WAREHOUSE_FIELD_BY_REGION = {
   NEL: { war: 'nelWarehousePrimary', vox: 'nelWarehousePrimary', fallback: 'nelWarehousePrimary' }
 }
 
+const REGION_TO_REQUIRED_FIELD = Object.fromEntries(
+  REGION_REQUIREMENT_FIELDS.map(({ region, valueField }) => [region, valueField])
+)
+
+const REGION_TO_CONFIRMED_FIELD = Object.fromEntries(
+  REGION_REQUIREMENT_FIELDS.map(({ region, confirmedField }) => [region, confirmedField])
+)
+
 const STOCK_RUN_RATE_SNAPSHOT_KEY = 'current'
 
 const projectionCache = {
@@ -134,6 +160,19 @@ const runRateCache = {
 
 function cleanCell(value) {
   return String(value ?? '').replace(/\r?\n/g, ' ').trim()
+}
+
+function normalizeRequirementText(value) {
+  return cleanCell(value).toUpperCase()
+}
+
+function isPlaceholderStockCode(value) {
+  return PLACEHOLDER_STOCK_CODES.has(normalizeRequirementText(value))
+}
+
+function normalizeStockCodeForRequirements(value) {
+  const cleaned = cleanCell(value)
+  return cleaned && !isPlaceholderStockCode(cleaned) ? cleaned : null
 }
 
 function toInt(value) {
@@ -151,16 +190,34 @@ function toMoney(value) {
 }
 
 function sumRequiredSpares(record) {
-  return [
-    record.requiredCpt,
-    record.requiredJhb,
-    record.requiredDbn,
-    record.requiredPel,
-    record.requiredBfn,
-    record.requiredGeo,
-    record.requiredPol,
-    record.requiredNel
-  ].reduce((sum, value) => sum + Number(value || 0), 0)
+  return REGION_REQUIREMENT_FIELDS.reduce((sum, { valueField }) => sum + Number(record?.[valueField] || 0), 0)
+}
+
+function sumUnconfirmedRequiredSpares(record) {
+  return REGION_REQUIREMENT_FIELDS.reduce((sum, { valueField, confirmedField }) => {
+    const value = Number(record?.[valueField] || 0)
+    if (!value) return sum
+    return record?.[confirmedField] === false ? sum + value : sum
+  }, 0)
+}
+
+function buildRequiredByRegion(record) {
+  return Object.fromEntries(
+    REGION_REQUIREMENT_FIELDS.map(({ region, valueField }) => [region, Number(record?.[valueField] || 0)])
+  )
+}
+
+function buildRequirementConfirmedByRegion(record, fallbackValue = true) {
+  return Object.fromEntries(
+    REGION_REQUIREMENT_FIELDS.map(({ region, confirmedField }) => [
+      region,
+      record?.[confirmedField] === false ? false : Boolean(record?.[confirmedField] ?? fallbackValue)
+    ])
+  )
+}
+
+function listUnconfirmedRegions(requiredByRegion, requiredConfirmedByRegion) {
+  return REGION_ORDER.filter((region) => Number(requiredByRegion?.[region] || 0) > 0 && requiredConfirmedByRegion?.[region] === false)
 }
 
 function normalizeCode(value) {
@@ -178,6 +235,13 @@ function normalizeDescription(value) {
     .replace(/[^A-Z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function parseRequirementConfirmedFromCell(cell) {
+  const argb = cleanCell(cell?.font?.color?.argb).toUpperCase()
+  if (argb && CONFIRMED_REQUIREMENT_COLORS.has(argb)) return true
+  if (argb && UNCONFIRMED_REQUIREMENT_COLORS.has(argb)) return false
+  return null
 }
 
 function tokenOverlapScore(a, b) {
@@ -569,6 +633,392 @@ export async function importStockTemplateWorkbook(prisma, input) {
   return { importedRows: records.length }
 }
 
+async function parseMinimumStockWorkbook(buffer) {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(buffer)
+
+  const sheet = workbook.getWorksheet(MINIMUM_STOCK_SHEET) || workbook.worksheets[0]
+  if (!sheet) {
+    throw new Error(`Minimum-stock sheet ${MINIMUM_STOCK_SHEET} not found`)
+  }
+
+  const records = []
+
+  for (let rowNumber = MINIMUM_STOCK_DATA_ROW_START_INDEX; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber)
+    const sectionName = cleanCell(row.getCell(1).text)
+    const subSectionName = cleanCell(row.getCell(2).text)
+    const stockItem = cleanCell(row.getCell(3).text)
+    const description = cleanCell(row.getCell(4).text)
+    const stockCode = cleanCell(row.getCell(5).text)
+    const division = cleanCell(row.getCell(6).text)
+
+    if (!stockItem && !description && !stockCode && !division) continue
+
+    const requiredByRegion = {}
+    const requiredConfirmedByRegion = {}
+
+    for (const { region, exportColumn } of REGION_REQUIREMENT_FIELDS) {
+      const cell = row.getCell(exportColumn + 1)
+      requiredByRegion[region] = toInt(cell.text)
+      requiredConfirmedByRegion[region] = parseRequirementConfirmedFromCell(cell)
+    }
+
+    records.push({
+      rowNumber,
+      sectionName,
+      subSectionName,
+      stockItem,
+      description,
+      stockCode,
+      stockCodeValue: normalizeStockCodeForRequirements(stockCode),
+      codeNorm: normalizeCode(normalizeStockCodeForRequirements(stockCode) || ''),
+      codeCanon: canonicalCode(normalizeStockCodeForRequirements(stockCode) || ''),
+      division,
+      stockNorm: normalizeDescription(stockItem),
+      descNorm: normalizeDescription(description),
+      requiredByRegion,
+      requiredConfirmedByRegion
+    })
+  }
+
+  return records
+}
+
+function buildMinimumStockTemplateIndexes(templateItems) {
+  const items = templateItems
+    .filter((row) => row.rowType === 'ITEM')
+    .map((row) => {
+      const codeValue = normalizeStockCodeForRequirements(row.stockCode)
+      const labels = uniqueBy(
+        [cleanCell(row.itemDescription), cleanCell(row.manualMatchDescription)].filter(Boolean),
+        (value) => normalizeDescription(value)
+      )
+
+      return {
+        ...row,
+        codeValue,
+        codeNorm: normalizeCode(codeValue || ''),
+        codeCanon: canonicalCode(codeValue || ''),
+        labelValues: labels,
+        labelNorms: labels.map((value) => normalizeDescription(value)).filter(Boolean),
+        divisionNorm: normalizeDescription(row.division),
+        sectionNorm: normalizeDescription(row.sectionName)
+      }
+    })
+
+  const exactCodeMap = new Map()
+  const canonicalMap = new Map()
+  const labelMap = new Map()
+
+  for (const item of items) {
+    if (item.codeNorm) {
+      if (!exactCodeMap.has(item.codeNorm)) exactCodeMap.set(item.codeNorm, [])
+      exactCodeMap.get(item.codeNorm).push(item)
+    }
+
+    if (item.codeCanon) {
+      if (!canonicalMap.has(item.codeCanon)) canonicalMap.set(item.codeCanon, [])
+      canonicalMap.get(item.codeCanon).push(item)
+    }
+
+    for (const labelNorm of item.labelNorms) {
+      if (!labelMap.has(labelNorm)) labelMap.set(labelNorm, [])
+      labelMap.get(labelNorm).push(item)
+    }
+  }
+
+  return { items, exactCodeMap, canonicalMap, labelMap }
+}
+
+function buildMinimumTemplateCandidateScore(record, item) {
+  const stockExact = Boolean(record.stockNorm && item.labelNorms.includes(record.stockNorm))
+  const descExact = Boolean(record.descNorm && item.labelNorms.includes(record.descNorm))
+  const exactCode = Boolean(record.codeNorm && item.codeNorm && record.codeNorm === item.codeNorm)
+  const canonicalCodeMatch = !exactCode && Boolean(record.codeCanon && item.codeCanon && record.codeCanon === item.codeCanon)
+  const fuzzyScores = []
+
+  for (const label of item.labelValues.length ? item.labelValues : [item.itemDescription].filter(Boolean)) {
+    if (record.stockItem) fuzzyScores.push(buildFuzzyScore(record.stockItem, label))
+    if (record.description) fuzzyScores.push(buildFuzzyScore(record.description, label))
+  }
+
+  const bestFuzzy = fuzzyScores.length ? Math.max(...fuzzyScores) : 0
+  const divisionNorm = normalizeDescription(record.division)
+  const sectionNorm = normalizeDescription(record.sectionName)
+  const subSectionNorm = normalizeDescription(record.subSectionName)
+
+  let score = bestFuzzy
+  let method = 'fuzzy_label'
+
+  if (exactCode) {
+    score += 5
+    method = 'exact_code'
+  } else if (canonicalCodeMatch) {
+    score += 4.4
+    method = 'canonical_code'
+  }
+
+  if (stockExact) {
+    score += 3
+    if (method === 'fuzzy_label') method = 'exact_stock_item'
+  }
+
+  if (descExact) {
+    score += 2.6
+    if (method === 'fuzzy_label' && !stockExact) method = 'exact_description'
+  }
+
+  if (divisionNorm && item.divisionNorm && divisionNorm === item.divisionNorm) {
+    score += 0.12
+  }
+
+  if (subSectionNorm && item.sectionNorm && (item.sectionNorm.includes(subSectionNorm) || subSectionNorm.includes(item.sectionNorm))) {
+    score += 0.08
+  } else if (sectionNorm && item.sectionNorm && (item.sectionNorm.includes(sectionNorm) || sectionNorm.includes(item.sectionNorm))) {
+    score += 0.05
+  }
+
+  return {
+    item,
+    score,
+    method,
+    exactCode,
+    canonicalCodeMatch,
+    exactLabel: stockExact || descExact,
+    bestFuzzy
+  }
+}
+
+function chooseTemplateItemForMinimumRecord(record, indexes) {
+  if (record.codeNorm && indexes.exactCodeMap.has(record.codeNorm) && indexes.exactCodeMap.get(record.codeNorm).length === 1) {
+    const [item] = indexes.exactCodeMap.get(record.codeNorm)
+    return { item, method: 'exact_code', score: 5, candidates: [] }
+  }
+
+  if (record.codeCanon && indexes.canonicalMap.has(record.codeCanon) && indexes.canonicalMap.get(record.codeCanon).length === 1) {
+    const [item] = indexes.canonicalMap.get(record.codeCanon)
+    return { item, method: 'canonical_code', score: 4.4, candidates: [] }
+  }
+
+  const scoredCandidates = uniqueBy(
+    indexes.items
+      .map((item) => buildMinimumTemplateCandidateScore(record, item))
+      .filter((candidate) => candidate.score > 0.22)
+      .sort((left, right) => right.score - left.score || String(left.item.itemDescription || '').localeCompare(String(right.item.itemDescription || ''))),
+    (candidate) => candidate.item.id
+  )
+
+  const best = scoredCandidates[0] || null
+  const second = scoredCandidates[1] || null
+  const accepted = best && (
+    best.exactCode ||
+    best.canonicalCodeMatch ||
+    best.exactLabel ||
+    (best.bestFuzzy >= MINIMUM_TEMPLATE_FUZZY_THRESHOLD &&
+      best.score >= MINIMUM_TEMPLATE_MATCH_THRESHOLD &&
+      (!second || (best.score - second.score) >= MINIMUM_TEMPLATE_MATCH_MARGIN))
+  )
+
+  if (!accepted) {
+    return {
+      item: null,
+      method: 'create_new',
+      score: best ? Number(best.score.toFixed(4)) : 0,
+      candidates: scoredCandidates.slice(0, 5).map((candidate) => ({
+        itemId: candidate.item.id,
+        itemDescription: candidate.item.itemDescription,
+        stockCode: candidate.item.stockCode,
+        division: candidate.item.division,
+        score: Number(candidate.score.toFixed(4)),
+        method: candidate.method
+      }))
+    }
+  }
+
+  return {
+    item: best.item,
+    method: best.method,
+    score: Number(best.score.toFixed(4)),
+    candidates: scoredCandidates.slice(0, 5).map((candidate) => ({
+      itemId: candidate.item.id,
+      itemDescription: candidate.item.itemDescription,
+      stockCode: candidate.item.stockCode,
+      division: candidate.item.division,
+      score: Number(candidate.score.toFixed(4)),
+      method: candidate.method
+    }))
+  }
+}
+
+function mergeMinimumRequirementRecords(current, incoming) {
+  const merged = {
+    ...current,
+    sectionName: current.sectionName || incoming.sectionName,
+    subSectionName: current.subSectionName || incoming.subSectionName,
+    stockItem: current.stockItem || incoming.stockItem,
+    description: current.description || incoming.description,
+    stockCode: current.stockCode || incoming.stockCode,
+    stockCodeValue: current.stockCodeValue || incoming.stockCodeValue,
+    codeNorm: current.codeNorm || incoming.codeNorm,
+    codeCanon: current.codeCanon || incoming.codeCanon,
+    division: current.division || incoming.division,
+    stockNorm: current.stockNorm || incoming.stockNorm,
+    descNorm: current.descNorm || incoming.descNorm,
+    requiredByRegion: { ...current.requiredByRegion },
+    requiredConfirmedByRegion: { ...current.requiredConfirmedByRegion }
+  }
+
+  for (const region of REGION_ORDER) {
+    const currentValue = Number(merged.requiredByRegion?.[region] || 0)
+    const nextValue = Number(incoming.requiredByRegion?.[region] || 0)
+    const nextConfirmed = incoming.requiredConfirmedByRegion?.[region]
+
+    if (nextValue > currentValue) {
+      merged.requiredByRegion[region] = nextValue
+      merged.requiredConfirmedByRegion[region] = nextConfirmed ?? merged.requiredConfirmedByRegion?.[region] ?? true
+      continue
+    }
+
+    if (nextValue === currentValue && nextValue > 0) {
+      const currentConfirmed = merged.requiredConfirmedByRegion?.[region] !== false
+      merged.requiredConfirmedByRegion[region] = currentConfirmed && (nextConfirmed ?? currentConfirmed)
+    }
+  }
+
+  return merged
+}
+
+function buildMinimumRequirementFieldData(record, existingItem = null) {
+  const data = {}
+
+  for (const { region, valueField, confirmedField } of REGION_REQUIREMENT_FIELDS) {
+    data[valueField] = Number(record.requiredByRegion?.[region] || 0)
+    data[confirmedField] = record.requiredConfirmedByRegion?.[region] == null
+      ? Boolean(existingItem?.[confirmedField] ?? true)
+      : Boolean(record.requiredConfirmedByRegion?.[region])
+  }
+
+  return data
+}
+
+function buildMinimumRequirementCreateData(record) {
+  const itemDescription = cleanCell(record.stockItem || record.description || record.stockCodeValue || record.stockCode)
+  const longDescription = cleanCell(record.description)
+  const manualMatchDescription = longDescription && normalizeDescription(longDescription) !== normalizeDescription(itemDescription)
+    ? longDescription
+    : null
+
+  return {
+    rowType: 'ITEM',
+    sectionName: cleanCell([record.sectionName, record.subSectionName].filter(Boolean).join(' - ')) || null,
+    itemDescription: itemDescription || null,
+    stockCode: record.stockCodeValue || null,
+    unitPriceZar: null,
+    unitPriceUsd: null,
+    division: cleanCell(record.division) || null,
+    manualMatchDescription,
+    ...buildMinimumRequirementFieldData(record)
+  }
+}
+
+function buildMinimumRequirementCreateKey(record) {
+  const stockCodeKey = normalizeCode(record.stockCodeValue || '')
+  if (stockCodeKey) return `code:${stockCodeKey}`
+
+  const descriptionKey = normalizeDescription(record.stockItem || record.description)
+  if (descriptionKey) return `desc:${descriptionKey}`
+
+  return `row:${record.rowNumber}`
+}
+
+export async function importMinimumStockRequirementsWorkbook(prisma, input) {
+  const buffer = await loadBufferFromInput(input)
+  const records = await parseMinimumStockWorkbook(buffer)
+
+  if (!records.length) {
+    throw new Error('No minimum-stock rows were found in the workbook')
+  }
+
+  const templateItems = await prisma.stockTemplateItem.findMany({
+    orderBy: [{ rowOrder: 'asc' }, { id: 'asc' }]
+  })
+  const templateIndexes = buildMinimumStockTemplateIndexes(templateItems)
+  const existingItemsById = new Map(templateItems.map((item) => [item.id, item]))
+  const updatesById = new Map()
+  const createsByKey = new Map()
+  const matchMethodCounts = {}
+  let duplicateMatchedRows = 0
+  let duplicateNewRows = 0
+
+  for (const record of records) {
+    const match = chooseTemplateItemForMinimumRecord(record, templateIndexes)
+    matchMethodCounts[match.method] = (matchMethodCounts[match.method] || 0) + 1
+
+    if (match.item) {
+      if (updatesById.has(match.item.id)) {
+        duplicateMatchedRows += 1
+        updatesById.set(match.item.id, mergeMinimumRequirementRecords(updatesById.get(match.item.id), record))
+      } else {
+        updatesById.set(match.item.id, record)
+      }
+      continue
+    }
+
+    const createKey = buildMinimumRequirementCreateKey(record)
+    if (createsByKey.has(createKey)) {
+      duplicateNewRows += 1
+      createsByKey.set(createKey, mergeMinimumRequirementRecords(createsByKey.get(createKey), record))
+    } else {
+      createsByKey.set(createKey, record)
+    }
+  }
+
+  const aggregate = await prisma.stockTemplateItem.aggregate({
+    _max: { rowOrder: true }
+  })
+  let nextRowOrder = Math.max(Number(aggregate._max.rowOrder || 0) + 1, TEMPLATE_DATA_ROW_START_INDEX + 1)
+
+  await prisma.$transaction(async (tx) => {
+    for (const [itemId, record] of updatesById.entries()) {
+      await tx.stockTemplateItem.update({
+        where: { id: itemId },
+        data: buildMinimumRequirementFieldData(record, existingItemsById.get(itemId))
+      })
+    }
+
+    for (const record of createsByKey.values()) {
+      await tx.stockTemplateItem.create({
+        data: {
+          rowOrder: nextRowOrder,
+          ...buildMinimumRequirementCreateData(record)
+        }
+      })
+      nextRowOrder += 1
+    }
+  }, {
+    maxWait: 10_000,
+    timeout: 120_000
+  })
+
+  invalidateStockManagementCache()
+  const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
+  await rebuildStoredStockRunRateDataset(prisma)
+
+  return {
+    dataset,
+    meta: {
+      importedRows: records.length,
+      updatedCount: updatesById.size,
+      createdCount: createsByKey.size,
+      duplicateMatchedRows,
+      duplicateNewRows,
+      unconfirmedImportedRows: records.filter((record) => REGION_ORDER.some((region) => record.requiredConfirmedByRegion?.[region] === false)).length,
+      matchMethodCounts
+    }
+  }
+}
+
 function parseStockStatusWorkbook(buffer) {
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
@@ -768,22 +1218,23 @@ function buildProjectedItem(templateItem, indexes) {
       stockCode: templateItem.stockCode,
       division: templateItem.division,
       requiredByRegion: null,
+      requiredConfirmedByRegion: null,
+      confirmedRequiredTotal: 0,
+      unconfirmedRequiredTotal: 0,
+      hasUnconfirmedRequirements: false,
+      unconfirmedRegions: [],
+      requirementStatus: 'Confirmed',
       requiredTotal: 0
     }
   }
 
-  const requiredByRegion = {
-    CPT: templateItem.requiredCpt || 0,
-    JHB: templateItem.requiredJhb || 0,
-    DBN: templateItem.requiredDbn || 0,
-    PEL: templateItem.requiredPel || 0,
-    BFN: templateItem.requiredBfn || 0,
-    GEO: templateItem.requiredGeo || 0,
-    POL: templateItem.requiredPol || 0,
-    NEL: templateItem.requiredNel || 0
-  }
-
+  const requiredByRegion = buildRequiredByRegion(templateItem)
+  const requiredConfirmedByRegion = buildRequirementConfirmedByRegion(templateItem)
   const requiredTotal = Object.values(requiredByRegion).reduce((sum, value) => sum + Number(value || 0), 0)
+  const unconfirmedRegions = listUnconfirmedRegions(requiredByRegion, requiredConfirmedByRegion)
+  const hasUnconfirmedRequirements = unconfirmedRegions.length > 0
+  const unconfirmedRequiredTotal = sumUnconfirmedRequiredSpares(templateItem)
+  const confirmedRequiredTotal = Math.max(requiredTotal - unconfirmedRequiredTotal, 0)
   const projection = createEmptyProjectionFields()
   const match = chooseMatchForTemplateItem(templateItem, indexes)
   const matchedRows = match.group?.rows || []
@@ -866,7 +1317,10 @@ function buildProjectedItem(templateItem, indexes) {
     unitPriceUsd: templateItem.unitPriceUsd,
     division: templateItem.division,
     requiredByRegion,
+    requiredConfirmedByRegion,
     requiredTotal,
+    confirmedRequiredTotal,
+    unconfirmedRequiredTotal,
     totalQtyOnHand,
     totalValuation,
     unitCost,
@@ -880,6 +1334,9 @@ function buildProjectedItem(templateItem, indexes) {
     shortage,
     gapCost,
     belowMinimum: projection.availableTotal < requiredTotal,
+    hasUnconfirmedRequirements,
+    unconfirmedRegions,
+    requirementStatus: hasUnconfirmedRequirements ? `Unconfirmed: ${unconfirmedRegions.join(', ')}` : 'Confirmed',
     candidateMatches: match.candidates,
     siteBreakdown
   }
@@ -891,6 +1348,7 @@ function buildRegionWatchlistRows(itemRows) {
     const rows = itemRows
       .map((row) => {
         const required = Number(row.requiredByRegion?.[region] || 0)
+        const requiredConfirmed = required > 0 ? row.requiredConfirmedByRegion?.[region] !== false : true
         const warehouseAvailable = Number(row[`${regionKey}Total`] || 0)
         const notWh = Number(row.regionFieldTotals?.[region] || 0)
         const gap = Math.max(required - warehouseAvailable, 0)
@@ -905,11 +1363,14 @@ function buildRegionWatchlistRows(itemRows) {
           sectionName: row.sectionName,
           division: row.division,
           required,
+          requiredConfirmed,
           warehouseAvailable,
           notWh,
           gap,
           unitCost: Number(row.unitCost || 0),
-          gapCost: Number((gap * Number(row.unitCost || 0)).toFixed(2))
+          gapCost: Number((gap * Number(row.unitCost || 0)).toFixed(2)),
+          hasUnconfirmedRequirements: row.hasUnconfirmedRequirements,
+          unconfirmedRegions: row.unconfirmedRegions || []
         }
       })
       .filter((entry) => entry.gap > 0)
@@ -920,6 +1381,7 @@ function buildRegionWatchlistRows(itemRows) {
       totalGap: rows.reduce((sum, entry) => sum + entry.gap, 0),
       totalGapCost: Number(rows.reduce((sum, entry) => sum + Number(entry.gapCost || 0), 0).toFixed(2)),
       affectedItems: rows.length,
+      unconfirmedItems: rows.filter((entry) => entry.required > 0 && !entry.requiredConfirmed).length,
       rows
     }
   }).filter((entry) => entry.affectedItems > 0)
@@ -971,16 +1433,22 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
   const regionSummary = REGION_ORDER.map((region) => {
     const regionKey = region.toLowerCase()
     const requiredTotal = itemRows.reduce((sum, row) => sum + Number(row.requiredByRegion?.[region] || 0), 0)
+    const unconfirmedRequiredTotal = itemRows.reduce((sum, row) => {
+      const value = Number(row.requiredByRegion?.[region] || 0)
+      return row.requiredConfirmedByRegion?.[region] === false ? sum + value : sum
+    }, 0)
     const warehouseTotal = itemRows.reduce((sum, row) => sum + Number(row[`${regionKey}Total`] || 0), 0)
     const fieldTotal = itemRows.reduce((sum, row) => sum + Number(row.regionFieldTotals?.[region] || 0), 0)
     return {
       region,
       requiredTotal,
+      unconfirmedRequiredTotal,
       warehouseTotal,
       fieldTotal,
       availableTotal: warehouseTotal + fieldTotal,
       usableAvailableTotal: warehouseTotal,
-      gap: Math.max(requiredTotal - warehouseTotal, 0)
+      gap: Math.max(requiredTotal - warehouseTotal, 0),
+      unconfirmedGap: Math.max(unconfirmedRequiredTotal - warehouseTotal, 0)
     }
   })
 
@@ -1004,9 +1472,10 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     current.allAvailableTotal += Number(row.allAvailableTotal || 0)
     current.requiredTotal += Number(row.requiredTotal || 0)
     current.orderedStock += Number(row.orderedStock || 0)
-    current.notInWarehouseTotal += Number(row.notInWarehouses || 0)
-    current.gapCostTotal += Number(row.gapCost || 0)
-    divisionMap.set(key, current)
+      current.notInWarehouseTotal += Number(row.notInWarehouses || 0)
+      current.gapCostTotal += Number(row.gapCost || 0)
+      current.unconfirmedRequirementCount = Number(current.unconfirmedRequirementCount || 0) + (row.hasUnconfirmedRequirements ? 1 : 0)
+      divisionMap.set(key, current)
   }
 
   return {
@@ -1024,6 +1493,9 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
       availableTotal: itemRows.reduce((sum, row) => sum + Number(row.availableTotal || 0), 0),
       allAvailableTotal: itemRows.reduce((sum, row) => sum + Number(row.allAvailableTotal || 0), 0),
       requiredTotal: itemRows.reduce((sum, row) => sum + Number(row.requiredTotal || 0), 0),
+      unconfirmedRequiredTotal: itemRows.reduce((sum, row) => sum + Number(row.unconfirmedRequiredTotal || 0), 0),
+      unconfirmedRequirementItemCount: itemRows.filter((row) => row.hasUnconfirmedRequirements).length,
+      unconfirmedLowStockItemCount: lowStockRows.filter((row) => row.hasUnconfirmedRequirements).length,
       gapCostTotal: Number(itemRows.reduce((sum, row) => sum + Number(row.gapCost || 0), 0).toFixed(2)),
       unknownSiteQtyTotal: itemRows.reduce((sum, row) => sum + Number(row.unknownSiteQty || 0), 0),
       matchCoveragePct: itemRows.length ? Number(((matchedRows.length / itemRows.length) * 100).toFixed(2)) : 0
@@ -1032,7 +1504,10 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     divisionSummary: [...divisionMap.values()].sort((left, right) => right.lowStockCount - left.lowStockCount || left.division.localeCompare(right.division)),
     lowStockItems: lowStockRows,
     regionWatchlist,
-    sectionOptions: templateItems.filter((row) => row.rowType === 'SECTION').map((row) => row.itemDescription || row.sectionName).filter(Boolean),
+    sectionOptions: Array.from(new Set([
+      ...templateItems.filter((row) => row.rowType === 'SECTION').map((row) => row.itemDescription || row.sectionName),
+      ...itemRows.map((row) => row.sectionName)
+    ].filter(Boolean))).sort((left, right) => String(left).localeCompare(String(right))),
     matchReviewItems: [...lowConfidenceRows, ...unresolvedRows].sort((left, right) => {
       if (left.matchMethod === 'unmatched' && right.matchMethod !== 'unmatched') return -1
       if (left.matchMethod !== 'unmatched' && right.matchMethod === 'unmatched') return 1
@@ -1417,28 +1892,18 @@ function createStockTemplateError(message, statusCode = 400) {
 
 function buildRequiredSparePayload(source, carryRequiredSpares) {
   if (!carryRequiredSpares) {
-    return {
-      requiredCpt: 0,
-      requiredJhb: 0,
-      requiredDbn: 0,
-      requiredPel: 0,
-      requiredBfn: 0,
-      requiredGeo: 0,
-      requiredPol: 0,
-      requiredNel: 0
-    }
+    return REGION_REQUIREMENT_FIELDS.reduce((payload, { valueField, confirmedField }) => ({
+      ...payload,
+      [valueField]: 0,
+      [confirmedField]: true
+    }), {})
   }
 
-  return {
-    requiredCpt: source.requiredCpt,
-    requiredJhb: source.requiredJhb,
-    requiredDbn: source.requiredDbn,
-    requiredPel: source.requiredPel,
-    requiredBfn: source.requiredBfn,
-    requiredGeo: source.requiredGeo,
-    requiredPol: source.requiredPol,
-    requiredNel: source.requiredNel
-  }
+  return REGION_REQUIREMENT_FIELDS.reduce((payload, { valueField, confirmedField }) => ({
+    ...payload,
+    [valueField]: source[valueField],
+    [confirmedField]: source[confirmedField] === false ? false : true
+  }), {})
 }
 
 function buildReviewClone(source, candidate, carryRequiredSpares) {
@@ -1617,13 +2082,21 @@ export async function createStockTemplateItem(prisma, data) {
       unitPriceUsd: cleanCell(data.unitPriceUsd) || null,
       division: cleanCell(data.division) || null,
       requiredCpt: Number(data.requiredCpt || 0),
+      requiredCptConfirmed: data.requiredCptConfirmed === false ? false : true,
       requiredJhb: Number(data.requiredJhb || 0),
+      requiredJhbConfirmed: data.requiredJhbConfirmed === false ? false : true,
       requiredDbn: Number(data.requiredDbn || 0),
+      requiredDbnConfirmed: data.requiredDbnConfirmed === false ? false : true,
       requiredPel: Number(data.requiredPel || 0),
+      requiredPelConfirmed: data.requiredPelConfirmed === false ? false : true,
       requiredBfn: Number(data.requiredBfn || 0),
+      requiredBfnConfirmed: data.requiredBfnConfirmed === false ? false : true,
       requiredGeo: Number(data.requiredGeo || 0),
+      requiredGeoConfirmed: data.requiredGeoConfirmed === false ? false : true,
       requiredPol: Number(data.requiredPol || 0),
-      requiredNel: Number(data.requiredNel || 0)
+      requiredPolConfirmed: data.requiredPolConfirmed === false ? false : true,
+      requiredNel: Number(data.requiredNel || 0),
+      requiredNelConfirmed: data.requiredNelConfirmed === false ? false : true
     }
   })
 
@@ -1982,7 +2455,7 @@ function setWorkbookStructure(worksheet) {
     { width: 11 }, { width: 10 },
     { width: 11 }, { width: 10 },
     { width: 14 }, { width: 12 }, { width: 12 }, { width: 12 },
-    { width: 12 }, { width: 12 }, { width: 11 }, { width: 14 }, { width: 4 }
+    { width: 12 }, { width: 12 }, { width: 11 }, { width: 14 }, { width: 20 }
   ]
   applySheetHeaderStyles(worksheet)
 }
@@ -2044,7 +2517,8 @@ export async function buildStockTemplateWorkbookBuffer(prisma) {
       row.allAvailableTotal || 0,
       row.unitCost || 0,
       row.shortage || 0,
-      row.gapCost || 0
+      row.gapCost || 0,
+      row.requirementStatus || 'Confirmed'
     ]
 
     const fillArgb = row.belowMinimum
@@ -2062,13 +2536,31 @@ export async function buildStockTemplateWorkbookBuffer(prisma) {
         left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
         right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
       }
-      if (columnNumber <= 36) {
+      if (columnNumber <= 42) {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillArgb } }
       }
       if (columnNumber >= 6 && columnNumber <= 36 && typeof cell.value === 'number') {
         cell.alignment = { horizontal: 'center' }
       }
     })
+
+    for (const { region, exportColumn } of REGION_REQUIREMENT_FIELDS) {
+      const cell = excelRow.getCell(exportColumn)
+      cell.font = {
+        ...(cell.font || {}),
+        color: {
+          argb: row.requiredConfirmedByRegion?.[region] === false ? 'FFFF0000' : 'FF00B050'
+        }
+      }
+    }
+
+    const statusCell = excelRow.getCell(42)
+    statusCell.font = {
+      bold: row.hasUnconfirmedRequirements,
+      color: {
+        argb: row.hasUnconfirmedRequirements ? 'FFB45309' : 'FF166534'
+      }
+    }
   }
 
   const trackingSheet = workbook.addWorksheet(STOCK_TRACKING_SHEET)
@@ -2117,7 +2609,9 @@ export async function buildLowStockWatchlistWorkbookBuffer(prisma) {
     'Ordered Stock',
     'Gap',
     'Unit Cost',
-    'Gap Cost'
+    'Gap Cost',
+    'Requirement Status',
+    'Unconfirmed Regions'
   ]
   styleSimpleExportSheet(worksheet, 4)
 
@@ -2133,10 +2627,12 @@ export async function buildLowStockWatchlistWorkbookBuffer(prisma) {
     { width: 13 },
     { width: 12 },
     { width: 14 },
-    { width: 14 }
+    { width: 14 },
+    { width: 20 },
+    { width: 20 }
   ]
   worksheet.views = [{ state: 'frozen', ySplit: 4 }]
-  worksheet.autoFilter = { from: 'A4', to: 'L4' }
+  worksheet.autoFilter = { from: 'A4', to: 'N4' }
 
   dataset.lowStockItems.forEach((row) => {
     const added = worksheet.addRow([
@@ -2151,7 +2647,9 @@ export async function buildLowStockWatchlistWorkbookBuffer(prisma) {
       Number(row.orderedStock || 0),
       Number(row.shortage || 0),
       Number(row.unitCost || 0),
-      Number(row.gapCost || 0)
+      Number(row.gapCost || 0),
+      row.requirementStatus || 'Confirmed',
+      (row.unconfirmedRegions || []).join(', ')
     ])
     added.eachCell((cell, columnNumber) => {
       cell.border = {
@@ -2160,7 +2658,7 @@ export async function buildLowStockWatchlistWorkbookBuffer(prisma) {
         left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
         right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
       }
-      if (columnNumber >= 6) {
+      if (columnNumber >= 6 && columnNumber <= 12) {
         cell.alignment = { horizontal: 'right' }
       }
       if (columnNumber === 10 && Number(row.shortage || 0) > 0) {
@@ -2168,6 +2666,12 @@ export async function buildLowStockWatchlistWorkbookBuffer(prisma) {
       }
       if (columnNumber === 12 && Number(row.gapCost || 0) > 0) {
         cell.font = { bold: true, color: { argb: 'FF1D4ED8' } }
+      }
+      if (columnNumber === 13) {
+        cell.font = {
+          bold: row.hasUnconfirmedRequirements,
+          color: { argb: row.hasUnconfirmedRequirements ? 'FFB45309' : 'FF166534' }
+        }
       }
     })
   })
@@ -2185,21 +2689,23 @@ export async function buildRegionalWatchlistWorkbookBuffer(prisma) {
   summarySheet.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF0F172A' } }
   summarySheet.getCell('A2').value = `Latest report date: ${dataset.latestImport?.reportDate ? dayjs(dataset.latestImport.reportDate).format('YYYY-MM-DD HH:mm') : 'N/A'}`
   summarySheet.getCell('A3').value = `Generated: ${dayjs().format('YYYY-MM-DD HH:mm')}`
-  summarySheet.getRow(4).values = ['Region', 'Affected Items', 'Total Gap', 'Total Gap Cost']
+  summarySheet.getRow(4).values = ['Region', 'Affected Items', 'Unconfirmed Items', 'Total Gap', 'Total Gap Cost']
   summarySheet.columns = [
     { width: 14 },
     { width: 16 },
+    { width: 18 },
     { width: 14 },
     { width: 16 }
   ]
   summarySheet.views = [{ state: 'frozen', ySplit: 4 }]
-  summarySheet.autoFilter = { from: 'A4', to: 'D4' }
+  summarySheet.autoFilter = { from: 'A4', to: 'E4' }
   styleSimpleExportSheet(summarySheet, 4)
 
   dataset.regionWatchlist.forEach((region) => {
     summarySheet.addRow([
       region.region,
       Number(region.affectedItems || 0),
+      Number(region.unconfirmedItems || 0),
       Number(region.totalGap || 0),
       Number(region.totalGapCost || 0)
     ])
@@ -2221,7 +2727,9 @@ export async function buildRegionalWatchlistWorkbookBuffer(prisma) {
       'Not WH',
       'Gap',
       'Unit Cost',
-      'Gap Cost'
+      'Gap Cost',
+      'Requirement Status',
+      'Unconfirmed Regions'
     ]
     worksheet.columns = [
       { width: 42 },
@@ -2233,14 +2741,16 @@ export async function buildRegionalWatchlistWorkbookBuffer(prisma) {
       { width: 12 },
       { width: 12 },
       { width: 14 },
-      { width: 14 }
+      { width: 14 },
+      { width: 20 },
+      { width: 20 }
     ]
     worksheet.views = [{ state: 'frozen', ySplit: 4 }]
-    worksheet.autoFilter = { from: 'A4', to: 'J4' }
+    worksheet.autoFilter = { from: 'A4', to: 'L4' }
     styleSimpleExportSheet(worksheet, 4)
 
     region.rows.forEach((row) => {
-      worksheet.addRow([
+      const added = worksheet.addRow([
         row.itemDescription || '',
         row.stockCode || '',
         row.sectionName || '',
@@ -2250,8 +2760,28 @@ export async function buildRegionalWatchlistWorkbookBuffer(prisma) {
         Number(row.notWh || 0),
         Number(row.gap || 0),
         Number(row.unitCost || 0),
-        Number(row.gapCost || 0)
+        Number(row.gapCost || 0),
+        row.requiredConfirmed === false ? 'Unconfirmed' : 'Confirmed',
+        row.requiredConfirmed === false ? region.region : ''
       ])
+
+      added.eachCell((cell, columnNumber) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+        }
+        if (columnNumber >= 5 && columnNumber <= 10) {
+          cell.alignment = { horizontal: 'right' }
+        }
+        if (columnNumber === 11) {
+          cell.font = {
+            bold: row.requiredConfirmed === false,
+            color: { argb: row.requiredConfirmed === false ? 'FFB45309' : 'FF166534' }
+          }
+        }
+      })
     })
   }
 

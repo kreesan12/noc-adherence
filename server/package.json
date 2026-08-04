@@ -12,6 +12,7 @@
     "generate": "prisma generate",
     "stock:ingest": "node scripts/ingestStockStatus.js",
     "stock:template:import": "node scripts/importStockTemplate.js",
+    "stock:minimums:import": "node scripts/importMinimumStockRequirements.js",
     "heroku-postbuild": "npm run generate && npm run migrate"
   },
   "engines": {

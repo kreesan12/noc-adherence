@@ -31,6 +31,29 @@ export async function exportRegionalWatchlistWorkbook() {
   return response.data
 }
 
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ''
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+
+  return window.btoa(binary)
+}
+
+export async function importMinimumStockRequirementsWorkbook(file) {
+  const buffer = await file.arrayBuffer()
+  const payload = {
+    fileName: file.name || 'minimum-stock.xlsx',
+    fileDataBase64: arrayBufferToBase64(buffer)
+  }
+  const { data } = await api.post('/stock-management/import-minimum-requirements', payload)
+  return data
+}
+
 export async function fetchStockRunRates() {
   const { data } = await api.get('/stock-management/run-rates')
   return data

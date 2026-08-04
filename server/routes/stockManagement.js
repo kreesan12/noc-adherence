@@ -10,6 +10,7 @@ import {
   getCurrentStockDataset,
   getStockRunRateDataset,
   importCurrentStockStatusWorkbook,
+  importMinimumStockRequirementsWorkbook,
   importStockStatusFromGmail,
   importStockTemplateWorkbook,
   invalidateStockManagementCache,
@@ -51,6 +52,15 @@ function parseWholeNumber(value) {
   const parsed = Number(raw)
   if (!Number.isFinite(parsed)) return null
   return parsed
+}
+
+function parseBooleanFlag(value, defaultValue = true) {
+  if (value == null) return defaultValue
+  if (typeof value === 'boolean') return value
+  const normalized = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'y'].includes(normalized)) return true
+  if (['false', '0', 'no', 'n'].includes(normalized)) return false
+  return defaultValue
 }
 
 r.get('/current', async (_req, res) => {
@@ -127,21 +137,29 @@ r.put('/template-items/:id/required-spares', async (req, res) => {
 
   const fields = {
     requiredCpt: parseWholeNumber(req.body?.requiredCpt),
+    requiredCptConfirmed: parseBooleanFlag(req.body?.requiredCptConfirmed, existing.requiredCptConfirmed !== false),
     requiredJhb: parseWholeNumber(req.body?.requiredJhb),
+    requiredJhbConfirmed: parseBooleanFlag(req.body?.requiredJhbConfirmed, existing.requiredJhbConfirmed !== false),
     requiredDbn: parseWholeNumber(req.body?.requiredDbn),
+    requiredDbnConfirmed: parseBooleanFlag(req.body?.requiredDbnConfirmed, existing.requiredDbnConfirmed !== false),
     requiredPel: parseWholeNumber(req.body?.requiredPel),
+    requiredPelConfirmed: parseBooleanFlag(req.body?.requiredPelConfirmed, existing.requiredPelConfirmed !== false),
     requiredBfn: parseWholeNumber(req.body?.requiredBfn),
+    requiredBfnConfirmed: parseBooleanFlag(req.body?.requiredBfnConfirmed, existing.requiredBfnConfirmed !== false),
     requiredGeo: parseWholeNumber(req.body?.requiredGeo),
+    requiredGeoConfirmed: parseBooleanFlag(req.body?.requiredGeoConfirmed, existing.requiredGeoConfirmed !== false),
     requiredPol: parseWholeNumber(req.body?.requiredPol),
-    requiredNel: parseWholeNumber(req.body?.requiredNel)
+    requiredPolConfirmed: parseBooleanFlag(req.body?.requiredPolConfirmed, existing.requiredPolConfirmed !== false),
+    requiredNel: parseWholeNumber(req.body?.requiredNel),
+    requiredNelConfirmed: parseBooleanFlag(req.body?.requiredNelConfirmed, existing.requiredNelConfirmed !== false)
   }
 
-  const invalidField = Object.entries(fields).find(([, value]) => value == null)
+  const invalidField = Object.entries(fields).find(([key, value]) => key.startsWith('required') && !key.endsWith('Confirmed') && value == null)
   if (invalidField) {
     return res.status(400).json({ error: `Invalid whole-number value for ${invalidField[0]}` })
   }
 
-  const negativeField = Object.entries(fields).find(([, value]) => value < 0)
+  const negativeField = Object.entries(fields).find(([key, value]) => key.startsWith('required') && !key.endsWith('Confirmed') && value < 0)
   if (negativeField) {
     return res.status(400).json({ error: `Minimum spares cannot be negative for ${negativeField[0]}` })
   }
@@ -167,13 +185,21 @@ r.post('/template-items', async (req, res) => {
     unitPriceUsd: req.body?.unitPriceUsd,
     division: String(req.body?.division || '').trim(),
     requiredCpt: parseWholeNumber(req.body?.requiredCpt),
+    requiredCptConfirmed: parseBooleanFlag(req.body?.requiredCptConfirmed, true),
     requiredJhb: parseWholeNumber(req.body?.requiredJhb),
+    requiredJhbConfirmed: parseBooleanFlag(req.body?.requiredJhbConfirmed, true),
     requiredDbn: parseWholeNumber(req.body?.requiredDbn),
+    requiredDbnConfirmed: parseBooleanFlag(req.body?.requiredDbnConfirmed, true),
     requiredPel: parseWholeNumber(req.body?.requiredPel),
+    requiredPelConfirmed: parseBooleanFlag(req.body?.requiredPelConfirmed, true),
     requiredBfn: parseWholeNumber(req.body?.requiredBfn),
+    requiredBfnConfirmed: parseBooleanFlag(req.body?.requiredBfnConfirmed, true),
     requiredGeo: parseWholeNumber(req.body?.requiredGeo),
+    requiredGeoConfirmed: parseBooleanFlag(req.body?.requiredGeoConfirmed, true),
     requiredPol: parseWholeNumber(req.body?.requiredPol),
-    requiredNel: parseWholeNumber(req.body?.requiredNel)
+    requiredPolConfirmed: parseBooleanFlag(req.body?.requiredPolConfirmed, true),
+    requiredNel: parseWholeNumber(req.body?.requiredNel),
+    requiredNelConfirmed: parseBooleanFlag(req.body?.requiredNelConfirmed, true)
   }
 
   if (!payload.itemDescription) {
@@ -268,6 +294,28 @@ r.post('/refresh', async (_req, res) => {
     : await importStockStatusFromGmail(prisma)
 
   res.json(result)
+})
+
+r.post('/import-minimum-requirements', async (req, res) => {
+  const fileDataBase64 = String(req.body?.fileDataBase64 || '').trim()
+  const fileName = String(req.body?.fileName || '').trim() || 'minimum-stock.xlsx'
+
+  if (!fileDataBase64) {
+    return res.status(400).json({ error: 'Workbook payload is required' })
+  }
+
+  try {
+    const buffer = Buffer.from(fileDataBase64, 'base64')
+    const result = await importMinimumStockRequirementsWorkbook(prisma, buffer)
+    refreshRunRatesInBackground()
+    res.json({
+      fileName,
+      ...result
+    })
+  } catch (error) {
+    console.error('[STOCK MINIMUM IMPORT] Failed:', error?.message || error)
+    res.status(500).json({ error: error?.message || 'Failed to import minimum stock workbook' })
+  }
 })
 
 r.get('/export/template', async (_req, res) => {
