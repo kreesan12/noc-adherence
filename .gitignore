@@ -6,6 +6,8 @@ npm-debug.log*
 .env.local
 *.env.local
 .codex-local-*.log
+.smoke-artifacts/
+.codex-prod-login.png
 .certs/
 .heroku/
 *.pem
