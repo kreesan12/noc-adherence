@@ -4,11 +4,9 @@ import { useLocation } from 'react-router-dom'
 
 export default function AppFrame({ drawerWidth, children }) {
   const location = useLocation()
-  const isTech = location.pathname.startsWith('/tech')
   const isLogin = location.pathname === '/login'
 
-  // Tech app and login should not reserve drawer space
-  const reserveDrawer = !isTech && !isLogin
+  const reserveDrawer = !isLogin
 
   return (
     <Box

@@ -29,18 +29,14 @@ import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded'
 import LanRoundedIcon from '@mui/icons-material/LanRounded'
 import MapRoundedIcon from '@mui/icons-material/MapRounded'
 import AvTimerRoundedIcon from '@mui/icons-material/AvTimerRounded'
-import BuildRoundedIcon from '@mui/icons-material/BuildRounded'
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
-import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
-import PrecisionManufacturingRoundedIcon from '@mui/icons-material/PrecisionManufacturingRounded'
 import GroupWorkRoundedIcon from '@mui/icons-material/GroupWorkRounded'
 import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded'
 
 import theme from './theme'
-import techTheme from './techTheme'
 import AppFrame from './components/AppFrame'
 
 import './lib/dayjs.js'
@@ -52,7 +48,6 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserStatus from './components/UserStatus'
 
-const TechShell = lazy(() => import('./components/TechShell'))
 const RosterUpload = lazy(() => import('./components/RosterUpload'))
 const AdherencePage = lazy(() => import('./pages/AdherencePage'))
 const SchedulePage = lazy(() => import('./pages/SchedulePage'))
@@ -73,12 +68,8 @@ const OvertimeCapturePage = lazy(() => import('./pages/OvertimeCapturePage'))
 const OvertimeSupervisorPage = lazy(() => import('./pages/OvertimeSupervisorPage'))
 const OvertimeManagerPage = lazy(() => import('./pages/OvertimeManagerPage'))
 const SignaturePage = lazy(() => import('./pages/SignaturePage'))
-const RocAppointmentsPage = lazy(() => import('./pages/RocAppointmentsPage'))
 const SlaReportingPage = lazy(() => import('./pages/SlaReportingPage'))
 const StockManagementPage = lazy(() => import('./pages/StockManagementPage'))
-const TechMyDayPage = lazy(() => import('./pages/TechMyDayPage.jsx'))
-const TechAppointmentDetailPage = lazy(() => import('./pages/TechAppointmentDetailPage.jsx'))
-const TechLoginPage = lazy(() => import('./pages/TechLoginPage.jsx'))
 
 const DRAWER_WIDTH = 236
 
@@ -107,14 +98,6 @@ function sectionHasActive(pathname, section) {
 function buildSections(user, vacancyCount) {
   return [
     {
-      title: 'ROC AND MNT',
-      icon: <PrecisionManufacturingRoundedIcon fontSize="small" />,
-      items: [
-        { label: 'ROC Appointments', path: '/roc-appointments', icon: <BuildRoundedIcon fontSize="small" /> },
-        { label: 'Tech App', path: '/tech', icon: <RouteRoundedIcon fontSize="small" /> }
-      ]
-    },
-    {
       title: 'DAILY OPERATIONS',
       icon: <DashboardRoundedIcon fontSize="small" />,
       items: [
@@ -136,6 +119,9 @@ function buildSections(user, vacancyCount) {
       title: 'SETTINGS',
       icon: <SettingsSuggestRoundedIcon fontSize="small" />,
       items: [
+        ...(user?.role === 'admin'
+          ? [{ label: 'User Admin', path: '/settings/users', icon: <ManageAccountsRoundedIcon fontSize="small" /> }]
+          : []),
         {
           label: 'Workforce',
           path: '/workforce',
@@ -147,9 +133,6 @@ function buildSections(user, vacancyCount) {
         },
         { label: 'Admin', path: '/agents', icon: <AdminPanelSettingsRoundedIcon fontSize="small" /> },
         { label: 'Upload Roster', path: '/roster', icon: <UploadFileRoundedIcon fontSize="small" /> },
-        ...(user?.role === 'admin'
-          ? [{ label: 'User Admin', path: '/settings/users', icon: <ManageAccountsRoundedIcon fontSize="small" /> }]
-          : []),
         { label: 'Overtime Capturing', path: '/overtime/capture', icon: <LanRoundedIcon fontSize="small" /> },
         { label: 'Overtime Supervisor', path: '/overtime/supervisor', icon: <LanRoundedIcon fontSize="small" /> },
         { label: 'Overtime Manager', path: '/overtime/manager', icon: <LanRoundedIcon fontSize="small" /> },
@@ -189,7 +172,7 @@ function SideNav() {
   const { user } = useAuth()
   const location = useLocation()
 
-  if (!user || location.pathname === '/login' || location.pathname.startsWith('/tech')) {
+  if (!user || location.pathname === '/login') {
     return null
   }
 
@@ -370,10 +353,7 @@ function StackRow({ children }) {
 }
 
 function FloatingTechUserStatus() {
-  const location = useLocation()
-
-  if (!location.pathname.startsWith('/tech')) return null
-  return <UserStatus />
+  return null
 }
 
 function RouteFallback() {
@@ -410,20 +390,6 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
 
-              <Route
-                path="/tech"
-                element={
-                  <ThemeProvider theme={techTheme}>
-                    {loadable(<TechShell />)}
-                  </ThemeProvider>
-                }
-              >
-                <Route index element={<Navigate to="/tech/my-day" replace />} />
-                <Route path="login" element={loadable(<TechLoginPage />)} />
-                <Route path="my-day" element={loadable(<TechMyDayPage />)} />
-                <Route path="appointments/:id" element={loadable(<TechAppointmentDetailPage />)} />
-              </Route>
-
               <Route element={<ProtectedRoute />}>
                 <Route path="/" element={loadable(<AdherencePage />)} />
                 <Route path="/schedule" element={loadable(<SchedulePage />)} />
@@ -448,7 +414,6 @@ export default function App() {
                 <Route path="/overtime/supervisor" element={loadable(<OvertimeSupervisorPage />)} />
                 <Route path="/overtime/manager" element={loadable(<OvertimeManagerPage />)} />
                 <Route path="/settings/signature" element={loadable(<SignaturePage />)} />
-                <Route path="/roc-appointments" element={loadable(<RocAppointmentsPage />)} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

@@ -73,3 +73,33 @@
 - Added a new frontend user admin workspace under:
   - `/settings/users`
 - Added onboarding and password reset draft generation with copy-ready email content for administrators.
+
+### UI Refresh Wave Two
+
+- Added a reusable compact page scaffold for the refreshed frontend shell:
+  - `PageShell`
+  - `SectionCard`
+  - `FilterStrip`
+- Reworked the left navigation ordering so `User Admin` is easier to discover for admin users inside the `SETTINGS` section.
+- Refreshed the following pages to use the tighter shared shell and more consistent layout patterns:
+  - `Adherence`
+  - `Agents`
+  - `Workforce`
+  - `Schedule`
+  - `Staffing`
+  - `Managers`
+  - `Leave Planner`
+  - `Volume`
+  - `Overtime Capture`
+  - `Overtime Supervisor`
+  - `Overtime Manager`
+  - `Signature`
+- Reworked older overtime pages to use the shared overtime API helpers instead of stale direct endpoint strings.
+- Fixed the signature page to use the current authenticated user context and the live `/api/overtime/signature/me` endpoint instead of the legacy browser-side shortcut logic.
+
+### ROC And MNT Retirement
+
+- Removed the legacy ROC/MNT appointments frontend section from the main navigation.
+- Removed the retired ROC appointments and technician mobile frontend pages, APIs, helpers, and theme files.
+- Removed the retired ROC/tech backend route wiring and the old ROC/MNT seed script from the active codebase.
+- Left unrelated `MNT` references in workload and automation reporting intact where they represent maintenance volume data rather than the retired ROC/MNT appointments feature.

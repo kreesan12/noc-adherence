@@ -29,9 +29,6 @@ import nldsRoutes from './routes/nlds.js'
 import nldServices from './routes/nldServices.js'
 import nldMonitoringRoutes from './routes/nldMonitoring.js'
 import nodes from './routes/nodes.js'
-import rocAppointmentsRoutes from './routes/rocAppointments.js'
-import techAppointmentsRoutes from './routes/techAppointments.js'
-import techAuthRoutes from './routes/techAuth.js'
 import slaReportingRoutes from './routes/slaReporting.js'
 import stockManagementRoutes from './routes/stockManagement.js'
 
@@ -144,7 +141,6 @@ app.post('/whatsapp/notify', async (req, res, next) => {
 })
 
 app.use('/api', authRoutes)
-app.use('/api', techAuthRoutes(prisma))
 
 /* ---------- Protected business routes ---------- */
 app.use(
@@ -175,18 +171,6 @@ app.use(
   '/api/agents',
   verifyToken, authRole('supervisor'),
   agentsRoutes(prisma)
-)
-
-app.use(
-  '/api/roc-appointments',
-  verifyToken, authRole('supervisor'), audit(prisma),
-  rocAppointmentsRoutes(prisma)
-)
-
-app.use(
-  '/api/tech',
-  verifyToken, authRole('tech', 'supervisor'),
-  techAppointmentsRoutes(prisma)
 )
 
 app.use(

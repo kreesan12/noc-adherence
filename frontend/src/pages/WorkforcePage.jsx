@@ -1,181 +1,222 @@
-/* frontend/src/pages/WorkforcePage.jsx
-   — Uses plain MUI <Table> to avoid DataGrid internals — */
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Box, Paper, Tabs, Tab, Button, Tooltip, IconButton,
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  Grid, TextField, MenuItem, Table, TableHead,
-  TableBody, TableRow, TableCell, TableContainer, Typography
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid,
+  IconButton,
+  MenuItem,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tabs,
+  TextField,
+  Tooltip
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DownloadIcon from '@mui/icons-material/Download'
 import dayjs from 'dayjs'
-
-// ── Recharts for Headcount chart ─────────────────────────────
 import {
-  ResponsiveContainer, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid,
-  Tooltip as ReTooltip, Legend
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip as ReTooltip,
+  XAxis,
+  YAxis
 } from 'recharts'
-
 import {
-  listTeams, listAgents,
-  listEngagements, createEngagement, terminateEngagement,
+  createEngagement,
+  createVacancy,
+  downloadReqDoc,
   headcountReport,
-  listVacancies, updateVacancy, downloadReqDoc,
-  createVacancy
+  listAgents,
+  listEngagements,
+  listTeams,
+  listVacancies,
+  terminateEngagement,
+  updateVacancy
 } from '../api/workforce'
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
-const COLORS = ['#1976d2', '#9c27b0', '#ff9800', '#2e7d32', '#d32f2f'];
-
-// ── TableCell helpers for Vacancies tab ──────────────────────
-const TH = props => <TableCell sx={{ fontWeight: 'bold' }} {...props} />;
-const TC = props => <TableCell {...props} />;
+const COLORS = ['#1976d2', '#9c27b0', '#ff9800', '#2e7d32', '#d32f2f']
+const TH = (props) => <TableCell sx={{ fontWeight: 'bold' }} {...props} />
+const TC = (props) => <TableCell {...props} />
 
 export default function WorkforcePage() {
-  /* ─── basic look-ups ───────────────────────────────── */
-  const [tab, setTab]       = useState(0)    // 0-move 1-head 2-vac
-  const [teams, setTeams]   = useState([])
+  const [tab, setTab] = useState(0)
+  const [teams, setTeams] = useState([])
   const [agents, setAgents] = useState([])
 
-  useEffect(() => { listTeams().then(r => setTeams(r.data)) }, [])
-  useEffect(() => { listAgents().then(r => setAgents(r.data)) }, [])
+  useEffect(() => {
+    listTeams().then((response) => setTeams(response.data))
+  }, [])
 
-  /* ─── MOVEMENTS ───────────────────────────────────── */
+  useEffect(() => {
+    listAgents().then((response) => setAgents(response.data))
+  }, [])
+
   const [eng, setEng] = useState([])
   const loadEng = useCallback(() => {
-    listEngagements({}).then(r => {
-      setEng(r.data.map(e => ({
-        id:      e.id,
-        agentId: e.agent.id,
-        agent:   e.agent.fullName,
-        teamId:  e.team.id,
-        team:    e.team.name,
-        start:   e.startDate ? e.startDate.slice(0,10) : '',
-        end:     e.endDate   ? e.endDate.slice(0,10)   : '—',
-        note:    e.note ?? ''
+    listEngagements({}).then((response) => {
+      setEng(response.data.map((engagement) => ({
+        id: engagement.id,
+        agentId: engagement.agent.id,
+        agent: engagement.agent.fullName,
+        teamId: engagement.team.id,
+        team: engagement.team.name,
+        start: engagement.startDate ? engagement.startDate.slice(0, 10) : '',
+        end: engagement.endDate ? engagement.endDate.slice(0, 10) : '-',
+        note: engagement.note ?? ''
       })))
     })
   }, [])
-  useEffect(loadEng, [])
+  useEffect(loadEng, [loadEng])
 
-  /* ─── Add-Movement dialog state ───────────────────── */
   const [openMove, setOpenMove] = useState(false)
   const [moveForm, setMoveForm] = useState({
     sourceTeamId: '',
-    agentId:      '',
-    destTeamId:   '',
-    reason:       '',
-    moveDate:     dayjs().format('YYYY-MM-DD'),
-    endDate:      dayjs().format('YYYY-MM-DD'),
+    agentId: '',
+    destTeamId: '',
+    reason: '',
+    moveDate: dayjs().format('YYYY-MM-DD'),
+    endDate: dayjs().format('YYYY-MM-DD')
   })
+
+  const [gran, setGran] = useState('month')
+  const [hc, setHc] = useState([])
+  const [hcLoad, setHcL] = useState(false)
+
+  const [vac, setVac] = useState([])
+  const loadVac = useCallback(() => {
+    listVacancies().then((response) => {
+      setVac(response.data.map((vacancy) => ({
+        id: vacancy.id,
+        team: vacancy.team.name,
+        open: vacancy.openFrom.slice(0, 10),
+        status: vacancy.status
+      })))
+    })
+  }, [])
+
+  useEffect(() => {
+    if (tab !== 1) return
+    const from = dayjs().subtract(5, 'month').startOf('month').format('YYYY-MM-DD')
+    const to = dayjs().add(1, 'month').endOf('month').format('YYYY-MM-DD')
+    setHcL(true)
+    headcountReport(from, to, gran)
+      .then((response) => setHc(response.data))
+      .finally(() => setHcL(false))
+  }, [tab, gran])
+
+  useEffect(() => {
+    if (tab === 2) loadVac()
+  }, [tab, loadVac])
 
   const handleMoveSave = async () => {
     const {
-      sourceTeamId, agentId,
-      destTeamId, reason,
-      moveDate, endDate
+      sourceTeamId,
+      agentId,
+      destTeamId,
+      reason,
+      moveDate,
+      endDate
     } = moveForm
 
-    // find the current engagement, if any
-    const current = eng.find(e => e.agentId === +agentId)
+    const current = eng.find((entry) => entry.agentId === Number(agentId))
 
     try {
       if (current) {
-        // Terminate existing engagement
         await terminateEngagement(current.id, {
           endDate: destTeamId === 'left' ? endDate : moveDate,
-          note:    reason
+          note: reason
         })
       }
 
-      // If moving to another team, start a new engagement
       if (destTeamId !== 'left' && current) {
         await createEngagement({
-          agentId:   +agentId,
-          teamId:    +destTeamId,
+          agentId: Number(agentId),
+          teamId: Number(destTeamId),
           startDate: moveDate,
-          note:      reason
+          note: reason
         })
       }
 
-      // Always create a pending vacancy in the source team
-      // 3️⃣ Create a pending vacancy in the old team,
-      //     using the *actual* leave date
       const vacancyDate = destTeamId === 'left' ? endDate : moveDate
       await createVacancy({
-        teamId:   +sourceTeamId,
+        teamId: Number(sourceTeamId),
         openFrom: vacancyDate,
-        status:   'PENDING',
+        status: 'PENDING',
         reason
       })
 
-      // 4️⃣ refresh *both* tables so you see the terminated engagement
       await loadEng()
       await loadVac()
-    } catch (err) {
-      console.error('Movement save failed', err)
+    } catch (error) {
+      console.error('Movement save failed', error)
     } finally {
       setOpenMove(false)
     }
   }
 
-  /* ─── HEADCOUNT ─────────────────────────────────────── */
-  const [gran, setGran]  = useState('month')
-  const [hc, setHc]      = useState([])
-  const [hcLoad, setHcL] = useState(false)
-  useEffect(() => {
-    if (tab !== 1) return
-    const from = dayjs().subtract(5,'month').startOf('month').format('YYYY-MM-DD')
-    const to   = dayjs().add(1,'month').endOf('month').format('YYYY-MM-DD')
-    setHcL(true)
-    headcountReport(from, to, gran)
-      .then(r => setHc(r.data))
-      .finally(() => setHcL(false))
-  }, [tab, gran])
+  const updateStatus = (row, status) => updateVacancy(row.id, { status }).then(loadVac)
 
-  /* ─── VACANCIES ─────────────────────────────────────── */
-  const [vac, setVac]   = useState([])
-  const loadVac = useCallback(() => {
-    listVacancies().then(r => {
-      setVac(r.data.map(v => ({
-        id:     v.id,
-        team:   v.team.name,
-        open:   v.openFrom.slice(0,10),
-        status: v.status
-      })))
-    })
-  }, [])
-  useEffect(() => { if (tab === 2) loadVac() }, [tab])
+  const stats = useMemo(() => {
+    const openVacancies = vac.filter((row) => row.status !== 'CLOSED').length
+    const latestHeads = hc.length ? hc[hc.length - 1]?.headcount ?? 0 : 0
+    return [
+      { label: 'Teams', value: teams.length, helper: 'Operational groups in scope' },
+      { label: 'Movements', value: eng.length, helper: 'Captured engagement entries', accent: '#2563eb' },
+      { label: 'Latest Heads', value: latestHeads, helper: 'Newest headcount point', accent: '#16a34a' },
+      { label: 'Open Vacancies', value: openVacancies, helper: 'Not yet closed', accent: '#dc2626' }
+    ]
+  }, [eng.length, hc, teams.length, vac])
 
-  const updateStatus = (row, status) =>
-    updateVacancy(row.id, { status }).then(loadVac)
+  const chartData = useMemo(() => (
+    Object.values(
+      hc.reduce((acc, current) => {
+        const period = current.period
+        if (!acc[period]) acc[period] = { period }
+        acc[period][current.name] = current.headcount
+        return acc
+      }, {})
+    ).sort((left, right) => left.period.localeCompare(right.period))
+  ), [hc])
 
-  /* ─── render ───────────────────────────────────────── */
   return (
-    <Box>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1.25 }}>
-        <Tab label="Movements" />
-        <Tab label="Headcount" />
-        <Tab label="Vacancies" />
-      </Tabs>
-
-      {/* ─── MOVEMENTS TAB ────────────────────────────────── */}
+    <PageShell
+      eyebrow="Settings"
+      title="Workforce Planning Hub"
+      description="Review team movements, headcount history, and vacancy pressure from one cleaner control surface so staffing decisions stay tied to live operating reality."
+      accent="#ea580c"
+      stats={stats}
+      actions={
+        <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ minHeight: 34, '& .MuiTab-root': { minHeight: 34 } }}>
+          <Tab label="Movements" />
+          <Tab label="Headcount" />
+          <Tab label="Vacancies" />
+        </Tabs>
+      }
+    >
       {tab === 0 && (
-        <Paper sx={{ p: 1.5, bgcolor: 'white' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.25 }}>
-            <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 800 }}>
-              Movements
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setOpenMove(true)}
-            >
+        <SectionCard
+          title="Team Movements"
+          subtitle="Capture promotions, transfers, and exits so vacancies and headcount stay aligned with real team changes."
+          accent="#ea580c"
+          actions={
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpenMove(true)}>
               Add Movement
             </Button>
-          </Box>
-
+          }
+        >
           <TableContainer>
             <Table size="small">
               <TableHead>
@@ -188,131 +229,129 @@ export default function WorkforcePage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {eng.map(r => (
-                  <TableRow key={r.id}>
-                    <TC>{r.agent}</TC>
-                    <TC>{r.team}</TC>
-                    <TC>{r.start}</TC>
-                    <TC>{r.end}</TC>
-                    <TC>{r.note}</TC>
+                {eng.map((row) => (
+                  <TableRow key={row.id}>
+                    <TC>{row.agent}</TC>
+                    <TC>{row.team}</TC>
+                    <TC>{row.start}</TC>
+                    <TC>{row.end}</TC>
+                    <TC>{row.note}</TC>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </TableContainer>
 
-          {/* Add-Movement dialog */}
           <Dialog open={openMove} onClose={() => setOpenMove(false)} fullWidth maxWidth="sm">
             <DialogTitle>New Movement</DialogTitle>
             <DialogContent>
               <Grid container spacing={2} sx={{ pt: 0.5 }}>
-                {/* 1) From Team */}
                 <Grid item xs={12}>
                   <TextField
-                    select label="From Team" fullWidth
+                    select
+                    label="From Team"
+                    fullWidth
                     value={moveForm.sourceTeamId}
-                    onChange={e =>
-                      setMoveForm(f => ({
-                        ...f,
-                        sourceTeamId: e.target.value,
-                        agentId: '',
-                        destTeamId: ''
-                      }))
-                    }
+                    onChange={(event) => setMoveForm((form) => ({
+                      ...form,
+                      sourceTeamId: event.target.value,
+                      agentId: '',
+                      destTeamId: ''
+                    }))}
                   >
-                    {teams.map(t => (
-                      <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+                    {teams.map((team) => (
+                      <MenuItem key={team.id} value={team.id}>{team.name}</MenuItem>
                     ))}
                   </TextField>
                 </Grid>
 
-                {/* 2) Agent (filtered) */}
                 <Grid item xs={12}>
                   <TextField
-                    select label="Agent" fullWidth
+                    select
+                    label="Agent"
+                    fullWidth
                     disabled={!moveForm.sourceTeamId}
                     value={moveForm.agentId}
-                    onChange={e =>
-                      setMoveForm(f => ({ ...f, agentId: e.target.value, destTeamId: '' }))
-                    }
+                    onChange={(event) => setMoveForm((form) => ({
+                      ...form,
+                      agentId: event.target.value,
+                      destTeamId: ''
+                    }))}
                   >
                     {agents
-                      .filter(a => {
-                        const src = teams.find(t => t.id === +moveForm.sourceTeamId)
-                        return src && a.role === src.name
+                      .filter((agent) => {
+                        const source = teams.find((team) => team.id === Number(moveForm.sourceTeamId))
+                        return source && agent.role === source.name
                       })
-                      .map(a => (
-                        <MenuItem key={a.id} value={a.id}>{a.fullName}</MenuItem>
+                      .map((agent) => (
+                        <MenuItem key={agent.id} value={agent.id}>{agent.fullName}</MenuItem>
                       ))}
                   </TextField>
                 </Grid>
 
-                {/* 3) To Team or Left NOC */}
                 <Grid item xs={12}>
                   <TextField
-                    select label="To Team" fullWidth
+                    select
+                    label="To Team"
+                    fullWidth
                     disabled={!moveForm.agentId}
                     value={moveForm.destTeamId}
-                    onChange={e =>
-                      setMoveForm(f => ({ ...f, destTeamId: e.target.value }))
-                    }
+                    onChange={(event) => setMoveForm((form) => ({ ...form, destTeamId: event.target.value }))}
                   >
                     {teams
-                      .filter(t => t.id !== +moveForm.sourceTeamId)
-                      .map(t => (
-                        <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
+                      .filter((team) => team.id !== Number(moveForm.sourceTeamId))
+                      .map((team) => (
+                        <MenuItem key={team.id} value={team.id}>{team.name}</MenuItem>
                       ))}
                     <MenuItem value="left">Left NOC</MenuItem>
                   </TextField>
                 </Grid>
 
-                {/* 4a) Moved to another team */}
                 {moveForm.destTeamId && moveForm.destTeamId !== 'left' && (
                   <>
                     <Grid item xs={12}>
                       <TextField
                         label="Reason (e.g. promotion)"
-                        fullWidth multiline minRows={2}
+                        fullWidth
+                        multiline
+                        minRows={2}
                         value={moveForm.reason}
-                        onChange={e =>
-                          setMoveForm(f => ({ ...f, reason: e.target.value }))
-                        }
+                        onChange={(event) => setMoveForm((form) => ({ ...form, reason: event.target.value }))}
                       />
                     </Grid>
                     <Grid item xs={12}>
                       <TextField
-                        label="Move Date" type="date"
-                        fullWidth InputLabelProps={{ shrink: true }}
+                        label="Move Date"
+                        type="date"
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
                         value={moveForm.moveDate}
-                        onChange={e =>
-                          setMoveForm(f => ({ ...f, moveDate: e.target.value }))
-                        }
+                        onChange={(event) => setMoveForm((form) => ({ ...form, moveDate: event.target.value }))}
                       />
                     </Grid>
                   </>
                 )}
 
-                {/* 4b) Left NOC */}
                 {moveForm.destTeamId === 'left' && (
                   <>
                     <Grid item xs={12}>
                       <TextField
                         label="Reason for leaving"
-                        fullWidth multiline minRows={2}
+                        fullWidth
+                        multiline
+                        minRows={2}
                         value={moveForm.reason}
-                        onChange={e =>
-                          setMoveForm(f => ({ ...f, reason: e.target.value }))
-                        }
+                        onChange={(event) => setMoveForm((form) => ({ ...form, reason: event.target.value }))}
                       />
                     </Grid>
                     <Grid item xs={12}>
                       <TextField
-                        label="End Date" type="date"
-                        fullWidth InputLabelProps={{ shrink: true }}
+                        label="End Date"
+                        type="date"
+                        fullWidth
+                        InputLabelProps={{ shrink: true }}
                         value={moveForm.endDate}
-                        onChange={e =>
-                          setMoveForm(f => ({ ...f, endDate: e.target.value }))
-                        }
+                        onChange={(event) => setMoveForm((form) => ({ ...form, endDate: event.target.value }))}
                       />
                     </Grid>
                   </>
@@ -321,125 +360,136 @@ export default function WorkforcePage() {
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setOpenMove(false)}>Cancel</Button>
-              <Button onClick={handleMoveSave} variant="contained">
-                Save Movement
-              </Button>
+              <Button onClick={handleMoveSave} variant="contained">Save Movement</Button>
             </DialogActions>
           </Dialog>
-        </Paper>
+        </SectionCard>
       )}
 
-      {/* ─── HEADCOUNT TAB ────────────────────────────────── */}
       {tab === 1 && (
-        <Paper sx={{ p: 1.5, bgcolor: 'white' }}>
-          <Box mb={1.25}>
-            <TextField select size="small" value={gran}
-              onChange={e => setGran(e.target.value)}
-            >
-              <MenuItem value="month">Month</MenuItem>
-              <MenuItem value="week">Week</MenuItem>
-            </TextField>
-          </Box>
-          {hcLoad ? (
-            'Loading…'
-          ) : (
-            <>
-              <Box sx={{ height: 250, mb: 1.75 }}>
-                <ResponsiveContainer>
-                  <BarChart
-                    data={Object.values(
-                      hc.reduce((acc, cur) => {
-                        const p = cur.period
-                        if (!acc[p]) acc[p] = { period: p }
-                        acc[p][cur.name] = cur.headcount
-                        return acc
-                      }, {})
-                    ).sort((a,b) => a.period.localeCompare(b.period))}
-                    margin={{ top:10, right:20, left:0, bottom:10 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" />
-                    <YAxis allowDecimals={false} />
-                    <ReTooltip />
-                    <Legend />
-                    {[...new Set(hc.map(r => r.name))].map((team, idx) => (
-                      <Bar
-                        key={team}
-                        dataKey={team}
-                        name={team}
-                        fill={COLORS[idx % COLORS.length]}
-                        label={{ position:'top' }}
-                      />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </Box>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TH>Team</TH>
-                      <TH>{gran==='month'?'Month':'Week'}</TH>
-                      <TH>Heads</TH>
-                      <TH>Vac.</TH>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {hc.map((r,i) => (
-                      <TableRow key={i}>
-                        <TC>{r.name}</TC>
-                        <TC>{r.period}</TC>
-                        <TC>{r.headcount}</TC>
-                        <TC>{r.vacancies}</TC>
+        <SectionCard
+          title="Headcount Story"
+          subtitle="Switch between month and week granularity to compare workforce shape against vacancy pressure."
+          accent="#2563eb"
+        >
+          <Box sx={{ display: 'grid', gap: 1 }}>
+            <FilterStrip>
+              <TextField select size="small" label="Granularity" value={gran} onChange={(event) => setGran(event.target.value)}>
+                <MenuItem value="month">Month</MenuItem>
+                <MenuItem value="week">Week</MenuItem>
+              </TextField>
+            </FilterStrip>
+
+            {hcLoad ? (
+              'Loading...'
+            ) : (
+              <>
+                <Box sx={{ height: 250 }}>
+                  <ResponsiveContainer>
+                    <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="period" />
+                      <YAxis allowDecimals={false} />
+                      <ReTooltip />
+                      <Legend />
+                      {[...new Set(hc.map((row) => row.name))].map((team, index) => (
+                        <Bar
+                          key={team}
+                          dataKey={team}
+                          name={team}
+                          fill={COLORS[index % COLORS.length]}
+                          label={{ position: 'top' }}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Box>
+
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TH>Team</TH>
+                        <TH>{gran === 'month' ? 'Month' : 'Week'}</TH>
+                        <TH>Heads</TH>
+                        <TH>Vac.</TH>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </>
-          )}
-        </Paper>
+                    </TableHead>
+                    <TableBody>
+                      {hc.map((row, index) => (
+                        <TableRow key={index}>
+                          <TC>{row.name}</TC>
+                          <TC>{row.period}</TC>
+                          <TC>{row.headcount}</TC>
+                          <TC>{row.vacancies}</TC>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </>
+            )}
+          </Box>
+        </SectionCard>
       )}
 
-      {/* ─── VACANCIES TAB ────────────────────────────────── */}
       {tab === 2 && (
-        <Paper sx={{ p: 1.5, bgcolor: 'white' }}>
+        <SectionCard
+          title="Vacancy Control"
+          subtitle="Update recruitment status, then download the requisition document when the role is ready to move forward."
+          accent="#dc2626"
+        >
           <TableContainer>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TH>Team</TH><TH>Left Date</TH><TH>Status</TH><TH>Req.</TH>
+                  <TH>Team</TH>
+                  <TH>Left Date</TH>
+                  <TH>Status</TH>
+                  <TH>Req.</TH>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {vac.map(r => (
-                  <TableRow key={r.id}>
-                    <TC>{r.team}</TC><TC>{r.open}</TC>
+                {vac.map((row) => (
+                  <TableRow key={row.id}>
+                    <TC>{row.team}</TC>
+                    <TC>{row.open}</TC>
                     <TC>
-                      <TextField select size="small" value={r.status}
-                        onChange={e => updateStatus(r,e.target.value)}
+                      <TextField
+                        select
+                        size="small"
+                        value={row.status}
+                        onChange={(event) => updateStatus(row, event.target.value)}
                       >
                         {[
-                          'OPEN','AWAITING_APPROVAL','APPROVED','INTERVIEWING',
-                          'OFFER_SENT','OFFER_ACCEPTED','CLOSED'
-                        ].map(s => (
-                          <MenuItem key={s} value={s}>
-                            {s.replace('_',' ')}
+                          'OPEN',
+                          'AWAITING_APPROVAL',
+                          'APPROVED',
+                          'INTERVIEWING',
+                          'OFFER_SENT',
+                          'OFFER_ACCEPTED',
+                          'CLOSED'
+                        ].map((status) => (
+                          <MenuItem key={status} value={status}>
+                            {status.replace('_', ' ')}
                           </MenuItem>
                         ))}
                       </TextField>
                     </TC>
                     <TC>
                       <Tooltip title="Download requisition DOCX">
-                        <IconButton size="small" onClick={async() => {
-                          const {data} = await downloadReqDoc(r.id)
-                          const url = URL.createObjectURL(data)
-                          const a = document.createElement('a')
-                          a.href = url
-                          a.download = `requisition-${r.id}.docx`
-                          a.click()
-                          URL.revokeObjectURL(url)
-                        }}>
+                        <IconButton
+                          size="small"
+                          onClick={async () => {
+                            const { data } = await downloadReqDoc(row.id)
+                            const url = URL.createObjectURL(data)
+                            const anchor = document.createElement('a')
+                            anchor.href = url
+                            anchor.download = `requisition-${row.id}.docx`
+                            anchor.click()
+                            URL.revokeObjectURL(url)
+                          }}
+                        >
                           <DownloadIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -449,8 +499,8 @@ export default function WorkforcePage() {
               </TableBody>
             </Table>
           </TableContainer>
-        </Paper>
+        </SectionCard>
       )}
-    </Box>
+    </PageShell>
   )
 }

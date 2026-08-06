@@ -1,89 +1,104 @@
-/* ── frontend/src/pages/AgentsPage.jsx ───────────────────────── */
 import { useEffect, useMemo, useState } from 'react'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import {
-  Box, Button, Checkbox, Dialog, DialogContent, DialogTitle, FormControlLabel,
-  MenuItem, Select, Stack, Tab, Tabs, TextField, Typography
+  Box,
+  Button,
+  Checkbox,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  MenuItem,
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Typography
 } from '@mui/material'
 import dayjs from 'dayjs'
-
 import api from '../api'
-import { listTeams, createTeam } from '../api/workforce'
+import { createTeam, listTeams } from '../api/workforce'
 import AssignTab from '../components/AssignTab'
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
-export default function AgentsPage () {
-  /* ─────────── state ───────────────────────────────────────── */
+function fmtCount(value) {
+  return new Intl.NumberFormat().format(Number(value || 0))
+}
+
+export default function AgentsPage() {
   const [agents, setAgents] = useState([])
-  const [teams, setTeams]   = useState([])
+  const [teams, setTeams] = useState([])
+  const [supers, setSupers] = useState([])
 
-  /* add-agent dialog */
   const [openAgent, setOpenAgent] = useState(false)
   const [agentForm, setAgentForm] = useState({
-    fullName: '', email: '', role: '', standby: false,
-    employeeNo: '', startDate: '', address: '', province: ''
+    fullName: '',
+    email: '',
+    role: '',
+    standby: false,
+    employeeNo: '',
+    startDate: '',
+    address: '',
+    province: ''
   })
 
-  /* supervisors */
-  const [supers, setSupers]       = useState([])
-  const [openSup, setOpenSup]     = useState(false)
-  const [supForm, setSupForm]     = useState({ fullName: '', email: '', password: '' })
+  const [openSup, setOpenSup] = useState(false)
+  const [supForm, setSupForm] = useState({ fullName: '', email: '', password: '' })
 
-  /* teams dialog */
   const [openTeam, setOpenTeam] = useState(false)
   const [teamName, setTeamName] = useState('')
 
-  /* filters + tab */
   const [teamFilter, setTeamFilter] = useState('')
-  const [tab, setTab] = useState(0)                     // 0 = Agents grid, 1 = Assign tab
+  const [tab, setTab] = useState(0)
 
-  /* ─────────── load once ───────────────────────────────────── */
   useEffect(() => {
     ;(async () => {
-      const [{ data: agentRows }, { data: teamRows }, { data: supRows }] =
-        await Promise.all([
-          api.get('/agents'),
-          listTeams(),
-          api.get('/supervisors')
-        ])
+      const [{ data: agentRows }, { data: teamRows }, { data: supRows }] = await Promise.all([
+        api.get('/agents'),
+        listTeams(),
+        api.get('/supervisors')
+      ])
 
       setAgents(agentRows)
       setTeams(teamRows)
       setSupers(supRows)
 
-      /* default role in dialog = first team */
       if (teamRows.length) {
-        setAgentForm(f => ({ ...f, role: teamRows[0].name }))
+        setAgentForm((form) => ({ ...form, role: teamRows[0].name }))
       }
     })().catch(console.error)
   }, [])
 
-  /* ─────────── row-edit save (MUI v6) ──────────────────────── */
   const handleRowUpdate = async (newRow, oldRow) => {
     const allowed = ['employeeNo', 'startDate', 'province']
     const diff = Object.fromEntries(
       allowed
-        .filter(k => newRow[k] !== oldRow[k])
-        .map(k => [k, newRow[k] || null])
+        .filter((key) => newRow[key] !== oldRow[key])
+        .map((key) => [key, newRow[key] || null])
     )
 
     try {
       if (Object.keys(diff).length) {
         await api.patch(`/agents/${newRow.id}`, diff)
-        /* refresh list so other tabs stay in sync */
         const { data } = await api.get('/agents')
         setAgents(data)
       }
       return newRow
-    } catch (err) {
-      console.error(err)
-      throw err
+    } catch (error) {
+      console.error(error)
+      throw error
     }
   }
 
-  /* ─────────── helpers ─────────────────────────────────────── */
   const resetAgentForm = () => setAgentForm({
-    fullName: '', email: '', role: teams[0]?.name || '', standby: false,
-    employeeNo: '', startDate: '', address: '', province: ''
+    fullName: '',
+    email: '',
+    role: teams[0]?.name || '',
+    standby: false,
+    employeeNo: '',
+    startDate: '',
+    address: '',
+    province: ''
   })
 
   const handleAgentSave = async () => {
@@ -117,239 +132,291 @@ export default function AgentsPage () {
     setTeamName('')
   }
 
-  /* ─────────── filtered rows ───────────────────────────────── */
   const viewRows = useMemo(
-    () => (teamFilter ? agents.filter(a => a.role === teamFilter) : agents),
+    () => (teamFilter ? agents.filter((agent) => agent.role === teamFilter) : agents),
     [agents, teamFilter]
   )
 
-  /* ─────────── column defs ─────────────────────────────────── */
-  const cols = [
+  const stats = useMemo(() => {
+    const standby = agents.filter((agent) => agent.standbyFlag || agent.standby).length
+    return [
+      { label: 'Agents', value: fmtCount(agents.length), helper: teamFilter || 'All teams' },
+      { label: 'Supervisors', value: fmtCount(supers.length), helper: 'Current login owners', accent: '#2563eb' },
+      { label: 'Teams', value: fmtCount(teams.length), helper: 'Available roster groups', accent: '#7c3aed' },
+      { label: 'Stand-by', value: fmtCount(standby), helper: 'Flagged for rota support', accent: '#f59e0b' }
+    ]
+  }, [agents, supers.length, teamFilter, teams.length])
+
+  const agentCols = [
     { field: 'id', headerName: 'ID', width: 70 },
-    { field: 'fullName', headerName: 'Name', flex: 1 },
-    { field: 'email', headerName: 'Email', flex: 1 },
-    { field: 'role', headerName: 'Team', width: 160 },
-    { field: 'employeeNo', headerName: 'Emp #', width: 100, editable: true },
+    { field: 'fullName', headerName: 'Name', flex: 1, minWidth: 180 },
+    { field: 'email', headerName: 'Email', flex: 1, minWidth: 220 },
+    { field: 'role', headerName: 'Team', width: 150 },
+    { field: 'employeeNo', headerName: 'Emp #', width: 90, editable: true },
     {
       field: 'startDate',
       headerName: 'Start',
       width: 120,
       editable: true,
-      renderCell: p =>
-        p.value ? dayjs(p.value).format('YYYY-MM-DD') : '—'
+      renderCell: (params) => (params.value ? dayjs(params.value).format('YYYY-MM-DD') : '-')
     },
-    { field: 'province', headerName: 'Province', width: 120, editable: true },
+    { field: 'province', headerName: 'Province', width: 110, editable: true },
     {
       field: 'standbyFlag',
       headerName: 'Stand-by',
-      width: 100,
-      renderCell: p => (p.value ? '✅' : '—')
+      width: 96,
+      renderCell: (params) => (params.value ? 'Yes' : '-')
     }
   ]
 
   const supCols = [
     { field: 'id', width: 70 },
-    { field: 'fullName', flex: 1, headerName: 'Name' },
-    { field: 'email', flex: 1 },
-    { field: 'role', width: 130 }
+    { field: 'fullName', flex: 1, minWidth: 160, headerName: 'Name' },
+    { field: 'email', flex: 1, minWidth: 200, headerName: 'Email' },
+    { field: 'role', width: 120, headerName: 'Role' }
   ]
 
   const teamCols = [
-    { field: 'id', width: 70 },
-    { field: 'name', flex: 1, headerName: 'Team Name' }
+    { field: 'id', width: 70, headerName: 'ID' },
+    { field: 'name', flex: 1, minWidth: 180, headerName: 'Team Name' }
   ]
 
-  /* ─────────── render ──────────────────────────────────────── */
   return (
-    <Box p={2}>
-      {/* tabs header */}
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="Agents" />
-        <Tab label="Assign supervisors" />
-      </Tabs>
-
-      {/* ---------- TAB 0 : agents grid + dialogs ---------- */}
-      {tab === 0 && (
-        <>
-          {/* header row */}
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>Agents</Typography>
-
-            <Select
-              value={teamFilter}
-              onChange={e => setTeamFilter(e.target.value)}
-              displayEmpty size="small" sx={{ mr: 2, minWidth: 160 }}
-            >
-              <MenuItem value=''><em>All teams</em></MenuItem>
-              {teams.map(t => (
-                <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>
-              ))}
-            </Select>
-
-            <Button variant="contained" onClick={() => setOpenAgent(true)}>
-              + Add agent
-            </Button>
-          </Box>
-
-          {/* agents grid */}
-          <DataGrid
-            rows={viewRows}
-            columns={cols}
-            autoHeight
-            editMode="cell"
-            processRowUpdate={handleRowUpdate}
-            onProcessRowUpdateError={console.error}
-            disableRowSelectionOnClick
-            slots={{ toolbar: GridToolbar }}
-            getRowId={r => r.id}
-          />
-
-          {/* --- add-agent dialog --- */}
-          <Dialog open={openAgent} onClose={() => setOpenAgent(false)}>
-            <DialogTitle>New agent</DialogTitle>
-            <DialogContent>
-              <Stack spacing={2} sx={{ mt: 1, width: 340 }}>
-                <TextField
-                  label="Full name" required
-                  value={agentForm.fullName}
-                  onChange={e => setAgentForm({ ...agentForm, fullName: e.target.value })}
-                />
-                <TextField
-                  label="Email" type="email" required
-                  value={agentForm.email}
-                  onChange={e => setAgentForm({ ...agentForm, email: e.target.value })}
-                />
-                <TextField label="Team" select
-                  value={agentForm.role}
-                  onChange={e => setAgentForm({ ...agentForm, role: e.target.value })}
-                >
-                  {teams.map(t => (
-                    <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>
-                  ))}
-                </TextField>
-
-                <TextField
-                  label="Employee #" value={agentForm.employeeNo}
-                  onChange={e => setAgentForm({ ...agentForm, employeeNo: e.target.value })}
-                />
-                <TextField
-                  label="Start date" type="date" InputLabelProps={{ shrink: true }}
-                  value={agentForm.startDate}
-                  onChange={e => setAgentForm({ ...agentForm, startDate: e.target.value })}
-                />
-                <TextField
-                  label="Province" value={agentForm.province}
-                  onChange={e => setAgentForm({ ...agentForm, province: e.target.value })}
-                />
-
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={agentForm.standby}
-                      onChange={e => setAgentForm({ ...agentForm, standby: e.target.checked })}
-                    />
-                  }
-                  label="Stand-by rota"
-                />
-
-                <Button variant="contained" onClick={handleAgentSave}>
-                  Save
+    <PageShell
+      eyebrow="Settings"
+      title="People And Team Control"
+      description="Manage agents, supervisors, and team structures from one operational page, then switch into assignment mode to align supervisors against live staff groups."
+      accent="#7c3aed"
+      stats={stats}
+      actions={
+        <Tabs
+          value={tab}
+          onChange={(_, value) => setTab(value)}
+          sx={{
+            minHeight: 34,
+            '& .MuiTab-root': { minHeight: 34 }
+          }}
+        >
+          <Tab label="Agents and Teams" />
+          <Tab label="Assign Supervisors" />
+        </Tabs>
+      }
+    >
+      {tab === 0 ? (
+        <Box sx={{ display: 'grid', gap: 1.05 }}>
+          <SectionCard
+            title="Agent Register"
+            subtitle="Maintain the core roster, edit employee metadata inline, and keep team membership clean."
+            accent="#7c3aed"
+            actions={
+              <Stack direction="row" spacing={0.7} flexWrap="wrap">
+                <Button variant="contained" onClick={() => setOpenAgent(true)}>
+                  Add Agent
                 </Button>
               </Stack>
-            </DialogContent>
-          </Dialog>
+            }
+            noPadding
+          >
+            <Box sx={{ p: 1.05, display: 'grid', gap: 0.95 }}>
+              <FilterStrip>
+                <TextField
+                  select
+                  label="Team filter"
+                  value={teamFilter}
+                  onChange={(event) => setTeamFilter(event.target.value)}
+                  sx={{ minWidth: 180 }}
+                >
+                  <MenuItem value="">All teams</MenuItem>
+                  {teams.map((teamRow) => (
+                    <MenuItem key={teamRow.id} value={teamRow.name}>{teamRow.name}</MenuItem>
+                  ))}
+                </TextField>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  {fmtCount(viewRows.length)} agents shown
+                </Typography>
+              </FilterStrip>
 
-          {/* --- supervisors grid --- */}
-          <Box py={4}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" sx={{ flexGrow: 1 }}>Supervisors</Typography>
-              <Button variant="contained" sx={{ mb: 2 }} onClick={() => setOpenSup(true)}>
-                + Add supervisor
-              </Button>
+              <DataGrid
+                rows={viewRows}
+                columns={agentCols}
+                autoHeight
+                editMode="cell"
+                processRowUpdate={handleRowUpdate}
+                onProcessRowUpdateError={console.error}
+                disableRowSelectionOnClick
+                slots={{ toolbar: GridToolbar }}
+                slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } } }}
+                getRowId={(row) => row.id}
+                initialState={{ pagination: { paginationModel: { pageSize: 25, page: 0 } } }}
+                pageSizeOptions={[25, 50, 100]}
+              />
             </Box>
+          </SectionCard>
 
-            <DataGrid
-              rows={supers}
-              columns={supCols}
-              autoHeight
-              disableRowSelectionOnClick
-              slots={{ toolbar: GridToolbar }}
-            />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 0.9fr' }, gap: 1.05 }}>
+            <SectionCard
+              title="Supervisors"
+              subtitle="Current supervisor accounts used for operational oversight."
+              accent="#2563eb"
+              actions={<Button variant="contained" onClick={() => setOpenSup(true)}>Add Supervisor</Button>}
+              noPadding
+            >
+              <Box sx={{ p: 1.05 }}>
+                <DataGrid
+                  rows={supers}
+                  columns={supCols}
+                  autoHeight
+                  disableRowSelectionOnClick
+                  slots={{ toolbar: GridToolbar }}
+                  slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } } }}
+                  initialState={{ pagination: { paginationModel: { pageSize: 10, page: 0 } } }}
+                  pageSizeOptions={[10, 25, 50]}
+                />
+              </Box>
+            </SectionCard>
 
-            {/* add-supervisor dialog */}
-            <Dialog open={openSup} onClose={() => setOpenSup(false)}>
-              <DialogTitle>New supervisor</DialogTitle>
-              <DialogContent>
-                <Stack spacing={2} sx={{ mt: 1, width: 320 }}>
-                  <TextField
-                    label="Full name" required
-                    value={supForm.fullName}
-                    onChange={e => setSupForm({ ...supForm, fullName: e.target.value })}
-                  />
-                  <TextField
-                    label="Email" type="email" required
-                    value={supForm.email}
-                    onChange={e => setSupForm({ ...supForm, email: e.target.value })}
-                  />
-                  <TextField
-                    label="Password" type="password" required
-                    value={supForm.password}
-                    onChange={e => setSupForm({ ...supForm, password: e.target.value })}
-                  />
-                  <Button variant="contained" onClick={handleSupSave}>
-                    Save
-                  </Button>
-                </Stack>
-              </DialogContent>
-            </Dialog>
+            <SectionCard
+              title="Teams"
+              subtitle="The source list used across workforce planning, staffing, and adherence filters."
+              accent="#0f766e"
+              actions={<Button variant="contained" onClick={() => setOpenTeam(true)}>Add Team</Button>}
+              noPadding
+            >
+              <Box sx={{ p: 1.05 }}>
+                <DataGrid
+                  rows={teams}
+                  columns={teamCols}
+                  autoHeight
+                  disableRowSelectionOnClick
+                  initialState={{ pagination: { paginationModel: { pageSize: 10, page: 0 } } }}
+                  pageSizeOptions={[10, 25, 50]}
+                />
+              </Box>
+            </SectionCard>
           </Box>
-
-          {/* --- teams grid --- */}
-          <Box py={2}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" sx={{ flexGrow: 1 }}>Teams</Typography>
-              <Button variant="contained" sx={{ mb: 2 }} onClick={() => setOpenTeam(true)}>
-                + Add team
-              </Button>
-            </Box>
-
-            <DataGrid
-              rows={teams}
-              columns={teamCols}
-              autoHeight
-              disableRowSelectionOnClick
-            />
-
-            {/* add-team dialog */}
-            <Dialog open={openTeam} onClose={() => setOpenTeam(false)}>
-              <DialogTitle>New team</DialogTitle>
-              <DialogContent>
-                <Box sx={{ mt: 1, width: 320 }}>
-                  <TextField
-                    label="Team name" fullWidth required
-                    value={teamName}
-                    onChange={e => setTeamName(e.target.value)}
-                  />
-                  <Button variant="contained" sx={{ mt: 2 }} onClick={handleTeamSave}>
-                    Save
-                  </Button>
-                </Box>
-              </DialogContent>
-            </Dialog>
-          </Box>
-        </>
+        </Box>
+      ) : (
+        <SectionCard
+          title="Supervisor Assignment Board"
+          subtitle="Drag staff into the right supervisory lanes and refresh the people model without leaving the page."
+          accent="#7c3aed"
+        >
+          <AssignTab
+            agents={agents}
+            supers={supers}
+            refreshAgents={async () => setAgents((await api.get('/agents')).data)}
+          />
+        </SectionCard>
       )}
 
-      {/* ---------- TAB 1 : drag-and-drop supervisor assign ---------- */}
-      {tab === 1 && (
-        <AssignTab
-          agents={agents}
-          supers={supers}
-          refreshAgents={async () =>
-            setAgents((await api.get('/agents')).data)
-          }
-        />
-      )}
-    </Box>
+      <Dialog open={openAgent} onClose={() => setOpenAgent(false)}>
+        <DialogTitle>New agent</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.05} sx={{ mt: 1, width: 340 }}>
+            <TextField
+              label="Full name"
+              required
+              value={agentForm.fullName}
+              onChange={(event) => setAgentForm({ ...agentForm, fullName: event.target.value })}
+            />
+            <TextField
+              label="Email"
+              type="email"
+              required
+              value={agentForm.email}
+              onChange={(event) => setAgentForm({ ...agentForm, email: event.target.value })}
+            />
+            <TextField
+              label="Team"
+              select
+              value={agentForm.role}
+              onChange={(event) => setAgentForm({ ...agentForm, role: event.target.value })}
+            >
+              {teams.map((teamRow) => (
+                <MenuItem key={teamRow.id} value={teamRow.name}>{teamRow.name}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Employee #"
+              value={agentForm.employeeNo}
+              onChange={(event) => setAgentForm({ ...agentForm, employeeNo: event.target.value })}
+            />
+            <TextField
+              label="Start date"
+              type="date"
+              InputLabelProps={{ shrink: true }}
+              value={agentForm.startDate}
+              onChange={(event) => setAgentForm({ ...agentForm, startDate: event.target.value })}
+            />
+            <TextField
+              label="Province"
+              value={agentForm.province}
+              onChange={(event) => setAgentForm({ ...agentForm, province: event.target.value })}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={agentForm.standby}
+                  onChange={(event) => setAgentForm({ ...agentForm, standby: event.target.checked })}
+                />
+              }
+              label="Stand-by rota"
+            />
+            <Button variant="contained" onClick={handleAgentSave}>
+              Save
+            </Button>
+          </Stack>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openSup} onClose={() => setOpenSup(false)}>
+        <DialogTitle>New supervisor</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.05} sx={{ mt: 1, width: 320 }}>
+            <TextField
+              label="Full name"
+              required
+              value={supForm.fullName}
+              onChange={(event) => setSupForm({ ...supForm, fullName: event.target.value })}
+            />
+            <TextField
+              label="Email"
+              type="email"
+              required
+              value={supForm.email}
+              onChange={(event) => setSupForm({ ...supForm, email: event.target.value })}
+            />
+            <TextField
+              label="Password"
+              type="password"
+              required
+              value={supForm.password}
+              onChange={(event) => setSupForm({ ...supForm, password: event.target.value })}
+            />
+            <Button variant="contained" onClick={handleSupSave}>
+              Save
+            </Button>
+          </Stack>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openTeam} onClose={() => setOpenTeam(false)}>
+        <DialogTitle>New team</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1, width: 320 }}>
+            <TextField
+              label="Team name"
+              fullWidth
+              required
+              value={teamName}
+              onChange={(event) => setTeamName(event.target.value)}
+            />
+            <Button variant="contained" sx={{ mt: 1.2 }} onClick={handleTeamSave}>
+              Save
+            </Button>
+          </Box>
+        </DialogContent>
+      </Dialog>
+    </PageShell>
   )
 }

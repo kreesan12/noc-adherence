@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Box, TextField, Button, Typography,
+  Box, TextField, Button, Typography, Chip,
   MenuItem, Select, InputLabel, FormControl, Switch,
   Table, TableHead, TableBody, TableRow, TableCell,
   Tooltip, FormControlLabel, Paper, Divider, LinearProgress
@@ -17,6 +17,7 @@ dayjs.extend(isSameOrBefore);
 
 import api from '../api';
 import * as XLSX from 'xlsx';
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
 /* CONSTANTS */
 const HORIZON_MONTHS = 6;
@@ -476,17 +477,41 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
     }
   };
 
+  const staffingStats = [
+    { label: 'Teams', value: roles.length, helper: team || 'Current planning scope' },
+    { label: 'Forecast Days', value: forecast.length, helper: 'Loaded planning horizon', accent: '#2563eb' },
+    { label: 'Planned Agents', value: Object.keys(personSchedule).length, helper: 'Drafted waterfall allocation', accent: '#16a34a' },
+    {
+      label: 'Solver State',
+      value: solverRunning ? 'Running' : (solverFeasible == null ? solverPhase : (solverFeasible ? 'Feasible' : 'Review')),
+      helper: solverLastCallMs == null ? 'Awaiting run' : `Last call ${solverLastCallMs} ms`,
+      accent: solverFeasible === false ? '#dc2626' : '#7c3aed'
+    }
+  ];
+
   /* RENDER */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      <Box sx={{ p: 1.5 }}>
-        <Typography variant="h4" gutterBottom>
-          Staffing Forecast &amp; Scheduling
-        </Typography>
+      <PageShell
+        eyebrow="Staffing And Scheduling"
+        title="Staffing Forecast And Scheduling"
+        description="Model coverage demand, draft the waterfall schedule, and then push live agent allocations once the plan looks healthy."
+        accent="#0f766e"
+        stats={staffingStats}
+        actions={
+          <Box sx={{ display: 'flex', gap: 0.7, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Chip label={`Start ${startDate.format('YYYY-MM-DD')}`} color="primary" />
+            <Chip label={`${weeks} week rotation`} sx={{ bgcolor: 'rgba(124,58,237,0.12)', color: '#6d28d9' }} />
+          </Box>
+        }
+      >
 
         {/* Solver Controls */}
-        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>Solver Controls</Typography>
+        <SectionCard
+          title="Solver Controls"
+          subtitle="Run the staffing model, watch progress, and inspect the live solver log before you allocate to agents."
+          accent="#7c3aed"
+        >
 
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <Button
@@ -531,227 +556,238 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
               ))}
             </Box>
           </Box>
-        </Paper>
+        </SectionCard>
 
         {/* Main toolbar */}
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-          <FormControl sx={{ minWidth: 140 }}>
-            <InputLabel>Team</InputLabel>
-            <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
-              {roles.map(r => (
-                <MenuItem key={r} value={r}>{r}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+        <SectionCard
+          title="Forecast Inputs"
+          subtitle="Tune the demand assumptions, then calculate the six-month model before drafting a schedule."
+          accent="#0f766e"
+        >
+          <FilterStrip>
+            <FormControl sx={{ minWidth: 140 }}>
+              <InputLabel>Team</InputLabel>
+              <Select value={team} label="Team" onChange={e => setTeam(e.target.value)}>
+                {roles.map(r => (
+                  <MenuItem key={r} value={r}>{r}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-          <DatePicker
-            label="Forecast Start"
-            value={startDate}
-            onChange={d => d && setStartDate(d.startOf('day'))}
-            slotProps={{ textField: { size: 'small' } }}
-          />
+            <DatePicker
+              label="Forecast Start"
+              value={startDate}
+              onChange={d => d && setStartDate(d.startOf('day'))}
+              slotProps={{ textField: { size: 'small' } }}
+            />
 
-          <FormControl sx={{ minWidth: 120 }}>
-            <InputLabel>Rotation (weeks)</InputLabel>
-            <Select value={weeks} label="Rotation" onChange={e => setWeeks(+e.target.value)}>
-              {[1,2,3,4,5].map(w => (
-                <MenuItem key={w} value={w}>{w}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+            <FormControl sx={{ minWidth: 120 }}>
+              <InputLabel>Rotation (weeks)</InputLabel>
+              <Select value={weeks} label="Rotation" onChange={e => setWeeks(+e.target.value)}>
+                {[1,2,3,4,5].map(w => (
+                  <MenuItem key={w} value={w}>{w}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-          <TextField label="Call AHT (sec)" type="number" size="small"
-            value={callAht} onChange={e => setCallAht(+e.target.value)} />
-          <TextField label="Ticket AHT (sec)" type="number" size="small"
-            value={ticketAht} onChange={e => setTicketAht(+e.target.value)} />
-          <TextField label="Service Level %" type="number" size="small"
-            value={sl * 100} onChange={e => setSL(+e.target.value / 100)} />
-          <TextField label="Threshold (sec)" type="number" size="small"
-            value={threshold} onChange={e => setThreshold(+e.target.value)} />
-          <TextField label="Shrinkage %" type="number" size="small"
-            value={shrinkage * 100} onChange={e => setShrinkage(+e.target.value / 100)} />
+            <TextField label="Call AHT (sec)" type="number" size="small"
+              value={callAht} onChange={e => setCallAht(+e.target.value)} />
+            <TextField label="Ticket AHT (sec)" type="number" size="small"
+              value={ticketAht} onChange={e => setTicketAht(+e.target.value)} />
+            <TextField label="Service Level %" type="number" size="small"
+              value={sl * 100} onChange={e => setSL(+e.target.value / 100)} />
+            <TextField label="Threshold (sec)" type="number" size="small"
+              value={threshold} onChange={e => setThreshold(+e.target.value)} />
+            <TextField label="Shrinkage %" type="number" size="small"
+              value={shrinkage * 100} onChange={e => setShrinkage(+e.target.value / 100)} />
 
-          <FormControlLabel
-            control={<Switch checked={excludeAuto} onChange={e => setExcludeAuto(e.target.checked)} />}
-            label="Ignore automation?"
-          />
+            <FormControlLabel
+              control={<Switch checked={excludeAuto} onChange={e => setExcludeAuto(e.target.checked)} />}
+              label="Ignore automation?"
+            />
 
-          <Button variant="contained" onClick={calcForecast}>
-            Calculate 6 Month Forecast
-          </Button>
-
+            <Button variant="contained" onClick={calcForecast}>
+              Calculate 6 Month Forecast
+            </Button>
             <Button
               variant="contained"
-              sx={{ ml: 1 }}
               disabled={!forecast.length || solverRunning}
               onClick={assignToStaff}
             >
-            Draft schedule &amp; assign agents
-          </Button>
+              Draft schedule &amp; assign agents
+            </Button>
 
-          <Button variant="contained" color="secondary" sx={{ ml: 1 }}
-            disabled={!Object.keys(personSchedule).length || solverRunning}
-            onClick={allocateToAgents}>
-            Allocate to Agents
-          </Button>
-        </Box>
+            <Button variant="contained" color="secondary"
+              disabled={!Object.keys(personSchedule).length || solverRunning}
+              onClick={allocateToAgents}>
+              Allocate to Agents
+            </Button>
+          </FilterStrip>
+        </SectionCard>
 
         {/* REQUIRED HEATMAP */}
         {forecast.length > 0 && (
-          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Required Agents Heatmap</Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Hour</TableCell>
-                  {forecast.map(d => (
-                    <TableCell key={d.date}>{d.date}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <TableRow key={h}>
-                    <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
-                      const req = d.staffing.find(s => s.hour === h)?.requiredAgents || 0;
-                      const alpha = maxReq ? (req / maxReq) * 0.8 + 0.2 : 0.2;
-                      return (
-                        <Tooltip key={d.date} title={`Req: ${req}`}>
-                          <TableCell sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}>
-                            {req}
-                          </TableCell>
-                        </Tooltip>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-        )}
+          <SectionCard
+            title="Coverage Heatmaps"
+            subtitle="Compare demand, scheduled bodies, and deficits across the planning horizon."
+            accent="#2563eb"
+          >
+            <Box sx={{ display: 'grid', gap: 1.1 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={countLunchAsCoverage}
+                    onChange={e => setCountLunchAsCoverage(e.target.checked)}
+                  />
+                }
+                label="Heatmaps: include lunch hour as coverage"
+              />
 
-        <FormControlLabel
-          control={
-            <Switch
-              checked={countLunchAsCoverage}
-              onChange={e => setCountLunchAsCoverage(e.target.checked)}
-            />
-          }
-          label="Heatmaps: include lunch hour as coverage"
-        />
+              <Box sx={{ overflowX: 'auto' }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.6 }}>Required Agents Heatmap</Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Hour</TableCell>
+                      {forecast.map(d => (
+                        <TableCell key={d.date}>{d.date}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <TableRow key={h}>
+                        <TableCell>{h}:00</TableCell>
+                        {forecast.map(d => {
+                          const req = d.staffing.find(s => s.hour === h)?.requiredAgents || 0;
+                          const alpha = maxReq ? (req / maxReq) * 0.8 + 0.2 : 0.2;
+                          return (
+                            <Tooltip key={d.date} title={`Req: ${req}`}>
+                              <TableCell sx={{ backgroundColor: `rgba(33,150,243,${alpha})` }}>
+                                {req}
+                              </TableCell>
+                            </Tooltip>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
 
-        {/* SCHEDULED HEATMAP */}
-        {forecast.length > 0 && (
-          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Scheduled Coverage Heatmap</Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Hour</TableCell>
-                  {forecast.map(d => (
-                    <TableCell key={d.date}>{d.date}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <TableRow key={h}>
-                    <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
-                      const cov = scheduled[`${d.date}|${h}`] || 0;
-                      const alpha = maxSch ? (cov / maxSch) * 0.8 + 0.2 : 0.2;
-                      return (
-                        <Tooltip key={d.date} title={`Cov: ${cov}`}>
-                          <TableCell sx={{ backgroundColor: `rgba(76,175,80,${alpha})` }}>
-                            {cov}
-                          </TableCell>
-                        </Tooltip>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-        )}
+              <Box sx={{ overflowX: 'auto' }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.6 }}>Scheduled Coverage Heatmap</Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Hour</TableCell>
+                      {forecast.map(d => (
+                        <TableCell key={d.date}>{d.date}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <TableRow key={h}>
+                        <TableCell>{h}:00</TableCell>
+                        {forecast.map(d => {
+                          const cov = scheduled[`${d.date}|${h}`] || 0;
+                          const alpha = maxSch ? (cov / maxSch) * 0.8 + 0.2 : 0.2;
+                          return (
+                            <Tooltip key={d.date} title={`Cov: ${cov}`}>
+                              <TableCell sx={{ backgroundColor: `rgba(76,175,80,${alpha})` }}>
+                                {cov}
+                              </TableCell>
+                            </Tooltip>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
 
-        {/* DEFICIT HEATMAP */}
-        {forecast.length > 0 && (
-          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Under or Over Staffing Heatmap</Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Hour</TableCell>
-                  {forecast.map(d => (
-                    <TableCell key={d.date}>{d.date}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {Array.from({ length: 24 }, (_, h) => (
-                  <TableRow key={h}>
-                    <TableCell>{h}:00</TableCell>
-                    {forecast.map(d => {
-                      const val = deficit[`${d.date}|${h}`] || 0;
-                      const ratio = maxDef ? (Math.abs(val) / maxDef) * 0.8 + 0.2 : 0.2;
-                      const col = val < 0
-                        ? `rgba(244,67,54,${ratio})`
-                        : `rgba(76,175,80,${ratio})`;
-                      return (
-                        <Tooltip key={d.date} title={`Deficit: ${val}`}>
-                          <TableCell sx={{ backgroundColor: col }}>
-                            {val}
-                          </TableCell>
-                        </Tooltip>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
+              <Box sx={{ overflowX: 'auto' }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.6 }}>Under Or Over Staffing Heatmap</Typography>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Hour</TableCell>
+                      {forecast.map(d => (
+                        <TableCell key={d.date}>{d.date}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <TableRow key={h}>
+                        <TableCell>{h}:00</TableCell>
+                        {forecast.map(d => {
+                          const val = deficit[`${d.date}|${h}`] || 0;
+                          const ratio = maxDef ? (Math.abs(val) / maxDef) * 0.8 + 0.2 : 0.2;
+                          const col = val < 0
+                            ? `rgba(244,67,54,${ratio})`
+                            : `rgba(76,175,80,${ratio})`;
+                          return (
+                            <Tooltip key={d.date} title={`Deficit: ${val}`}>
+                              <TableCell sx={{ backgroundColor: col }}>
+                                {val}
+                              </TableCell>
+                            </Tooltip>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Box>
+          </SectionCard>
         )}
 
         {/* BLOCKS TABLE */}
         {blocks.length > 0 && (
-          <Box sx={{ mb: 2.5, overflowX: 'auto' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Assigned Shift Block Types</Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>Start Date</TableCell>
-                  <TableCell>Start Hour</TableCell>
-                  <TableCell>Length (h)</TableCell>
-                  <TableCell>Count</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {blocks.map((b, i) => (
-                  <TableRow key={i}>
-                    <TableCell>{i + 1}</TableCell>
-                    <TableCell>{b.startDate}</TableCell>
-                    <Tooltip title={`Starts at ${b.startHour}:00`}>
-                      <TableCell>{b.startHour}:00</TableCell>
-                    </Tooltip>
-                    <TableCell>{b.length}</TableCell>
-                    <TableCell>{b.count}</TableCell>
+          <SectionCard
+            title="Assigned Shift Block Types"
+            subtitle="The solver’s block summary before those shifts are assigned to actual people."
+            accent="#ea580c"
+          >
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>#</TableCell>
+                    <TableCell>Start Date</TableCell>
+                    <TableCell>Start Hour</TableCell>
+                    <TableCell>Length (h)</TableCell>
+                    <TableCell>Count</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
+                </TableHead>
+                <TableBody>
+                  {blocks.map((b, i) => (
+                    <TableRow key={i}>
+                      <TableCell>{i + 1}</TableCell>
+                      <TableCell>{b.startDate}</TableCell>
+                      <Tooltip title={`Starts at ${b.startHour}:00`}>
+                        <TableCell>{b.startHour}:00</TableCell>
+                      </Tooltip>
+                      <TableCell>{b.length}</TableCell>
+                      <TableCell>{b.count}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </SectionCard>
         )}
 
         {/* CALENDAR */}
         {Object.keys(personSchedule).length > 0 && (
-          <Box sx={{ mt: 2.5 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>
-              6 Month Staff Calendar (waterfall template)
-            </Typography>
-
+          <SectionCard
+            title="6 Month Staff Calendar"
+            subtitle="The drafted waterfall pattern shown by named employee or future placeholder."
+            accent="#16a34a"
+          >
             <Button variant="outlined" onClick={exportExcel} sx={{ mb: 1.25 }}>
               Export to Excel
             </Button>
@@ -764,9 +800,9 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
                 ({excludeAuto ? 'automation excluded' : 'automation included'}).
               </Typography>
             </Box>
-          </Box>
+          </SectionCard>
         )}
-      </Box>
+      </PageShell>
     </LocalizationProvider>
   );
 }

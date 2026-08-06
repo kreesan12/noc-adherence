@@ -1,107 +1,88 @@
-// frontend/src/pages/AdherencePage.jsx
-import { useEffect, useState } from 'react'
-import {
-  DataGrid,
-  GridToolbar,
-  GridActionsCellItem
-} from '@mui/x-data-grid'
-import {
-  Box,
-  Chip,
-  TextField,
-  MenuItem
-} from '@mui/material'
-import {
-  DatePicker,
-  LocalizationProvider
-} from '@mui/x-date-pickers'
+import { useEffect, useMemo, useState } from 'react'
+import { DataGrid, GridActionsCellItem, GridToolbar } from '@mui/x-data-grid'
+import { Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import EditIcon   from '@mui/icons-material/Edit'
-import SaveIcon   from '@mui/icons-material/Save'
+import EditIcon from '@mui/icons-material/Edit'
+import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Close'
 import dayjs from 'dayjs'
-import api   from '../api'
-
-/* ────────────────────────────────────────────────────────── */
+import api from '../api'
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
 const statusOptions = [
-  { value: 'pending',         label: 'Pending' },
-  { value: 'present',         label: 'On time' },
-  { value: 'late',            label: 'Late' },
-  { value: 'off_sick',        label: 'Off sick' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'present', label: 'On time' },
+  { value: 'late', label: 'Late' },
+  { value: 'off_sick', label: 'Off sick' },
   { value: 'emergency_leave', label: 'Emergency leave' },
-  { value: 'awol',            label: 'AWOL' },
+  { value: 'awol', label: 'AWOL' }
 ]
 
 const dutyOptions = [
-  { value: '',                 label: '' },
-  { value: 'Tickets/Calls',    label: 'Tickets/Calls' },
-  { value: 'Tickets',          label: 'Tickets' },
-  { value: 'Calls',            label: 'Calls' },
+  { value: '', label: '' },
+  { value: 'Tickets/Calls', label: 'Tickets/Calls' },
+  { value: 'Tickets', label: 'Tickets' },
+  { value: 'Calls', label: 'Calls' },
   { value: 'WhatsApp/Tickets', label: 'WhatsApp/Tickets' },
-  { value: 'WhatsApp only',    label: 'WhatsApp only' },
-  { value: 'Changes',          label: 'Changes' },
-  { value: 'Adhoc',            label: 'Adhoc' }
+  { value: 'WhatsApp only', label: 'WhatsApp only' },
+  { value: 'Changes', label: 'Changes' },
+  { value: 'Adhoc', label: 'Adhoc' }
 ]
 
 const colorMap = {
-  present: { background: '#00e676', color: '#000' },
-  late:    { background: '#ff1744', color: '#fff' },
-  pending: { background: '#2979ff', color: '#fff' }
+  present: { background: '#22c55e', color: '#052e16' },
+  late: { background: '#ef4444', color: '#fff' },
+  pending: { background: '#2563eb', color: '#fff' },
+  off_sick: { background: '#f59e0b', color: '#111827' },
+  emergency_leave: { background: '#fb7185', color: '#fff' },
+  awol: { background: '#7c3aed', color: '#fff' }
 }
 
-/* ────────────────────────────────────────────────────────── */
+function fmtCount(value) {
+  return new Intl.NumberFormat().format(Number(value || 0))
+}
 
-export default function AdherencePage () {
-  /* state */
-  const [rows,  setRows]  = useState([])
-  const [date,  setDate]  = useState(dayjs())
-  const [team,  setTeam]  = useState('')          // ← new
-  const [teams, setTeams] = useState([])          // ← new
+export default function AdherencePage() {
+  const [rows, setRows] = useState([])
+  const [date, setDate] = useState(dayjs())
+  const [team, setTeam] = useState('')
+  const [teams, setTeams] = useState([])
   const [rowModesModel, setRowModesModel] = useState({})
 
-  /* load team list once (from /agents) */
   useEffect(() => {
-    api.get('/agents')
-       .then(res => {
-         setTeams([...new Set(res.data.map(a => a.role))].sort())
-       })
+    api.get('/agents').then((res) => {
+      setTeams([...new Set(res.data.map((agent) => agent.role))].sort())
+    })
   }, [])
 
-  /* load schedule whenever date OR team changes */
   useEffect(() => {
     api.get('/shifts', {
       params: {
-        team      : team || undefined,
-        startDate : date.format('YYYY-MM-DD'),
-        endDate   : date.format('YYYY-MM-DD')
+        team: team || undefined,
+        startDate: date.format('YYYY-MM-DD'),
+        endDate: date.format('YYYY-MM-DD')
       }
-    })
-    .then(res => {
-      /* 🔹 robust mapping — works whether the backend returns
-         { agentName } or a full { agent:{ fullName, phone } } object */
-      setRows(res.data.map(s => ({
-        id:        s.id,
-        agentName: s.agent?.fullName ?? s.agentName ?? '—',
-        phone:     s.agent?.phone    ?? s.phone      ?? '',
-        status:     s.attendance?.status       ?? 'pending',
-        duty:       s.attendance?.duty?.name   ?? '',
-        lunchStart: (s.attendance?.lunchStart ?? s.breakStart)
-                    ? dayjs(s.attendance?.lunchStart ?? s.breakStart)
-                        .format('HH:mm')
-                    : '',
-        lunchEnd:   (s.attendance?.lunchEnd   ?? s.breakEnd)
-                    ? dayjs(s.attendance?.lunchEnd   ?? s.breakEnd)
-                        .format('HH:mm')
-                    : '',
-        start: dayjs(s.startAt).format('HH:mm'),
-        end:   dayjs(s.endAt).format('HH:mm')
+    }).then((res) => {
+      setRows(res.data.map((shift) => ({
+        id: shift.id,
+        agentName: shift.agent?.fullName ?? shift.agentName ?? '-',
+        phone: shift.agent?.phone ?? shift.phone ?? '',
+        status: shift.attendance?.status ?? 'pending',
+        duty: shift.attendance?.duty?.name ?? '',
+        lunchStart: (shift.attendance?.lunchStart ?? shift.breakStart)
+          ? dayjs(shift.attendance?.lunchStart ?? shift.breakStart).format('HH:mm')
+          : '',
+        lunchEnd: (shift.attendance?.lunchEnd ?? shift.breakEnd)
+          ? dayjs(shift.attendance?.lunchEnd ?? shift.breakEnd).format('HH:mm')
+          : '',
+        start: dayjs(shift.startAt).format('HH:mm'),
+        end: dayjs(shift.endAt).format('HH:mm')
       })))
     })
   }, [date, team])
 
-  /* inline-save handler (unchanged) */
-  const processRowUpdate = async newRow => {
+  const processRowUpdate = async (newRow) => {
     const ls = newRow.lunchStart
       ? dayjs(`${date.format('YYYY-MM-DD')}T${newRow.lunchStart}`).toISOString()
       : null
@@ -110,94 +91,96 @@ export default function AdherencePage () {
       : null
 
     await api.patch(`/attendance/${newRow.id}`, {
-      status:     newRow.status,
-      dutyName:   newRow.duty,
+      status: newRow.status,
+      dutyName: newRow.duty,
       lunchStart: ls,
-      lunchEnd:   le
+      lunchEnd: le
     })
     return newRow
   }
 
-  /* grid columns (unchanged except minor formatting) */
+  const stats = useMemo(() => {
+    const present = rows.filter((row) => row.status === 'present').length
+    const late = rows.filter((row) => row.status === 'late').length
+    const pending = rows.filter((row) => row.status === 'pending').length
+    return [
+      { label: 'Shifts in View', value: fmtCount(rows.length), helper: team || 'All teams' },
+      { label: 'On Time', value: fmtCount(present), helper: 'Captured as present', accent: '#16a34a' },
+      { label: 'Late', value: fmtCount(late), helper: 'Needs coaching follow-up', accent: '#dc2626' },
+      { label: 'Pending', value: fmtCount(pending), helper: 'Still awaiting update', accent: '#2563eb' }
+    ]
+  }, [rows, team])
+
   const columns = [
-    { field: 'agentName', headerName: 'Agent', width: 260, flex: 0 },   // 🔹 field renamed
-    { field: 'phone',     headerName: 'Phone', width: 130 },
-    /* status */
+    { field: 'agentName', headerName: 'Agent', width: 220, flex: 0 },
+    { field: 'phone', headerName: 'Phone', width: 120 },
     {
       field: 'status',
       headerName: 'Status',
-      width: 200,
+      width: 170,
       editable: true,
-      renderCell: params => {
-        const opt = statusOptions.find(o => o.value === params.value)
-        return (
-          <Chip
-            label={opt?.label || ''}
-            sx={colorMap[params.value] ?? {}}
-            size="small"
-          />
-        )
+      renderCell: (params) => {
+        const opt = statusOptions.find((option) => option.value === params.value)
+        return <Chip size="small" label={opt?.label || ''} sx={colorMap[params.value] ?? {}} />
       },
-      renderEditCell: params => (
+      renderEditCell: (params) => (
         <TextField
           select
           value={params.value}
-          onChange={e => {
+          onChange={(event) => {
             params.api.setEditCellValue({
               id: params.id,
               field: 'status',
-              value: e.target.value
+              value: event.target.value
             })
           }}
           fullWidth
         >
-          {statusOptions.map(o => (
-            <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+          {statusOptions.map((option) => (
+            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
           ))}
         </TextField>
       )
     },
-    /* duty */
     {
       field: 'duty',
       headerName: 'Duty',
-      width: 200,
+      width: 180,
       editable: true,
-      renderCell: p => dutyOptions.find(o => o.value === p.value)?.label || '',
-      renderEditCell: params => (
+      renderCell: (params) => dutyOptions.find((option) => option.value === params.value)?.label || '',
+      renderEditCell: (params) => (
         <TextField
           select
           value={params.value}
-          onChange={e => {
+          onChange={(event) => {
             params.api.setEditCellValue({
               id: params.id,
               field: 'duty',
-              value: e.target.value
+              value: event.target.value
             })
           }}
           fullWidth
         >
-          {dutyOptions.map(o => (
-            <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+          {dutyOptions.map((option) => (
+            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
           ))}
         </TextField>
       )
     },
-    /* lunch */
     {
       field: 'lunchStart',
       headerName: 'Lunch Start',
-      width: 150,
+      width: 130,
       editable: true,
-      renderEditCell: params => (
+      renderEditCell: (params) => (
         <TextField
           type="time"
           value={params.value}
-          onChange={e => {
+          onChange={(event) => {
             params.api.setEditCellValue({
               id: params.id,
               field: 'lunchStart',
-              value: e.target.value
+              value: event.target.value
             })
           }}
           fullWidth
@@ -207,31 +190,30 @@ export default function AdherencePage () {
     {
       field: 'lunchEnd',
       headerName: 'Lunch End',
-      width: 150,
+      width: 130,
       editable: true,
-      renderEditCell: params => (
+      renderEditCell: (params) => (
         <TextField
           type="time"
           value={params.value}
-          onChange={e => {
+          onChange={(event) => {
             params.api.setEditCellValue({
               id: params.id,
               field: 'lunchEnd',
-              value: e.target.value
+              value: event.target.value
             })
           }}
           fullWidth
         />
       )
     },
-    { field: 'start', headerName: 'Start', width: 150 },
-    { field: 'end',   headerName: 'End',   width: 150 },
-    /* actions menu */
+    { field: 'start', headerName: 'Start', width: 110 },
+    { field: 'end', headerName: 'End', width: 110 },
     {
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 150,
+      width: 110,
       getActions: ({ id }) => {
         const isEditing = rowModesModel[id]?.mode === 'edit'
         return isEditing
@@ -240,21 +222,17 @@ export default function AdherencePage () {
                 key="save"
                 icon={<SaveIcon />}
                 label="Save"
-                onClick={() =>
-                  setRowModesModel({ ...rowModesModel, [id]: { mode: 'view' } })
-                }
+                onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'view' } })}
                 color="primary"
               />,
               <GridActionsCellItem
                 key="cancel"
                 icon={<CancelIcon />}
                 label="Cancel"
-                onClick={() =>
-                  setRowModesModel({
-                    ...rowModesModel,
-                    [id]: { mode: 'view', ignoreModifications: true }
-                  })
-                }
+                onClick={() => setRowModesModel({
+                  ...rowModesModel,
+                  [id]: { mode: 'view', ignoreModifications: true }
+                })}
                 color="inherit"
               />
             ]
@@ -263,9 +241,7 @@ export default function AdherencePage () {
                 key="edit"
                 icon={<EditIcon />}
                 label="Edit"
-                onClick={() =>
-                  setRowModesModel({ ...rowModesModel, [id]: { mode: 'edit' } })
-                }
+                onClick={() => setRowModesModel({ ...rowModesModel, [id]: { mode: 'edit' } })}
                 showInMenu
               />
             ]
@@ -273,53 +249,83 @@ export default function AdherencePage () {
     }
   ]
 
-  /* ── render ──────────────────────────────────────────── */
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
-      {/* header controls */}
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <DatePicker
-          label="Select date"
-          value={date}
-          onChange={setDate}
-          disableFuture                     
-          maxDate={dayjs()}           
-          renderInput={props => <TextField {...props} size="small" />}
-        />
-
-        {/* Team selector */}
-        <TextField
-          select
-          label="Team"
-          size="small"
-          value={team}
-          onChange={e => setTeam(e.target.value)}
-          sx={{ minWidth: 180 }}
+      <PageShell
+        eyebrow="Daily Operations"
+        title="Daily Adherence Monitor"
+        description="Track the live attendance view for scheduled shifts, update late and leave outcomes quickly, and keep lunch windows aligned against the day’s roster."
+        accent="#2563eb"
+        stats={stats}
+        actions={
+          <Stack direction="row" spacing={0.7} flexWrap="wrap">
+            <Button variant="outlined" onClick={() => setDate(dayjs())}>Today</Button>
+            <Chip label={date.format('dddd, DD MMM YYYY')} color="primary" />
+          </Stack>
+        }
+      >
+        <SectionCard
+          title="Attendance Register"
+          subtitle="Use the filters to narrow the shift view, then edit a row to save lunch windows, duty, or attendance outcome."
+          accent="#2563eb"
+          noPadding
         >
-          <MenuItem value="">All</MenuItem>
-          {teams.map(t => (
-            <MenuItem key={t} value={t}>{t}</MenuItem>
-          ))}
-        </TextField>
-      </Box>
+          <Box sx={{ p: 1.05, display: 'grid', gap: 0.95 }}>
+            <FilterStrip>
+              <DatePicker
+                label="Select date"
+                value={date}
+                onChange={(next) => next && setDate(next)}
+                disableFuture
+                maxDate={dayjs()}
+                slotProps={{ textField: { size: 'small', sx: { minWidth: 190 } } }}
+              />
 
-      {/* data grid */}
-      <Box sx={{ height: 600 }}>
-        <DataGrid
-          rows={rows}
-          columns={columns}
-          disableSelectionOnClick
-          editMode="row"
-          processRowUpdate={processRowUpdate}
-          rowModesModel={rowModesModel}
-          onRowModesModelChange={setRowModesModel}
-          experimentalFeatures={{ newEditingApi: true }}
-          slots={{ toolbar: GridToolbar }}
-          initialState={{
-            sorting: { sortModel: [{ field: 'start', sort: 'asc' }] }
-          }}
-        />
-      </Box>
+              <TextField
+                select
+                label="Team"
+                size="small"
+                value={team}
+                onChange={(event) => setTeam(event.target.value)}
+                sx={{ minWidth: 180 }}
+              >
+                <MenuItem value="">All teams</MenuItem>
+                {teams.map((value) => (
+                  <MenuItem key={value} value={value}>{value}</MenuItem>
+                ))}
+              </TextField>
+
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                {fmtCount(rows.length)} shifts loaded for {team || 'all teams'}
+              </Typography>
+            </FilterStrip>
+
+            <Box sx={{ minHeight: 560 }}>
+              <DataGrid
+                rows={rows}
+                columns={columns}
+                disableRowSelectionOnClick
+                editMode="row"
+                processRowUpdate={processRowUpdate}
+                rowModesModel={rowModesModel}
+                onRowModesModelChange={setRowModesModel}
+                slots={{ toolbar: GridToolbar }}
+                slotProps={{
+                  toolbar: {
+                    showQuickFilter: true,
+                    quickFilterProps: { debounceMs: 250 }
+                  }
+                }}
+                initialState={{
+                  sorting: { sortModel: [{ field: 'start', sort: 'asc' }] },
+                  pagination: { paginationModel: { pageSize: 25, page: 0 } }
+                }}
+                pageSizeOptions={[25, 50, 100]}
+              />
+            </Box>
+          </Box>
+        </SectionCard>
+      </PageShell>
     </LocalizationProvider>
   )
 }

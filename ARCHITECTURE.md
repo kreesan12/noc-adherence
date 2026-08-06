@@ -2,6 +2,11 @@
 
 ## Current Production Topology
 
+### Retired Product Areas
+
+- The legacy ROC/MNT appointments module and technician mobile appointment flow were retired from the active frontend and API runtime on `2026-08-06`.
+- The related database tables may still exist for historical reference, but the routes, screens, and helper code are no longer wired into production.
+
 ### Frontend
 
 - Host: GitHub Pages

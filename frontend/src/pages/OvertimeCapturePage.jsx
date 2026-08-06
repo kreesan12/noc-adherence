@@ -1,102 +1,153 @@
-import React, { useMemo, useState } from "react"
-import { Box, Button, Card, CardContent, TextField, Typography } from "@mui/material"
-import dayjs from "../lib/dayjs.js"
-import api from "../api"
-import { listOvertimeEntries } from '../api/overtime'
-
-
+import { useMemo, useState } from 'react'
+import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material'
+import dayjs from '../lib/dayjs.js'
+import api from '../api'
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
 function toIso(dateStr, timeStr) {
-  return dayjs(`${dateStr} ${timeStr}`, "YYYY-MM-DD HH:mm").toISOString()
+  return dayjs(`${dateStr} ${timeStr}`, 'YYYY-MM-DD HH:mm').toISOString()
 }
 
 export default function OvertimeCapturePage() {
-  const [workDate, setWorkDate] = useState(dayjs().format("YYYY-MM-DD"))
-  const [startTime, setStartTime] = useState("18:00")
-  const [endTime, setEndTime] = useState("20:00")
-  const [reason, setReason] = useState("")
-  const [notes, setNotes] = useState("")
+  const [workDate, setWorkDate] = useState(dayjs().format('YYYY-MM-DD'))
+  const [startTime, setStartTime] = useState('18:00')
+  const [endTime, setEndTime] = useState('20:00')
+  const [reason, setReason] = useState('')
+  const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
 
-  const minDate = useMemo(() => dayjs().subtract(7, "day").format("YYYY-MM-DD"), [])
-
-  const canSave = workDate >= minDate && reason.trim().length > 0
+  const minDate = useMemo(() => dayjs().subtract(7, 'day').format('YYYY-MM-DD'), [])
+  const maxDate = useMemo(() => dayjs().format('YYYY-MM-DD'), [])
+  const canSave = workDate >= minDate && reason.trim().length > 0 && startTime < endTime
 
   async function submit() {
     setSaving(true)
+    setNotice('')
+    setError('')
     try {
-      await api.post("/overtime/manual", {
+      await api.post('/overtime/manual', {
         workDate,
         startAt: toIso(workDate, startTime),
         endAt: toIso(workDate, endTime),
         reason,
-        notes,
+        notes
       })
-      setReason("")
-      setNotes("")
-      alert("Submitted")
-    } catch (e) {
-      alert(e?.response?.data?.error || e.message)
+      setReason('')
+      setNotes('')
+      setNotice('Manual overtime submitted successfully')
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to submit overtime')
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Box sx={{ p: 1.5 }}>
-      <Typography variant="h6" sx={{ mb: 1.25, fontWeight: 800 }}>Overtime capture</Typography>
+    <PageShell
+      eyebrow="Staffing and Scheduling"
+      title="Overtime Capture"
+      description="Log manual overtime quickly for the last seven days, with a cleaner capture flow that makes the rules visible before submit."
+      accent="#2563eb"
+      stats={[
+        {
+          label: 'Capture Window',
+          value: '7 Days',
+          helper: 'Manual overtime can only be captured within the last seven days.',
+          accent: '#2563eb'
+        },
+        {
+          label: 'Earliest Date',
+          value: minDate,
+          helper: 'Oldest date still accepted',
+          accent: '#0f766e'
+        },
+        {
+          label: 'Latest Date',
+          value: maxDate,
+          helper: 'Today is the upper limit',
+          accent: '#d97706'
+        }
+      ]}
+    >
+      {error ? <Alert severity="error">{error}</Alert> : null}
+      {notice ? <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert> : null}
 
-      <Card>
-        <CardContent sx={{ display: "grid", gap: 1.25, maxWidth: 500 }}>
-          <TextField
-            label="Work date"
-            type="date"
-            value={workDate}
-            inputProps={{ min: minDate, max: dayjs().format("YYYY-MM-DD") }}
-            onChange={e => setWorkDate(e.target.value)}
-          />
+      <SectionCard
+        title="Manual Entry"
+        subtitle="Use this for genuine manual overtime only. Fixed overtime still belongs in the supervisor generation flow."
+        accent="#2563eb"
+      >
+        <Stack spacing={1}>
+          <FilterStrip>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              Rule check: the work date must fall between {minDate} and {maxDate}, and the end time must be after the start time.
+            </Typography>
+          </FilterStrip>
 
-          <TextField
-            label="Start time"
-            type="time"
-            value={startTime}
-            onChange={e => setStartTime(e.target.value)}
-          />
-
-          <TextField
-            label="End time"
-            type="time"
-            value={endTime}
-            onChange={e => setEndTime(e.target.value)}
-          />
-
-          <TextField
-            label="Reason"
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-          />
-
-          <TextField
-            label="Notes"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            multiline
-            minRows={2}
-          />
-
-          <Button
-            variant="contained"
-            disabled={!canSave || saving}
-            onClick={submit}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              gap: 1
+            }}
           >
-            Submit
-          </Button>
+            <TextField
+              label="Work date"
+              type="date"
+              value={workDate}
+              inputProps={{ min: minDate, max: maxDate }}
+              onChange={(event) => setWorkDate(event.target.value)}
+            />
 
-          <Typography variant="body2" sx={{ opacity: 0.8, fontSize: 11.5 }}>
-            Manual overtime can only be captured within the last 7 days.
-          </Typography>
-        </CardContent>
-      </Card>
-    </Box>
+            <TextField
+              label="Reason"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+
+            <TextField
+              label="Start time"
+              type="time"
+              value={startTime}
+              onChange={(event) => setStartTime(event.target.value)}
+            />
+
+            <TextField
+              label="End time"
+              type="time"
+              value={endTime}
+              onChange={(event) => setEndTime(event.target.value)}
+            />
+
+            <TextField
+              label="Notes"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              multiline
+              minRows={3}
+              sx={{ gridColumn: { xs: 'auto', md: '1 / span 2' } }}
+            />
+          </Box>
+
+          <Stack direction="row" spacing={0.8} justifyContent="flex-end">
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setReason('')
+                setNotes('')
+              }}
+              disabled={saving}
+            >
+              Clear
+            </Button>
+            <Button variant="contained" disabled={!canSave || saving} onClick={submit}>
+              Submit Overtime
+            </Button>
+          </Stack>
+        </Stack>
+      </SectionCard>
+    </PageShell>
   )
 }
