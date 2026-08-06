@@ -25,6 +25,7 @@ import workforceRouter from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
 import managersRoutes from './routes/managers.js'
 import userAdminRoutes from './routes/userAdmin.js'
+import whatsappWatchersRoutes from './routes/whatsappWatchers.js'
 import nldsRoutes from './routes/nlds.js'
 import nldServices from './routes/nldServices.js'
 import nldMonitoringRoutes from './routes/nldMonitoring.js'
@@ -229,6 +230,12 @@ app.use(
   '/api/admin/users',
   verifyToken, authRole('admin'),
   userAdminRoutes(prisma)
+)
+
+app.use(
+  '/api/admin/whatsapp-watchers',
+  verifyToken, authRole('admin'),
+  whatsappWatchersRoutes()
 )
 
 /* ---------- Global error handler ---------- */

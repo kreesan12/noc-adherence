@@ -15,6 +15,7 @@ import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import GroupWorkRoundedIcon from '@mui/icons-material/GroupWorkRounded'
 import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded'
+import ChatRoundedIcon from '@mui/icons-material/ChatRounded'
 import { canManageUsers } from '../utils/access'
 
 export function isActivePath(pathname, itemPath) {
@@ -102,6 +103,11 @@ export function buildNavigationSections(user, vacancyCount = 0) {
               path: '/settings/users',
               summary: 'Create, reset, and govern sign-in access across the platform.',
               icon: <ManageAccountsRoundedIcon fontSize="small" />
+            }, {
+              label: 'WhatsApp Watchers',
+              path: '/settings/whatsapp-watchers',
+              summary: 'Control alert timing, routing groups, tags, and watcher wording.',
+              icon: <ChatRoundedIcon fontSize="small" />
             }]
           : []),
         {

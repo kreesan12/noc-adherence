@@ -8,29 +8,8 @@ import {
   safeStr,
   zendeskAgentTicketLink
 } from './lib/watcherUtils.js'
-
-const POLL_INTERVAL_MS = Number(process.env.VIP_POLL_MS || 2 * 60 * 1000)
-const LOOKBACK_HOURS = Number(process.env.VIP_LOOKBACK_HOURS || 2)
-
-const VIP_ORG_ID = String(process.env.VIP_ORG_ID || '42757142385041')
-
-const VIP_TAG_RULES = [
-  {
-    key: 'vip-carrier-down',
-    tag: String(process.env.VIP_TAG || 'iris_vip_carrier_down').trim(),
-    title: 'VIP alert | Carrier down',
-    reason: 'carrier-down tag'
-  },
-  {
-    key: 'rise-traffic-drop',
-    tag: String(process.env.VIP_RISE_TRAFFIC_TAG || 'iris_rise_traffic').trim(),
-    title: 'VIP alert | RISE traffic drop',
-    reason: 'rise-traffic tag',
-    includePriority: false
-  }
-].filter((rule) => rule.tag)
-
-const VIP_GROUP_ID = process.env.WHATSAPP_VIP_GROUP_ID || null
+import { recordWatcherAlert } from './lib/watcherAlertLog.js'
+import { getWhatsappWatcherConfig } from './lib/whatsappWatcherConfig.js'
 
 const CACHE_TTL_HOURS = Number(process.env.VIP_CACHE_TTL_HOURS || 72)
 const CACHE_MAX_KEYS = Number(process.env.VIP_CACHE_MAX_KEYS || 5000)
@@ -46,8 +25,8 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
 const TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000
 const warnedNew = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 
-function buildCreatedLookbackQuery() {
-  return `created>${LOOKBACK_HOURS}hours`
+function buildCreatedLookbackQuery(lookbackHours) {
+  return `created>${lookbackHours}hours`
 }
 
 function buildVipMessage({
@@ -86,11 +65,11 @@ function makeHeaders() {
   }
 }
 
-async function fetchVipOrgTicketsRaw() {
+async function fetchVipOrgTicketsRaw(orgId, lookbackHours) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set(
     'query',
-    `type:ticket status<solved organization_id:${VIP_ORG_ID} ${buildCreatedLookbackQuery()}`
+    `type:ticket status<solved organization_id:${orgId} ${buildCreatedLookbackQuery(lookbackHours)}`
   )
   url.searchParams.set('filter[type]', 'ticket')
   url.searchParams.set('page[size]', '1000')
@@ -99,8 +78,8 @@ async function fetchVipOrgTicketsRaw() {
   return data.results || []
 }
 
-async function fetchVipTagTicketsRaw(tag) {
-  const query = `type:ticket status<solved tags:${tag} ${buildCreatedLookbackQuery()}`
+async function fetchVipTagTicketsRaw(tag, lookbackHours) {
+  const query = `type:ticket status<solved tags:${tag} ${buildCreatedLookbackQuery(lookbackHours)}`
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set('query', query)
   url.searchParams.set('filter[type]', 'ticket')
@@ -111,6 +90,24 @@ async function fetchVipTagTicketsRaw(tag) {
 }
 
 let watcherStarted = false
+let nextTimer = null
+
+async function shouldSendAlert(cache, details) {
+  if (cache.has(details.dedupeKey)) return false
+
+  const persisted = await recordWatcherAlert(details)
+  cache.add(details.dedupeKey)
+
+  if (persisted === false) return false
+  return true
+}
+
+function scheduleNext(run, delayMs) {
+  clearTimeout(nextTimer)
+  const wait = Math.max(30 * 1000, Number(delayMs) || 2 * 60 * 1000)
+  nextTimer = setTimeout(run, wait)
+  nextTimer.unref?.()
+}
 
 export function startVipTicketWatcher(sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
@@ -120,29 +117,47 @@ export function startVipTicketWatcher(sendSlaAlert) {
   if (watcherStarted) return
   watcherStarted = true
 
-  const groupLabel = VIP_GROUP_ID ? `override ${VIP_GROUP_ID}` : 'default group'
-  const tagLabel = VIP_TAG_RULES.length
-    ? VIP_TAG_RULES.map((rule) => rule.tag).join(', ')
-    : '(none)'
+  void getWhatsappWatcherConfig().then(({ vip }) => {
+    const groupLabel = vip.groupId ? `override ${vip.groupId}` : 'default group'
+    const tagLabel = vip.tagRules.length
+      ? vip.tagRules.map((rule) => rule.tag).join(', ')
+      : '(none)'
 
-  console.log(
-    `[VIP WATCHER] Starting - poll ${Math.round(POLL_INTERVAL_MS / 1000)}s, lookback ${LOOKBACK_HOURS}h, group ${groupLabel}`
-  )
-  console.log(`[VIP WATCHER] Rules - org ${VIP_ORG_ID}, tags ${tagLabel}`)
+    console.log(
+      `[VIP WATCHER] Starting - poll ${Math.round(vip.pollMs / 1000)}s, lookback ${vip.lookbackHours}h, group ${groupLabel}`
+    )
+    console.log(`[VIP WATCHER] Rules - org ${vip.orgId}, tags ${tagLabel}`)
+  }).catch(() => {})
   console.log(`[VIP WATCHER] Cache - TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
-  const sendVip = async (message) => {
-    try {
-      await sendSlaAlert(message, VIP_GROUP_ID ? { groupId: VIP_GROUP_ID } : {})
-    } catch (error) {
-      console.error('[VIP WATCHER] send failed:', error?.message || error)
-    }
-  }
+  const run = async () => {
+    let config
 
-  const tick = async () => {
+    try {
+      const stored = await getWhatsappWatcherConfig()
+      config = stored.vip
+    } catch (error) {
+      console.error('[VIP WATCHER] Config load failed:', error?.message || error)
+      scheduleNext(run, 2 * 60 * 1000)
+      return
+    }
+
+    if (!config.enabled) {
+      scheduleNext(run, config.pollMs)
+      return
+    }
+
+    const sendVip = async (message) => {
+      try {
+        await sendSlaAlert(message, config.groupId ? { groupId: config.groupId } : {})
+      } catch (error) {
+        console.error('[VIP WATCHER] send failed:', error?.message || error)
+      }
+    }
+
     try {
       const now = dayjs()
-      const vipOrg = await fetchVipOrgTicketsRaw()
+      const vipOrg = await fetchVipOrgTicketsRaw(config.orgId, config.lookbackHours)
 
       for (const ticket of vipOrg) {
         const created = dayjs(ticket.created_at)
@@ -150,13 +165,19 @@ export function startVipTicketWatcher(sendSlaAlert) {
 
         const ageHours = now.diff(created, 'hour', true)
         const key = `vip-org-new:${ticket.id}`
-        if (warnedNew.has(key)) continue
-        warnedNew.add(key)
+        const shouldSend = await shouldSendAlert(warnedNew, {
+          dedupeKey: key,
+          watcherKey: 'vip',
+          alertType: 'org_new',
+          entityId: ticket.id,
+          payload: { status: ticket.status, updatedAt: ticket.updated_at }
+        })
+        if (!shouldSend) continue
 
         const message = buildVipMessage({
-          title: 'VIP ticket logged | Telemedia',
+          title: config.templates.orgTitle,
           ticket,
-          reason: 'organization match',
+          reason: config.templates.orgReason,
           ageHours
         })
 
@@ -164,8 +185,8 @@ export function startVipTicketWatcher(sendSlaAlert) {
         await sendVip(message)
       }
 
-      for (const rule of VIP_TAG_RULES) {
-        const { query, results } = await fetchVipTagTicketsRaw(rule.tag)
+      for (const rule of config.tagRules) {
+        const { query, results } = await fetchVipTagTicketsRaw(rule.tag, config.lookbackHours)
 
         console.log('[VIP WATCHER] Tag query:', query, '| results:', results.length)
         if (results[0]) {
@@ -178,8 +199,14 @@ export function startVipTicketWatcher(sendSlaAlert) {
 
           const ageHours = now.diff(created, 'hour', true)
           const key = `vip-tag-new:${rule.key}:${ticket.id}`
-          if (warnedNew.has(key)) continue
-          warnedNew.add(key)
+          const shouldSend = await shouldSendAlert(warnedNew, {
+            dedupeKey: key,
+            watcherKey: 'vip',
+            alertType: `tag_new_${rule.key}`,
+            entityId: ticket.id,
+            payload: { tag: rule.tag, status: ticket.status, updatedAt: ticket.updated_at }
+          })
+          if (!shouldSend) continue
 
           const message = buildVipMessage({
             title: rule.title,
@@ -195,11 +222,10 @@ export function startVipTicketWatcher(sendSlaAlert) {
       }
     } catch (error) {
       console.error('[VIP WATCHER] Tick error:', error?.message || error)
+    } finally {
+      scheduleNext(run, config.pollMs)
     }
   }
 
-  tick()
-
-  const interval = setInterval(tick, POLL_INTERVAL_MS)
-  interval.unref?.()
+  void run()
 }

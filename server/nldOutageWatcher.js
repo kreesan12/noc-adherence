@@ -9,29 +9,13 @@ import {
   isResolvedStatus,
   makeAuthHeader,
   makeTtlCache,
-  parseHourThresholds,
   zendeskAgentTicketLink
 } from './lib/watcherUtils.js'
-
-const OUTAGE_WINDOW_MINUTES = Number(process.env.NLD_WINDOW_MINUTES || 60)
-const BREACH_HOURS = Number(process.env.NLD_BREACH_HOURS || 4)
-const POLL_INTERVAL_MS = Number(process.env.NLD_POLL_MS || 5 * 60 * 1000)
-
-const PARTIAL_LOOKBACK_HOURS = Number(process.env.NLD_PARTIAL_LOOKBACK_HOURS || 24)
-const CLUSTER_WINDOW_HOURS = Number(process.env.NLD_CLUSTER_WINDOW_HOURS || 3)
-const CLUSTER_MIN_EVENTS = Number(process.env.NLD_CLUSTER_MIN_EVENTS || 3)
-const PARTIAL_NOT_LOGGED_MINUTES = Number(process.env.NLD_NOT_LOGGED_MINUTES || 30)
-const RESOLVED_LOOKBACK_HOURS = Number(process.env.NLD_RESOLVED_LOOKBACK_HOURS || 24)
-
-const BREACH_THRESHOLDS_HOURS = parseHourThresholds(
-  process.env.NLD_BREACH_THRESHOLDS_HOURS,
-  [4, 8, 12, 24]
-)
+import { recordWatcherAlert } from './lib/watcherAlertLog.js'
+import { getWhatsappWatcherConfig } from './lib/whatsappWatcherConfig.js'
 
 const CACHE_TTL_HOURS = Number(process.env.NLD_CACHE_TTL_HOURS || 72)
 const CACHE_MAX_KEYS = Number(process.env.NLD_CACHE_MAX_KEYS || 5000)
-
-const NLD_GROUP_ID = process.env.WHATSAPP_NLD_GROUP_ID || null
 
 const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN
 const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL
@@ -46,8 +30,7 @@ const warnedRecent = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedBreach = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedResolved = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedPartialClusters = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
-
-const partialNotLoggedBuckets = new Map()
+const warnedPartialNotLogged = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 
 function isNldTicket(ticket) {
   return String(ticket.subject || '').toUpperCase().includes('NLD')
@@ -77,11 +60,11 @@ async function fetchOutageTickets() {
   return data.results || []
 }
 
-async function fetchRecentlyUpdatedOutages() {
+async function fetchRecentlyUpdatedOutages(resolvedLookbackHours) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set(
     'query',
-    `group:5160847905297 form:"Outage Capturing" updated>${RESOLVED_LOOKBACK_HOURS}hours`
+    `group:5160847905297 form:"Outage Capturing" updated>${resolvedLookbackHours}hours`
   )
   url.searchParams.set('filter[type]', 'ticket')
   url.searchParams.set('page[size]', '1000')
@@ -173,9 +156,14 @@ function enrichOutageTicket(ticket, now) {
     totalHours,
     subscriberImpact: Number(cf(ticket, 5552674828049)) || 0,
     nld: cf(ticket, 40137360073617) || '',
+    lastUpdateNote: compactText(cf(ticket, 5352766585489) || '', 180),
     liquidRef: cf(ticket, 7657816716433) || '',
     liquidCircuit: cf(ticket, 8008871186961) || ''
   }
+}
+
+function formatLastUpdate(ticket) {
+  return ticket.lastUpdateNote || formatTimestamp(ticket.updated_at)
 }
 
 function buildLiquidSummary(ticket) {
@@ -185,10 +173,10 @@ function buildLiquidSummary(ticket) {
   return parts.join(' | ')
 }
 
-function buildRecentMsg(tickets) {
+function buildRecentMsg(tickets, templates) {
   if (!tickets.length) return null
 
-  const lines = [`NLD outage logged | ${formatPlural(tickets.length, 'new item')}`, '']
+  const lines = [`${templates.recentTitle} | ${formatPlural(tickets.length, 'new item')}`, '']
 
   tickets.forEach((ticket) => {
     lines.push(
@@ -204,20 +192,20 @@ function buildRecentMsg(tickets) {
   return lines.join('\n')
 }
 
-function buildBreachMsg(tickets, breachHours) {
+function buildBreachMsg(tickets, breachHours, templates) {
   if (!tickets.length) return null
 
-  const lines = [`NLD outage aging breach | ${breachHours}h | ${formatPlural(tickets.length, 'item')}`, '']
+  const lines = [`${templates.breachTitle} | ${breachHours}h | ${formatPlural(tickets.length, 'item')}`, '']
 
   tickets.forEach((ticket) => {
     lines.push(
       `#${ticket.id} | ${ticket.nld || 'Route unknown'} | ${ticket.subscriberImpact} subs | ${formatAgeHours(ticket.ageHours)} open`
     )
-    lines.push(`Last update: ${formatTimestamp(ticket.updated_at)}`)
+    lines.push(`Last update: ${formatLastUpdate(ticket)}`)
     if (ticket.subject) lines.push(`Subject: ${compactText(ticket.subject)}`)
     const liquid = buildLiquidSummary(ticket)
     if (liquid) lines.push(`Liquid: ${liquid}`)
-    lines.push('Action: escalate and request outage update')
+    if (templates.breachAction) lines.push(`Action: ${templates.breachAction}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
   })
@@ -225,16 +213,16 @@ function buildBreachMsg(tickets, breachHours) {
   return lines.join('\n')
 }
 
-function buildResolvedMsg(tickets) {
+function buildResolvedMsg(tickets, templates) {
   if (!tickets.length) return null
 
-  const lines = [`NLD outage resolved | ${formatPlural(tickets.length, 'cleared item')}`, '']
+  const lines = [`${templates.resolvedTitle} | ${formatPlural(tickets.length, 'cleared item')}`, '']
 
   tickets.forEach((ticket) => {
     lines.push(
       `#${ticket.id} | ${ticket.nld || 'Route unknown'} | ${ticket.subscriberImpact} subs | ${formatAgeHours(ticket.totalHours)} total`
     )
-    lines.push(`Last update: ${formatTimestamp(ticket.updated_at)}`)
+    lines.push(`Last update: ${formatLastUpdate(ticket)}`)
     if (ticket.subject) lines.push(`Subject: ${compactText(ticket.subject)}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
@@ -256,9 +244,9 @@ async function fetchPartialNldAlertsRaw() {
   return data.results || []
 }
 
-function transformPartialNldAlerts(results) {
+function transformPartialNldAlerts(results, partialLookbackHours) {
   const nowMs = Date.now()
-  const cutoffMs = nowMs - PARTIAL_LOOKBACK_HOURS * 60 * 60 * 1000
+  const cutoffMs = nowMs - partialLookbackHours * 60 * 60 * 1000
   const events = []
 
   for (const ticket of results) {
@@ -322,8 +310,8 @@ function transformPartialNldAlerts(results) {
   return events
 }
 
-function findPartialClusters(events, { nowMs = Date.now() } = {}) {
-  const windowMs = CLUSTER_WINDOW_HOURS * 60 * 60 * 1000
+function findPartialClusters(events, { nowMs = Date.now(), clusterWindowHours, clusterMinEvents } = {}) {
+  const windowMs = clusterWindowHours * 60 * 60 * 1000
   const cutoffMs = nowMs - windowMs
   const recent = events.filter((event) => event.createdMs >= cutoffMs)
   const grouped = new Map()
@@ -338,32 +326,27 @@ function findPartialClusters(events, { nowMs = Date.now() } = {}) {
   const clusters = []
 
   for (const [routeKey, items] of grouped.entries()) {
-    if (items.length < CLUSTER_MIN_EVENTS) continue
+    if (items.length < clusterMinEvents) continue
 
     const sorted = [...items].sort((a, b) => a.createdMs - b.createdMs)
     const last = sorted[sorted.length - 1]
-    const key = `partial-cluster:${normalizeRoute(routeKey)}:${last.ticketId}`
-
-    if (!warnedPartialClusters.has(key)) {
-      warnedPartialClusters.add(key)
-      clusters.push({ routeKey, events: sorted, last })
-    }
+    clusters.push({ routeKey, events: sorted, last })
   }
 
   return clusters
 }
 
-function buildPartialClusterMsg(clusters) {
+function buildPartialClusterMsg(clusters, { title, clusterWindowHours, action }) {
   if (!clusters.length) return null
 
-  const lines = [`Partial NLD cluster detected | ${formatPlural(clusters.length, 'route')}`, '']
+  const lines = [`${title} | ${formatPlural(clusters.length, 'route')}`, '']
 
   clusters.forEach((cluster) => {
     const circuitCount = new Set(cluster.events.map((event) => event.circuit)).size
     lines.push(cluster.routeKey)
-    lines.push(`Events: ${cluster.events.length} in ${CLUSTER_WINDOW_HOURS}h | Unique circuits: ${circuitCount}`)
+    lines.push(`Events: ${cluster.events.length} in ${clusterWindowHours}h | Unique circuits: ${circuitCount}`)
     lines.push(`Latest ticket: #${cluster.last.ticketId} | ${formatTimestamp(cluster.last.created_at)}`)
-    lines.push('Action: validate common cause and log or link outage if needed')
+    if (action) lines.push(`Action: ${action}`)
     lines.push(`Link: ${cluster.last.ticketUrl}`)
     lines.push('')
   })
@@ -371,45 +354,29 @@ function buildPartialClusterMsg(clusters) {
   return lines.join('\n')
 }
 
-function findPartialNotLogged(events, outageIndex) {
+function findPartialNotLogged(events, outageIndex, { partialNotLoggedMinutes }) {
   const affected = []
 
   for (const event of events) {
     if (event.isCleared) continue
-    if (event.ageMinutes < PARTIAL_NOT_LOGGED_MINUTES) continue
+    if (event.ageMinutes < partialNotLoggedMinutes) continue
     if (!getEventRouteKey(event)) continue
     if (hasMatchingOutageForEvent(event, outageIndex)) continue
-
-    const bucket = Math.floor(event.ageMinutes / PARTIAL_NOT_LOGGED_MINUTES)
-    if (bucket < 1) continue
-
-    const key = String(event.ticketId)
-    const lastBucket = partialNotLoggedBuckets.get(key) || 0
-    if (bucket <= lastBucket) continue
-
-    partialNotLoggedBuckets.set(key, bucket)
-    affected.push({ ...event, bucket })
-  }
-
-  if (partialNotLoggedBuckets.size > CACHE_MAX_KEYS) {
-    const keys = Array.from(partialNotLoggedBuckets.keys())
-    for (let index = 0; index < keys.length - CACHE_MAX_KEYS; index += 1) {
-      partialNotLoggedBuckets.delete(keys[index])
-    }
+    affected.push(event)
   }
 
   return affected
 }
 
-function buildPartialNotLoggedMsg(events) {
+function buildPartialNotLoggedMsg(events, { title, action }) {
   if (!events.length) return null
 
-  const lines = [`Partial NLD not linked to outage | ${formatPlural(events.length, 'active item')}`, '']
+  const lines = [`${title} | ${formatPlural(events.length, 'active item')}`, '']
 
   events.forEach((event) => {
     lines.push(`#${event.ticketId} | ${event.eventGroup} | ${event.nldRoute || event.partialCircuit || 'Route unknown'}`)
     lines.push(`Age: ${formatAgeMinutes(event.ageMinutes)} | Circuit: ${event.circuit}`)
-    lines.push('Action: log outage or link to existing outage')
+    if (action) lines.push(`Action: ${action}`)
     lines.push(`Link: ${event.ticketUrl}`)
     lines.push('')
   })
@@ -418,6 +385,24 @@ function buildPartialNotLoggedMsg(events) {
 }
 
 let watcherStarted = false
+let nextTimer = null
+
+async function shouldSendAlert(cache, details) {
+  if (cache.has(details.dedupeKey)) return false
+
+  const persisted = await recordWatcherAlert(details)
+  cache.add(details.dedupeKey)
+
+  if (persisted === false) return false
+  return true
+}
+
+function scheduleNext(run, delayMs) {
+  clearTimeout(nextTimer)
+  const wait = Math.max(30 * 1000, Number(delayMs) || 5 * 60 * 1000)
+  nextTimer = setTimeout(run, wait)
+  nextTimer.unref?.()
+}
 
 export function startNldOutageWatcher(sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
@@ -427,22 +412,41 @@ export function startNldOutageWatcher(sendSlaAlert) {
   if (watcherStarted) return
   watcherStarted = true
 
-  const groupLabel = NLD_GROUP_ID ? `override ${NLD_GROUP_ID}` : 'default group'
-  console.log(
-    `[NLD WATCHER] Starting - window ${OUTAGE_WINDOW_MINUTES} min, breach baseline ${BREACH_HOURS} h, poll ${Math.round(POLL_INTERVAL_MS / 1000)}s, group ${groupLabel}`
-  )
-  console.log(`[NLD WATCHER] Breach tiers - ${BREACH_THRESHOLDS_HOURS.join(', ')} hours`)
-  console.log(
-    `[NLD WATCHER] Partial - lookback ${PARTIAL_LOOKBACK_HOURS}h, cluster ${CLUSTER_MIN_EVENTS} events / ${CLUSTER_WINDOW_HOURS}h, not-logged >= ${PARTIAL_NOT_LOGGED_MINUTES} min`
-  )
-  console.log(`[NLD WATCHER] Resolved lookback - ${RESOLVED_LOOKBACK_HOURS}h`)
+  void getWhatsappWatcherConfig().then(({ nld }) => {
+    const baseline = nld.breachThresholdsHours[0] || 4
+    const groupLabel = nld.groupId ? `override ${nld.groupId}` : 'default group'
+    console.log(
+      `[NLD WATCHER] Starting - window ${nld.windowMinutes} min, breach baseline ${baseline} h, poll ${Math.round(nld.pollMs / 1000)}s, group ${groupLabel}`
+    )
+    console.log(`[NLD WATCHER] Breach tiers - ${nld.breachThresholdsHours.join(', ')} hours`)
+    console.log(
+      `[NLD WATCHER] Partial - lookback ${nld.partialLookbackHours}h, cluster ${nld.clusterMinEvents} events / ${nld.clusterWindowHours}h, not-logged >= ${nld.notLoggedMinutes} min`
+    )
+    console.log(`[NLD WATCHER] Resolved lookback - ${nld.resolvedLookbackHours}h`)
+  }).catch(() => {})
   console.log(`[NLD WATCHER] Cache - TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
-  const sendNld = async (message) => {
-    await sendSlaAlert(message, NLD_GROUP_ID ? { groupId: NLD_GROUP_ID } : {})
-  }
+  const run = async () => {
+    let config
 
-  const tick = async () => {
+    try {
+      const stored = await getWhatsappWatcherConfig()
+      config = stored.nld
+    } catch (error) {
+      console.error('[NLD WATCHER] Config load failed:', error?.message || error)
+      scheduleNext(run, 5 * 60 * 1000)
+      return
+    }
+
+    if (!config.enabled) {
+      scheduleNext(run, config.pollMs)
+      return
+    }
+
+    const sendNld = async (message) => {
+      await sendSlaAlert(message, config.groupId ? { groupId: config.groupId } : {})
+    }
+
     try {
       const now = dayjs()
       const rawOutages = await fetchOutageTickets()
@@ -450,7 +454,7 @@ export function startNldOutageWatcher(sendSlaAlert) {
       const recent = []
       const openOutages = []
       const breachesByThreshold = new Map()
-      BREACH_THRESHOLDS_HOURS.forEach((threshold) => breachesByThreshold.set(threshold, []))
+      config.breachThresholdsHours.forEach((threshold) => breachesByThreshold.set(threshold, []))
 
       for (const ticket of rawOutages) {
         if (!isNldTicket(ticket)) continue
@@ -458,20 +462,30 @@ export function startNldOutageWatcher(sendSlaAlert) {
         const outage = enrichOutageTicket(ticket, now)
         openOutages.push(outage)
 
-        if (outage.ageMinutes >= 0 && outage.ageMinutes <= OUTAGE_WINDOW_MINUTES) {
+        if (outage.ageMinutes >= 0 && outage.ageMinutes <= config.windowMinutes) {
           const key = `recent-${ticket.id}`
-          if (!warnedRecent.has(key)) {
-            warnedRecent.add(key)
+          if (await shouldSendAlert(warnedRecent, {
+            dedupeKey: key,
+            watcherKey: 'nld',
+            alertType: 'recent',
+            entityId: ticket.id,
+            payload: { status: outage.status, updatedAt: outage.updated_at }
+          })) {
             recent.push(outage)
           }
         }
 
-        if (outage.ageMinutes > OUTAGE_WINDOW_MINUTES) {
-          for (const threshold of BREACH_THRESHOLDS_HOURS) {
+        if (outage.ageMinutes > config.windowMinutes) {
+          for (const threshold of config.breachThresholdsHours) {
             if (outage.ageHours >= threshold) {
               const key = `breach-${threshold}-${ticket.id}`
-              if (!warnedBreach.has(key)) {
-                warnedBreach.add(key)
+              if (await shouldSendAlert(warnedBreach, {
+                dedupeKey: key,
+                watcherKey: 'nld',
+                alertType: `breach_${threshold}h`,
+                entityId: ticket.id,
+                payload: { status: outage.status, updatedAt: outage.updated_at }
+              })) {
                 breachesByThreshold.get(threshold).push(outage)
               }
             }
@@ -479,21 +493,21 @@ export function startNldOutageWatcher(sendSlaAlert) {
         }
       }
 
-      const recentMsg = buildRecentMsg(recent)
+      const recentMsg = buildRecentMsg(recent, config.templates)
       if (recentMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp NLD recent-outage alert')
         await sendNld(recentMsg)
       }
 
-      for (const threshold of BREACH_THRESHOLDS_HOURS) {
-        const message = buildBreachMsg(breachesByThreshold.get(threshold) || [], threshold)
+      for (const threshold of config.breachThresholdsHours) {
+        const message = buildBreachMsg(breachesByThreshold.get(threshold) || [], threshold, config.templates)
         if (message) {
           console.log(`[NLD WATCHER] Sending WhatsApp NLD BREACH ${threshold}h alert`)
           await sendNld(message)
         }
       }
 
-      const updatedOutages = await fetchRecentlyUpdatedOutages()
+      const updatedOutages = await fetchRecentlyUpdatedOutages(config.resolvedLookbackHours)
       const resolved = []
 
       for (const ticket of updatedOutages) {
@@ -501,12 +515,18 @@ export function startNldOutageWatcher(sendSlaAlert) {
 
         const outage = enrichOutageTicket(ticket, now)
         const key = `resolved-${ticket.id}-${ticket.status}-${ticket.updated_at}`
-        if (warnedResolved.has(key)) continue
-        warnedResolved.add(key)
+        const shouldSend = await shouldSendAlert(warnedResolved, {
+          dedupeKey: key,
+          watcherKey: 'nld',
+          alertType: 'resolved',
+          entityId: ticket.id,
+          payload: { status: outage.status, updatedAt: outage.updated_at }
+        })
+        if (!shouldSend) continue
         resolved.push(outage)
       }
 
-      const resolvedMsg = buildResolvedMsg(resolved)
+      const resolvedMsg = buildResolvedMsg(resolved, config.templates)
       if (resolvedMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp NLD resolved alert')
         await sendNld(resolvedMsg)
@@ -514,26 +534,70 @@ export function startNldOutageWatcher(sendSlaAlert) {
 
       const outageIndex = buildOutageRouteIndex(openOutages)
       const rawPartial = await fetchPartialNldAlertsRaw()
-      const partialEvents = transformPartialNldAlerts(rawPartial)
+      const partialEvents = transformPartialNldAlerts(rawPartial, config.partialLookbackHours)
 
-      const clusterMsg = buildPartialClusterMsg(findPartialClusters(partialEvents, { nowMs: Date.now() }))
+      const rawClusters = findPartialClusters(partialEvents, {
+          nowMs: Date.now(),
+          clusterWindowHours: config.clusterWindowHours,
+          clusterMinEvents: config.clusterMinEvents
+        })
+      const clusters = []
+
+      for (const cluster of rawClusters) {
+        const dedupeKey = `partial-cluster:${normalizeRoute(cluster.routeKey)}:${cluster.last.ticketId}`
+        const shouldSend = await shouldSendAlert(warnedPartialClusters, {
+          dedupeKey,
+          watcherKey: 'nld',
+          alertType: 'partial_cluster',
+          entityId: cluster.last.ticketId,
+          payload: { route: cluster.routeKey, latestTicketId: cluster.last.ticketId }
+        })
+        if (shouldSend) clusters.push(cluster)
+      }
+
+      const clusterMsg = buildPartialClusterMsg(clusters, {
+        title: config.templates.partialClusterTitle,
+        clusterWindowHours: config.clusterWindowHours,
+        action: config.templates.partialClusterAction
+      })
+
       if (clusterMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD CLUSTER alert')
         await sendNld(clusterMsg)
       }
 
-      const notLoggedMsg = buildPartialNotLoggedMsg(findPartialNotLogged(partialEvents, outageIndex))
+      const rawNotLogged = findPartialNotLogged(partialEvents, outageIndex, {
+          partialNotLoggedMinutes: config.notLoggedMinutes
+        })
+      const notLogged = []
+
+      for (const event of rawNotLogged) {
+        const dedupeKey = `partial-not-logged:${event.ticketId}`
+        const shouldSend = await shouldSendAlert(warnedPartialNotLogged, {
+          dedupeKey,
+          watcherKey: 'nld',
+          alertType: 'partial_not_logged',
+          entityId: event.ticketId,
+          payload: { route: event.nldRoute || event.partialCircuit || '', circuit: event.circuit }
+        })
+        if (shouldSend) notLogged.push(event)
+      }
+
+      const notLoggedMsg = buildPartialNotLoggedMsg(notLogged, {
+        title: config.templates.partialNotLoggedTitle,
+        action: config.templates.partialNotLoggedAction
+      })
+
       if (notLoggedMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD NOT-LOGGED alert')
         await sendNld(notLoggedMsg)
       }
     } catch (error) {
       console.error('[NLD WATCHER] Tick error:', error?.message || error)
+    } finally {
+      scheduleNext(run, config.pollMs)
     }
   }
 
-  tick()
-
-  const interval = setInterval(tick, POLL_INTERVAL_MS)
-  interval.unref?.()
+  void run()
 }

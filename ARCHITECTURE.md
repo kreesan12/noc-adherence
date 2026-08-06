@@ -50,6 +50,9 @@
   - Backhaul watcher
   - VIP watcher
   - Gmail-driven import jobs through systemd timers
+- Runtime behavior:
+  - watcher timing, routing groups, tags, and alert wording are now read from shared database config
+  - config changes are applied on the next poll cycle without restarting `noc-automation`
 
 ### Database
 
@@ -68,6 +71,11 @@
   - volume size `30G`
   - used `5.6G`
   - free `23G`
+- WhatsApp watcher support tables:
+  - `automation_settings`
+    - stores admin-edited watcher config
+  - `watcher_alert_log`
+    - stores persistent dedupe keys for sent watcher alerts so restarts do not replay old messages
 
 ### Inter-Server Database Connectivity
 
@@ -156,6 +164,21 @@ sudo systemctl status noc-automation
 sudo systemctl restart noc-automation
 sudo journalctl -u noc-automation -f
 ```
+
+### WhatsApp Watcher Administration
+
+- Frontend admin screen:
+  - `/settings/whatsapp-watchers`
+- Access:
+  - admin-only
+- Purpose:
+  - edit watcher enable flags
+  - change poll intervals and lookback windows
+  - set WhatsApp group JID overrides
+  - update Zendesk tag rules
+  - adjust alert titles, reasons, and action lines
+- Current note:
+  - template editing currently controls the title/reason/action language while keeping the message body layout standardized for readability in group chats
 
 ### Database Tunnel Service
 

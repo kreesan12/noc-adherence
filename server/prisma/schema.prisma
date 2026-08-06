@@ -1041,3 +1041,26 @@ enum AppointmentStatus {
 
   @@map("AppointmentStatus")
 }
+
+model AutomationSetting {
+  key       String   @id
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("automation_settings")
+}
+
+model WatcherAlertLog {
+  id        Int      @id @default(autoincrement())
+  dedupeKey String   @unique @map("dedupe_key")
+  watcherKey String  @map("watcher_key")
+  alertType String   @map("alert_type")
+  entityId  String?  @map("entity_id")
+  payload   Json?
+  sentAt    DateTime @default(now()) @map("sent_at")
+
+  @@index([watcherKey, sentAt])
+  @@map("watcher_alert_log")
+}

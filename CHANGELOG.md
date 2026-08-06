@@ -64,6 +64,19 @@
 - Added solved/close-out WhatsApp notifications for:
   - NLD outage tickets
   - backhaul tickets
+- Added admin-manageable WhatsApp watcher controls in the app under:
+  - `/settings/whatsapp-watchers`
+- Moved watcher timing, group overrides, tags, and alert wording into database-backed config instead of hard-coded runtime values.
+- Refactored the live WhatsApp watcher loops so config changes apply on the next poll without a process restart.
+- Added persistent alert dedupe storage for watcher sends:
+  - repeated alerts are now suppressed across restarts and redeploys using the new `watcher_alert_log` table
+- Updated the NLD outage aging message to prefer the Zendesk custom-field update note from:
+  - field id `5352766585489`
+  - with `updated_at` retained as a fallback
+- Performed a safe root-disk cleanup pass on `noc-api-01`:
+  - root usage reduced from `70%` to `64%`
+  - cleared old apt cache
+  - cleared local npm cache
 
 ### Frontend Hosting Move
 

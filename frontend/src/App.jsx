@@ -42,6 +42,7 @@ const ShiftManager = lazy(() => import('./pages/ShiftManager'))
 const LeavePlannerPage = lazy(() => import('./pages/LeavePlannerPage'))
 const WorkforcePage = lazy(() => import('./pages/WorkforcePage'))
 const UserAdminPage = lazy(() => import('./pages/UserAdminPage'))
+const WhatsAppWatchersPage = lazy(() => import('./pages/WhatsAppWatchersPage'))
 const NldLightLevelsPage = lazy(() => import('./pages/NldLightLevelsPage'))
 const NldMappingPage = lazy(() => import('./pages/NldMappingPage'))
 const NldMapPage = lazy(() => import('./pages/NldMapPage'))
@@ -334,6 +335,7 @@ function ShellLayout() {
             <Route path="/workforce" element={loadable(<WorkforcePage />)} />
             <Route path="/managers" element={<Navigate to="/settings/users" replace />} />
             <Route path="/settings/users" element={loadable(<UserAdminPage />)} />
+            <Route path="/settings/whatsapp-watchers" element={loadable(<WhatsAppWatchersPage />)} />
             <Route path="/engineering/nlds" element={loadable(<NldLightLevelsPage />)} />
             <Route path="/nld-mapping" element={loadable(<NldMappingPage />)} />
             <Route path="/nld-map" element={loadable(<NldMapPage />)} />

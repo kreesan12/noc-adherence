@@ -8,21 +8,11 @@ import {
   isResolvedStatus,
   makeAuthHeader,
   makeTtlCache,
-  parseHourThresholds,
   safeStr,
   zendeskAgentTicketLink
 } from './lib/watcherUtils.js'
-
-const POLL_INTERVAL_MS = Number(process.env.BACKHAUL_POLL_MS || 5 * 60 * 1000)
-const LOOKBACK_HOURS = Number(process.env.BACKHAUL_LOOKBACK_HOURS || 4)
-const RESOLVED_LOOKBACK_HOURS = Number(process.env.BACKHAUL_RESOLVED_LOOKBACK_HOURS || 24)
-const BACKHAUL_TAG = String(process.env.BACKHAUL_TAG || 'iris_backhaul_down').trim()
-const BACKHAUL_GROUP_ID = process.env.WHATSAPP_BACKHAUL_GROUP_ID || null
-
-const BREACH_THRESHOLDS_HOURS = parseHourThresholds(
-  process.env.BACKHAUL_BREACH_THRESHOLDS_HOURS,
-  [4, 8, 12, 24]
-)
+import { recordWatcherAlert } from './lib/watcherAlertLog.js'
+import { getWhatsappWatcherConfig } from './lib/whatsappWatcherConfig.js'
 
 const CACHE_TTL_HOURS = Number(process.env.BACKHAUL_CACHE_TTL_HOURS || 72)
 const CACHE_MAX_KEYS = Number(process.env.BACKHAUL_CACHE_MAX_KEYS || 5000)
@@ -47,9 +37,9 @@ function makeHeaders() {
   }
 }
 
-async function fetchActiveBackhaulTickets() {
+async function fetchActiveBackhaulTickets(tag) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
-  url.searchParams.set('query', `type:ticket status<solved tags:${BACKHAUL_TAG}`)
+  url.searchParams.set('query', `type:ticket status<solved tags:${tag}`)
   url.searchParams.set('filter[type]', 'ticket')
   url.searchParams.set('page[size]', '1000')
 
@@ -57,9 +47,9 @@ async function fetchActiveBackhaulTickets() {
   return data.results || []
 }
 
-async function fetchRecentlyUpdatedBackhaulTickets() {
+async function fetchRecentlyUpdatedBackhaulTickets(tag, resolvedLookbackHours) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
-  url.searchParams.set('query', `type:ticket tags:${BACKHAUL_TAG} updated>${RESOLVED_LOOKBACK_HOURS}hours`)
+  url.searchParams.set('query', `type:ticket tags:${tag} updated>${resolvedLookbackHours}hours`)
   url.searchParams.set('filter[type]', 'ticket')
   url.searchParams.set('page[size]', '1000')
 
@@ -87,16 +77,16 @@ function buildTicketSummary(ticket, now) {
   }
 }
 
-function buildNewAlertMessage(tickets) {
+function buildNewAlertMessage(tickets, templates) {
   if (!tickets.length) return null
 
-  const lines = [`Backhaul alert | ${formatPlural(tickets.length, 'new item')}`, '']
+  const lines = [`${templates.newTitle} | ${formatPlural(tickets.length, 'new item')}`, '']
 
   tickets.forEach((ticket) => {
     lines.push(`#${ticket.id} | ${ticket.status} | ${ticket.priority.toUpperCase()} | ${formatAgeHours(ticket.ageHours)} old`)
     if (ticket.subject) lines.push(`Subject: ${ticket.subject}`)
     lines.push(`Last update: ${formatTimestamp(ticket.updated_at)}`)
-    lines.push('Action: validate backhaul impact and update stakeholders')
+    if (templates.newAction) lines.push(`Action: ${templates.newAction}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
   })
@@ -104,16 +94,16 @@ function buildNewAlertMessage(tickets) {
   return lines.join('\n')
 }
 
-function buildBreachAlertMessage(tickets, thresholdHours) {
+function buildBreachAlertMessage(tickets, thresholdHours, templates) {
   if (!tickets.length) return null
 
-  const lines = [`Backhaul aging breach | ${thresholdHours}h | ${formatPlural(tickets.length, 'item')}`, '']
+  const lines = [`${templates.breachTitle} | ${thresholdHours}h | ${formatPlural(tickets.length, 'item')}`, '']
 
   tickets.forEach((ticket) => {
     lines.push(`#${ticket.id} | ${ticket.status} | ${ticket.priority.toUpperCase()} | ${formatAgeHours(ticket.ageHours)} open`)
     if (ticket.subject) lines.push(`Subject: ${ticket.subject}`)
     lines.push(`Last update: ${formatTimestamp(ticket.updated_at)}`)
-    lines.push('Action: chase update or escalate carrier follow-up')
+    if (templates.breachAction) lines.push(`Action: ${templates.breachAction}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
   })
@@ -121,10 +111,10 @@ function buildBreachAlertMessage(tickets, thresholdHours) {
   return lines.join('\n')
 }
 
-function buildResolvedAlertMessage(tickets) {
+function buildResolvedAlertMessage(tickets, templates) {
   if (!tickets.length) return null
 
-  const lines = [`Backhaul resolved | ${formatPlural(tickets.length, 'cleared item')}`, '']
+  const lines = [`${templates.resolvedTitle} | ${formatPlural(tickets.length, 'cleared item')}`, '']
 
   tickets.forEach((ticket) => {
     lines.push(`#${ticket.id} | ${ticket.status} | ${formatAgeHours(ticket.totalHours)} total`)
@@ -138,80 +128,130 @@ function buildResolvedAlertMessage(tickets) {
 }
 
 let watcherStarted = false
+let nextTimer = null
+
+async function shouldSendAlert(cache, details) {
+  if (cache.has(details.dedupeKey)) return false
+
+  const persisted = await recordWatcherAlert(details)
+  cache.add(details.dedupeKey)
+
+  if (persisted === false) return false
+  return true
+}
+
+function scheduleNext(run, delayMs) {
+  clearTimeout(nextTimer)
+  const wait = Math.max(30 * 1000, Number(delayMs) || 5 * 60 * 1000)
+  nextTimer = setTimeout(run, wait)
+  nextTimer.unref?.()
+}
 
 export function startBackhaulWatcher(sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[BACKHAUL WATCHER] Not starting - Zendesk config missing')
     return
   }
-  if (!BACKHAUL_TAG) {
-    console.warn('[BACKHAUL WATCHER] Not starting - backhaul tag missing')
-    return
-  }
   if (watcherStarted) return
   watcherStarted = true
 
-  const groupLabel = BACKHAUL_GROUP_ID ? `override ${BACKHAUL_GROUP_ID}` : 'default group'
-  console.log(
-    `[BACKHAUL WATCHER] Starting - poll ${Math.round(POLL_INTERVAL_MS / 1000)}s, lookback ${LOOKBACK_HOURS}h, resolved lookback ${RESOLVED_LOOKBACK_HOURS}h, group ${groupLabel}`
-  )
-  console.log(`[BACKHAUL WATCHER] Rules - tag ${BACKHAUL_TAG}, breach tiers ${BREACH_THRESHOLDS_HOURS.join(', ')}`)
+  void getWhatsappWatcherConfig().then(({ backhaul }) => {
+    const groupLabel = backhaul.groupId ? `override ${backhaul.groupId}` : 'default group'
+    console.log(
+      `[BACKHAUL WATCHER] Starting - poll ${Math.round(backhaul.pollMs / 1000)}s, lookback ${backhaul.lookbackHours}h, resolved lookback ${backhaul.resolvedLookbackHours}h, group ${groupLabel}`
+    )
+    console.log(
+      `[BACKHAUL WATCHER] Rules - tag ${backhaul.tag}, breach tiers ${backhaul.breachThresholdsHours.join(', ')}`
+    )
+  }).catch(() => {})
   console.log(`[BACKHAUL WATCHER] Cache - TTL ${CACHE_TTL_HOURS}h, maxKeys ${CACHE_MAX_KEYS}`)
 
-  const sendBackhaul = async (message) => {
-    try {
-      await sendSlaAlert(message, BACKHAUL_GROUP_ID ? { groupId: BACKHAUL_GROUP_ID } : {})
-    } catch (error) {
-      console.error('[BACKHAUL WATCHER] send failed:', error?.message || error)
-    }
-  }
+  const run = async () => {
+    let config
 
-  const tick = async () => {
+    try {
+      const stored = await getWhatsappWatcherConfig()
+      config = stored.backhaul
+    } catch (error) {
+      console.error('[BACKHAUL WATCHER] Config load failed:', error?.message || error)
+      scheduleNext(run, 5 * 60 * 1000)
+      return
+    }
+
+    if (!config.enabled) {
+      scheduleNext(run, config.pollMs)
+      return
+    }
+
+    if (!config.tag) {
+      console.warn('[BACKHAUL WATCHER] Skipping tick - backhaul tag is empty')
+      scheduleNext(run, config.pollMs)
+      return
+    }
+
+    const sendBackhaul = async (message) => {
+      try {
+        await sendSlaAlert(message, config.groupId ? { groupId: config.groupId } : {})
+      } catch (error) {
+        console.error('[BACKHAUL WATCHER] send failed:', error?.message || error)
+      }
+    }
+
     try {
       const now = dayjs()
-      const activeTickets = await fetchActiveBackhaulTickets()
+      const activeTickets = await fetchActiveBackhaulTickets(config.tag)
       const fresh = []
       const breachesByThreshold = new Map()
-      BREACH_THRESHOLDS_HOURS.forEach((threshold) => breachesByThreshold.set(threshold, []))
+      config.breachThresholdsHours.forEach((threshold) => breachesByThreshold.set(threshold, []))
 
       for (const ticket of activeTickets) {
         const summary = buildTicketSummary(ticket, now)
         if (!Number.isFinite(summary.ageHours)) continue
 
-        if (summary.ageHours <= LOOKBACK_HOURS) {
+        if (summary.ageHours <= config.lookbackHours) {
           const key = `backhaul-new-${ticket.id}`
-          if (!warnedNew.has(key)) {
-            warnedNew.add(key)
+          if (await shouldSendAlert(warnedNew, {
+            dedupeKey: key,
+            watcherKey: 'backhaul',
+            alertType: 'new',
+            entityId: ticket.id,
+            payload: { status: summary.status, updatedAt: summary.updated_at }
+          })) {
             fresh.push(summary)
           }
         }
 
-        for (const threshold of BREACH_THRESHOLDS_HOURS) {
+        for (const threshold of config.breachThresholdsHours) {
           if (summary.ageHours >= threshold) {
             const key = `backhaul-breach-${threshold}-${ticket.id}`
-            if (!warnedBreach.has(key)) {
-              warnedBreach.add(key)
+            if (await shouldSendAlert(warnedBreach, {
+              dedupeKey: key,
+              watcherKey: 'backhaul',
+              alertType: `breach_${threshold}h`,
+              entityId: ticket.id,
+              payload: { status: summary.status, updatedAt: summary.updated_at }
+            })) {
               breachesByThreshold.get(threshold).push(summary)
             }
           }
         }
       }
 
-      const newMessage = buildNewAlertMessage(fresh)
+      const newMessage = buildNewAlertMessage(fresh, config.templates)
       if (newMessage) {
         console.log('[BACKHAUL WATCHER] Sending WhatsApp new backhaul alert')
         await sendBackhaul(newMessage)
       }
 
-      for (const threshold of BREACH_THRESHOLDS_HOURS) {
-        const message = buildBreachAlertMessage(breachesByThreshold.get(threshold) || [], threshold)
+      for (const threshold of config.breachThresholdsHours) {
+        const message = buildBreachAlertMessage(breachesByThreshold.get(threshold) || [], threshold, config.templates)
         if (message) {
           console.log(`[BACKHAUL WATCHER] Sending WhatsApp backhaul breach ${threshold}h alert`)
           await sendBackhaul(message)
         }
       }
 
-      const updatedTickets = await fetchRecentlyUpdatedBackhaulTickets()
+      const updatedTickets = await fetchRecentlyUpdatedBackhaulTickets(config.tag, config.resolvedLookbackHours)
       const resolved = []
 
       for (const ticket of updatedTickets) {
@@ -219,23 +259,28 @@ export function startBackhaulWatcher(sendSlaAlert) {
 
         const summary = buildTicketSummary(ticket, now)
         const key = `backhaul-resolved-${ticket.id}-${ticket.status}-${ticket.updated_at}`
-        if (warnedResolved.has(key)) continue
-        warnedResolved.add(key)
+        const shouldSend = await shouldSendAlert(warnedResolved, {
+          dedupeKey: key,
+          watcherKey: 'backhaul',
+          alertType: 'resolved',
+          entityId: ticket.id,
+          payload: { status: summary.status, updatedAt: summary.updated_at }
+        })
+        if (!shouldSend) continue
         resolved.push(summary)
       }
 
-      const resolvedMessage = buildResolvedAlertMessage(resolved)
+      const resolvedMessage = buildResolvedAlertMessage(resolved, config.templates)
       if (resolvedMessage) {
         console.log('[BACKHAUL WATCHER] Sending WhatsApp resolved backhaul alert')
         await sendBackhaul(resolvedMessage)
       }
     } catch (error) {
       console.error('[BACKHAUL WATCHER] Tick error:', error?.message || error)
+    } finally {
+      scheduleNext(run, config.pollMs)
     }
   }
 
-  tick()
-
-  const interval = setInterval(tick, POLL_INTERVAL_MS)
-  interval.unref?.()
+  void run()
 }
