@@ -30,6 +30,15 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import dayjs from 'dayjs'
 import api from '../api'
 import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
+import {
+  AnalyticsChartFallback as ChartFallback,
+  AnalyticsLoadingBlock as LoadingBlock,
+  AnalyticsMetricCard as MetricCard
+} from '../components/ui/AnalyticsPrimitives'
+
+function fmtCount(value) {
+  return new Intl.NumberFormat().format(Number(value || 0))
+}
 
 export default function VolumePage() {
   const [roles, setRoles] = useState([])
@@ -49,25 +58,51 @@ export default function VolumePage() {
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState('')
   const [uploadTone, setUploadTone] = useState('success')
+  const [pageError, setPageError] = useState('')
+  const [actualLoading, setActualLoading] = useState(false)
+  const [forecastLoading, setForecastLoading] = useState(false)
+  const [hourlyLoading, setHourlyLoading] = useState(false)
+  const [buildBusy, setBuildBusy] = useState(false)
 
   const monthChoices = [1, 2, 3, 4, 5, 6, 12, 18, 24, 36]
 
   useEffect(() => {
-    api.get('/agents').then((response) => {
-      const uniqueRoles = [...new Set(response.data.map((agent) => agent.role))]
-      setRoles(uniqueRoles)
-      if (uniqueRoles.length) setTeam(uniqueRoles[0])
-    })
+    api.get('/agents')
+      .then((response) => {
+        const uniqueRoles = [...new Set(response.data.map((agent) => agent.role))]
+        setRoles(uniqueRoles)
+        if (uniqueRoles.length) setTeam(uniqueRoles[0])
+      })
+      .catch((error) => {
+        console.error(error)
+        setPageError('Failed to load team list for the volume workspace.')
+      })
   }, [])
 
   useEffect(() => {
     if (!team) return
-    fetchDailyActual().then(setDailyData).catch(console.error)
+    setActualLoading(true)
+    setPageError('')
+    fetchDailyActual()
+      .then(setDailyData)
+      .catch((error) => {
+        console.error(error)
+        setPageError('Failed to load actual volume for the selected team and date range.')
+      })
+      .finally(() => setActualLoading(false))
   }, [team, startDate, endDate])
 
   useEffect(() => {
     if (!team) return
-    fetchDailyForecast().then(setFcDailyData).catch(console.error)
+    setForecastLoading(true)
+    setPageError('')
+    fetchDailyForecast()
+      .then(setFcDailyData)
+      .catch((error) => {
+        console.error(error)
+        setPageError('Failed to load forecast volume for the selected team and range.')
+      })
+      .finally(() => setForecastLoading(false))
   }, [team, fcStart, fcEnd])
 
   async function fetchDailyActual() {
@@ -113,6 +148,8 @@ export default function VolumePage() {
     if (!entry || !entry.date) return
     const { date } = entry
     setSelectedDate(date)
+    setHourlyLoading(true)
+    setPageError('')
 
     api
       .get('/reports/volume/hourly', { params: { role: team, date } })
@@ -134,7 +171,11 @@ export default function VolumePage() {
         })
         setHourlyData(filled)
       })
-      .catch(console.error)
+      .catch((error) => {
+        console.error(error)
+        setPageError(`Failed to load hourly drill-down for ${date}.`)
+      })
+      .finally(() => setHourlyLoading(false))
   }
 
   function handleUploadActual(file) {
@@ -143,6 +184,7 @@ export default function VolumePage() {
     setUploading(true)
     setUploadMsg('')
     setUploadTone('success')
+    setPageError('')
 
     Papa.parse(file, {
       header: true,
@@ -177,6 +219,8 @@ export default function VolumePage() {
   }
 
   async function buildForecast() {
+    setBuildBusy(true)
+    setPageError('')
     try {
       await api.post('/volume/build-forecast', {
         role: team,
@@ -189,11 +233,20 @@ export default function VolumePage() {
       const newEnd = dayjs().add(horizon, 'month').subtract(1, 'day')
       setFcStart(newStart)
       setFcEnd(newEnd)
-      fetchDailyForecast().then(setFcDailyData)
+
+      setForecastLoading(true)
+      fetchDailyForecast()
+        .then(setFcDailyData)
+        .finally(() => setForecastLoading(false))
+
+      setUploadMsg('Forecast rebuild complete')
+      setUploadTone('success')
     } catch (err) {
       console.error(err)
       setUploadMsg('Failed to build forecast')
       setUploadTone('error')
+    } finally {
+      setBuildBusy(false)
     }
   }
 
@@ -230,6 +283,53 @@ export default function VolumePage() {
     }
   }, [fcDailyData])
 
+  const volumeCards = useMemo(() => {
+    const actualAvgCalls = actualSummary.days ? actualSummary.calls / actualSummary.days : 0
+    const actualAvgTickets = actualSummary.days ? actualSummary.tickets / actualSummary.days : 0
+    const forecastAvgCalls = forecastSummary.days ? forecastSummary.calls / forecastSummary.days : 0
+    const forecastAvgTickets = forecastSummary.days ? forecastSummary.tickets / forecastSummary.days : 0
+    const selectedHourPeak = hourlyData.length
+      ? hourlyData.reduce((best, row) => {
+          const activity = Number(row.actualCalls || 0) + Number(row.actualTickets || 0)
+          if (!best || activity > best.activity) {
+            return { hour: row.hour, activity }
+          }
+          return best
+        }, null)
+      : null
+
+    return [
+      {
+        label: 'Actual Avg / Day',
+        value: `${fmtCount(Math.round(actualAvgCalls))} calls`,
+        subtext: `${fmtCount(Math.round(actualAvgTickets))} tickets per active day.`,
+        tone: '#2563eb'
+      },
+      {
+        label: 'Forecast Avg / Day',
+        value: `${fmtCount(Math.round(forecastAvgCalls))} calls`,
+        subtext: `${fmtCount(Math.round(forecastAvgTickets))} tickets per forecast day.`,
+        tone: '#7c3aed'
+      },
+      {
+        label: 'Drilldown',
+        value: selectedDate ? dayjs(selectedDate).format('DD MMM YYYY') : 'No day selected',
+        subtext: selectedDate && selectedHourPeak
+          ? `Peak hour ${String(selectedHourPeak.hour).padStart(2, '0')}:00 with ${fmtCount(selectedHourPeak.activity)} total touches.`
+          : 'Click a daily bar to open the hourly pattern.',
+        tone: '#d97706'
+      },
+      {
+        label: 'Mode',
+        value: stackAutomation ? 'Automation split' : 'Combined tickets',
+        subtext: stackAutomation
+          ? 'Ticket bars are separated into manual and automation-driven lanes.'
+          : 'Ticket totals are shown as one combined bar series.',
+        tone: '#0f766e'
+      }
+    ]
+  }, [actualSummary, forecastSummary, hourlyData, selectedDate, stackAutomation])
+
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <PageShell
@@ -264,15 +364,39 @@ export default function VolumePage() {
           }
         ]}
       >
+        {pageError ? <Alert severity="error">{pageError}</Alert> : null}
         {uploadMsg ? <Alert severity={uploadTone}>{uploadMsg}</Alert> : null}
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 0.95,
+            gridTemplateColumns: {
+              xs: '1fr',
+              sm: 'repeat(2, minmax(0, 1fr))',
+              xl: 'repeat(4, minmax(0, 1fr))'
+            }
+          }}
+        >
+          {volumeCards.map((card) => (
+            <MetricCard
+              key={card.label}
+              label={card.label}
+              value={card.value}
+              subtext={card.subtext}
+              tone={card.tone}
+            />
+          ))}
+        </Box>
 
         <SectionCard
           title="Controls"
-          subtitle="Switch teams, upload actuals, and run forecast builds from one compact action strip."
+          subtitle="Switch teams, upload actuals, and rebuild the forecast model without leaving the same workspace."
           accent="#0f766e"
         >
           <Stack spacing={1}>
             <FilterStrip>
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>Team Scope</Typography>
               <FormControl sx={{ minWidth: 180 }} size="small">
                 <InputLabel>Team</InputLabel>
                 <Select value={team} label="Team" onChange={(event) => setTeam(event.target.value)}>
@@ -282,10 +406,12 @@ export default function VolumePage() {
                 </Select>
               </FormControl>
               <Chip label={`${roles.length} roles loaded`} variant="outlined" />
+              <Chip label={`Actual ${startDate.format('DD MMM')} to ${endDate.format('DD MMM')}`} sx={{ fontWeight: 700 }} />
+              <Chip label={`Forecast ${fcStart.format('DD MMM')} to ${fcEnd.format('DD MMM')}`} sx={{ fontWeight: 700 }} />
             </FilterStrip>
 
             <FilterStrip>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>Forecasting</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>Forecast Build</Typography>
               <FormControl sx={{ minWidth: 120 }} size="small">
                 <InputLabel>Look-back</InputLabel>
                 <Select value={lookBack} label="Look-back" onChange={(event) => setLookBack(Number(event.target.value))}>
@@ -306,13 +432,17 @@ export default function VolumePage() {
                 control={<Switch checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />}
                 label="Overwrite"
               />
-              <Button variant="contained" onClick={buildForecast}>
-                Build Forecast
+              <Button variant="contained" onClick={buildForecast} disabled={buildBusy || !team}>
+                {buildBusy ? 'Building...' : 'Build Forecast'}
               </Button>
-              <Button variant="outlined" component="label" disabled={uploading}>
+              <Button variant="outlined" component="label" disabled={uploading || !team}>
                 {uploading ? 'Uploading...' : 'Upload Actual CSV'}
                 <input hidden type="file" accept=".csv" onChange={(event) => handleUploadActual(event.target.files?.[0])} />
               </Button>
+              <Chip
+                label={stackAutomation ? 'Automation lanes on' : 'Combined ticket bars'}
+                sx={{ fontWeight: 700, bgcolor: stackAutomation ? '#eef2ff' : '#ecfeff', color: stackAutomation ? '#4338ca' : '#0f766e' }}
+              />
             </FilterStrip>
           </Stack>
         </SectionCard>
@@ -339,39 +469,51 @@ export default function VolumePage() {
                 control={<Switch checked={stackAutomation} onChange={(event) => setStackAutomation(event.target.checked)} />}
                 label="Automation split"
               />
+              <Chip size="small" label={`${fmtCount(dailyData.length)} days`} sx={{ fontWeight: 700 }} />
             </Stack>
           }
         >
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={dailyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="actualCalls" name="Calls" fill="#82ca9d" onClick={onBarClick} />
-              {stackAutomation ? (
-                <>
-                  <Bar dataKey="manualTickets" name="Manual" fill="#ff8042" stackId="tickets" onClick={onBarClick} />
-                  <Bar dataKey="autoDfa" name="Auto DFA" fill="#a4de6c" stackId="tickets" onClick={onBarClick} />
-                  <Bar dataKey="autoMnt" name="Auto MNT" fill="#ffc658" stackId="tickets" onClick={onBarClick} />
-                  <Bar dataKey="autoOutage" name="Auto Outage Linked" fill="#8884d8" stackId="tickets" onClick={onBarClick} />
-                  <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" onClick={onBarClick} />
-                </>
-              ) : (
-                <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick} />
-              )}
-            </BarChart>
-          </ResponsiveContainer>
+          {actualLoading ? (
+            <LoadingBlock message="Loading actual volume..." />
+          ) : dailyData.length ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={dailyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="actualCalls" name="Calls" fill="#82ca9d" onClick={onBarClick} />
+                {stackAutomation ? (
+                  <>
+                    <Bar dataKey="manualTickets" name="Manual" fill="#ff8042" stackId="tickets" onClick={onBarClick} />
+                    <Bar dataKey="autoDfa" name="Auto DFA" fill="#a4de6c" stackId="tickets" onClick={onBarClick} />
+                    <Bar dataKey="autoMnt" name="Auto MNT" fill="#ffc658" stackId="tickets" onClick={onBarClick} />
+                    <Bar dataKey="autoOutage" name="Auto Outage Linked" fill="#8884d8" stackId="tickets" onClick={onBarClick} />
+                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="tickets" onClick={onBarClick} />
+                  </>
+                ) : (
+                  <Bar dataKey="actualTickets" name="Tickets" fill="#ff8042" onClick={onBarClick} />
+                )}
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <ChartFallback message="No actual volume rows are available for the current team and date range." />
+          )}
         </SectionCard>
 
-        {selectedDate ? (
-          <SectionCard
-            title={`Hourly Actual for ${dayjs(selectedDate).format('YYYY-MM-DD')}`}
-            subtitle="Drill-down from the daily chart to see where the day peaked by hour."
-            accent="#d97706"
-          >
-            <ResponsiveContainer width="100%" height={260}>
+        <SectionCard
+          title={selectedDate ? `Hourly Actual for ${dayjs(selectedDate).format('YYYY-MM-DD')}` : 'Hourly Drill-Down'}
+          subtitle={selectedDate ? 'Drill-down from the daily chart to see where the day peaked by hour.' : 'Select a daily bar above to reveal the hourly pattern and compare the ticket mix.'}
+          accent="#d97706"
+        >
+          {hourlyLoading ? (
+            <LoadingBlock message="Loading hourly drill-down..." />
+          ) : selectedDate ? (
+            <ResponsiveContainer
+              width="100%"
+              height={260}
+            >
               <BarChart
                 data={hourlyData}
                 margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
@@ -402,10 +544,12 @@ export default function VolumePage() {
                 )}
               </BarChart>
             </ResponsiveContainer>
-          </SectionCard>
-        ) : null}
+          ) : (
+            <ChartFallback message="Pick a day from the actual volume chart to inspect the hourly curve." />
+          )}
+        </SectionCard>
 
-        {fcDailyData.length ? (
+        {(fcDailyData.length || forecastLoading) ? (
           <SectionCard
             title="Daily Forecast Volume"
             subtitle="Forecasted call and ticket movement for the selected forward-looking range."
@@ -424,30 +568,37 @@ export default function VolumePage() {
                   onChange={(value) => value && setFcEnd(value)}
                   renderInput={(params) => <TextField {...params} size="small" />}
                 />
+                <Chip size="small" label={`${fmtCount(fcDailyData.length)} forecast days`} sx={{ fontWeight: 700 }} />
               </Stack>
             }
           >
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={fcDailyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="forecastCalls" name="Forecast Calls" fill="#82ca9d" />
-                {stackAutomation ? (
-                  <>
-                    <Bar dataKey="manualTickets" name="Manual" fill="#ff8042" stackId="forecast" />
-                    <Bar dataKey="autoDfa" name="Auto DFA" fill="#a4de6c" stackId="forecast" />
-                    <Bar dataKey="autoMnt" name="Auto MNT" fill="#ffc658" stackId="forecast" />
-                    <Bar dataKey="autoOutage" name="Auto Outage Linked" fill="#8884d8" stackId="forecast" />
-                    <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="forecast" />
-                  </>
-                ) : (
-                  <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ff8042" />
-                )}
-              </BarChart>
-            </ResponsiveContainer>
+            {forecastLoading ? (
+              <LoadingBlock message="Loading forecast volume..." />
+            ) : fcDailyData.length ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={fcDailyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="forecastCalls" name="Forecast Calls" fill="#82ca9d" />
+                  {stackAutomation ? (
+                    <>
+                      <Bar dataKey="manualTickets" name="Manual" fill="#ff8042" stackId="forecast" />
+                      <Bar dataKey="autoDfa" name="Auto DFA" fill="#a4de6c" stackId="forecast" />
+                      <Bar dataKey="autoMnt" name="Auto MNT" fill="#ffc658" stackId="forecast" />
+                      <Bar dataKey="autoOutage" name="Auto Outage Linked" fill="#8884d8" stackId="forecast" />
+                      <Bar dataKey="autoMntSolved" name="Auto MNT Solved" fill="#d0ed57" stackId="forecast" />
+                    </>
+                  ) : (
+                    <Bar dataKey="forecastTickets" name="Forecast Tickets" fill="#ff8042" />
+                  )}
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ChartFallback message="No forecast rows are available for the selected forward-looking range." />
+            )}
           </SectionCard>
         ) : null}
       </PageShell>
