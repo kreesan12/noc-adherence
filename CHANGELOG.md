@@ -120,6 +120,15 @@
 - Reworked older overtime pages to use the shared overtime API helpers instead of stale direct endpoint strings.
 - Fixed the signature page to use the current authenticated user context and the live `/api/overtime/signature/me` endpoint instead of the legacy browser-side shortcut logic.
 
+### Navigation And Access Refresh
+
+- Added a new workspace landing dashboard at `/` so users now land on a central launcher instead of dropping directly into one feature area.
+- Moved the Adherence page onto its own route:
+  - `/adherence`
+- Added collapsible hide/show behavior for the left navigation so users can reclaim horizontal space on data-heavy screens.
+- Centralized frontend access helpers so admin access now inherits engineering-capable UI actions consistently.
+- Refreshed `NLD Mapping` onto the shared shell and aligned its edit behavior with backend engineering/admin permissions.
+
 ### ROC And MNT Retirement
 
 - Removed the legacy ROC/MNT appointments frontend section from the main navigation.

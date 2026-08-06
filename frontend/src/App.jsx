@@ -1,11 +1,9 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import {
-  Badge,
   Box,
   Chip,
   Collapse,
   CssBaseline,
-  Divider,
   Drawer,
   List,
   ListItemButton,
@@ -14,41 +12,26 @@ import {
   ThemeProvider,
   CircularProgress,
   Typography,
-  styled
+  IconButton,
+  Tooltip
 } from '@mui/material'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-
-import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
-import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
-import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
-import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
-import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
-import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded'
-import EventBusyRoundedIcon from '@mui/icons-material/EventBusyRounded'
-import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded'
-import LanRoundedIcon from '@mui/icons-material/LanRounded'
-import MapRoundedIcon from '@mui/icons-material/MapRounded'
-import AvTimerRoundedIcon from '@mui/icons-material/AvTimerRounded'
-import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded'
-import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
-import GroupWorkRoundedIcon from '@mui/icons-material/GroupWorkRounded'
-import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded'
-
+import KeyboardDoubleArrowLeftRoundedIcon from '@mui/icons-material/KeyboardDoubleArrowLeftRounded'
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded'
 import theme from './theme'
 import AppFrame from './components/AppFrame'
-
 import './lib/dayjs.js'
 import { listVacancies } from './api/workforce'
-
 import LoginPage from './pages/LoginPage'
-
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserStatus from './components/UserStatus'
+import { buildNavigationSections, sectionHasActive, isActivePath } from './config/navigation.jsx'
 
 const RosterUpload = lazy(() => import('./components/RosterUpload'))
+const LandingDashboardPage = lazy(() => import('./pages/LandingDashboardPage'))
 const AdherencePage = lazy(() => import('./pages/AdherencePage'))
 const SchedulePage = lazy(() => import('./pages/SchedulePage'))
 const VolumePage = lazy(() => import('./pages/VolumePage'))
@@ -72,119 +55,37 @@ const SlaReportingPage = lazy(() => import('./pages/SlaReportingPage'))
 const StockManagementPage = lazy(() => import('./pages/StockManagementPage'))
 
 const DRAWER_WIDTH = 236
+const NAV_STORAGE_KEY = 'noc-nav-open'
+const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/'
 
-const StyledDrawer = styled(Drawer)(() => ({
-  '& .MuiDrawer-paper': {
-    width: DRAWER_WIDTH,
-    borderRight: 'none',
-    color: '#e2e8f0',
-    background: [
-      'radial-gradient(circle at top left, rgba(45, 212, 191, 0.26) 0%, transparent 28%)',
-      'linear-gradient(180deg, #0f5f61 0%, #11485a 40%, #16233f 100%)'
-    ].join(','),
-    boxShadow: '22px 0 42px rgba(15, 23, 42, 0.22)'
-  }
-}))
-
-function isActive(pathname, itemPath) {
-  if (itemPath === '/') return pathname === '/'
-  return pathname.startsWith(itemPath)
+function RouteFallback() {
+  return (
+    <Box
+      sx={{
+        minHeight: '40vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      <CircularProgress size={26} />
+    </Box>
+  )
 }
 
-function sectionHasActive(pathname, section) {
-  return section.items.some((item) => isActive(pathname, item.path))
+function loadable(element) {
+  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
 }
 
-function buildSections(user, vacancyCount) {
-  return [
-    {
-      title: 'DAILY OPERATIONS',
-      icon: <DashboardRoundedIcon fontSize="small" />,
-      items: [
-        { label: 'Adherence Tracking', path: '/', icon: <DashboardRoundedIcon fontSize="small" /> },
-        { label: 'Weekly Schedule', path: '/schedule', icon: <CalendarMonthRoundedIcon fontSize="small" /> },
-        { label: 'Leave Planner', path: '/leave-planner', icon: <EventBusyRoundedIcon fontSize="small" /> }
-      ]
-    },
-    {
-      title: 'STAFFING AND SCHEDULING',
-      icon: <GroupWorkRoundedIcon fontSize="small" />,
-      items: [
-        { label: 'Volumes and Forecasting', path: '/volume', icon: <QueryStatsRoundedIcon fontSize="small" /> },
-        { label: 'Staffing and Scheduling', path: '/staffing', icon: <ManageAccountsRoundedIcon fontSize="small" /> },
-        { label: 'Shift Manager', path: '/shifts', icon: <ManageAccountsRoundedIcon fontSize="small" /> }
-      ]
-    },
-    {
-      title: 'SETTINGS',
-      icon: <SettingsSuggestRoundedIcon fontSize="small" />,
-      items: [
-        ...(user?.role === 'admin'
-          ? [{ label: 'User Admin', path: '/settings/users', icon: <ManageAccountsRoundedIcon fontSize="small" /> }]
-          : []),
-        {
-          label: 'Workforce',
-          path: '/workforce',
-          icon: (
-            <Badge badgeContent={vacancyCount} color="secondary">
-              <PeopleRoundedIcon fontSize="small" />
-            </Badge>
-          )
-        },
-        { label: 'Admin', path: '/agents', icon: <AdminPanelSettingsRoundedIcon fontSize="small" /> },
-        { label: 'Upload Roster', path: '/roster', icon: <UploadFileRoundedIcon fontSize="small" /> },
-        { label: 'Overtime Capturing', path: '/overtime/capture', icon: <LanRoundedIcon fontSize="small" /> },
-        { label: 'Overtime Supervisor', path: '/overtime/supervisor', icon: <LanRoundedIcon fontSize="small" /> },
-        { label: 'Overtime Manager', path: '/overtime/manager', icon: <LanRoundedIcon fontSize="small" /> },
-        { label: 'Signatures', path: '/settings/signature', icon: <LanRoundedIcon fontSize="small" /> }
-      ]
-    },
-    {
-      title: 'ENGINEERING',
-      icon: <LanRoundedIcon fontSize="small" />,
-      items: [
-        { label: 'NLD Light Levels', path: '/engineering/nlds', icon: <LanRoundedIcon fontSize="small" /> },
-        { label: 'NLD Uptime', path: '/nld-uptime', icon: <AvTimerRoundedIcon fontSize="small" /> },
-        { label: 'NLD Mapping', path: '/nld-mapping', icon: <MapRoundedIcon fontSize="small" /> },
-        { label: 'NLD Map', path: '/nld-map', icon: <MapRoundedIcon fontSize="small" /> },
-        { label: 'NLD Admin', path: '/nld-admin', icon: <AdminPanelSettingsRoundedIcon fontSize="small" /> },
-        { label: 'NLD Services', path: '/engineering/nld-services', icon: <AdminPanelSettingsRoundedIcon fontSize="small" /> }
-      ]
-    },
-    {
-      title: 'SLA REPORTING',
-      icon: <InsightsRoundedIcon fontSize="small" />,
-      items: [
-        { label: 'ISP SLA Dashboard', path: '/sla-reporting', icon: <InsightsRoundedIcon fontSize="small" /> }
-      ]
-    },
-    {
-      title: 'STOCK MANAGEMENT',
-      icon: <Inventory2RoundedIcon fontSize="small" />,
-      items: [
-        { label: 'Stock Master', path: '/stock-management', icon: <Inventory2RoundedIcon fontSize="small" /> }
-      ]
-    }
-  ]
-}
-
-function SideNav() {
+function SideNav({ open, onToggle, vacancyCount }) {
   const { user } = useAuth()
   const location = useLocation()
 
-  if (!user || location.pathname === '/login') {
+  if (!user || location.pathname === '/login' || !open) {
     return null
   }
 
-  const [vacancyCount, setVacancyCount] = useState(0)
-
-  useEffect(() => {
-    listVacancies(true)
-      .then((res) => setVacancyCount(res.data.length))
-      .catch(() => {})
-  }, [])
-
-  const sections = useMemo(() => buildSections(user, vacancyCount), [user, vacancyCount])
+  const sections = useMemo(() => buildNavigationSections(user, vacancyCount), [user, vacancyCount])
   const [openState, setOpenState] = useState(() =>
     Object.fromEntries(sections.map((section) => [section.title, sectionHasActive(location.pathname, section)]))
   )
@@ -201,7 +102,21 @@ function SideNav() {
   }, [location.pathname, sections])
 
   return (
-    <StyledDrawer variant="permanent">
+    <Drawer
+      variant="permanent"
+      sx={{
+        '& .MuiDrawer-paper': {
+          width: DRAWER_WIDTH,
+          borderRight: 'none',
+          color: '#e2e8f0',
+          background: [
+            'radial-gradient(circle at top left, rgba(45, 212, 191, 0.26) 0%, transparent 28%)',
+            'linear-gradient(180deg, #0f5f61 0%, #11485a 40%, #16233f 100%)'
+          ].join(','),
+          boxShadow: '22px 0 42px rgba(15, 23, 42, 0.22)'
+        }
+      }}
+    >
       <Box sx={{ px: 1.1, pt: 1.15, pb: 1, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
         <Box
           sx={{
@@ -213,7 +128,14 @@ function SideNav() {
             backdropFilter: 'blur(12px)'
           }}
         >
-          <StackedBrand />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'flex-start' }}>
+            <StackedBrand />
+            <Tooltip title="Hide navigation">
+              <IconButton size="small" onClick={onToggle} sx={{ color: '#e2e8f0' }}>
+                <KeyboardDoubleArrowLeftRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
           <Box sx={{ mt: 0.9 }}>
             <UserStatus inDrawer />
           </Box>
@@ -244,12 +166,7 @@ function SideNav() {
                     '&:hover': { backgroundColor: 'rgba(255,255,255,0.05)' }
                   }}
                 >
-                  <ListItemIcon
-                    sx={{
-                      minWidth: 28,
-                      color: '#dbeafe'
-                    }}
-                  >
+                  <ListItemIcon sx={{ minWidth: 28, color: '#dbeafe' }}>
                     {section.icon}
                   </ListItemIcon>
                   <ListItemText
@@ -276,7 +193,7 @@ function SideNav() {
                 <Collapse in={expanded} timeout="auto" unmountOnExit>
                   <List disablePadding sx={{ px: 0.8, pb: 0.8, display: 'grid', gap: 0.4 }}>
                     {section.items.map((item) => {
-                      const active = isActive(location.pathname, item.path)
+                      const active = isActivePath(location.pathname, item.path)
                       return (
                         <ListItemButton
                           key={item.label}
@@ -296,21 +213,22 @@ function SideNav() {
                             }
                           }}
                         >
-                          <ListItemIcon
-                            sx={{
-                              minWidth: 24,
-                              color: active ? '#ffffff' : '#cbd5e1'
-                            }}
-                          >
+                          <ListItemIcon sx={{ minWidth: 24, color: active ? '#ffffff' : '#cbd5e1' }}>
                             {item.icon}
                           </ListItemIcon>
                           <ListItemText
                             primary={item.label}
+                            secondary={item.summary}
                             primaryTypographyProps={{
                               fontSize: 11.6,
                               fontWeight: active ? 800 : 600,
                               color: '#f8fafc',
                               lineHeight: 1.2
+                            }}
+                            secondaryTypographyProps={{
+                              fontSize: 10.2,
+                              color: 'rgba(226,232,240,0.72)',
+                              lineHeight: 1.25
                             }}
                           />
                         </ListItemButton>
@@ -323,17 +241,17 @@ function SideNav() {
           })}
         </List>
       </Box>
-    </StyledDrawer>
+    </Drawer>
   )
 }
 
 function StackedBrand() {
   return (
     <Box sx={{ display: 'grid', gap: 0.55 }}>
-      <StackRow>
+      <Box sx={{ display: 'flex', gap: 0.6, flexWrap: 'wrap', alignItems: 'center' }}>
         <Chip size="small" label="FROGFOOT NOC" color="primary" sx={{ bgcolor: 'rgba(45,212,191,0.18)', color: '#ccfbf1' }} />
         <Chip size="small" label="xneelo live" sx={{ bgcolor: 'rgba(59,130,246,0.18)', color: '#dbeafe' }} />
-      </StackRow>
+      </Box>
       <Typography sx={{ fontSize: 18, fontWeight: 800, lineHeight: 1.05, color: '#f8fafc', letterSpacing: -0.4 }}>
         NOC Adherence Portal
       </Typography>
@@ -344,38 +262,97 @@ function StackedBrand() {
   )
 }
 
-function StackRow({ children }) {
-  return (
-    <Box sx={{ display: 'flex', gap: 0.6, flexWrap: 'wrap', alignItems: 'center' }}>
-      {children}
-    </Box>
-  )
-}
-
 function FloatingTechUserStatus() {
   return null
 }
 
-function RouteFallback() {
+function ShellLayout() {
+  const { user } = useAuth()
+  const location = useLocation()
+  const isLogin = location.pathname === '/login'
+  const [navOpen, setNavOpen] = useState(() => localStorage.getItem(NAV_STORAGE_KEY) !== '0')
+  const [vacancyCount, setVacancyCount] = useState(0)
+
+  useEffect(() => {
+    localStorage.setItem(NAV_STORAGE_KEY, navOpen ? '1' : '0')
+  }, [navOpen])
+
+  useEffect(() => {
+    if (!user || isLogin) return
+    listVacancies(true)
+      .then((res) => setVacancyCount(res.data.length))
+      .catch(() => {})
+  }, [user, isLogin])
+
+  const drawerWidth = !isLogin && navOpen ? DRAWER_WIDTH : 0
+
   return (
-    <Box
-      sx={{
-        minHeight: '40vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}
-    >
-      <CircularProgress size={26} />
-    </Box>
+    <>
+      <SideNav open={navOpen} onToggle={() => setNavOpen(false)} vacancyCount={vacancyCount} />
+
+      {!isLogin && !navOpen ? (
+        <Tooltip title="Show navigation">
+          <IconButton
+            onClick={() => setNavOpen(true)}
+            sx={{
+              position: 'fixed',
+              top: 14,
+              left: 14,
+              zIndex: 2200,
+              bgcolor: 'rgba(15, 23, 42, 0.86)',
+              color: '#f8fafc',
+              border: '1px solid rgba(255,255,255,0.14)',
+              boxShadow: '0 14px 34px rgba(15, 23, 42, 0.22)',
+              '&:hover': {
+                bgcolor: 'rgba(15, 23, 42, 0.96)'
+              }
+            }}
+          >
+            <MenuRoundedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      ) : null}
+
+      <AppFrame drawerWidth={drawerWidth}>
+        <FloatingTechUserStatus />
+
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={loadable(<LandingDashboardPage vacancyCount={vacancyCount} />)} />
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            <Route path="/adherence" element={loadable(<AdherencePage />)} />
+            <Route path="/schedule" element={loadable(<SchedulePage />)} />
+            <Route path="/volume" element={loadable(<VolumePage />)} />
+            <Route path="/roster" element={loadable(<RosterUpload />)} />
+            <Route path="/agents" element={loadable(<AgentsPage />)} />
+            <Route path="/staffing" element={loadable(<StaffingPage />)} />
+            <Route path="/shifts" element={loadable(<ShiftManager />)} />
+            <Route path="/leave-planner" element={loadable(<LeavePlannerPage />)} />
+            <Route path="/workforce" element={loadable(<WorkforcePage />)} />
+            <Route path="/managers" element={<Navigate to="/settings/users" replace />} />
+            <Route path="/settings/users" element={loadable(<UserAdminPage />)} />
+            <Route path="/engineering/nlds" element={loadable(<NldLightLevelsPage />)} />
+            <Route path="/nld-mapping" element={loadable(<NldMappingPage />)} />
+            <Route path="/nld-map" element={loadable(<NldMapPage />)} />
+            <Route path="/nld-uptime" element={loadable(<NldUptimePage />)} />
+            <Route path="/nld-admin" element={loadable(<CircuitEditorPage />)} />
+            <Route path="/engineering/nld-services" element={loadable(<NldServicesPage />)} />
+            <Route path="/sla-reporting" element={loadable(<SlaReportingPage />)} />
+            <Route path="/stock-management" element={loadable(<StockManagementPage />)} />
+            <Route path="/overtime/capture" element={loadable(<OvertimeCapturePage />)} />
+            <Route path="/overtime/supervisor" element={loadable(<OvertimeSupervisorPage />)} />
+            <Route path="/overtime/manager" element={loadable(<OvertimeManagerPage />)} />
+            <Route path="/settings/signature" element={loadable(<SignaturePage />)} />
+          </Route>
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppFrame>
+    </>
   )
 }
-
-function loadable(element) {
-  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
-}
-
-const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/'
 
 export default function App() {
   return (
@@ -383,44 +360,10 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <BrowserRouter basename={routerBasename}>
-          <SideNav />
-          <AppFrame drawerWidth={DRAWER_WIDTH}>
-            <FloatingTechUserStatus />
-
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-
-              <Route element={<ProtectedRoute />}>
-                <Route path="/" element={loadable(<AdherencePage />)} />
-                <Route path="/schedule" element={loadable(<SchedulePage />)} />
-                <Route path="/volume" element={loadable(<VolumePage />)} />
-                <Route path="/roster" element={loadable(<RosterUpload />)} />
-                <Route path="/agents" element={loadable(<AgentsPage />)} />
-                <Route path="/staffing" element={loadable(<StaffingPage />)} />
-                <Route path="/shifts" element={loadable(<ShiftManager />)} />
-                <Route path="/leave-planner" element={loadable(<LeavePlannerPage />)} />
-                <Route path="/workforce" element={loadable(<WorkforcePage />)} />
-                <Route path="/managers" element={<Navigate to="/settings/users" replace />} />
-                <Route path="/settings/users" element={loadable(<UserAdminPage />)} />
-                <Route path="/engineering/nlds" element={loadable(<NldLightLevelsPage />)} />
-                <Route path="/nld-mapping" element={loadable(<NldMappingPage />)} />
-                <Route path="/nld-map" element={loadable(<NldMapPage />)} />
-                <Route path="/nld-uptime" element={loadable(<NldUptimePage />)} />
-                <Route path="/nld-admin" element={loadable(<CircuitEditorPage />)} />
-                <Route path="/engineering/nld-services" element={loadable(<NldServicesPage />)} />
-                <Route path="/sla-reporting" element={loadable(<SlaReportingPage />)} />
-                <Route path="/stock-management" element={loadable(<StockManagementPage />)} />
-                <Route path="/overtime/capture" element={loadable(<OvertimeCapturePage />)} />
-                <Route path="/overtime/supervisor" element={loadable(<OvertimeSupervisorPage />)} />
-                <Route path="/overtime/manager" element={loadable(<OvertimeManagerPage />)} />
-                <Route path="/settings/signature" element={loadable(<SignaturePage />)} />
-              </Route>
-
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </AppFrame>
+          <ShellLayout />
         </BrowserRouter>
       </ThemeProvider>
     </AuthProvider>
   )
 }
+

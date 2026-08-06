@@ -19,6 +19,7 @@ import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import * as XLSX from 'xlsx'
 import { useAuth } from '../context/AuthContext'
+import { canAccessEngineering } from '../utils/access'
 import api from '../api'
 
 /* ── tiny, dependency-free sparkline ───────────────────── */
@@ -136,8 +137,7 @@ function orderCircuitsChain(list) {
 
 export default function NldLightLevelsPage () {
   const { user } = useAuth()
-  const role = String(user?.role || '').toLowerCase()
-  const canEditLevels = role === 'engineering' || role === 'admin' || role === 'manager'
+  const canEditLevels = canAccessEngineering(user?.role)
 
   /* ── state ─────────────────────────────────────────── */
   const [rows, setRows] = useState([])
@@ -953,3 +953,6 @@ export default function NldLightLevelsPage () {
     </Box>
   )
 }
+
+
+
