@@ -147,6 +147,11 @@ function scheduleNext(run, delayMs) {
   nextTimer.unref?.()
 }
 
+function describeGroups(groupIds) {
+  if (!Array.isArray(groupIds) || !groupIds.length) return 'default group'
+  return `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} | ${groupIds.join(', ')}`
+}
+
 export function startBackhaulWatcher(sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[BACKHAUL WATCHER] Not starting - Zendesk config missing')
@@ -156,7 +161,7 @@ export function startBackhaulWatcher(sendSlaAlert) {
   watcherStarted = true
 
   void getWhatsappWatcherConfig().then(({ backhaul }) => {
-    const groupLabel = backhaul.groupId ? `override ${backhaul.groupId}` : 'default group'
+    const groupLabel = describeGroups(backhaul.groupIds)
     console.log(
       `[BACKHAUL WATCHER] Starting - poll ${Math.round(backhaul.pollMs / 1000)}s, lookback ${backhaul.lookbackHours}h, resolved lookback ${backhaul.resolvedLookbackHours}h, group ${groupLabel}`
     )
@@ -191,7 +196,7 @@ export function startBackhaulWatcher(sendSlaAlert) {
 
     const sendBackhaul = async (message) => {
       try {
-        await sendSlaAlert(message, config.groupId ? { groupId: config.groupId } : {})
+        await sendSlaAlert(message, config.groupIds?.length ? { groupIds: config.groupIds } : {})
       } catch (error) {
         console.error('[BACKHAUL WATCHER] send failed:', error?.message || error)
       }

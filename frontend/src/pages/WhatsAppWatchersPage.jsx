@@ -33,6 +33,7 @@ import {
   getWhatsAppWatcherHistory,
   saveWhatsAppWatcherConfig
 } from '../api/whatsappWatchers'
+import { getWhatsAppGroups } from '../api/whatsappGroups'
 import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 import { AnalyticsMetricCard as MetricCard } from '../components/ui/AnalyticsPrimitives'
 
@@ -80,6 +81,26 @@ function compactPayload(payload) {
     .slice(0, 4)
     .map(([key, value]) => `${key}: ${String(value)}`)
   return entries.length ? entries.join(' | ') : 'No payload'
+}
+
+function parseGroupIdsInput(value) {
+  return [...new Set(
+    String(value || '')
+      .split(/[\n,;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )].slice(0, 25)
+}
+
+function getGroupIds(section) {
+  if (!section || typeof section !== 'object') return []
+  const raw = Array.isArray(section.groupIds)
+    ? section.groupIds
+    : section.groupId
+      ? [section.groupId]
+      : []
+
+  return [...new Set(raw.map((item) => String(item || '').trim()).filter(Boolean))]
 }
 
 function SectionFieldGrid({ children }) {
@@ -140,10 +161,27 @@ export default function WhatsAppWatchersPage() {
   const [draft, setDraft] = useState(null)
   const [historyRows, setHistoryRows] = useState([])
   const [historyFilter, setHistoryFilter] = useState('')
+  const [groupRows, setGroupRows] = useState([])
+  const [groupSearch, setGroupSearch] = useState('')
+  const [groupLoading, setGroupLoading] = useState(false)
   const [thresholdText, setThresholdText] = useState({
     nld: '',
     backhaul: ''
   })
+  const groupLookup = useMemo(
+    () => new Map(groupRows.map((row) => [row.jid, row])),
+    [groupRows]
+  )
+
+  async function copyText(value, successMessage) {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setNotice(successMessage)
+    } catch {
+      setError('Clipboard copy failed on this browser')
+    }
+  }
 
   async function loadHistory(filter = historyFilter) {
     try {
@@ -154,6 +192,18 @@ export default function WhatsAppWatchersPage() {
       setHistoryRows(data.rows || [])
     } catch (err) {
       setError(extractError(err, 'Failed to load watcher alert history'))
+    }
+  }
+
+  async function loadGroups(search = groupSearch) {
+    setGroupLoading(true)
+    try {
+      const { data } = await getWhatsAppGroups({ q: search, limit: 150 })
+      setGroupRows(data.rows || [])
+    } catch (err) {
+      setError(extractError(err, 'Failed to load WhatsApp groups'))
+    } finally {
+      setGroupLoading(false)
     }
   }
 
@@ -172,6 +222,7 @@ export default function WhatsAppWatchersPage() {
         backhaul: thresholdsToText(data.config?.backhaul?.breachThresholdsHours)
       })
       await loadHistory(historyFilter)
+      await loadGroups(groupSearch)
     } catch (err) {
       setError(extractError(err, 'Failed to load WhatsApp watcher settings'))
     } finally {
@@ -187,6 +238,11 @@ export default function WhatsAppWatchersPage() {
     if (!isAdmin) return
     loadHistory(historyFilter)
   }, [historyFilter, isAdmin])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    loadGroups(groupSearch)
+  }, [groupSearch, isAdmin])
 
   function setSection(section, updater) {
     setDraft((current) => ({
@@ -250,6 +306,32 @@ export default function WhatsAppWatchersPage() {
     }))
   }
 
+  function setWatcherGroupIds(section, nextGroupIds) {
+    setSection(section, (current) => ({
+      ...current,
+      groupIds: [...new Set((nextGroupIds || []).map((item) => String(item || '').trim()).filter(Boolean))]
+    }))
+  }
+
+  function applyGroupToWatcher(section, jid) {
+    setSection(section, (current) => ({
+      ...current,
+      groupIds: [...new Set([...getGroupIds(current), jid])]
+    }))
+    setNotice(`${section.toUpperCase()} watcher group added in the editor. Save All to apply it live.`)
+  }
+
+  function removeGroupFromWatcher(section, jid) {
+    setSection(section, (current) => ({
+      ...current,
+      groupIds: getGroupIds(current).filter((item) => item !== jid)
+    }))
+  }
+
+  function updateWatcherGroupText(section, value) {
+    setWatcherGroupIds(section, parseGroupIdsInput(value))
+  }
+
   async function saveAll() {
     if (!draft || !defaults) return
     setSaving(true)
@@ -286,7 +368,7 @@ export default function WhatsAppWatchersPage() {
     }
 
     const enabledCount = [draft.nld, draft.backhaul, draft.vip].filter((section) => section?.enabled).length
-    const groupOverrides = [draft.nld, draft.backhaul, draft.vip].filter((section) => String(section?.groupId || '').trim()).length
+    const groupOverrides = [draft.nld, draft.backhaul, draft.vip].filter((section) => getGroupIds(section).length).length
     const vipRules = draft.vip?.tagRules?.length || 0
 
     return { enabledCount, groupOverrides, vipRules }
@@ -313,7 +395,7 @@ export default function WhatsAppWatchersPage() {
       accent="#0f766e"
       stats={[
         { label: 'Enabled Watchers', value: summary.enabledCount, helper: 'NLD, backhaul, and VIP lanes' },
-        { label: 'Group Overrides', value: summary.groupOverrides, helper: 'watchers with a direct group JID' },
+        { label: 'Group Overrides', value: summary.groupOverrides, helper: 'watchers with custom target groups' },
         { label: 'VIP Tag Rules', value: summary.vipRules, helper: 'extra VIP alert rule lanes' },
         { label: 'Poll Control', value: draft ? 'Live' : 'Waiting', helper: 'changes apply on next poll' }
       ]}
@@ -375,15 +457,86 @@ export default function WhatsAppWatchersPage() {
 
       <SectionCard
         title="How This Works"
-        subtitle="This page controls the live automation behavior. Group IDs are optional overrides, and message template fields currently steer the alert title, reason, and action language."
+        subtitle="This page controls the live automation behavior. Group routing can target multiple WhatsApp groups per watcher, and the template fields steer the alert title, reason, and action language."
         accent="#0f766e"
       >
         <FilterStrip>
           <Chip label="Admin only" color="warning" variant="outlined" />
           <Chip label="No watcher restart needed" color="success" variant="outlined" />
-          <Chip label="Paste exact WhatsApp group JID for overrides" color="info" variant="outlined" />
+          <Chip label="Use the live group directory to discover group JIDs" color="info" variant="outlined" />
+          <Chip label="One watcher can now send to multiple groups" color="secondary" variant="outlined" />
           <Chip label="Use comma-separated hours for breach tiers" color="secondary" variant="outlined" />
         </FilterStrip>
+      </SectionCard>
+
+      <SectionCard
+        title="WhatsApp Group Directory"
+        subtitle="Live groups are synced from the automation WhatsApp session into the database so admins can search by name and use the right JID without guessing."
+        accent="#0f766e"
+        actions={(
+          <FilterStrip>
+            <TextField
+              size="small"
+              label="Search groups"
+              value={groupSearch}
+              onChange={(event) => setGroupSearch(event.target.value)}
+              sx={{ minWidth: 220 }}
+            />
+            <Button size="small" variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => loadGroups(groupSearch)} disabled={groupLoading}>
+              Refresh groups
+            </Button>
+          </FilterStrip>
+        )}
+      >
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 800 }}>Group Name</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>JID</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Participants</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Last Seen</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {groupRows.length ? groupRows.map((row) => (
+                <TableRow key={row.jid} hover>
+                  <TableCell sx={{ minWidth: 260 }}>
+                    <Typography variant="body2" fontWeight={700}>{row.name || 'Unnamed group'}</Typography>
+                  </TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>{row.jid}</TableCell>
+                  <TableCell>{row.participantCount}</TableCell>
+                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(row.lastSeenAt)}</TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                      <Button size="small" variant="outlined" onClick={() => copyText(row.jid, `Copied ${row.name || row.jid}`)}>
+                        Copy JID
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => applyGroupToWatcher('nld', row.jid)}>
+                        Add to NLD
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => applyGroupToWatcher('backhaul', row.jid)}>
+                        Add to Backhaul
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => applyGroupToWatcher('vip', row.jid)}>
+                        Add to VIP
+                      </Button>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              )) : (
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <Typography variant="body2" color="text.secondary">
+                      {groupLoading ? 'Loading groups...' : 'No WhatsApp groups are synced yet. Once the automation session sync runs, they will appear here.'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </Box>
       </SectionCard>
 
       <SectionCard
@@ -475,10 +628,14 @@ export default function WhatsAppWatchersPage() {
               <SectionFieldGrid>
                 <TextField
                   size="small"
-                  label="Group JID override"
-                  value={draft.nld.groupId}
-                  onChange={(event) => setSectionField('nld', 'groupId', event.target.value)}
-                  helperText="Leave blank to use the default WhatsApp group."
+                  label="Target WhatsApp groups"
+                  value={getGroupIds(draft.nld).join('\n')}
+                  onChange={(event) => updateWatcherGroupText('nld', event.target.value)}
+                  helperText="One JID per line. Leave blank to use the default WhatsApp group."
+                  multiline
+                  minRows={2}
+                  maxRows={4}
+                  sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
                 />
                 <TextField
                   size="small"
@@ -537,6 +694,21 @@ export default function WhatsAppWatchersPage() {
                   onChange={(event) => setSectionField('nld', 'resolvedLookbackHours', toWholeNumber(event.target.value, 24))}
                 />
               </SectionFieldGrid>
+
+              {getGroupIds(draft.nld).length ? (
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                  {getGroupIds(draft.nld).map((jid) => (
+                    <Chip
+                      key={jid}
+                      size="small"
+                      label={groupLookup.get(jid)?.name ? `${groupLookup.get(jid).name} · ${jid}` : jid}
+                      onDelete={() => removeGroupFromWatcher('nld', jid)}
+                      variant="outlined"
+                      color="info"
+                    />
+                  ))}
+                </Stack>
+              ) : null}
 
               <TemplateGrid>
                 <TextField
@@ -621,9 +793,14 @@ export default function WhatsAppWatchersPage() {
                 />
                 <TextField
                   size="small"
-                  label="Group JID override"
-                  value={draft.backhaul.groupId}
-                  onChange={(event) => setSectionField('backhaul', 'groupId', event.target.value)}
+                  label="Target WhatsApp groups"
+                  value={getGroupIds(draft.backhaul).join('\n')}
+                  onChange={(event) => updateWatcherGroupText('backhaul', event.target.value)}
+                  helperText="One JID per line. Leave blank to use the default WhatsApp group."
+                  multiline
+                  minRows={2}
+                  maxRows={4}
+                  sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
                 />
                 <TextField
                   size="small"
@@ -654,6 +831,21 @@ export default function WhatsAppWatchersPage() {
                   helperText="Example: 4, 8, 12, 24"
                 />
               </SectionFieldGrid>
+
+              {getGroupIds(draft.backhaul).length ? (
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                  {getGroupIds(draft.backhaul).map((jid) => (
+                    <Chip
+                      key={jid}
+                      size="small"
+                      label={groupLookup.get(jid)?.name ? `${groupLookup.get(jid).name} · ${jid}` : jid}
+                      onDelete={() => removeGroupFromWatcher('backhaul', jid)}
+                      variant="outlined"
+                      color="warning"
+                    />
+                  ))}
+                </Stack>
+              ) : null}
 
               <TemplateGrid>
                 <TextField
@@ -719,9 +911,14 @@ export default function WhatsAppWatchersPage() {
               <SectionFieldGrid>
                 <TextField
                   size="small"
-                  label="Group JID override"
-                  value={draft.vip.groupId}
-                  onChange={(event) => setSectionField('vip', 'groupId', event.target.value)}
+                  label="Target WhatsApp groups"
+                  value={getGroupIds(draft.vip).join('\n')}
+                  onChange={(event) => updateWatcherGroupText('vip', event.target.value)}
+                  helperText="One JID per line. Leave blank to use the default WhatsApp group."
+                  multiline
+                  minRows={2}
+                  maxRows={4}
+                  sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
                 />
                 <TextField
                   size="small"
@@ -744,6 +941,21 @@ export default function WhatsAppWatchersPage() {
                   onChange={(event) => setSectionField('vip', 'orgId', event.target.value)}
                 />
               </SectionFieldGrid>
+
+              {getGroupIds(draft.vip).length ? (
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                  {getGroupIds(draft.vip).map((jid) => (
+                    <Chip
+                      key={jid}
+                      size="small"
+                      label={groupLookup.get(jid)?.name ? `${groupLookup.get(jid).name} · ${jid}` : jid}
+                      onDelete={() => removeGroupFromWatcher('vip', jid)}
+                      variant="outlined"
+                      color="secondary"
+                    />
+                  ))}
+                </Stack>
+              ) : null}
 
               <TemplateGrid>
                 <TextField

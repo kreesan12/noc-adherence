@@ -1064,3 +1064,16 @@ model WatcherAlertLog {
   @@index([watcherKey, sentAt])
   @@map("watcher_alert_log")
 }
+
+model WhatsAppGroupDirectory {
+  jid              String   @id @map("jid")
+  name             String   @map("name")
+  participantCount Int      @default(0) @map("participant_count")
+  sessionId        String?  @map("session_id")
+  lastSeenAt       DateTime @default(now()) @map("last_seen_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@index([lastSeenAt])
+  @@map("whatsapp_group_directory")
+}

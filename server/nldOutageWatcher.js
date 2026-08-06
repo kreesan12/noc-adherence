@@ -404,6 +404,11 @@ function scheduleNext(run, delayMs) {
   nextTimer.unref?.()
 }
 
+function describeGroups(groupIds) {
+  if (!Array.isArray(groupIds) || !groupIds.length) return 'default group'
+  return `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} | ${groupIds.join(', ')}`
+}
+
 export function startNldOutageWatcher(sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[NLD WATCHER] Not starting - Zendesk config missing')
@@ -414,7 +419,7 @@ export function startNldOutageWatcher(sendSlaAlert) {
 
   void getWhatsappWatcherConfig().then(({ nld }) => {
     const baseline = nld.breachThresholdsHours[0] || 4
-    const groupLabel = nld.groupId ? `override ${nld.groupId}` : 'default group'
+    const groupLabel = describeGroups(nld.groupIds)
     console.log(
       `[NLD WATCHER] Starting - window ${nld.windowMinutes} min, breach baseline ${baseline} h, poll ${Math.round(nld.pollMs / 1000)}s, group ${groupLabel}`
     )
@@ -444,7 +449,7 @@ export function startNldOutageWatcher(sendSlaAlert) {
     }
 
     const sendNld = async (message) => {
-      await sendSlaAlert(message, config.groupId ? { groupId: config.groupId } : {})
+      await sendSlaAlert(message, config.groupIds?.length ? { groupIds: config.groupIds } : {})
     }
 
     try {

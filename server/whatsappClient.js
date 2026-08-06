@@ -32,6 +32,21 @@ function normalizeGroupId (id) {
   return id.endsWith('@g.us') ? id : `${id}@g.us`
 }
 
+function normalizeGroupIds (value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(/[\n,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+  return [...new Set(
+    rawValues
+      .map((item) => normalizeGroupId(item))
+      .filter(Boolean)
+  )]
+}
+
 function makeReadyPromise () {
   readyPromise = new Promise((resolve, reject) => {
     readyResolve = resolve
@@ -198,17 +213,56 @@ export async function sendSlaAlert (message, opts = {}) {
   await initWhatsApp({ waitForReady: true, readyTimeoutMs: 60_000 })
   if (!sock || !isReady) throw new Error('WhatsApp client not ready')
 
-  const override = opts?.groupId ? normalizeGroupId(opts.groupId) : null
-  const jid = override || targetGroupId
-  if (!jid) throw new Error('Target WhatsApp group not configured')
+  const overrideTargets = normalizeGroupIds(
+    opts?.groupIds?.length
+      ? opts.groupIds
+      : opts?.groupId
+  )
+  const targets = overrideTargets.length ? overrideTargets : normalizeGroupIds(targetGroupId)
+  if (!targets.length) throw new Error('Target WhatsApp group not configured')
 
   const text =
     message ||
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
 
-  await sock.sendMessage(jid, { text }, { linkPreview: false })
-  console.log('[WA] Message sent to', jid)
+  const sent = []
+  const failed = []
+
+  for (const jid of targets) {
+    try {
+      await sock.sendMessage(jid, { text }, { linkPreview: false })
+      sent.push(jid)
+      console.log('[WA] Message sent to', jid)
+    } catch (error) {
+      failed.push({ jid, error: error?.message || String(error) })
+      console.error('[WA] Message failed for', jid, '|', error?.message || error)
+    }
+  }
+
+  if (!sent.length) {
+    throw new Error(`Failed to send WhatsApp message to all configured groups (${failed.length} failed)`)
+  }
+
+  if (failed.length) {
+    console.warn('[WA] Partial WhatsApp send failure:', failed)
+  }
+
+  return { sent, failed }
+}
+
+export async function listWhatsAppGroups ({ readyTimeoutMs = 60_000 } = {}) {
+  await initWhatsApp({ waitForReady: true, readyTimeoutMs })
+  if (!sock || !isReady) throw new Error('WhatsApp client not ready')
+
+  const groups = await sock.groupFetchAllParticipating()
+  return Object.values(groups)
+    .map((group) => ({
+      id: group.id,
+      name: group.subject || '',
+      participants: group.participants?.length || 0
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export function getStatus () {

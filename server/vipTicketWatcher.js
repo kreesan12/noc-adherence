@@ -109,6 +109,11 @@ function scheduleNext(run, delayMs) {
   nextTimer.unref?.()
 }
 
+function describeGroups(groupIds) {
+  if (!Array.isArray(groupIds) || !groupIds.length) return 'default group'
+  return `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} | ${groupIds.join(', ')}`
+}
+
 export function startVipTicketWatcher(sendSlaAlert) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[VIP WATCHER] Not starting - Zendesk config missing')
@@ -118,7 +123,7 @@ export function startVipTicketWatcher(sendSlaAlert) {
   watcherStarted = true
 
   void getWhatsappWatcherConfig().then(({ vip }) => {
-    const groupLabel = vip.groupId ? `override ${vip.groupId}` : 'default group'
+    const groupLabel = describeGroups(vip.groupIds)
     const tagLabel = vip.tagRules.length
       ? vip.tagRules.map((rule) => rule.tag).join(', ')
       : '(none)'
@@ -149,7 +154,7 @@ export function startVipTicketWatcher(sendSlaAlert) {
 
     const sendVip = async (message) => {
       try {
-        await sendSlaAlert(message, config.groupId ? { groupId: config.groupId } : {})
+        await sendSlaAlert(message, config.groupIds?.length ? { groupIds: config.groupIds } : {})
       } catch (error) {
         console.error('[VIP WATCHER] send failed:', error?.message || error)
       }

@@ -70,6 +70,10 @@
 - Refactored the live WhatsApp watcher loops so config changes apply on the next poll without a process restart.
 - Added persistent alert dedupe storage for watcher sends:
   - repeated alerts are now suppressed across restarts and redeploys using the new `watcher_alert_log` table
+- Added live WhatsApp group discovery and routing support:
+  - automation now syncs joined WhatsApp groups into `whatsapp_group_directory`
+  - admins can search the live group list in `/settings/whatsapp-watchers`
+  - each watcher can now send to more than one WhatsApp group in the same poll cycle
 - Updated the NLD outage aging message to prefer the Zendesk custom-field update note from:
   - field id `5352766585489`
   - with `updated_at` retained as a fallback

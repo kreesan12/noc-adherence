@@ -18,8 +18,10 @@ Use this checklist for every frontend or full-stack production release to xneelo
 
 1. Commit the changes.
 2. Push to `main`.
-3. Run the xneelo deploy helper:
+3. Run the xneelo API deploy helper:
    `ssh -i <pem> ubuntu@154.65.108.106 "bash /home/ubuntu/bin/update-noc-api.sh"`
+4. If the release touches WhatsApp watchers, Gmail imports, or any timer-driven automation, also run the automation deploy helper:
+   `ssh -i <pem> ubuntu@154.65.102.21 "bash /home/ubuntu/bin/update-noc-automation.sh"`
 
 ## Post-Deploy Verification
 
@@ -30,6 +32,7 @@ Use this checklist for every frontend or full-stack production release to xneelo
    - login screen
    - authenticated landing page
    - one heavy reporting page like `SLA Reporting` or `Stock Management`
+   - `/settings/whatsapp-watchers` if watcher routing or template changes were included
 4. If the smoke report or the browser console shows a new runtime error, treat the deploy as unhealthy even if nginx and the API are up.
 
 ## Notes

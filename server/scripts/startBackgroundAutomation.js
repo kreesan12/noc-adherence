@@ -4,6 +4,7 @@ loadServerEnv()
 
 const { initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
 const { startBackhaulWatcher } = await import('../backhaulWatcher.js')
+const { startWhatsAppGroupDirectorySync } = await import('../groupDirectorySync.js')
 const { startNldOutageWatcher } = await import('../nldOutageWatcher.js')
 const { startVipTicketWatcher } = await import('../vipTicketWatcher.js')
 
@@ -40,4 +41,10 @@ try {
   startVipTicketWatcher(sendSlaAlert)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start VIP watcher:', err?.message || err)
+}
+
+try {
+  startWhatsAppGroupDirectorySync()
+} catch (err) {
+  console.error('[AUTOMATION] Failed to start WhatsApp group directory sync:', err?.message || err)
 }
