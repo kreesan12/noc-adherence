@@ -2,7 +2,10 @@
 node_modules
 npm-debug.log*
 .env
+.env.local
+*.env.local
 # Build output
 frontend/build
+frontend/dist
 # Prisma
 prisma/.cache

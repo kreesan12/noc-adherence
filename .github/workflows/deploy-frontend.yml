@@ -1,53 +1,62 @@
-# .github/workflows/deploy-frontend.yml
 name: Deploy Frontend (GitHub Pages)
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - "frontend/**"
       - ".github/workflows/deploy-frontend.yml"
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    # Pages needs this block to publish
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
 
-    # Required permissions for deploy-pages
-    permissions:
-      contents: read      # actions/checkout
-      pages: write        # actions/deploy-pages
-      id-token: write     # actions/deploy-pages
-
     steps:
-      # 1️⃣  Checkout repo
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # 2️⃣  Set up Node (latest LTS 20.x)
-      - uses: actions/setup-node@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      # 3️⃣  Install deps & build React bundle
-      - name: Install & build
+      - name: Install and build
         working-directory: frontend
         env:
           VITE_GOOGLE_MAPS_EMBED_KEY: ${{ secrets.VITE_GOOGLE_MAPS_EMBED_KEY }}
         run: |
           npm ci
-          npm run build               # → outputs to frontend/build
+          npm run build
           ls -R dist
 
-      # 4️⃣  Upload the static build as an artifact
-      - uses: actions/upload-pages-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist/
 
-      # 5️⃣  🚀 Deploy that artifact to the gh-pages branch
       - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+        with:
+          timeout: 1800000
+          error_count: 20
+          reporting_interval: 10000
