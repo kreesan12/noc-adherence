@@ -48,7 +48,9 @@
   - WhatsApp connection
   - NLD watcher
   - Backhaul watcher
+  - Major outage watcher
   - VIP watcher
+  - queued watcher test dispatches
   - Gmail-driven import jobs through systemd timers
 - Runtime behavior:
   - watcher timing, routing groups, tags, and alert wording are now read from shared database config
@@ -76,6 +78,8 @@
     - stores admin-edited watcher config
   - `watcher_alert_log`
     - stores persistent dedupe keys for sent watcher alerts so restarts do not replay old messages
+  - `watcher_dispatch_request`
+    - stores queued admin-triggered test messages that the automation host drains and sends through the live WhatsApp session
   - `whatsapp_group_directory`
     - stores the latest joined WhatsApp groups discovered from the automation session so admins can search names and apply valid group JIDs without guessing
 
@@ -179,9 +183,15 @@ sudo journalctl -u noc-automation -f
   - set one or more WhatsApp group JID targets per watcher
   - update Zendesk tag rules
   - adjust alert titles, reasons, and action lines
+  - queue manual route-test messages per watcher
 - Live group discovery:
   - automation periodically syncs joined WhatsApp groups into the database
   - the admin page exposes a searchable group directory with copy/apply actions for each watcher
+- Current watcher lanes:
+  - NLD outage watcher
+  - backhaul watcher
+  - major outage watcher for non-NLD `Outage Capturing` tickets
+  - VIP watcher
 - Current note:
   - template editing currently controls the title/reason/action language while keeping the message body layout standardized for readability in group chats
 

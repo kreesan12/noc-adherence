@@ -74,6 +74,18 @@
   - automation now syncs joined WhatsApp groups into `whatsapp_group_directory`
   - admins can search the live group list in `/settings/whatsapp-watchers`
   - each watcher can now send to more than one WhatsApp group in the same poll cycle
+- Added a dedicated major outage WhatsApp watcher for non-NLD tickets in the `Outage Capturing` flow:
+  - watches the `NOC Outage Team` outage lane while excluding NLD outages
+  - sends new, aging-breach, and resolved notifications
+  - includes the Zendesk last-update note from custom field `5352766585489`
+- Added queued test-dispatch support for WhatsApp watchers:
+  - new requests are stored in `watcher_dispatch_request`
+  - the automation host now drains those requests and sends manual route-test messages without needing direct UI-to-WhatsApp access
+- Upgraded `/settings/whatsapp-watchers` with:
+  - separate tabs for watcher controls, live WhatsApp group IDs, and watcher logs
+  - row count controls on logs and group tables
+  - disabled group-link buttons when a watcher is already assigned to a group
+  - per-watcher test message actions for NLD, backhaul, major outage, and VIP lanes
 - Updated the NLD outage aging message to prefer the Zendesk custom-field update note from:
   - field id `5352766585489`
   - with `updated_at` retained as a fallback

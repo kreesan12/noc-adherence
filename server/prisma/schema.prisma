@@ -1065,6 +1065,23 @@ model WatcherAlertLog {
   @@map("watcher_alert_log")
 }
 
+model WatcherDispatchRequest {
+  id             Int      @id @default(autoincrement())
+  watcherKey     String   @map("watcher_key")
+  dispatchType   String   @default("test") @map("dispatch_type")
+  targetGroupIds Json     @map("target_group_ids")
+  message        String
+  requestedBy    String?  @map("requested_by")
+  status         String   @default("pending")
+  result         Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  @@index([status, createdAt])
+  @@index([watcherKey, createdAt])
+  @@map("watcher_dispatch_request")
+}
+
 model WhatsAppGroupDirectory {
   jid              String   @id @map("jid")
   name             String   @map("name")

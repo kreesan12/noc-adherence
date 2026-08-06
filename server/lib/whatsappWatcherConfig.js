@@ -133,6 +133,27 @@ function buildDefaultConfig() {
         breachAction: 'chase update or escalate carrier follow-up'
       }
     },
+    majorOutage: {
+      enabled: true,
+      groupIds: parseGroupIds(
+        process.env.WHATSAPP_MAJOR_OUTAGE_GROUP_IDS || process.env.WHATSAPP_MAJOR_OUTAGE_GROUP_ID || '',
+        []
+      ),
+      pollMs: Number(process.env.MAJOR_OUTAGE_POLL_MS || 5 * 60 * 1000),
+      lookbackHours: Number(process.env.MAJOR_OUTAGE_LOOKBACK_HOURS || 4),
+      resolvedLookbackHours: Number(process.env.MAJOR_OUTAGE_RESOLVED_LOOKBACK_HOURS || 24),
+      breachThresholdsHours: parseHourThresholds(
+        process.env.MAJOR_OUTAGE_BREACH_THRESHOLDS_HOURS,
+        [2, 4, 8, 12]
+      ),
+      templates: {
+        newTitle: 'Major outage logged',
+        breachTitle: 'Major outage aging breach',
+        resolvedTitle: 'Major outage resolved',
+        newAction: 'validate customer impact and keep stakeholders updated',
+        breachAction: 'chase outage update or escalate restoration actions'
+      }
+    },
     vip: {
       enabled: true,
       groupIds: parseGroupIds(
@@ -209,6 +230,21 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
         resolvedTitle: parseOptionalString(source.backhaul?.templates?.resolvedTitle, defaults.backhaul.templates.resolvedTitle, 180),
         newAction: parseOptionalString(source.backhaul?.templates?.newAction, defaults.backhaul.templates.newAction, 220),
         breachAction: parseOptionalString(source.backhaul?.templates?.breachAction, defaults.backhaul.templates.breachAction, 220)
+      }
+    },
+    majorOutage: {
+      enabled: parseBoolean(source.majorOutage?.enabled, defaults.majorOutage.enabled),
+      groupIds: parseGroupIds(source.majorOutage?.groupIds ?? source.majorOutage?.groupId, defaults.majorOutage.groupIds),
+      pollMs: parseWholeNumber(source.majorOutage?.pollMs, defaults.majorOutage.pollMs, { min: 30 * 1000, max: 60 * 60 * 1000 }),
+      lookbackHours: parseWholeNumber(source.majorOutage?.lookbackHours, defaults.majorOutage.lookbackHours, { min: 1, max: 24 * 14 }),
+      resolvedLookbackHours: parseWholeNumber(source.majorOutage?.resolvedLookbackHours, defaults.majorOutage.resolvedLookbackHours, { min: 1, max: 24 * 14 }),
+      breachThresholdsHours: parseThresholds(source.majorOutage?.breachThresholdsHours, defaults.majorOutage.breachThresholdsHours),
+      templates: {
+        newTitle: parseOptionalString(source.majorOutage?.templates?.newTitle, defaults.majorOutage.templates.newTitle, 180),
+        breachTitle: parseOptionalString(source.majorOutage?.templates?.breachTitle, defaults.majorOutage.templates.breachTitle, 180),
+        resolvedTitle: parseOptionalString(source.majorOutage?.templates?.resolvedTitle, defaults.majorOutage.templates.resolvedTitle, 180),
+        newAction: parseOptionalString(source.majorOutage?.templates?.newAction, defaults.majorOutage.templates.newAction, 220),
+        breachAction: parseOptionalString(source.majorOutage?.templates?.breachAction, defaults.majorOutage.templates.breachAction, 220)
       }
     },
     vip: {

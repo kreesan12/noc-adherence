@@ -5,8 +5,10 @@ loadServerEnv()
 const { initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
 const { startBackhaulWatcher } = await import('../backhaulWatcher.js')
 const { startWhatsAppGroupDirectorySync } = await import('../groupDirectorySync.js')
+const { startMajorOutageWatcher } = await import('../majorOutageWatcher.js')
 const { startNldOutageWatcher } = await import('../nldOutageWatcher.js')
 const { startVipTicketWatcher } = await import('../vipTicketWatcher.js')
+const { startWatcherDispatchWorker } = await import('../watcherDispatchWorker.js')
 
 process.on('unhandledRejection', (err) => {
   console.error('[AUTOMATION][FATAL] unhandledRejection:', err?.message || err)
@@ -38,6 +40,12 @@ try {
 }
 
 try {
+  startMajorOutageWatcher(sendSlaAlert)
+} catch (err) {
+  console.error('[AUTOMATION] Failed to start major outage watcher:', err?.message || err)
+}
+
+try {
   startVipTicketWatcher(sendSlaAlert)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start VIP watcher:', err?.message || err)
@@ -47,4 +55,10 @@ try {
   startWhatsAppGroupDirectorySync()
 } catch (err) {
   console.error('[AUTOMATION] Failed to start WhatsApp group directory sync:', err?.message || err)
+}
+
+try {
+  startWatcherDispatchWorker(sendSlaAlert)
+} catch (err) {
+  console.error('[AUTOMATION] Failed to start watcher dispatch worker:', err?.message || err)
 }
