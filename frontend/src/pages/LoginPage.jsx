@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -215,17 +215,6 @@ export default function LoginPage() {
                   position: 'relative'
                 }}
               >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: 4,
-                    background: 'linear-gradient(90deg, #14b8a6 0%, #60a5fa 52%, #818cf8 100%)'
-                  }}
-                />
-
                 <Stack spacing={1.05} component="form" onSubmit={handleSubmit}>
                   <Box>
                     <Typography variant="subtitle2" sx={{ color: 'primary.main', mb: 0.4 }}>
@@ -503,3 +492,4 @@ function SurfaceNote({ icon, title, body }) {
     </Box>
   )
 }
+

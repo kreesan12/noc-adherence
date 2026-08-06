@@ -177,6 +177,9 @@
 - Added a browser smoke harness for post-build checks:
   - `npm run smoke`
   - `npm run smoke:local-build`
+- Added a release checklist in:
+  - `docs/RELEASE_CHECKLIST.md`
+- Removed the extra top accent strip from the login card so the sign-in panel reads cleaner and does not visually overlap the surface above it.
 
 ### ROC And MNT Retirement
 

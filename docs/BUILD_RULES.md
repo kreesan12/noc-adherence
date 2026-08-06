@@ -62,10 +62,24 @@ This document keeps the codebase modular so new features do not turn into large 
 1. Run a frontend build.
 2. Check for new large chunk warnings.
 3. Check whether new imports belong in a manual chunk or a lazy-loaded panel.
-3. Check the page at normal zoom.
-4. Confirm loading and error states.
-5. Confirm role access logic.
-6. Update docs if the pattern changed.
+4. Run the browser smoke harness locally:
+   `npm --prefix frontend run smoke:local-build`
+5. Check the page at normal zoom.
+6. Confirm loading and error states.
+7. Confirm role access logic.
+8. Update docs if the pattern changed.
+
+## Before Deploying To xneelo
+
+1. Make sure the branch is committed and pushed.
+2. Run the local browser smoke harness:
+   `npm --prefix frontend run smoke:local-build`
+3. Deploy on the API host:
+   `ssh -i <pem> ubuntu@154.65.108.106 "bash /home/ubuntu/bin/update-noc-api.sh"`
+4. Run the live browser smoke harness against production:
+   `npm --prefix frontend run smoke -- --url https://154-65-108-106.sslip.io/ --waitMs 3000`
+5. If the live smoke fails, stop and fix the issue before moving on.
+6. Keep the smoke screenshot/report from `.smoke-artifacts/` with the release notes when the deploy was risky or large.
 
 ## Recommended Direction For Engineering
 
