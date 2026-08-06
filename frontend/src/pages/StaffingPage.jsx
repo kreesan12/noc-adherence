@@ -16,7 +16,6 @@ dayjs.extend(utc);
 dayjs.extend(isSameOrBefore);
 
 import api from '../api';
-import * as XLSX from 'xlsx';
 import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
 /* CONSTANTS */
@@ -410,7 +409,8 @@ function pickBreakHour({ dayStr, startHour, reqMap, covMap, lunchMap }) {
   };
 
   /* EXPORT */
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx');
     const rows = [];
     Object.entries(personSchedule).forEach(([emp, arr]) =>
       arr.forEach(({ day, hour, breakHour }) => {

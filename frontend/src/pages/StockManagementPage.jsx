@@ -65,6 +65,10 @@ import {
   updateStockRequiredSpares
 } from '../api/stockManagement'
 import { FilterStrip, PageShell } from '../components/ui/PageScaffold'
+import {
+  AnalyticsMetricCard as Card,
+  AnalyticsSectionCard as SectionCard
+} from '../components/ui/AnalyticsPrimitives'
 
 const REQUIRED_SPARE_FIELDS = [
   { key: 'requiredCpt', region: 'CPT' },
@@ -191,90 +195,6 @@ function requirementTone(isConfirmed) {
   return isConfirmed
     ? { bg: '#dcfce7', color: '#166534', label: 'Confirmed' }
     : { bg: '#ffedd5', color: '#c2410c', label: 'Unconfirmed' }
-}
-
-function Card({ title, value, subtext, tone = '#0f172a', icon = null }) {
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        p: 0.9,
-        borderRadius: 2.6,
-        border: '1px solid #e2e8f0',
-        borderTop: `3px solid ${tone}`,
-        background: `radial-gradient(circle at top right, ${alphaHex(tone, '18')} 0%, transparent 34%), linear-gradient(180deg, ${alphaHex(tone, '08')} 0%, #ffffff 52%, #ffffff 100%)`,
-        boxShadow: '0 14px 28px rgba(15, 23, 42, 0.05)'
-      }}
-    >
-      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.4 }}>
-        <Box
-          sx={{
-            width: 24,
-            height: 24,
-            borderRadius: 1.8,
-            bgcolor: alphaHex(tone, '14'),
-            color: tone,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          {icon}
-        </Box>
-        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.7, opacity: 0.78, fontSize: 10.4 }}>
-          {title}
-        </Typography>
-      </Stack>
-      <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.02, fontSize: 18.2 }}>
-        {value}
-      </Typography>
-      {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.32, fontSize: 11.1, opacity: 0.72, lineHeight: 1.25 }}>
-          {subtext}
-        </Typography>
-      ) : null}
-    </Paper>
-  )
-}
-
-function SectionCard({ title, subtitle, action, children }) {
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        borderRadius: 2.8,
-        border: '1px solid #e2e8f0',
-        overflow: 'hidden',
-        boxShadow: '0 14px 30px rgba(15, 23, 42, 0.05)'
-      }}
-    >
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="flex-start"
-        spacing={1}
-        sx={{
-          px: 1,
-          py: 0.78,
-          borderBottom: '1px solid #edf2f7',
-          background: 'linear-gradient(135deg, rgba(15,118,110,0.10) 0%, rgba(255,255,255,0.92) 54%, rgba(241,245,249,0.9) 100%)'
-        }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: 15 }}>
-            {title}
-          </Typography>
-          {subtitle ? (
-            <Typography variant="body2" sx={{ fontSize: 11.4, opacity: 0.72, lineHeight: 1.25 }}>
-              {subtitle}
-            </Typography>
-          ) : null}
-        </Box>
-        {action ? <Box sx={{ flexShrink: 0 }}>{action}</Box> : null}
-      </Stack>
-      <Box sx={{ p: 0.9 }}>{children}</Box>
-    </Paper>
-  )
 }
 
 function downloadBlob(blob, fileName) {

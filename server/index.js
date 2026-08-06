@@ -4,12 +4,12 @@ import 'express-async-errors'
 import express from 'express'
 import cors from 'cors'
 import morgan from 'morgan'
-import dotenv from 'dotenv'
 
 import authRole from './middleware/auth.js'
 import audit from './middleware/audit.js'
 import authRoutesFactory, { verifyToken } from './routes/auth.js'
 import prisma from './lib/prisma.js'
+import { loadServerEnv } from './lib/loadEnv.js'
 
 import rosterRoutes from './routes/roster.js'
 import scheduleRoutes from './routes/schedule.js'
@@ -32,12 +32,11 @@ import nodes from './routes/nodes.js'
 import slaReportingRoutes from './routes/slaReporting.js'
 import stockManagementRoutes from './routes/stockManagement.js'
 
+loadServerEnv()
+
 // Overtime (single source of truth)
 import overtimeRoutes from './routes/overtime.js'
 import overtimeExportRoutes from './routes/overtimeExportRoutes.js'
-
-dotenv.config()
-dotenv.config({ path: '.env.local', override: true })
 
 // ---- Crash guards (prevents Heroku restart loops) ----
 process.on('unhandledRejection', (err) => {

@@ -17,7 +17,6 @@ import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import * as XLSX from 'xlsx'
 import { useAuth } from '../context/AuthContext'
 import { canAccessEngineering } from '../utils/access'
 import api from '../api'
@@ -388,7 +387,8 @@ export default function NldLightLevelsPage () {
     setFilters({ nld: '', circuit: '', worseDelta: '' })
   }
 
-  function exportCurrentView () {
+  async function exportCurrentView () {
+    const XLSX = await import('xlsx')
     const ordered = Object.entries(groupedFilteredRows)
       .flatMap(([_, list]) => orderCircuitsChain(list))
 

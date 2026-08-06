@@ -1,8 +1,7 @@
-import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
+import { loadServerEnv } from './loadEnv.js'
 
-dotenv.config()
-dotenv.config({ path: '.env.local', override: true })
+loadServerEnv()
 
 const globalForPrisma = globalThis
 

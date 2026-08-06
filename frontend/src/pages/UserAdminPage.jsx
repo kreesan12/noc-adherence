@@ -31,6 +31,8 @@ import SupervisorAccountRoundedIcon from '@mui/icons-material/SupervisorAccountR
 import EngineeringRoundedIcon from '@mui/icons-material/EngineeringRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
 import { useAuth } from '../context/AuthContext'
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
+import { AnalyticsMetricCard as MetricCard } from '../components/ui/AnalyticsPrimitives'
 import {
   createUser,
   deleteUser,
@@ -79,46 +81,6 @@ function kindVisual(kind) {
 function passwordVisual(state) {
   if (state === 'legacy_plaintext') return { color: 'warning', label: 'Needs upgrade' }
   return { color: 'success', label: 'Hashed' }
-}
-
-function MetricCard({ title, value, subtext, accent = '#0f766e', icon = null }) {
-  return (
-    <Paper
-      sx={{
-        p: 1.15,
-        minWidth: 160,
-        flex: '1 1 160px',
-        borderRadius: 2.2,
-        borderTop: `3px solid ${accent}`,
-        background: `linear-gradient(180deg, ${accent}14 0%, #ffffff 58%)`
-      }}
-    >
-      <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 0.5 }}>
-        <Box
-          sx={{
-            width: 26,
-            height: 26,
-            borderRadius: 1.6,
-            display: 'grid',
-            placeItems: 'center',
-            bgcolor: `${accent}18`,
-            color: accent
-          }}
-        >
-          {icon}
-        </Box>
-        <Typography variant="subtitle2" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          {title}
-        </Typography>
-      </Stack>
-      <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.05 }}>
-        {value}
-      </Typography>
-      <Typography variant="body2" sx={{ mt: 0.35, color: 'text.secondary' }}>
-        {subtext}
-      </Typography>
-    </Paper>
-  )
 }
 
 function buildMailto(draft) {
@@ -375,47 +337,40 @@ export default function UserAdminPage() {
 
   if (!isAdmin) {
     return (
-      <Box sx={{ p: { xs: 1.25, md: 1.5 } }}>
+      <PageShell
+        eyebrow="Settings"
+        title="User Access Control"
+        description="Only platform admin accounts can manage sign-in users, password resets, and access roles."
+        accent="#0f766e"
+      >
         <Alert severity="warning">Only admin users can manage sign-in accounts.</Alert>
-      </Box>
+      </PageShell>
     )
   }
 
   return (
-    <Box sx={{ p: { xs: 1.1, md: 1.35 }, display: 'grid', gap: 1.1 }}>
-      <Paper
-        sx={{
-          p: 1.3,
-          borderRadius: 2.6,
-          background:
-            'radial-gradient(circle at top right, rgba(37, 99, 235, 0.14) 0%, transparent 26%), linear-gradient(135deg, rgba(15, 118, 110, 0.12) 0%, rgba(15, 23, 42, 0.02) 68%, #ffffff 100%)'
-        }}
-      >
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between">
-          <Box>
-            <Stack direction="row" spacing={0.7} alignItems="center" sx={{ mb: 0.45, flexWrap: 'wrap' }}>
-              <Chip size="small" label="SETTINGS" sx={{ bgcolor: 'rgba(15,118,110,0.12)', color: '#0f766e' }} />
-              <Chip size="small" label="User Admin" color="primary" />
-            </Stack>
-            <Typography variant="h4" sx={{ mb: 0.35 }}>
-              Login Access Control
-            </Typography>
-            <Typography variant="body1" sx={{ color: 'text.secondary', maxWidth: 760 }}>
-              Create, update, reset, and retire application logins across admin, supervisor, manager, and engineering roles. Password actions generate a ready-to-send onboarding draft so handover stays quick.
-            </Typography>
-          </Box>
-
-          <Stack direction="row" spacing={0.7} flexWrap="wrap">
-            <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={refresh} disabled={loading || busy}>
-              Refresh
-            </Button>
-            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate}>
-              New User
-            </Button>
-          </Stack>
+    <PageShell
+      eyebrow="Settings"
+      title="User Access Control"
+      description="Create, update, reset, and retire platform logins across admin, supervisor, manager, and engineering roles. Password workflows stay ready for handover with built-in email drafts."
+      accent="#0f766e"
+      stats={[
+        { label: 'Total Users', value: summary.total || 0, helper: 'active login records' },
+        { label: 'Admins', value: summary.admins || 0, helper: 'full platform access' },
+        { label: 'Supervisors', value: summary.supervisors || 0, helper: 'ops oversight accounts' },
+        { label: 'Engineering', value: summary.engineering || 0, helper: 'engineering-capable users' }
+      ]}
+      actions={(
+        <Stack direction="row" spacing={0.7} flexWrap="wrap">
+          <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={refresh} disabled={loading || busy}>
+            Refresh
+          </Button>
+          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate}>
+            New User
+          </Button>
         </Stack>
-      </Paper>
-
+      )}
+    >
       {error ? <Alert severity="error">{error}</Alert> : null}
       {notice ? <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert> : null}
       {summary.legacyPasswordCount > 0 ? (
@@ -424,21 +379,35 @@ export default function UserAdminPage() {
         </Alert>
       ) : null}
 
-      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-        <MetricCard title="Total Users" value={summary.total || 0} subtext="All active logins across both auth tables" accent="#0f766e" icon={<ShieldRoundedIcon fontSize="small" />} />
-        <MetricCard title="Admins" value={summary.admins || 0} subtext="Highest privilege accounts" accent="#d97706" icon={<AdminPanelSettingsRoundedIcon fontSize="small" />} />
-        <MetricCard title="Supervisors" value={summary.supervisors || 0} subtext="Operational oversight roles" accent="#0284c7" icon={<SupervisorAccountRoundedIcon fontSize="small" />} />
-        <MetricCard title="Managers" value={summary.managers || 0} subtext="Planning and people management access" accent="#4f46e5" icon={<ManageAccountsRoundedIcon fontSize="small" />} />
-        <MetricCard title="Engineering" value={summary.engineering || 0} subtext="Engineering and platform users" accent="#16a34a" icon={<EngineeringRoundedIcon fontSize="small" />} />
-      </Stack>
+      <Box
+        sx={{
+          display: 'grid',
+          gap: 0.9,
+          gridTemplateColumns: {
+            xs: '1fr',
+            sm: 'repeat(2, minmax(0, 1fr))',
+            xl: 'repeat(4, minmax(0, 1fr))'
+          }
+        }}
+      >
+        <MetricCard label="Managers" value={summary.managers || 0} subtext="Planning and people management access." tone="#4f46e5" icon={<ManageAccountsRoundedIcon fontSize="small" />} />
+        <MetricCard label="Needs Upgrade" value={summary.legacyPasswordCount || 0} subtext="Legacy password rows still waiting for a hashed path." tone="#d97706" icon={<LockResetRoundedIcon fontSize="small" />} />
+        <MetricCard label="Visible Users" value={filteredRows.length || 0} subtext="Current result set after search and lane filters." tone="#0284c7" icon={<ShieldRoundedIcon fontSize="small" />} />
+        <MetricCard label="Access Lanes" value="2" subtext="Supervisor and manager auth stores are both governed here." tone="#0f766e" icon={<AdminPanelSettingsRoundedIcon fontSize="small" />} />
+      </Box>
 
-      <Paper sx={{ p: 1.1, borderRadius: 2.4 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} useFlexGap flexWrap="wrap" alignItems={{ xs: 'stretch', md: 'center' }}>
+      <SectionCard
+        title="Directory Filters"
+        subtitle="Narrow the visible account list by search term, role, or auth lane before taking action."
+        accent="#0f766e"
+      >
+        <FilterStrip>
           <TextField
             label="Search users"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             sx={{ minWidth: 240, flex: 1 }}
+            size="small"
           />
           <TextField
             select
@@ -446,6 +415,7 @@ export default function UserAdminPage() {
             value={roleFilter}
             onChange={(event) => setRoleFilter(event.target.value)}
             sx={{ minWidth: 150 }}
+            size="small"
           >
             <MenuItem value="">All roles</MenuItem>
             {ROLE_OPTIONS.map((role) => (
@@ -458,6 +428,7 @@ export default function UserAdminPage() {
             value={kindFilter}
             onChange={(event) => setKindFilter(event.target.value)}
             sx={{ minWidth: 150 }}
+            size="small"
           >
             <MenuItem value="">Both tables</MenuItem>
             <MenuItem value="supervisor">Supervisor table</MenuItem>
@@ -467,10 +438,15 @@ export default function UserAdminPage() {
             label={`${filteredRows.length} shown`}
             sx={{ alignSelf: 'center', bgcolor: 'rgba(15,118,110,0.12)', color: '#0f766e' }}
           />
-        </Stack>
-      </Paper>
+        </FilterStrip>
+      </SectionCard>
 
-      <Paper sx={{ p: 0.55, borderRadius: 2.6 }}>
+      <SectionCard
+        title="User Directory"
+        subtitle="Edit, reset, or remove platform accounts from the current filtered view."
+        accent="#2563eb"
+        noPadding
+      >
         <DataGrid
           rows={filteredRows}
           columns={columns}
@@ -491,7 +467,7 @@ export default function UserAdminPage() {
             }
           }}
         />
-      </Paper>
+      </SectionCard>
 
       <Dialog open={formOpen} onClose={() => !busy && setFormOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{formMode === 'create' ? 'Create login user' : 'Update login user'}</DialogTitle>
@@ -625,6 +601,6 @@ export default function UserAdminPage() {
           <Button onClick={() => setDraftPayload(null)}>Close</Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </PageShell>
   )
 }

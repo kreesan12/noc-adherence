@@ -7,6 +7,7 @@ export const LOGIN_USER_ROLES = [
   ...SUPERVISOR_LOGIN_ROLES,
   ...MANAGER_LOGIN_ROLES
 ]
+const APP_NAME = 'Frogfoot Ops Hub'
 
 export function isPasswordHash(value) {
   return /^\$2[aby]\$\d{2}\$/.test(String(value || ''))
@@ -56,15 +57,15 @@ export function buildUserEmailDraft({
   reason = 'created'
 }) {
   const subject = reason === 'reset'
-    ? 'NOC Adherence password reset'
-    : 'Your NOC Adherence account'
+    ? `${APP_NAME} password reset`
+    : `Your ${APP_NAME} account`
 
   const body = [
     `Hi ${fullName || 'there'},`,
     '',
     reason === 'reset'
-      ? 'Your NOC Adherence password has been reset.'
-      : 'Your NOC Adherence account has been created.',
+      ? `Your ${APP_NAME} password has been reset.`
+      : `Your ${APP_NAME} account has been created.`,
     '',
     `Role: ${role}`,
     `Login email: ${email}`,

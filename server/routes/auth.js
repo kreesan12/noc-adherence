@@ -4,14 +4,12 @@ import jwt from 'jsonwebtoken'
 import { hashPassword, passwordMatches } from '../lib/loginUsers.js'
 import { getJwtSecret } from '../lib/jwtSecret.js'
 
-const SECRET = getJwtSecret()
-
 export function verifyToken(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1]
   if (!token) return res.status(401).json({ error: 'missing token' })
 
   try {
-    req.user = jwt.verify(token, SECRET)
+    req.user = jwt.verify(token, getJwtSecret())
     next()
   } catch {
     res.status(401).json({ error: 'invalid token' })
@@ -54,7 +52,7 @@ export default function authRoutesFactory(prisma) {
 
     const token = jwt.sign(
       { id: user.id, name: user.fullName, role: user.role, kind: sup ? 'supervisor' : 'manager' },
-      SECRET,
+      getJwtSecret(),
       { expiresIn: '8h' }
     )
 

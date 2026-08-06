@@ -1,10 +1,10 @@
 // server/whatsappClient.js
-import dotenv from 'dotenv'
 import qrcode from 'qrcode-terminal'
 import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
 import { usePostgresAuthState } from './baileysPostgresAuth.js'
+import { loadServerEnv } from './lib/loadEnv.js'
 
-dotenv.config()
+loadServerEnv()
 
 let sock = null
 let isReady = false

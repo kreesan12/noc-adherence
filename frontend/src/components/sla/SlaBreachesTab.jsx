@@ -11,39 +11,7 @@ import {
 } from '@mui/material'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
-
-function alphaHex(color, alpha) {
-  return `${color}${alpha}`
-}
-
-function StatCard({ label, value, tone = '#0f172a', subtext }) {
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        p: 1.2,
-        borderRadius: 2.8,
-        border: '1px solid #e5e7eb',
-        borderTop: `4px solid ${tone}`,
-        bgcolor: '#fff',
-        background: `linear-gradient(180deg, ${alphaHex(tone, '10')} 0%, #ffffff 44%, #ffffff 100%)`,
-        boxShadow: '0 12px 24px rgba(15, 23, 42, 0.04)'
-      }}
-    >
-      <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, opacity: 0.72 }}>
-        {label}
-      </Typography>
-      <Typography variant="h6" sx={{ mt: 0.35, fontWeight: 900, lineHeight: 1 }}>
-        {value}
-      </Typography>
-      {subtext ? (
-        <Typography variant="body2" sx={{ mt: 0.65, fontSize: 12.5, opacity: 0.72 }}>
-          {subtext}
-        </Typography>
-      ) : null}
-    </Paper>
-  )
-}
+import { AnalyticsMetricCard as StatCard } from '../ui/AnalyticsPrimitives'
 
 function SlaProgressCell({ value, fmtPct }) {
   const pct = Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : 0

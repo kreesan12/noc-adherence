@@ -29,6 +29,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserStatus from './components/UserStatus'
 import { buildNavigationSections, sectionHasActive, isActivePath } from './config/navigation.jsx'
+import { BRAND } from './config/brand'
 
 const RosterUpload = lazy(() => import('./components/RosterUpload'))
 const LandingDashboardPage = lazy(() => import('./pages/LandingDashboardPage'))
@@ -249,14 +250,14 @@ function StackedBrand() {
   return (
     <Box sx={{ display: 'grid', gap: 0.55 }}>
       <Box sx={{ display: 'flex', gap: 0.6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Chip size="small" label="FROGFOOT NOC" color="primary" sx={{ bgcolor: 'rgba(45,212,191,0.18)', color: '#ccfbf1' }} />
+        <Chip size="small" label={BRAND.loginBadge} color="primary" sx={{ bgcolor: 'rgba(45,212,191,0.18)', color: '#ccfbf1' }} />
         <Chip size="small" label="xneelo live" sx={{ bgcolor: 'rgba(59,130,246,0.18)', color: '#dbeafe' }} />
       </Box>
       <Typography sx={{ fontSize: 18, fontWeight: 800, lineHeight: 1.05, color: '#f8fafc', letterSpacing: -0.4 }}>
-        NOC Adherence Portal
+        {BRAND.shellTitle}
       </Typography>
       <Typography sx={{ fontSize: 11.2, lineHeight: 1.45, color: 'rgba(226,232,240,0.82)' }}>
-        Operations, engineering, SLA reporting, and stock control in one shared workspace.
+        {BRAND.shellDescription}
       </Typography>
     </Box>
   )

@@ -143,6 +143,35 @@
   - `docs/UI_STANDARDS.md`
   - `docs/BUILD_RULES.md`
 
+### UI Refresh Wave Five
+
+- Renamed the shared frontend shell branding from the older NOC-only naming to:
+  - `Frogfoot Ops Hub`
+- Centralized shell/login/landing branding copy in:
+  - `frontend/src/config/brand.js`
+- Reworked the login screen into a cleaner two-panel sign-in layout so the landing experience feels like the same platform as the authenticated shell.
+- Added shared analytics UI primitives in:
+  - `frontend/src/components/ui/AnalyticsPrimitives.jsx`
+- Moved more shared dashboard UI onto reusable primitives across:
+  - `Stock Management`
+  - `SLA Reporting`
+  - `User Admin`
+- Lazy-loaded the major SLA sub-tabs so the reporting route does not pull every chart-heavy panel on first open.
+- Added explicit Vite manual chunking for:
+  - React/router
+  - MUI core
+  - MUI grid/date packages
+  - Recharts
+  - Leaflet
+  - Day.js
+  - XLSX
+- Switched browser-side Excel helpers on older pages to on-demand `xlsx` loading during export actions instead of route load.
+- Refreshed `User Admin` onto the shared shell with:
+  - `PageShell`
+  - shared filters
+  - shared metric cards
+  - clearer directory panel structure
+
 ### ROC And MNT Retirement
 
 - Removed the legacy ROC/MNT appointments frontend section from the main navigation.

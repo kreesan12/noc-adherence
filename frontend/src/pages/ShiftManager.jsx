@@ -24,7 +24,6 @@ import PublishedWithChangesRoundedIcon from '@mui/icons-material/PublishedWithCh
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
-import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import api from '../api'
@@ -102,11 +101,12 @@ export default function ShiftManager() {
     }
   }
 
-  function handleExport() {
+  async function handleExport() {
     if (!rows.length) {
       setSnack('Nothing to export')
       return
     }
+    const XLSX = await import('xlsx')
 
     const data = rows.map((row) => ({
       ID: row.id,

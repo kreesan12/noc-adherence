@@ -1,7 +1,6 @@
-import dotenv from 'dotenv'
+import { loadServerEnv } from '../lib/loadEnv.js'
 
-dotenv.config()
-dotenv.config({ path: '.env.local', override: true })
+loadServerEnv()
 
 const { initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
 const { startNldOutageWatcher } = await import('../nldOutageWatcher.js')

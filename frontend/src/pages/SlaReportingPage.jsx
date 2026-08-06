@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
   Accordion,
@@ -32,11 +32,12 @@ import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import api from '../api'
 import { FilterStrip, PageShell } from '../components/ui/PageScaffold'
-import SlaOverviewTab from '../components/sla/SlaOverviewTab'
-import SlaBreachesTab from '../components/sla/SlaBreachesTab'
-import SlaOutagesTab from '../components/sla/SlaOutagesTab'
-import SlaTicketsTab from '../components/sla/SlaTicketsTab'
 import { downloadWorkbook } from '../utils/slaExport'
+
+const SlaOverviewTab = lazy(() => import('../components/sla/SlaOverviewTab'))
+const SlaBreachesTab = lazy(() => import('../components/sla/SlaBreachesTab'))
+const SlaOutagesTab = lazy(() => import('../components/sla/SlaOutagesTab'))
+const SlaTicketsTab = lazy(() => import('../components/sla/SlaTicketsTab'))
 
 const DEFAULT_ISP_PAGE_SIZE = 50
 const DEFAULT_BREACH_PAGE_SIZE = 100
@@ -250,6 +251,15 @@ function DetailField({ label, value }) {
         {value || '-'}
       </Typography>
     </Box>
+  )
+}
+
+function AnalyticsPanelFallback({ message = 'Loading panel...' }) {
+  return (
+    <Paper elevation={0} sx={{ p: 4, textAlign: 'center', border: '1px solid #e5e7eb', borderRadius: 3, boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)' }}>
+      <CircularProgress size={26} />
+      <Typography variant="body2" sx={{ mt: 1.1 }}>{message}</Typography>
+    </Paper>
   )
 }
 
@@ -1361,66 +1371,74 @@ export default function SlaReportingPage() {
       </Paper>
 
       {activeTab === 'overview' ? (
-        <SlaOverviewTab
-          loading={overviewLoading}
-          error={overviewError}
-          overview={overview}
-          insights={overviewInsights}
-          trendLoading={overviewTrendLoading}
-          trendError={[overviewTrendError, overviewOpsError].filter(Boolean).join(' ')}
-          focusLoading={overviewFocusLoading}
-          focusError={overviewFocusError}
-          fmtPct={fmtPct}
-          fmtHours={fmtHours}
-          fmtCount={fmtCount}
-          onViewBreaches={openBreachesTab}
-          onSelectIsp={focusIsp}
-          onSelectProductGroup={focusProductGroup}
-          onSelectProductType={focusProductType}
-          onSelectServiceType={focusServiceType}
-        />
+        <Suspense fallback={<AnalyticsPanelFallback message="Loading SLA overview..." />}>
+          <SlaOverviewTab
+            loading={overviewLoading}
+            error={overviewError}
+            overview={overview}
+            insights={overviewInsights}
+            trendLoading={overviewTrendLoading}
+            trendError={[overviewTrendError, overviewOpsError].filter(Boolean).join(' ')}
+            focusLoading={overviewFocusLoading}
+            focusError={overviewFocusError}
+            fmtPct={fmtPct}
+            fmtHours={fmtHours}
+            fmtCount={fmtCount}
+            onViewBreaches={openBreachesTab}
+            onSelectIsp={focusIsp}
+            onSelectProductGroup={focusProductGroup}
+            onSelectProductType={focusProductType}
+            onSelectServiceType={focusServiceType}
+          />
+        </Suspense>
       ) : null}
 
       {activeTab === 'breaches' ? (
-        <SlaBreachesTab
-          loading={breachLoading}
-          error={breachError}
-          breachData={breachData}
-          breachPagination={breachPagination}
-          setBreachPagination={setBreachPagination}
-          breachSearch={breachSearch}
-          setBreachSearch={setBreachSearch}
-          breachThreshold={breachThreshold}
-          setBreachThreshold={setBreachThreshold}
-          fmtCount={fmtCount}
-          fmtPct={fmtPct}
-          fmtHours={fmtHours}
-          pctChipColor={pctChipColor}
-          openLinkDetails={openLinkDetails}
-        />
+        <Suspense fallback={<AnalyticsPanelFallback message="Loading breach monitor..." />}>
+          <SlaBreachesTab
+            loading={breachLoading}
+            error={breachError}
+            breachData={breachData}
+            breachPagination={breachPagination}
+            setBreachPagination={setBreachPagination}
+            breachSearch={breachSearch}
+            setBreachSearch={setBreachSearch}
+            breachThreshold={breachThreshold}
+            setBreachThreshold={setBreachThreshold}
+            fmtCount={fmtCount}
+            fmtPct={fmtPct}
+            fmtHours={fmtHours}
+            pctChipColor={pctChipColor}
+            openLinkDetails={openLinkDetails}
+          />
+        </Suspense>
       ) : null}
 
       {activeTab === 'outages' ? (
-        <SlaOutagesTab
-          loading={outageLoading}
-          error={outageError}
-          outageData={outageData}
-          fmtCount={fmtCount}
-          fmtHours={fmtHours}
-          fmtTs={fmtTs}
-          onOpenOutage={openOutageDetails}
-        />
+        <Suspense fallback={<AnalyticsPanelFallback message="Loading outage analytics..." />}>
+          <SlaOutagesTab
+            loading={outageLoading}
+            error={outageError}
+            outageData={outageData}
+            fmtCount={fmtCount}
+            fmtHours={fmtHours}
+            fmtTs={fmtTs}
+            onOpenOutage={openOutageDetails}
+          />
+        </Suspense>
       ) : null}
 
       {activeTab === 'tickets' ? (
-        <SlaTicketsTab
-          loading={ticketLoading}
-          error={ticketError}
-          ticketData={ticketData}
-          fmtCount={fmtCount}
-          fmtHours={fmtHours}
-          onOpenTicket={openTicketDetails}
-        />
+        <Suspense fallback={<AnalyticsPanelFallback message="Loading ticket analytics..." />}>
+          <SlaTicketsTab
+            loading={ticketLoading}
+            error={ticketError}
+            ticketData={ticketData}
+            fmtCount={fmtCount}
+            fmtHours={fmtHours}
+            onOpenTicket={openTicketDetails}
+          />
+        </Suspense>
       ) : null}
 
       {activeTab === 'explorer' ? (loading ? (

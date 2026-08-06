@@ -9,7 +9,9 @@ This document keeps the frontend visually consistent as new modules are added.
 - Use `PageShell` for every major page route.
 - Use `FilterStrip` for top-level controls, filters, refresh actions, and export actions.
 - Use `SectionCard` or a local card wrapper only when the content area needs a titled panel.
+- Reuse `AnalyticsPrimitives` for metric cards, chart fallbacks, and table empty/loading states before creating one-off dashboard widgets.
 - Keep one clear page title and short description. Avoid repeating large hero headers inside the page body.
+- Keep shared branding text in `frontend/src/config/brand.js` so login, shell, and landing copy stay aligned.
 
 ## Navigation Pattern
 
@@ -35,6 +37,7 @@ This document keeps the frontend visually consistent as new modules are added.
 - Lead metrics should be readable quickly, but not oversized.
 - Supportive labels should use lighter text and tighter copy.
 - Reuse the current teal/blue/slate visual system unless there is a deliberate feature reason to diverge.
+- Login and landing screens should feel like part of the same product family as the authenticated shell, not like a separate app.
 
 ## Tables And Dense Data
 
@@ -71,6 +74,7 @@ These states should look intentional and not feel like fallback debug output.
 
 1. Start with `PageShell`.
 2. Add a compact control strip.
+3. Reuse shared analytics primitives where they fit.
 3. Check the page at normal zoom.
 4. Confirm no page-level horizontal scroll.
 5. Confirm loading, empty, and error states exist.

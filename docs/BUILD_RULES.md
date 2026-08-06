@@ -39,12 +39,16 @@ This document keeps the codebase modular so new features do not turn into large 
 
 - Watch the Vite chunk warnings during build.
 - Prefer lazy imports for large feature pages and chart-heavy modules.
+- Heavy page tabs should be lazy-loaded when they can stand alone cleanly, especially on analytics pages.
+- Browser-side export libraries like `xlsx` should be loaded on demand inside export handlers instead of at route load.
 - Avoid adding browser-side libraries casually when the same task can be done with current tooling.
 - Reuse shared helpers before introducing new utility packages.
 
 ## Shared Frontend Patterns
 
 - Use `PageShell`, `FilterStrip`, and shared access helpers first.
+- Use `frontend/src/config/brand.js` as the single source for shell/login product naming.
+- Use `frontend/src/components/ui/AnalyticsPrimitives.jsx` before creating new dashboard card/fallback variants.
 - Prefer shared formatting helpers for money, dates, percentages, and counts.
 - If the same card or panel appears in multiple features, extract it.
 
@@ -57,6 +61,7 @@ This document keeps the codebase modular so new features do not turn into large 
 
 1. Run a frontend build.
 2. Check for new large chunk warnings.
+3. Check whether new imports belong in a manual chunk or a lazy-loaded panel.
 3. Check the page at normal zoom.
 4. Confirm loading and error states.
 5. Confirm role access logic.

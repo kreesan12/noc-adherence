@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { PageShell, SectionCard } from '../components/ui/PageScaffold'
 import { buildNavigationSections, flattenNavigationItems } from '../config/navigation.jsx'
+import { BRAND } from '../config/brand'
 import { normalizeRole } from '../utils/access'
 
 const ACCENT = '#0f766e'
@@ -24,8 +25,8 @@ export default function LandingDashboardPage({ vacancyCount = 0 }) {
   return (
     <PageShell
       eyebrow="Workspace"
-      title="Operations Home"
-      description="Use this landing view as the central launcher into operations, engineering, SLA reporting, stock management, and admin workflows."
+      title={BRAND.homeTitle}
+      description={BRAND.homeDescription}
       accent={ACCENT}
       stats={[
         { label: 'Role', value: normalizeRole(user?.role || 'user').toUpperCase(), helper: user?.name || 'signed in user' },
