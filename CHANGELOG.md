@@ -53,6 +53,17 @@
 - Fixed the NLD tracking importer so it no longer hangs when the expected Gmail message for a day is missing.
 - Removed the stale PM2 service layer from both xneelo servers so `systemd` is the only active process manager.
 - Updated architecture and migration runbooks to reflect the xneelo-first production design.
+- Retired the dormant SLA acknowledgement WhatsApp watcher so the automation footprint only carries active watcher flows.
+- Tightened the live WhatsApp watcher templates:
+  - NLD outage alerts now use shorter summary-first wording
+  - NLD aging alerts now include the Zendesk last-update timestamp
+  - partial NLD alerts now focus on action-driven summaries instead of internal bucket details
+  - VIP alerts now remove low-value metadata like full tag dumps and org ids
+- Added a dedicated backhaul watcher using the Zendesk tag:
+  - `iris_backhaul_down`
+- Added solved/close-out WhatsApp notifications for:
+  - NLD outage tickets
+  - backhaul tickets
 
 ### Frontend Hosting Move
 

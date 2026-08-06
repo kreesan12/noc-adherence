@@ -47,6 +47,7 @@
 - Responsibilities:
   - WhatsApp connection
   - NLD watcher
+  - Backhaul watcher
   - VIP watcher
   - Gmail-driven import jobs through systemd timers
 

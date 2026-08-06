@@ -3,6 +3,7 @@ import { loadServerEnv } from '../lib/loadEnv.js'
 loadServerEnv()
 
 const { initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
+const { startBackhaulWatcher } = await import('../backhaulWatcher.js')
 const { startNldOutageWatcher } = await import('../nldOutageWatcher.js')
 const { startVipTicketWatcher } = await import('../vipTicketWatcher.js')
 
@@ -27,6 +28,12 @@ try {
   startNldOutageWatcher(sendSlaAlert)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start NLD watcher:', err?.message || err)
+}
+
+try {
+  startBackhaulWatcher(sendSlaAlert)
+} catch (err) {
+  console.error('[AUTOMATION] Failed to start backhaul watcher:', err?.message || err)
 }
 
 try {
