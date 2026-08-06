@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const PROD_API_BASE_URL = 'https://noc-adherence-api-69d04051b9ed.herokuapp.com/api'
+const PROD_API_BASE_URL = 'https://154-65-108-106.sslip.io/api'
 
 function resolveBaseUrl() {
   if (import.meta.env.VITE_API_BASE_URL) {

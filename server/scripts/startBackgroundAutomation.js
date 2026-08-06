@@ -1,11 +1,11 @@
 import dotenv from 'dotenv'
 
-import { initWhatsApp, sendSlaAlert } from '../whatsappClient.js'
-import { startNldOutageWatcher } from '../nldOutageWatcher.js'
-import { startVipTicketWatcher } from '../vipTicketWatcher.js'
-
 dotenv.config()
 dotenv.config({ path: '.env.local', override: true })
+
+const { initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
+const { startNldOutageWatcher } = await import('../nldOutageWatcher.js')
+const { startVipTicketWatcher } = await import('../vipTicketWatcher.js')
 
 process.on('unhandledRejection', (err) => {
   console.error('[AUTOMATION][FATAL] unhandledRejection:', err?.message || err)

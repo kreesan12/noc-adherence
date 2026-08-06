@@ -1,12 +1,8 @@
 # .github/workflows/deploy-backend.yml
-name: Deploy Backend (server subtree)
+name: Legacy Backend Deploy (Heroku Manual Only)
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "server/**"                      # ↳ includes server/prisma/**
-      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -14,27 +10,25 @@ jobs:
 
     env:
       HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-      HEROKU_APP:     noc-adherence-api       # ⬅️  your Heroku app name
+      HEROKU_APP: noc-adherence-api
 
     steps:
-      # 1️⃣  Full-depth checkout (needed for git subtree)
+      # Legacy path retained for rollback only.
+      # Production backend is now hosted on xneelo.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2️⃣  Install Heroku CLI (for git push to the slug)
       - name: Install Heroku CLI
         run: |
           curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
           heroku --version
 
-      # 3️⃣  Deploy only the server/ subtree (now already contains prisma/)
       - name: Push server folder to Heroku
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name  "github-actions"
 
-          # split server/ subtree and force-push it to Heroku main
           commit_sha=$(git subtree split --prefix server HEAD)
           git push https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP}.git \
             ${commit_sha}:refs/heads/main --force
