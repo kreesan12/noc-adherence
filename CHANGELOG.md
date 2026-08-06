@@ -172,6 +172,7 @@
   - shared metric cards
   - clearer directory panel structure
 - Expanded the login landing into a full-width unified entry canvas so the sign-in experience uses the page space more intentionally and feels consistent with the upgraded shell.
+- Hardened the frontend bootstrap so production startup failures no longer disappear into a blank screen; the app now renders a visible fallback with the startup error when the main bundle crashes during load.
 
 ### ROC And MNT Retirement
 
