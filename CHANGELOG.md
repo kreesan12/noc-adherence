@@ -128,6 +128,12 @@
 - Added collapsible hide/show behavior for the left navigation so users can reclaim horizontal space on data-heavy screens.
 - Centralized frontend access helpers so admin access now inherits engineering-capable UI actions consistently.
 - Refreshed `NLD Mapping` onto the shared shell and aligned its edit behavior with backend engineering/admin permissions.
+- Confirmed `noc-adherence` Heroku runtime and database decommission after final backup.
+
+### UI Refresh Wave Three
+
+- Refreshed `NLD Map` onto the shared page shell with tighter filters, a cleaner explorer panel, and a more responsive map/details split.
+- Refreshed `Circuit Data Cleanup` onto the shared page shell with better grouping controls, search, summary metrics, and a more consistent admin editing layout.
 
 ### ROC And MNT Retirement
 

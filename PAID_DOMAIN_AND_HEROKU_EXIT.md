@@ -16,8 +16,7 @@
 - Scheduling:
   - moved to xneelo `systemd` timers
 - Heroku:
-  - no longer active for runtime traffic
-  - retained only as rollback safety for the old database copy and app shell
+  - fully decommissioned for `noc-adherence` after final backup
 
 ## What Is Already Off Heroku
 
@@ -27,28 +26,14 @@
 - live production database traffic
 - scheduled jobs
 
-## What Is Still Left On Heroku
+## Heroku Decommission Status
 
-These are now rollback-only, not active production dependencies:
+Completed for `noc-adherence`:
 
-- app:
-  - `noc-adherence-api`
-- database add-on:
-  - `heroku-postgresql (postgresql-horizontal-33579)`
-
-Already removed:
-
-- Heroku Scheduler
-
-## Safe Heroku Decommission Order
-
-Once you have validated the xneelo environment for long enough that you are comfortable burning the rollback path, remove Heroku in this order:
-
-1. confirm xneelo backups exist and can be restored
-2. confirm both xneelo servers are using the local PostgreSQL database
-3. take one final `pg_dump` of the Heroku database for archive purposes
-4. delete the Heroku Postgres add-on
-5. delete the `noc-adherence-api` Heroku app
+1. final backup taken
+2. Heroku Postgres removed
+3. Heroku app removed
+4. Heroku Scheduler already removed earlier in the migration
 
 ## Paid Domain Move
 
@@ -157,7 +142,6 @@ That gives you:
 
 ## Recommended Next Steps
 
-1. keep Heroku untouched for a short validation period
-2. monitor xneelo backups and daily timers for a few days
-3. once satisfied, remove the Heroku database and app
-4. then move from `sslip.io` to the paid domain
+1. monitor xneelo backups and daily timers for a few days
+2. move from `sslip.io` to the paid domain when ready
+3. add lightweight monitoring around disk, memory, and PostgreSQL connections

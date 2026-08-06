@@ -81,14 +81,13 @@
 
 ### Heroku Status
 
-- Heroku is no longer part of the active runtime path for:
+- Heroku was fully retired for `noc-adherence` on `2026-08-06`.
+- The user took a final backup before decommissioning.
+- There are no active Heroku dependencies left for:
   - web API hosting
   - scheduled jobs
   - live database traffic
-- Legacy Heroku pieces currently retained only as rollback safety:
-  - app: `noc-adherence-api`
-  - database add-on: `heroku-postgresql (postgresql-horizontal-33579)`
-- Heroku Scheduler has already been removed.
+  - frontend hosting
 
 ## Server Layout
 
@@ -350,4 +349,3 @@ This avoids exposing PostgreSQL publicly to the internet.
 - replace `sslip.io` with a branded DNS hostname when the paid domain is ready
 - add a proper SSH-based or artifact-based backend deploy workflow for xneelo
 - add database monitoring and alerting around disk, backups, and connection counts
-- finish Heroku removal after final validation

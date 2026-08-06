@@ -1,37 +1,62 @@
-// frontend/src/pages/NldMapPage.jsx
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import {
-  MapContainer, TileLayer, CircleMarker, Polyline, Tooltip, LayersControl, useMap
+  MapContainer,
+  TileLayer,
+  CircleMarker,
+  Polyline,
+  Tooltip,
+  LayersControl,
+  useMap
 } from 'react-leaflet'
 import L from 'leaflet'
 import {
-  Box, Paper, Typography, List, ListItemButton, ListItemText, Chip,
-  Stack, TextField, IconButton, Divider, Switch, FormControlLabel, Button
+  Box,
+  Button,
+  Chip,
+  Divider,
+  FormControlLabel,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItemButton,
+  ListItemText,
+  Stack,
+  Switch,
+  TextField,
+  Typography
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
 import FilterAltOffIcon from '@mui/icons-material/FilterAltOff'
+import MyLocationRoundedIcon from '@mui/icons-material/MyLocationRounded'
+import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
+import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import api from '../api'
+import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
 const { BaseLayer } = LayersControl
 
-/* ---------------- geo helpers ---------------- */
 function haversineKm(a, b) {
-  const toRad = d => (d * Math.PI) / 180
+  const toRad = (d) => (d * Math.PI) / 180
   const R = 6371
   const dLat = toRad(b[0] - a[0])
   const dLon = toRad(b[1] - a[1])
   const lat1 = toRad(a[0])
   const lat2 = toRad(b[0])
-  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
-/* --------- controller that runs fits inside the map tree --------- */
+function fmtDbm(value) {
+  if (value == null || value === '' || Number.isNaN(Number(value))) return '--'
+  return `${Number(value).toFixed(1)} dBm`
+}
+
 function MapController({ fitBoundsCmd }) {
   const map = useMap()
 
-  // make sure Leaflet knows its size
   useEffect(() => {
     const onResize = () => map.invalidateSize()
     map.whenReady(() => map.invalidateSize())
@@ -45,7 +70,6 @@ function MapController({ fitBoundsCmd }) {
     if (!bounds) return
     const latLngBounds = Array.isArray(bounds[0]) ? L.latLngBounds(bounds) : bounds
     if (!latLngBounds.isValid()) {
-      // eslint-disable-next-line no-console
       console.warn('MapController: invalid bounds', bounds)
       return
     }
@@ -56,24 +80,94 @@ function MapController({ fitBoundsCmd }) {
   return null
 }
 
-export default function NldMapPage () {
-  /* ---------------- state ---------------- */
+function DetailRow({ label, value }) {
+  return (
+    <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start">
+      <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.45 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ fontWeight: 700, textAlign: 'right' }}>
+        {value}
+      </Typography>
+    </Stack>
+  )
+}
+
+function CircuitDetails({ span, colour, onFit, onFitGroup }) {
+  if (!span) {
+    return (
+      <Stack spacing={1.1} sx={{ p: 0.15 }}>
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          Select a circuit from the explorer or click a route on the map to inspect its ends, distance, and light level context.
+        </Typography>
+        <Chip size="small" label="No circuit selected" sx={{ alignSelf: 'flex-start' }} />
+      </Stack>
+    )
+  }
+
+  const a = [Number(span.nodeA.lat), Number(span.nodeA.lon)]
+  const b = [Number(span.nodeB.lat), Number(span.nodeB.lon)]
+  const km = haversineKm(a, b)
+  const accent = colour(span.nldGroup)
+
+  return (
+    <Stack spacing={1.05}>
+      <Stack direction="row" spacing={0.85} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+        <Chip
+          size="small"
+          label={span.nldGroup ?? 'Unassigned'}
+          sx={{ bgcolor: alpha(accent, 0.14), color: accent, fontWeight: 800 }}
+        />
+        <Typography variant="h6" sx={{ color: accent }}>
+          {span.circuitId}
+        </Typography>
+      </Stack>
+
+      <Stack spacing={0.75}>
+        <DetailRow label="Node A" value={span.nodeA?.name ?? 'Unknown'} />
+        <DetailRow label="Node B" value={span.nodeB?.name ?? 'Unknown'} />
+        <DetailRow label="Approx length" value={`${km.toFixed(1)} km`} />
+        <DetailRow label="A coordinates" value={`${a[0].toFixed(4)}, ${a[1].toFixed(4)}`} />
+        <DetailRow label="B coordinates" value={`${b[0].toFixed(4)}, ${b[1].toFixed(4)}`} />
+        <DetailRow label="Latest Rx A" value={fmtDbm(span?.levels?.aRx)} />
+        <DetailRow label="Latest Rx B" value={fmtDbm(span?.levels?.bRx)} />
+      </Stack>
+
+      <Divider />
+
+      <Stack direction={{ xs: 'column', sm: 'row', lg: 'column', xl: 'row' }} spacing={0.8}>
+        <Button variant="contained" startIcon={<MyLocationRoundedIcon />} onClick={onFit}>
+          Fit Circuit
+        </Button>
+        <Button variant="outlined" startIcon={<HubRoundedIcon />} onClick={onFitGroup}>
+          Fit Group
+        </Button>
+        <Button
+          variant="text"
+          href={`/engineering/nlds?circuit=${encodeURIComponent(span.circuitId ?? '')}`}
+        >
+          Open Levels
+        </Button>
+      </Stack>
+    </Stack>
+  )
+}
+
+export default function NldMapPage() {
   const [spans, setSpans] = useState([])
   const [query, setQuery] = useState('')
   const [showMarkers, setShowMarkers] = useState(true)
   const [selectedCircuitId, setSelectedCircuitId] = useState(null)
   const [activeGroups, setActiveGroups] = useState(new Set())
-  const [fitBoundsCmd, setFitBoundsCmd] = useState(null) // {bounds, method:'fit'|'fly', options}
+  const [fitBoundsCmd, setFitBoundsCmd] = useState(null)
 
-  /* ---------------- fetch once ------------------ */
   useEffect(() => {
     api.get('/nlds.json')
-      .then(r => setSpans(r.data ?? []))
+      .then((r) => setSpans(r.data ?? []))
       .catch(console.error)
   }, [])
 
-  /* ---------------- palette & helpers ----------- */
-  const palette = ['#1976d2','#009688','#ef6c00','#8e24aa','#d81b60','#43a047','#f9a825','#5c6bc0']
+  const palette = ['#1976d2', '#009688', '#ef6c00', '#8e24aa', '#d81b60', '#43a047', '#f9a825', '#5c6bc0']
 
   const colour = (nldLike) => {
     const str = String(nldLike ?? 'Unassigned')
@@ -85,392 +179,420 @@ export default function NldMapPage () {
     return palette[Math.abs(hash) % palette.length]
   }
 
-  const validLatLon = node => Number.isFinite(Number(node?.lat)) && Number.isFinite(Number(node?.lon))
-  const hasBothEnds = span => validLatLon(span?.nodeA) && validLatLon(span?.nodeB)
+  const validLatLon = (node) => Number.isFinite(Number(node?.lat)) && Number.isFinite(Number(node?.lon))
+  const hasBothEnds = (span) => validLatLon(span?.nodeA) && validLatLon(span?.nodeB)
 
-  /* ---------------- URL sync for ?circuit= ------ */
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
     const fromUrl = p.get('circuit')
     if (fromUrl) setSelectedCircuitId(fromUrl)
   }, [])
+
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
-    selectedCircuitId ? p.set('circuit', selectedCircuitId) : p.delete('circuit')
-    const newUrl = `${window.location.pathname}?${p.toString()}${window.location.hash}`
+    if (selectedCircuitId) p.set('circuit', selectedCircuitId)
+    else p.delete('circuit')
+    const nextSearch = p.toString()
+    const newUrl = nextSearch ? `${window.location.pathname}?${nextSearch}${window.location.hash}` : `${window.location.pathname}${window.location.hash}`
     window.history.replaceState({}, '', newUrl)
   }, [selectedCircuitId])
 
-  /* ---------------- derived data ---------------- */
   const allGroups = useMemo(() => {
     const s = new Set()
-    for (const sp of spans) s.add(sp?.nldGroup ?? 'Unassigned')
-    return Array.from(s).sort()
+    spans.forEach((sp) => s.add(sp?.nldGroup ?? 'Unassigned'))
+    return Array.from(s).sort((a, b) => String(a).localeCompare(String(b)))
   }, [spans])
 
-  const isGroupActive = (g) => activeGroups.size === 0 || activeGroups.has(g)
+  const validSpans = useMemo(() => spans.filter(hasBothEnds), [spans])
+
+  const groupMeta = useMemo(() => {
+    const counts = new Map()
+    validSpans.forEach((span) => {
+      const key = span?.nldGroup ?? 'Unassigned'
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    })
+    return allGroups.map((group) => ({
+      group,
+      count: counts.get(group) ?? 0,
+      color: colour(group)
+    }))
+  }, [allGroups, validSpans])
+
+  const isGroupActive = (group) => activeGroups.size === 0 || activeGroups.has(group)
 
   const filteredSpans = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return spans
-      .filter(hasBothEnds)
-      .filter(s => isGroupActive(s?.nldGroup ?? 'Unassigned'))
-      .filter(s => {
+    return validSpans
+      .filter((span) => isGroupActive(span?.nldGroup ?? 'Unassigned'))
+      .filter((span) => {
         if (!q) return true
-        const a = `${s?.nodeA?.name ?? ''}`.toLowerCase()
-        const b = `${s?.nodeB?.name ?? ''}`.toLowerCase()
-        const id = `${s?.circuitId ?? ''}`.toLowerCase()
-        const g = `${s?.nldGroup ?? ''}`.toLowerCase()
-        return a.includes(q) || b.includes(q) || id.includes(q) || g.includes(q)
+        const haystacks = [span?.nodeA?.name, span?.nodeB?.name, span?.circuitId, span?.nldGroup]
+        return haystacks.some((value) => String(value ?? '').toLowerCase().includes(q))
       })
-  }, [spans, query, activeGroups])
+  }, [validSpans, query, activeGroups])
 
-  const groups = useMemo(
-    () => filteredSpans.reduce((m, s) => {
-      const key = s?.nldGroup ?? 'Unassigned'
-      ;(m[key] ??= []).push(s)
-      return m
-    }, {}),
-    [filteredSpans]
-  )
+  const groups = useMemo(() => {
+    return filteredSpans.reduce((memo, span) => {
+      const key = span?.nldGroup ?? 'Unassigned'
+      ;(memo[key] ??= []).push(span)
+      return memo
+    }, {})
+  }, [filteredSpans])
 
   const selectedSpan = useMemo(
-    () => filteredSpans.find(s => s.circuitId === selectedCircuitId) || null,
+    () => filteredSpans.find((span) => span.circuitId === selectedCircuitId) || null,
     [filteredSpans, selectedCircuitId]
   )
 
-  /* ---------------- bounds helpers -------------- */
   const boundsForSpan = (span) => [
     [Number(span.nodeA.lat), Number(span.nodeA.lon)],
-    [Number(span.nodeB.lat), Number(span.nodeB.lon)],
+    [Number(span.nodeB.lat), Number(span.nodeB.lon)]
   ]
 
   const boundsForSpans = (items) => {
     const pts = []
-    for (const s of items) {
-      if (hasBothEnds(s)) {
-        pts.push([Number(s.nodeA.lat), Number(s.nodeA.lon)])
-        pts.push([Number(s.nodeB.lat), Number(s.nodeB.lon)])
+    items.forEach((span) => {
+      if (hasBothEnds(span)) {
+        pts.push([Number(span.nodeA.lat), Number(span.nodeA.lon)])
+        pts.push([Number(span.nodeB.lat), Number(span.nodeB.lon)])
       }
-    }
+    })
     if (!pts.length) return null
     let [minLat, minLon] = pts[0]
     let [maxLat, maxLon] = pts[0]
-    for (const [lat, lon] of pts) {
+    pts.forEach(([lat, lon]) => {
       if (lat < minLat) minLat = lat
       if (lat > maxLat) maxLat = lat
       if (lon < minLon) minLon = lon
       if (lon > maxLon) maxLon = lon
-    }
+    })
     return [[minLat, minLon], [maxLat, maxLon]]
   }
 
-  /* ---------------- fit commands ---------------- */
   const setFitSpan = (span) => {
-    const b = boundsForSpan(span)
-    setFitBoundsCmd({ bounds: b, method: 'fly', options: { padding: [60, 60] } })
-  }
-  const fitAll = () => {
-    const b = boundsForSpans(filteredSpans)
-    if (!b) return
-    setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [70, 70] } })
-  }
-  const fitGroup = (groupKey) => {
-    const b = boundsForSpans(groups[groupKey] ?? [])
-    if (!b) return
-    setFitBoundsCmd({ bounds: b, method: 'fit', options: { padding: [60, 60] } })
+    setFitBoundsCmd({ bounds: boundsForSpan(span), method: 'fly', options: { padding: [60, 60] } })
   }
 
-  // auto-fit when data or filters change (and nothing selected)
+  const fitAll = () => {
+    const bounds = boundsForSpans(filteredSpans)
+    if (!bounds) return
+    setFitBoundsCmd({ bounds, method: 'fit', options: { padding: [70, 70] } })
+  }
+
+  const fitGroup = (groupKey) => {
+    const bounds = boundsForSpans(groups[groupKey] ?? [])
+    if (!bounds) return
+    setFitBoundsCmd({ bounds, method: 'fit', options: { padding: [60, 60] } })
+  }
+
+  const clearFilters = () => {
+    setQuery('')
+    setActiveGroups(new Set())
+    setSelectedCircuitId(null)
+    const bounds = boundsForSpans(validSpans)
+    if (bounds) {
+      setFitBoundsCmd({ bounds, method: 'fit', options: { padding: [70, 70] } })
+    }
+  }
+
   useEffect(() => {
     if (!selectedCircuitId && filteredSpans.length) fitAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredSpans.length])
 
-  /* ---------------- render ---------------------- */
-  return (
-    <Box sx={{ display: 'flex', width: '100%', height: '100vh' /* full viewport height */ }}>
-      {/* LEFT PANEL */}
-      <Paper
-        elevation={1}
-        sx={{
-          width: 360,
-          height: '100vh',
-          overflow: 'auto',
-          p: 2,
-          borderRight: theme => `1px solid ${theme.palette.divider}`,
-        }}
-      >
-        <Typography variant="h6" sx={{ mb: 1 }}>NLD Explorer</Typography>
+  const stats = [
+    { label: 'Mapped Circuits', value: validSpans.length, helper: 'Circuits with usable coordinates', accent: '#0f766e' },
+    { label: 'Groups', value: allGroups.length, helper: activeGroups.size ? `${activeGroups.size} filtered in` : 'All groups visible', accent: '#2563eb' },
+    { label: 'In View', value: filteredSpans.length, helper: query ? `Search: ${query}` : 'Current filter result', accent: '#ea580c' },
+    { label: 'Selection', value: selectedSpan?.circuitId || 'None', helper: selectedSpan ? (selectedSpan.nldGroup ?? 'Unassigned') : 'Choose a route', accent: '#7c3aed' }
+  ]
 
-        {/* Search + top controls */}
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+  return (
+    <PageShell
+      eyebrow="Engineering"
+      title="NLD Map Explorer"
+      description="Explore NLD groups, circuit paths, and node positions in one place. The filters and explorer stay lightweight so we can keep this page responsive even as the network grows."
+      accent="#0f766e"
+      actions={(
+        <FilterStrip>
           <TextField
             value={query}
-            onChange={e => setQuery(e.target.value)}
-            size="small"
-            fullWidth
-            placeholder="Search circuit / node / NLD…"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search circuit, node, or NLD group"
+            sx={{ minWidth: { xs: '100%', sm: 250 } }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRoundedIcon fontSize="small" />
+                </InputAdornment>
+              )
+            }}
           />
-          <IconButton aria-label="fit all" onClick={fitAll} title="Fit all">
-            <CenterFocusStrongIcon />
-          </IconButton>
-          <IconButton
-            aria-label="clear filters"
-            onClick={() => { setQuery(''); setActiveGroups(new Set()); setSelectedCircuitId(null); setTimeout(fitAll, 0) }}
-            title="Clear filters"
-          >
-            <FilterAltOffIcon />
-          </IconButton>
-          <IconButton aria-label="reset view" onClick={() => { setSelectedCircuitId(null); fitAll() }} title="Reset view">
+          <FormControlLabel
+            control={<Switch checked={showMarkers} onChange={(_, value) => setShowMarkers(value)} />}
+            label="Node markers"
+            sx={{ mr: 0.2 }}
+          />
+          <Button variant="contained" startIcon={<CenterFocusStrongIcon />} onClick={fitAll}>
+            Fit View
+          </Button>
+          <Button variant="outlined" startIcon={<FilterAltOffIcon />} onClick={clearFilters}>
+            Clear
+          </Button>
+          <IconButton onClick={() => { setSelectedCircuitId(null); fitAll() }} title="Reset selection">
             <RestartAltIcon />
           </IconButton>
-        </Stack>
-
-        <FormControlLabel
-          control={<Switch checked={showMarkers} onChange={(_, v) => setShowMarkers(v)} />}
-          label="Show node markers"
-          sx={{ mb: 1 }}
-        />
-
-        {/* Group chips (legend + filter) */}
-        <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>NLD Groups</Typography>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 1 }}>
-          {allGroups.map(g => {
-            const on = isGroupActive(g)
-            return (
-              <Chip
-                key={g}
-                label={g}
-                clickable
-                onClick={() => {
-                  setSelectedCircuitId(null)
-                  setActiveGroups(prev => {
-                    const next = new Set(prev)
-                    if (next.has(g)) next.delete(g); else next.add(g)
-                    if (next.size === allGroups.length) return new Set() // treat as "all on"
-                    return next
-                  })
-                }}
-                variant={on ? 'filled' : 'outlined'}
-                sx={{
-                  borderColor: colour(g),
-                  backgroundColor: on ? `${colour(g)}22` : 'transparent',
-                  color: 'inherit'
-                }}
-              />
-            )
-          })}
-        </Stack>
-
-        <Divider sx={{ my: 1 }} />
-
-        {/* Grouped list */}
-        <Stack spacing={1}>
-          {Object.entries(groups).sort(([a], [b]) => String(a).localeCompare(String(b))).map(([nld, list]) => (
-            <Box key={nld}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ pr: 1 }}>
-                <Typography sx={{ pl: 1, fontWeight: 700, color: colour(nld) }}>{nld}</Typography>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Chip label={list.length} size="small" />
-                  <Button size="small" onClick={() => fitGroup(nld)}>Fit</Button>
-                </Stack>
-              </Stack>
-
-              <List dense disablePadding>
-                {list
-                  .slice()
-                  .sort((a,b) => String(a.circuitId).localeCompare(String(b.circuitId)))
-                  .map(s => {
-                    const isSel = s.circuitId === selectedCircuitId
-                    return (
-                      <ListItemButton
-                        key={s.circuitId}
-                        onClick={() => { setSelectedCircuitId(s.circuitId); setFitSpan(s) }}
-                        selected={isSel}
-                        sx={{ borderLeft: `3px solid ${isSel ? colour(nld) : 'transparent'}` }}
-                      >
-                        <ListItemText
-                          primary={s.circuitId ?? '(no circuit id)'}
-                          secondary={`${s?.nodeA?.name ?? 'Unknown'} ↔ ${s?.nodeB?.name ?? 'Unknown'}`}
-                          primaryTypographyProps={{ noWrap: true }}
-                          secondaryTypographyProps={{ noWrap: true }}
-                        />
-                      </ListItemButton>
-                    )
-                  })}
-              </List>
-            </Box>
-          ))}
-        </Stack>
-      </Paper>
-
-      {/* RIGHT SIDE: GRID with MAP + DETAILS */}
+        </FilterStrip>
+      )}
+      stats={stats}
+    >
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: '1fr 340px',
-          width: '100%',
-          height: '100vh', // give the grid a real height (full viewport)
+          gap: 1.05,
+          gridTemplateColumns: { xs: '1fr', xl: '320px minmax(0, 1fr)' },
+          alignItems: 'start'
         }}
       >
-        {/* MAP cell */}
-        <Box sx={{ position: 'relative' }}>
-          <MapContainer
-            center={[-29, 24]}
-            zoom={6}
-            minZoom={4}
-            style={{ position: 'absolute', inset: 0 }} // fill the grid cell
-            zoomControl
+        <SectionCard
+          title="Circuit Explorer"
+          subtitle="Filter by NLD group, inspect available routes, and jump the map to a chosen area."
+          accent="#2563eb"
+          noPadding
+        >
+          <Stack spacing={1} sx={{ p: 1.05 }}>
+            <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+              {groupMeta.map(({ group, count, color }) => {
+                const active = isGroupActive(group)
+                return (
+                  <Chip
+                    key={group}
+                    clickable
+                    onClick={() => {
+                      setSelectedCircuitId(null)
+                      setActiveGroups((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(group)) next.delete(group)
+                        else next.add(group)
+                        if (next.size === allGroups.length) return new Set()
+                        return next
+                      })
+                    }}
+                    label={`${group} (${count})`}
+                    variant={active ? 'filled' : 'outlined'}
+                    sx={{
+                      bgcolor: active ? alpha(color, 0.14) : 'transparent',
+                      borderColor: alpha(color, 0.5),
+                      color,
+                      fontWeight: 700
+                    }}
+                  />
+                )
+              })}
+            </Stack>
+
+            <Divider />
+
+            <Box sx={{ maxHeight: { xs: 360, xl: 'calc(100vh - 390px)' }, overflow: 'auto', pr: 0.4 }}>
+              <Stack spacing={1}>
+                {Object.entries(groups)
+                  .sort(([a], [b]) => String(a).localeCompare(String(b)))
+                  .map(([groupKey, list]) => (
+                    <Box key={groupKey}>
+                      <Stack direction="row" spacing={0.8} alignItems="center" justifyContent="space-between" sx={{ mb: 0.45 }}>
+                        <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
+                          <RouteRoundedIcon sx={{ color: colour(groupKey), fontSize: 18 }} />
+                          <Typography variant="subtitle2" noWrap sx={{ color: colour(groupKey) }}>
+                            {groupKey}
+                          </Typography>
+                          <Chip size="small" label={list.length} />
+                        </Stack>
+                        <Button size="small" onClick={() => fitGroup(groupKey)}>
+                          Fit
+                        </Button>
+                      </Stack>
+
+                      <List dense disablePadding>
+                        {list
+                          .slice()
+                          .sort((a, b) => String(a.circuitId).localeCompare(String(b.circuitId)))
+                          .map((span) => {
+                            const selected = span.circuitId === selectedCircuitId
+                            return (
+                              <ListItemButton
+                                key={span.circuitId}
+                                selected={selected}
+                                onClick={() => {
+                                  setSelectedCircuitId(span.circuitId)
+                                  setFitSpan(span)
+                                }}
+                                sx={{
+                                  mb: 0.45,
+                                  borderRadius: 1.8,
+                                  borderLeft: `3px solid ${selected ? colour(groupKey) : 'transparent'}`,
+                                  bgcolor: selected ? alpha(colour(groupKey), 0.08) : 'transparent'
+                                }}
+                              >
+                                <ListItemText
+                                  primary={span.circuitId ?? '(no circuit id)'}
+                                  secondary={`${span?.nodeA?.name ?? 'Unknown'} <-> ${span?.nodeB?.name ?? 'Unknown'}`}
+                                  primaryTypographyProps={{ noWrap: true, fontWeight: 700, fontSize: '0.78rem' }}
+                                  secondaryTypographyProps={{ noWrap: true, fontSize: '0.72rem' }}
+                                />
+                              </ListItemButton>
+                            )
+                          })}
+                      </List>
+                    </Box>
+                  ))}
+
+                {!filteredSpans.length ? (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', py: 1 }}>
+                    No mapped circuits matched the current filters.
+                  </Typography>
+                ) : null}
+              </Stack>
+            </Box>
+          </Stack>
+        </SectionCard>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 1.05,
+            gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 310px' },
+            alignItems: 'start'
+          }}
+        >
+          <SectionCard
+            title="Network View"
+            subtitle="Use the layers control and route clicks to move around the national footprint."
+            accent="#0f766e"
+            noPadding
           >
-            {/* Execute fits reliably inside the map */}
-            <MapController fitBoundsCmd={fitBoundsCmd} />
+            <Box sx={{ height: { xs: 420, md: 530, xl: 'calc(100vh - 290px)' }, minHeight: 420 }}>
+              <MapContainer center={[-29, 24]} zoom={6} minZoom={4} style={{ height: '100%', width: '100%' }} zoomControl>
+                <MapController fitBoundsCmd={fitBoundsCmd} />
 
-            <LayersControl position="topright">
-              <BaseLayer checked name="OpenStreetMap">
-                <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution="© OpenStreetMap contributors"
-                />
-              </BaseLayer>
-              <BaseLayer name="Carto Light">
-                <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                  attribution="© OpenStreetMap, © Carto"
-                />
-              </BaseLayer>
-              <BaseLayer name="Carto Dark">
-                <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                  attribution="© OpenStreetMap, © Carto"
-                />
-              </BaseLayer>
-            </LayersControl>
+                <LayersControl position="topright">
+                  <BaseLayer checked name="OpenStreetMap">
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution="© OpenStreetMap contributors"
+                    />
+                  </BaseLayer>
+                  <BaseLayer name="Carto Light">
+                    <TileLayer
+                      url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                      attribution="© OpenStreetMap, © Carto"
+                    />
+                  </BaseLayer>
+                  <BaseLayer name="Carto Dark">
+                    <TileLayer
+                      url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                      attribution="© OpenStreetMap, © Carto"
+                    />
+                  </BaseLayer>
+                </LayersControl>
 
-            {/* lines */}
-            {filteredSpans.map(s => {
-              const isSel = s.circuitId === selectedCircuitId
-              const positions = [
-                [Number(s.nodeA.lat), Number(s.nodeA.lon)],
-                [Number(s.nodeB.lat), Number(s.nodeB.lon)],
-              ]
-              const distanceKm = haversineKm(positions[0], positions[1])
-              const color = colour(s?.nldGroup)
-              const levels = s?.levels
+                {filteredSpans.map((span) => {
+                  const selected = span.circuitId === selectedCircuitId
+                  const positions = [
+                    [Number(span.nodeA.lat), Number(span.nodeA.lon)],
+                    [Number(span.nodeB.lat), Number(span.nodeB.lon)]
+                  ]
+                  const distanceKm = haversineKm(positions[0], positions[1])
+                  const routeColor = colour(span?.nldGroup)
 
-              return (
-                <Polyline
-                  key={s.circuitId}
-                  positions={positions}
-                  pathOptions={{
-                    color,
-                    weight: isSel ? 6 : 4,
-                    opacity: isSel ? 0.95 : 0.75
-                  }}
-                  eventHandlers={{
-                    click: () => { setSelectedCircuitId(s.circuitId); setFitSpan(s) },
-                    mouseover: (e) => e.target.setStyle({ weight: isSel ? 7 : 6, opacity: 1 }),
-                    mouseout:  (e) => e.target.setStyle({ weight: isSel ? 6 : 4, opacity: isSel ? 0.95 : 0.75 }),
-                  }}
-                >
-                  <Tooltip sticky>
-                    <Stack spacing={0.5}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700, color }}>{s.circuitId}</Typography>
-                      <Typography variant="caption">{s?.nodeA?.name ?? 'Unknown'} ↔ {s?.nodeB?.name ?? 'Unknown'}</Typography>
-                      <Typography variant="caption">NLD: {s?.nldGroup ?? 'Unassigned'} • ~{distanceKm.toFixed(1)} km</Typography>
-                      {levels && (typeof levels.aRx === 'number' || typeof levels.bRx === 'number') && (
-                        <Typography variant="caption">Rx A/B: {levels.aRx ?? '—'} / {levels.bRx ?? '—'} dBm</Typography>
-                      )}
-                    </Stack>
-                  </Tooltip>
-                </Polyline>
-              )
-            })}
-
-            {/* markers */}
-            {showMarkers && filteredSpans.flatMap(s => ([
-              { ...s.nodeA, circuitId: s.circuitId, nldGroup: s.nldGroup },
-              { ...s.nodeB, circuitId: s.circuitId, nldGroup: s.nldGroup },
-            ])).map(n => {
-              const lat = Number(n.lat), lon = Number(n.lon)
-              if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
-              return (
-                <CircleMarker
-                  key={`${n?.name ?? 'Unknown'}-${n?.circuitId ?? 'na'}`}
-                  center={[lat, lon]}
-                  radius={4}
-                  pathOptions={{ color: '#333', weight: 1, fillColor: '#fff', fillOpacity: 1 }}
-                  eventHandlers={{
-                    click: () => {
-                      setSelectedCircuitId(n.circuitId)
-                      const span = filteredSpans.find(s => s.circuitId === n.circuitId)
-                      if (span) setFitSpan(span)
-                    }
-                  }}
-                >
-                  <Tooltip permanent direction="top" offset={[0, -8]}>
-                    <a
-                      href={`/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
-                      style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600 }}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        setSelectedCircuitId(n.circuitId)
-                        const span = filteredSpans.find(s => s.circuitId === n.circuitId)
-                        if (span) setFitSpan(span)
+                  return (
+                    <Polyline
+                      key={span.circuitId}
+                      positions={positions}
+                      pathOptions={{ color: routeColor, weight: selected ? 6 : 4, opacity: selected ? 0.96 : 0.76 }}
+                      eventHandlers={{
+                        click: () => {
+                          setSelectedCircuitId(span.circuitId)
+                          setFitSpan(span)
+                        },
+                        mouseover: (event) => event.target.setStyle({ weight: selected ? 7 : 6, opacity: 1 }),
+                        mouseout: (event) => event.target.setStyle({ weight: selected ? 6 : 4, opacity: selected ? 0.96 : 0.76 })
                       }}
                     >
-                      {n?.name ?? 'Unknown'}
-                    </a>
-                  </Tooltip>
-                </CircleMarker>
-              )
-            })}
-          </MapContainer>
+                      <Tooltip sticky>
+                        <Stack spacing={0.45}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: routeColor }}>
+                            {span.circuitId}
+                          </Typography>
+                          <Typography variant="caption">
+                            {`${span?.nodeA?.name ?? 'Unknown'} <-> ${span?.nodeB?.name ?? 'Unknown'}`}
+                          </Typography>
+                          <Typography variant="caption">
+                            {span?.nldGroup ?? 'Unassigned'} • {distanceKm.toFixed(1)} km
+                          </Typography>
+                          <Typography variant="caption">
+                            Rx A/B: {fmtDbm(span?.levels?.aRx)} / {fmtDbm(span?.levels?.bRx)}
+                          </Typography>
+                        </Stack>
+                      </Tooltip>
+                    </Polyline>
+                  )
+                })}
+
+                {showMarkers && filteredSpans.flatMap((span) => ([
+                  { ...span.nodeA, circuitId: span.circuitId, nldGroup: span.nldGroup },
+                  { ...span.nodeB, circuitId: span.circuitId, nldGroup: span.nldGroup }
+                ])).map((node) => {
+                  const lat = Number(node.lat)
+                  const lon = Number(node.lon)
+                  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+                  return (
+                    <CircleMarker
+                      key={`${node?.name ?? 'Unknown'}-${node?.circuitId ?? 'na'}`}
+                      center={[lat, lon]}
+                      radius={4}
+                      pathOptions={{ color: '#334155', weight: 1, fillColor: '#ffffff', fillOpacity: 1 }}
+                      eventHandlers={{
+                        click: () => {
+                          setSelectedCircuitId(node.circuitId)
+                          const span = filteredSpans.find((item) => item.circuitId === node.circuitId)
+                          if (span) setFitSpan(span)
+                        }
+                      }}
+                    >
+                      <Tooltip permanent direction="top" offset={[0, -8]}>
+                        <a
+                          href={`/engineering/nlds?circuit=${encodeURIComponent(node?.circuitId ?? '')}`}
+                          style={{ textDecoration: 'none', color: 'inherit', fontWeight: 700 }}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            setSelectedCircuitId(node.circuitId)
+                            const span = filteredSpans.find((item) => item.circuitId === node.circuitId)
+                            if (span) setFitSpan(span)
+                          }}
+                        >
+                          {node?.name ?? 'Unknown'}
+                        </a>
+                      </Tooltip>
+                    </CircleMarker>
+                  )
+                })}
+              </MapContainer>
+            </Box>
+          </SectionCard>
+
+          <SectionCard
+            title="Circuit Details"
+            subtitle={selectedSpan ? 'Selection context and actions' : 'Waiting for a selection'}
+            accent="#7c3aed"
+          >
+            <CircuitDetails
+              span={selectedSpan}
+              colour={colour}
+              onFit={() => selectedSpan && setFitSpan(selectedSpan)}
+              onFitGroup={() => selectedSpan && fitGroup(selectedSpan.nldGroup ?? 'Unassigned')}
+            />
+          </SectionCard>
         </Box>
-
-        {/* DETAILS cell */}
-        <RightPanel
-          span={selectedSpan}
-          colour={colour}
-          onFit={() => selectedSpan && setFitSpan(selectedSpan)}
-          onFitGroup={() => selectedSpan && fitGroup(selectedSpan.nldGroup ?? 'Unassigned')}
-        />
       </Box>
-    </Box>
-  )
-}
-
-/* ---------------- right panel ---------------- */
-function RightPanel({ span, colour, onFit, onFitGroup }) {
-  if (!span) {
-    return (
-      <Paper elevation={0} sx={{ p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
-        <Typography variant="h6" sx={{ mb: 1 }}>Details</Typography>
-        <Typography variant="body2" color="text.secondary">Select a circuit to see info and actions.</Typography>
-      </Paper>
-    )
-  }
-  const a = [Number(span.nodeA.lat), Number(span.nodeA.lon)]
-  const b = [Number(span.nodeB.lat), Number(span.nodeB.lon)]
-  const km = haversineKm(a, b)
-  return (
-    <Paper elevation={0} sx={{ p: 2, borderLeft: theme => `1px solid ${theme.palette.divider}` }}>
-      <Stack spacing={1.2}>
-        <Typography variant="h6" sx={{ fontWeight: 700, color: colour(span.nldGroup) }}>
-          {span.circuitId}
-        </Typography>
-        <Typography variant="body2">NLD: {span.nldGroup ?? 'Unassigned'}</Typography>
-        <Typography variant="body2">A: {span.nodeA?.name} ({a[0].toFixed(4)}, {a[1].toFixed(4)})</Typography>
-        <Typography variant="body2">B: {span.nodeB?.name} ({b[0].toFixed(4)}, {b[1].toFixed(4)})</Typography>
-        <Typography variant="body2">Approx length: {km.toFixed(1)} km</Typography>
-        {span?.levels && (typeof span.levels.aRx === 'number' || typeof span.levels.bRx === 'number') && (
-          <Typography variant="body2">Rx A/B: {span.levels.aRx ?? '—'} / {span.levels.bRx ?? '—'} dBm</Typography>
-        )}
-        <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-          <Button size="small" variant="outlined" onClick={onFit}>Fit circuit</Button>
-          <Button size="small" onClick={onFitGroup}>Fit NLD</Button>
-        </Stack>
-      </Stack>
-    </Paper>
+    </PageShell>
   )
 }
