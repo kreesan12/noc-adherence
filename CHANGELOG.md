@@ -171,6 +171,7 @@
   - shared filters
   - shared metric cards
   - clearer directory panel structure
+- Expanded the login landing into a full-width unified entry canvas so the sign-in experience uses the page space more intentionally and feels consistent with the upgraded shell.
 
 ### ROC And MNT Retirement
 
