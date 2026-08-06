@@ -9,6 +9,7 @@ loadServerEnv()
 let sock = null
 let isReady = false
 let targetGroupId = null
+let reconnectTimer = null
 
 const DEFAULT_GROUP_ID = '120363403922602776@g.us'
 const SESSION_ID = process.env.WHATSAPP_SESSION_ID || 'noc-adherence'
@@ -29,10 +30,6 @@ const QR_PRINT_THROTTLE_MS = Number(process.env.WA_QR_PRINT_THROTTLE_MS || 25000
 function normalizeGroupId (id) {
   if (!id) return null
   return id.endsWith('@g.us') ? id : `${id}@g.us`
-}
-
-function sleep (ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function makeReadyPromise () {
@@ -74,6 +71,11 @@ async function waitUntilReady (timeoutMs = 60_000) {
 export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_000 } = {}) {
   if (sock && isReady) return sock
 
+  if (sock) {
+    if (waitForReady) await waitUntilReady(readyTimeoutMs)
+    return sock
+  }
+
   if (initPromise) {
     const s = await initPromise
     if (waitForReady) await waitUntilReady(readyTimeoutMs)
@@ -86,6 +88,10 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
 
     makeReadyPromise()
     isReady = false
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
 
     const { state, saveCreds, clear } = await usePostgresAuthState(SESSION_ID)
 
@@ -121,25 +127,23 @@ export async function initWhatsApp ({ waitForReady = false, readyTimeoutMs = 60_
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update
 
-if (qr) {
-  markNotReady()
+      if (qr) {
+        markNotReady()
 
-  const now = Date.now()
-  const changed = qr !== lastQr
-  const due = (now - lastQrPrintedAt) >= QR_PRINT_THROTTLE_MS
+        const now = Date.now()
+        const changed = qr !== lastQr
+        const due = (now - lastQrPrintedAt) >= QR_PRINT_THROTTLE_MS
 
-  // only print if it changed or 25s passed
-  if (changed || due) {
-    lastQr = qr
-    lastQrPrintedAt = now
+        if (changed || due) {
+          lastQr = qr
+          lastQrPrintedAt = now
 
-    console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
-    qrcode.generate(qr, { small: true })
-  } else {
-    // optional: keep log quieter, or comment this out
-    console.log('[WA] QR received (throttled)')
-  }
-}
+          console.log('[WA] Scan this QR with WhatsApp (Linked Devices):')
+          qrcode.generate(qr, { small: true })
+        } else {
+          console.log('[WA] QR received (throttled)')
+        }
+      }
 
       if (connection === 'open') {
         console.log('[WA] Connected to WhatsApp (Baileys)')
@@ -166,11 +170,15 @@ if (qr) {
 
         console.log('[WA] Reconnecting in 5s...')
         sock = null
-        await sleep(5000)
+        if (reconnectTimer) return
 
-        initWhatsApp({ waitForReady: false }).catch(e => {
-          console.error('[WA] Reconnect init failed:', e?.message || e)
-        })
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          initWhatsApp({ waitForReady: false }).catch(e => {
+            console.error('[WA] Reconnect init failed:', e?.message || e)
+          })
+        }, 5000)
+        reconnectTimer.unref?.()
       }
     })
 
