@@ -64,6 +64,7 @@ import {
   updateStockMatchOverride,
   updateStockRequiredSpares
 } from '../api/stockManagement'
+import { FilterStrip, PageShell } from '../components/ui/PageScaffold'
 
 const REQUIRED_SPARE_FIELDS = [
   { key: 'requiredCpt', region: 'CPT' },
@@ -898,73 +899,149 @@ export default function StockManagementPage() {
     ].some((value) => String(value || '').toLowerCase().includes(runRateSearchTerm))
   })
 
-  return (
-    <Stack
-      spacing={0.78}
-      sx={{
-        '& .MuiTableCell-root': {
-          py: 0.5,
-          px: 0.72,
-          fontSize: 11.5
-        },
-        '& .MuiChip-root': {
-          height: 22
-        },
-        '& .MuiChip-label': {
-          fontSize: 10.9
-        },
-        '& .MuiInputBase-root': {
-          fontSize: 12
-        },
-        '& .MuiInputLabel-root': {
-          fontSize: 11.5
-        },
-        '& .MuiButton-root': {
-          fontSize: 11.7
-        }
-      }}
-    >
-      <Paper
-        elevation={0}
-        sx={{
-          p: 0.9,
-          borderRadius: 2.7,
-          border: '1px solid #d6e4de',
-          color: '#fff',
-          background: 'linear-gradient(135deg, #0f766e 0%, #155e63 44%, #102a43 100%)',
-          boxShadow: '0 18px 36px rgba(15, 23, 42, 0.12)'
-        }}
-      >
-        <Stack direction={{ xs: 'column', xl: 'row' }} justifyContent="space-between" spacing={0.9}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="overline" sx={{ letterSpacing: 1, opacity: 0.72 }}>
-              Stock Management
-            </Typography>
-            <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.02, fontSize: 27.5 }}>
-              Assurance And Engineering Stock Control
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 0.2, maxWidth: 820, opacity: 0.82, fontSize: 11.6, lineHeight: 1.25 }}>
-              The template stays as the master source, the daily stock report feeds the live counts, and warehouse stock is separated from field-held stock for cleaner operational control.
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap" alignItems="flex-start">
-            <Chip size="small" label={`Coverage ${fmtPct(summary.matchCoveragePct)}`} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', fontWeight: 700 }} />
-            <Chip size="small" label={`Low stock ${fmtCount(summary.lowStockCount)}`} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', fontWeight: 700 }} />
-            <Chip size="small" label={`Latest ${latestImport?.reportDate ? fmtDateTime(latestImport.reportDate) : 'No import yet'}`} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#fff', fontWeight: 700 }} />
-          </Stack>
-        </Stack>
-      </Paper>
+  const stockShellStats = [
+    {
+      label: 'Template Items',
+      value: fmtCount(summary.templateItemCount),
+      helper: 'Master rows being monitored',
+      accent: '#0f766e'
+    },
+    {
+      label: 'Low Stock',
+      value: fmtCount(summary.lowStockCount),
+      helper: 'Items below required spares',
+      accent: '#dc2626'
+    },
+    {
+      label: 'Coverage',
+      value: fmtPct(summary.matchCoveragePct),
+      helper: 'Matched against the daily stock file',
+      accent: '#7c3aed'
+    },
+    {
+      label: 'Latest Import',
+      value: latestImport?.reportDate ? dayjs(latestImport.reportDate).format('DD MMM HH:mm') : 'No import',
+      helper: `${fmtCount(latestImport?.statusRowCount || 0)} stock rows in the latest load`,
+      accent: '#1d4ed8'
+    }
+  ]
 
-      <Paper
-        elevation={0}
+  return (
+    <PageShell
+      eyebrow="Stock Management"
+      title="Assurance And Engineering Stock Control"
+      description="The template remains the master source, the daily stock report feeds the live counts, and warehouse stock stays separated from field-held stock so the gap logic stays operationally clean."
+      accent="#0f766e"
+      actions={(
+        <FilterStrip>
+          <TextField
+            size="small"
+            label="Search Stock"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Description, code, division, matched item..."
+            sx={{ minWidth: 220 }}
+            InputProps={{
+              startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
+            }}
+          />
+          <TextField
+            size="small"
+            select
+            label="Division"
+            value={divisionFilter}
+            onChange={(e) => setDivisionFilter(e.target.value)}
+            sx={{ minWidth: 126 }}
+          >
+            <MenuItem value="">All Divisions</MenuItem>
+            {divisions.map((division) => (
+              <MenuItem key={division} value={division}>{division}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            size="small"
+            select
+            label="Stock Status"
+            value={stockFilter}
+            onChange={(e) => setStockFilter(e.target.value)}
+            sx={{ minWidth: 124 }}
+          >
+            <MenuItem value="">All</MenuItem>
+            <MenuItem value="low">Below Minimum</MenuItem>
+            <MenuItem value="healthy">Healthy</MenuItem>
+            <MenuItem value="zero">Zero Available</MenuItem>
+            <MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
+          </TextField>
+          <TextField
+            size="small"
+            select
+            label="Match Quality"
+            value={matchFilter}
+            onChange={(e) => setMatchFilter(e.target.value)}
+            sx={{ minWidth: 124 }}
+          >
+            <MenuItem value="">All</MenuItem>
+            <MenuItem value="matched">Matched</MenuItem>
+            <MenuItem value="review">Needs Review</MenuItem>
+            <MenuItem value="unmatched">Unmatched</MenuItem>
+          </TextField>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<SyncRoundedIcon />}
+            onClick={doRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Refreshing...' : 'Run Daily Refresh'}
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<FileDownloadOutlinedIcon />}
+            onClick={doExport}
+            disabled={exporting}
+          >
+            {exporting ? 'Exporting...' : 'Export Master Workbook'}
+          </Button>
+        </FilterStrip>
+      )}
+      stats={stockShellStats}
+    >
+      <Stack
+        spacing={0.78}
         sx={{
-          p: 0.72,
-          borderRadius: 2.45,
-          border: '1px solid #dce7e2',
-          background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
+          '& .MuiTableCell-root': {
+            py: 0.5,
+            px: 0.72,
+            fontSize: 11.5
+          },
+          '& .MuiChip-root': {
+            height: 22
+          },
+          '& .MuiChip-label': {
+            fontSize: 10.9
+          },
+          '& .MuiInputBase-root': {
+            fontSize: 12
+          },
+          '& .MuiInputLabel-root': {
+            fontSize: 11.5
+          },
+          '& .MuiButton-root': {
+            fontSize: 11.7
+          }
         }}
       >
-        <Stack spacing={0.65}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 0.72,
+            borderRadius: 2.45,
+            border: '1px solid #dce7e2',
+            background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
+          }}
+        >
+          <Stack spacing={0.65}>
           {Number(summary.requiredTotal || 0) === 0 ? (
             <Alert severity="warning" sx={{ borderRadius: 2.5 }}>
               Minimum spares are still zero across the imported template. Open an item in Stock Master and use `Edit minimum spares` to set the baseline.
@@ -1055,31 +1132,44 @@ export default function StockManagementPage() {
             <Chip size="small" label={`Unconfirmed minimums ${fmtCount(summary.unconfirmedRequirementItemCount || 0)}`} sx={{ fontWeight: 700, bgcolor: '#fff7ed', color: '#c2410c' }} />
             <Chip size="small" label={`Unknown-site qty ${fmtCount(summary.unknownSiteQtyTotal)}`} sx={{ fontWeight: 700, bgcolor: '#fef3c7', color: '#92400e' }} />
           </Stack>
-        </Stack>
-      </Paper>
+          </Stack>
+        </Paper>
 
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        sx={{
-          minHeight: 34,
-          '& .MuiTab-root': {
-            minHeight: 34,
-            textTransform: 'none',
-            fontWeight: 700,
-            fontSize: 12.1,
-            px: 1.1,
-            minWidth: 0
-          }
-        }}
-      >
-        <Tab label="Overview" />
-        <Tab label="Run Rates" />
-        <Tab label="Master Stock" />
-        <Tab label="Match Review" />
-        <Tab label="Add Template Item" />
-        <Tab label="Not WH Workflow" />
-      </Tabs>
+        <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3.1, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
+          <Tabs
+            value={tab}
+            onChange={(_, value) => setTab(value)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              minHeight: 36,
+              px: 0.75,
+              '& .MuiTab-root': {
+                minHeight: 36,
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: 12.1,
+                px: 1.1,
+                minWidth: 0
+              },
+              '& .Mui-selected': {
+                color: '#0f766e !important'
+              },
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: 3,
+                bgcolor: '#0f766e'
+              }
+            }}
+          >
+            <Tab label="Overview" />
+            <Tab label="Run Rates" />
+            <Tab label="Master Stock" />
+            <Tab label="Match Review" />
+            <Tab label="Add Template Item" />
+            <Tab label="Not WH Workflow" />
+          </Tabs>
+        </Paper>
 
       {tab === 0 ? (
         <Stack spacing={0.82}>
@@ -2450,6 +2540,7 @@ export default function StockManagementPage() {
           {toast.message}
         </Alert>
       ) : null}
-    </Stack>
+      </Stack>
+    </PageShell>
   )
 }

@@ -135,6 +135,14 @@
 - Refreshed `NLD Map` onto the shared page shell with tighter filters, a cleaner explorer panel, and a more responsive map/details split.
 - Refreshed `Circuit Data Cleanup` onto the shared page shell with better grouping controls, search, summary metrics, and a more consistent admin editing layout.
 
+### UI Refresh Wave Four
+
+- Refreshed `Stock Management` onto the shared page shell while keeping its stock-specific analytics and workflow tabs intact.
+- Refreshed `SLA Reporting` onto the shared page shell and aligned its top-level controls with the newer workspace pattern.
+- Added lightweight frontend governance docs for future work:
+  - `docs/UI_STANDARDS.md`
+  - `docs/BUILD_RULES.md`
+
 ### ROC And MNT Retirement
 
 - Removed the legacy ROC/MNT appointments frontend section from the main navigation.
