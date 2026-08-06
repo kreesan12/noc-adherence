@@ -54,6 +54,22 @@
 - Removed the stale PM2 service layer from both xneelo servers so `systemd` is the only active process manager.
 - Updated architecture and migration runbooks to reflect the xneelo-first production design.
 
+### Frontend Hosting Move
+
+- Retired GitHub Pages as the live frontend host.
+- Switched the frontend build to root-path hosting so the app can run directly from:
+  - `https://154-65-108-106.sslip.io`
+- Switched the frontend API client default to same-origin:
+  - `/api`
+- Added version-controlled xneelo deployment assets:
+  - `ops/xneelo/nginx/noc-api.conf`
+  - `ops/xneelo/update-noc-api.sh`
+- Updated the API server deployment helper to become the single cutover path for:
+  - frontend build and publish
+  - backend install and migrations
+  - nginx reload
+- Retained the old frontend GitHub Actions workflow only as a manual legacy marker so future pushes do not keep deploying to GitHub Pages.
+
 ### Frontend And Auth Refresh
 
 - Refreshed the shared frontend shell with a tighter theme, smaller global sizing, new nav styling, improved background treatment, and a more modern login experience.

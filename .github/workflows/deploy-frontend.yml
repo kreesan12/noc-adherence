@@ -1,62 +1,13 @@
-name: Deploy Frontend (GitHub Pages)
+name: Legacy Frontend Deploy (GitHub Pages Retired)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/deploy-frontend.yml"
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
-  build:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install and build
-        working-directory: frontend
-        env:
-          VITE_GOOGLE_MAPS_EMBED_KEY: ${{ secrets.VITE_GOOGLE_MAPS_EMBED_KEY }}
+      - name: Frontend hosting retired from GitHub Pages
         run: |
-          npm ci
-          npm run build
-          ls -R dist
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: frontend/dist/
-
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v5
-        with:
-          timeout: 1800000
-          error_count: 20
-          reporting_interval: 10000
+          echo "GitHub Pages frontend deploys were retired on 2026-08-06."
+          echo "Production frontend is now served from xneelo nginx on noc-api-01."

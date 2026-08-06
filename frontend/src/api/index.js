@@ -1,17 +1,13 @@
 import axios from 'axios'
 
-const PROD_API_BASE_URL = 'https://154-65-108-106.sslip.io/api'
+const DEFAULT_API_BASE_URL = '/api'
 
 function resolveBaseUrl() {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL
   }
 
-  if (import.meta.env.DEV) {
-    return '/api'
-  }
-
-  return PROD_API_BASE_URL
+  return DEFAULT_API_BASE_URL
 }
 
 const api = axios.create({ baseURL: resolveBaseUrl() })

@@ -9,10 +9,15 @@
 
 ### Frontend
 
-- Host: GitHub Pages
-- URL: `https://kreesan12.github.io/noc-adherence`
-- Deploy path:
-  - `.github/workflows/deploy-frontend.yml`
+- Host: xneelo cloud instance `noc-api-01`
+- URL:
+  - `https://154-65-108-106.sslip.io`
+- Served by:
+  - `nginx`
+- Static web root:
+  - `/var/www/noc-adherence/current`
+- Deploy helper:
+  - `/home/ubuntu/bin/update-noc-api.sh`
 - Production API base URL is defined in:
   - [frontend/src/api/index.js](C:\Users\Kreesan Govender\OneDrive - Frogfoot Networks\Desktop\Web dev scripts\noc-adherence\frontend\src\api\index.js)
 
@@ -95,6 +100,10 @@
   - `/home/ubuntu/apps/noc-adherence/server`
 - Update helper:
   - `/home/ubuntu/bin/update-noc-api.sh`
+- Version-controlled helper source:
+  - [ops/xneelo/update-noc-api.sh](C:\Users\Kreesan Govender\OneDrive - Frogfoot Networks\Desktop\Web dev scripts\noc-adherence\ops\xneelo\update-noc-api.sh)
+- Version-controlled nginx site config:
+  - [ops/xneelo/nginx/noc-api.conf](C:\Users\Kreesan Govender\OneDrive - Frogfoot Networks\Desktop\Web dev scripts\noc-adherence\ops\xneelo\nginx\noc-api.conf)
 - Supporting services:
   - `nginx`
   - `postgresql`
@@ -290,9 +299,12 @@ This avoids exposing PostgreSQL publicly to the internet.
 
 ### Frontend
 
-- auto deploys on pushes affecting:
-  - `frontend/**`
+- GitHub Pages hosting is retired
+- file retained only as a manual legacy marker:
   - `.github/workflows/deploy-frontend.yml`
+- current preferred frontend deploy path is:
+  - push source to Git
+  - run `/home/ubuntu/bin/update-noc-api.sh` on `noc-api-01`
 
 ### Backend
 
@@ -333,7 +345,6 @@ This avoids exposing PostgreSQL publicly to the internet.
 
 ## Suggested Next Improvements
 
-- move the frontend off GitHub Pages if you want a single-host production domain later
 - replace `sslip.io` with a branded DNS hostname when the paid domain is ready
 - add a proper SSH-based or artifact-based backend deploy workflow for xneelo
 - add database monitoring and alerting around disk, backups, and connection counts
