@@ -2,8 +2,13 @@
 node_modules
 npm-debug.log*
 .env
+.env.*
 .env.local
 *.env.local
+.certs/
+.heroku/
+*.pem
+!*.env.example
 # Build output
 frontend/build
 frontend/dist

@@ -224,6 +224,17 @@ These now run on `noc-automation-01` via `systemd` timers.
 
 Environment files are not committed.
 
+Reference examples:
+
+- [server/.env.example](C:\Users\Kreesan Govender\OneDrive - Frogfoot Networks\Desktop\Web dev scripts\noc-adherence\server\.env.example)
+- [server/prisma/.env.example](C:\Users\Kreesan Govender\OneDrive - Frogfoot Networks\Desktop\Web dev scripts\noc-adherence\server\prisma\.env.example)
+
+Important notes:
+
+- secrets must live in server-side env files or systemd environment files, not in the repo
+- the frontend no longer needs a Google Maps browser key because the current NLD map uses Leaflet tiles
+- if a Google Maps key was previously created for GitHub Pages, treat it as legacy and rotate or delete it in Google Cloud if it is no longer required
+
 ### API env on `noc-api-01`
 
 Expected variables include at least:
@@ -296,15 +307,6 @@ Use:
 This avoids exposing PostgreSQL publicly to the internet.
 
 ## GitHub Actions
-
-### Frontend
-
-- GitHub Pages hosting is retired
-- file retained only as a manual legacy marker:
-  - `.github/workflows/deploy-frontend.yml`
-- current preferred frontend deploy path is:
-  - push source to Git
-  - run `/home/ubuntu/bin/update-noc-api.sh` on `noc-api-01`
 
 ### Backend
 

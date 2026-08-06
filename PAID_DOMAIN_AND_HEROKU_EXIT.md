@@ -3,8 +3,8 @@
 ## Current State As Of August 6, 2026
 
 - Frontend:
-  - GitHub Pages
-  - `https://kreesan12.github.io/noc-adherence`
+  - xneelo on `noc-api-01`
+  - `https://154-65-108-106.sslip.io`
 - API:
   - xneelo server `noc-api-01`
   - `https://154-65-108-106.sslip.io/api`
@@ -61,7 +61,7 @@ Recommended target shape:
 - API:
   - `api.yourdomain.co.za`
 
-This is the cleanest route while the frontend remains on GitHub Pages.
+This is the cleanest route now that both frontend and API already live on xneelo.
 
 ## Paid Domain Implementation Steps
 
@@ -79,10 +79,12 @@ For the API on xneelo:
 - add `AAAA` record if you want IPv6:
   - point to the API server IPv6 address
 
-For the frontend on GitHub Pages:
+For the frontend on xneelo:
 
-- either set `noc.yourdomain.co.za` as a `CNAME` to `kreesan12.github.io`
-- or later move the frontend onto xneelo and serve it there directly
+- add `A` record:
+  - `noc.yourdomain.co.za -> 154.65.108.106`
+- add `AAAA` record if you want IPv6:
+  - point to the API/frontend server IPv6 address
 
 ### Step 3: Update Nginx On `noc-api-01`
 
@@ -93,19 +95,15 @@ For the frontend on GitHub Pages:
 sudo certbot --nginx -d api.yourdomain.co.za
 ```
 
-### Step 4: Update Frontend API Base
+### Step 4: Update Frontend/API Hostnames
 
-Change:
+If you keep same-origin frontend and API routing through nginx, you do not need to hardcode a full API hostname in the frontend.
 
-- [frontend/src/api/index.js](C:\Users\Kreesan Govender\OneDrive - Frogfoot Networks\Desktop\Web dev scripts\noc-adherence\frontend\src\api\index.js)
+Instead update:
 
-From:
-
-- `https://154-65-108-106.sslip.io/api`
-
-To:
-
-- `https://api.yourdomain.co.za/api`
+- nginx `server_name`
+- TLS certificate
+- `CLIENT_ORIGIN`
 
 ### Step 5: Update CORS
 
@@ -128,13 +126,13 @@ Check all of these after cutover:
 - Gmail ingestion still works
 - DBeaver can still connect by SSH tunnel
 
-## If You Later Want One Host Instead Of Two
+## If You Want One Host Instead Of Two
 
-The cleanest path is:
+The cleanest path is already the current shape:
 
-1. move the frontend off GitHub Pages
-2. serve the frontend from xneelo or another web host you control
-3. proxy `/api` through nginx on the same domain
+1. serve the frontend from xneelo
+2. proxy `/api` through nginx on the same domain
+3. move from `sslip.io` to your paid domain when ready
 
 That gives you:
 

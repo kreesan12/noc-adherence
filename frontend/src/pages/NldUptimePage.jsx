@@ -1,383 +1,425 @@
-// frontend/src/pages/NldUptimePage.jsx
 import { useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
-  Box, Paper, Typography, Accordion, AccordionSummary, AccordionDetails,
-  Chip, Stack, CircularProgress
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Box,
+  Chip,
+  CircularProgress,
+  Stack,
+  Typography
 } from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import api from '../api'
+import { PageShell, SectionCard } from '../components/ui/PageScaffold'
 
-/* ── date helpers ─────────────────────────────────────── */
-const START_MONTH = dayjs('2025-06-01') // inclusive
+const START_MONTH = dayjs('2025-06-01')
 const NOW = dayjs()
+const ACCENT = '#0f766e'
 
 function monthsFromStartToNow() {
   const out = []
-  let m = START_MONTH.startOf('month')
+  let month = START_MONTH.startOf('month')
   const end = NOW.endOf('month')
-  while (m.isBefore(end) || m.isSame(end, 'month')) {
-    out.push(m)
-    m = m.add(1, 'month')
+
+  while (month.isBefore(end) || month.isSame(end, 'month')) {
+    out.push(month)
+    month = month.add(1, 'month')
   }
+
   return out
 }
 
-function monthKey(m) { return m.format('YYYY-MM') }
-function monthLabel(m) { return m.format('MMM YYYY') }
+function monthKey(month) {
+  return month.format('YYYY-MM')
+}
 
-function hoursInMonthWindow(m) {
-  // Full hours for past months; for current month, only count hours up to now.
-  const start = m.startOf('month')
-  const end = m.isSame(NOW, 'month') ? NOW : m.endOf('month').add(1, 'millisecond')
+function monthLabel(month) {
+  return month.format('MMM YYYY')
+}
+
+function hoursInMonthWindow(month) {
+  const start = month.startOf('month')
+  const end = month.isSame(NOW, 'month') ? NOW : month.endOf('month').add(1, 'millisecond')
   return Math.max(0, end.diff(start, 'hour', true))
 }
 
-/* ── UI helpers ───────────────────────────────────────── */
 function pctChipForValue(pct) {
-  if (pct == null) return { color:'default', label:'—' }
-  if (pct >= 99.5) return { color:'success', label:`${pct.toFixed(2)}%` }
-  if (pct >= 98.0) return { color:'warning', label:`${pct.toFixed(2)}%` }
-  return { color:'error', label:`${pct.toFixed(2)}%` }
+  if (pct == null) return { color: 'default', label: '-' }
+  if (pct >= 99.5) return { color: 'success', label: `${pct.toFixed(2)}%` }
+  if (pct >= 98.0) return { color: 'warning', label: `${pct.toFixed(2)}%` }
+  return { color: 'error', label: `${pct.toFixed(2)}%` }
 }
 
-function groupBy(arr, key) {
-  return arr.reduce((m, r) => ((m[r[key] ?? '—'] ??= []).push(r), m), {})
+function groupBy(list, key) {
+  return list.reduce((memo, row) => {
+    const groupKey = row[key] ?? 'Unassigned'
+    ;(memo[groupKey] ??= []).push(row)
+    return memo
+  }, {})
 }
 
-function formatPct(p) {
-  return p == null ? '—' : `${p.toFixed(2)}%`
+function formatPct(value) {
+  return value == null ? '-' : `${value.toFixed(2)}%`
+}
+
+function SummaryTile({ title, chip, rows }) {
+  return (
+    <Box
+      sx={{
+        p: 1,
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'rgba(255,255,255,0.82)',
+        minHeight: 116
+      }}
+    >
+      <Stack spacing={0.75}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            {title}
+          </Typography>
+          {chip}
+        </Stack>
+        {rows.map((row) => (
+          <Stack key={row.label} direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              {row.label}
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              {row.value}
+            </Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  )
 }
 
 export default function NldUptimePage() {
-  const [circuits, setCircuits] = useState([])         // base rows from /engineering/circuits
-  const [eventsById, setEventsById] = useState({})     // { [id]: LightLevelEvent[] }
+  const [circuits, setCircuits] = useState([])
+  const [eventsById, setEventsById] = useState({})
   const [loadingCircuits, setLoadingCircuits] = useState(true)
   const [loadingEvents, setLoadingEvents] = useState(false)
   const months = useMemo(monthsFromStartToNow, [])
 
-  /* ── load circuits ─────────────────────────────────── */
   useEffect(() => {
     let cancelled = false
 
     setLoadingCircuits(true)
     api.get('/engineering/circuits')
-      .then(r => {
-        if (!cancelled) setCircuits(r.data ?? [])
+      .then((response) => {
+        if (!cancelled) setCircuits(response.data ?? [])
       })
       .catch(console.error)
       .finally(() => {
         if (!cancelled) setLoadingCircuits(false)
       })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  /* ── load lightEvents per circuit (N calls in parallel) ─ */
   useEffect(() => {
     if (!circuits.length) {
       setLoadingEvents(false)
-      return
+      return undefined
     }
+
     let cancelled = false
 
     ;(async () => {
       setLoadingEvents(true)
       try {
-        const ids = circuits.map(c => c.id)
-        const results = await Promise.all(ids.map(async (id) => {
-          const { data } = await api.get(`/engineering/circuit/${id}`)
-          return [id, data?.lightEvents ?? []]
-        }))
+        const results = await Promise.all(
+          circuits.map(async (circuit) => {
+            const { data } = await api.get(`/engineering/circuit/${circuit.id}`)
+            return [circuit.id, data?.lightEvents ?? []]
+          })
+        )
+
         if (!cancelled) {
           setEventsById(Object.fromEntries(results))
         }
-      } catch (err) {
-        console.error(err)
+      } catch (error) {
+        console.error(error)
       } finally {
         if (!cancelled) setLoadingEvents(false)
       }
     })()
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [circuits])
 
   const isLoading = loadingCircuits || loadingEvents
 
-  /* ── compute uptime metrics per circuit x month ────── */
   const rowsWithUptime = useMemo(() => {
     if (!circuits.length) return []
-    return circuits.map(c => {
-      const evts = eventsById[c.id] ?? []
-      // Pre-bucket events by month string
+
+    return circuits.map((circuit) => {
+      const events = eventsById[circuit.id] ?? []
       const byMonth = {}
-      for (const e of evts) {
-        if (!e?.eventDate) continue
-        const k = dayjs(e.eventDate).format('YYYY-MM')
-        ;(byMonth[k] ??= []).push(e)
+
+      for (const event of events) {
+        if (!event?.eventDate) continue
+        const key = dayjs(event.eventDate).format('YYYY-MM')
+        ;(byMonth[key] ??= []).push(event)
       }
-      // Compute per month
+
       const uptime = {}
-      for (const m of months) {
-        const key = monthKey(m)
-        const totalHrs = hoursInMonthWindow(m)
-        const list = byMonth[key] ?? []
-        const downHrs = list.reduce((sum, e) => {
-          const h = parseFloat(e.impactHours)
-          return sum + (isFinite(h) ? Math.max(0, h) : 0)
+      for (const month of months) {
+        const key = monthKey(month)
+        const totalHours = hoursInMonthWindow(month)
+        const monthEvents = byMonth[key] ?? []
+        const downHours = monthEvents.reduce((sum, event) => {
+          const parsed = parseFloat(event.impactHours)
+          return sum + (Number.isFinite(parsed) ? Math.max(0, parsed) : 0)
         }, 0)
-        if (totalHrs > 0) {
-          const pct = Math.min(100, Math.max(0, (1 - (downHrs / totalHrs)) * 100))
-          uptime[key] = { pct, downHrs, totalHrs }
+
+        if (totalHours > 0) {
+          const pct = Math.min(100, Math.max(0, (1 - (downHours / totalHours)) * 100))
+          uptime[key] = { pct, downHrs: downHours, totalHrs: totalHours }
         } else {
           uptime[key] = { pct: null, downHrs: 0, totalHrs: 0 }
         }
       }
-      return { ...c, uptime }
+
+      return { ...circuit, uptime }
     })
   }, [circuits, eventsById, months])
 
-  /* ── NLD summaries for tiles ─────────────────────────
-     - avg3moPct: weighted by hours across circuits (existing)
-     - events90: total events in last 90 days
-     - nldPathLatestPct: "whole NLD" path uptime for latest month (min of circuit uptimes)
-  ------------------------------------------------------ */
+  const groupedByNld = useMemo(() => groupBy(rowsWithUptime, 'nldGroup'), [rowsWithUptime])
+  const nldCount = useMemo(() => Object.keys(groupedByNld).length, [groupedByNld])
+
   const nldSummaries = useMemo(() => {
     if (!rowsWithUptime.length) return []
 
-    // last 3 calendar months present in "months"
-    const last3 = months.slice(-3)
+    const last3Months = months.slice(-3)
     const last90Start = NOW.subtract(90, 'day').startOf('day')
-
-    // Determine the latest month that actually has pct values
-    const latestWithData = [...months].reverse().find(m => {
-      const k = monthKey(m)
-      return rowsWithUptime.some(r => r.uptime?.[k]?.pct != null)
+    const latestWithData = [...months].reverse().find((month) => {
+      const key = monthKey(month)
+      return rowsWithUptime.some((row) => row.uptime?.[key]?.pct != null)
     })
 
-    const byNld = groupBy(rowsWithUptime, 'nldGroup')
+    return Object.entries(groupedByNld)
+      .map(([nld, list]) => {
+        let totalHours = 0
+        let totalDown = 0
 
-    return Object.entries(byNld).map(([nld, list]) => {
-      // Weighted by hours across circuits for last 3 months
-      let totalHours = 0
-      let totalDown = 0
-      for (const r of list) {
-        for (const m of last3) {
-          const k = monthKey(m)
-          const u = r.uptime?.[k]
-          if (!u || !isFinite(u.totalHrs) || u.totalHrs <= 0) continue
-          totalHours += u.totalHrs
-          totalDown += (u.downHrs ?? 0)
+        for (const row of list) {
+          for (const month of last3Months) {
+            const key = monthKey(month)
+            const uptime = row.uptime?.[key]
+            if (!uptime || !Number.isFinite(uptime.totalHrs) || uptime.totalHrs <= 0) continue
+            totalHours += uptime.totalHrs
+            totalDown += uptime.downHrs ?? 0
+          }
         }
-      }
-      const avg3moPct = totalHours > 0 ? Math.max(0, Math.min(100, (1 - totalDown / totalHours) * 100)) : null
 
-      // Events in last 90 days, grouped (not per circuit)
-      let events90 = 0
-      for (const r of list) {
-        const evts = eventsById[r.id] ?? []
-        events90 += evts.filter(e => e?.eventDate && dayjs(e.eventDate).isAfter(last90Start)).length
-      }
+        const avg3moPct = totalHours > 0
+          ? Math.max(0, Math.min(100, (1 - totalDown / totalHours) * 100))
+          : null
 
-      // Whole-NLD "path" uptime for the latest month: bottleneck (min across circuits)
-      let nldPathLatestPct = null
-      if (latestWithData) {
-        const lk = monthKey(latestWithData)
-        const pcts = list
-          .map(r => r.uptime?.[lk]?.pct)
-          .filter(p => p != null && isFinite(p))
-        if (pcts.length) nldPathLatestPct = Math.min(...pcts)
-      }
+        let events90 = 0
+        for (const row of list) {
+          const events = eventsById[row.id] ?? []
+          events90 += events.filter((event) => event?.eventDate && dayjs(event.eventDate).isAfter(last90Start)).length
+        }
 
-      return {
-        nld,
-        avg3moPct,
-        events90,
-        nldPathLatestPct,
-        latestMonthLabel: latestWithData ? monthLabel(latestWithData) : '—'
-      }
-    }).sort((a,b) => String(a.nld).localeCompare(String(b.nld)))
-  }, [rowsWithUptime, eventsById, months])
+        let nldPathLatestPct = null
+        if (latestWithData) {
+          const latestKey = monthKey(latestWithData)
+          const pcts = list
+            .map((row) => row.uptime?.[latestKey]?.pct)
+            .filter((pct) => pct != null && Number.isFinite(pct))
+          if (pcts.length) nldPathLatestPct = Math.min(...pcts)
+        }
 
-  /* ── dynamic columns (Circuit info + month columns) ── */
+        return {
+          nld,
+          avg3moPct,
+          events90,
+          nldPathLatestPct,
+          latestMonthLabel: latestWithData ? monthLabel(latestWithData) : '-'
+        }
+      })
+      .sort((a, b) => String(a.nld).localeCompare(String(b.nld)))
+  }, [eventsById, groupedByNld, months, rowsWithUptime])
+
+  const summaryCards = useMemo(
+    () => nldSummaries.map((summary) => (
+      <SummaryTile
+        key={summary.nld}
+        title={summary.nld}
+        chip={(
+          <Chip
+            size="small"
+            color={pctChipForValue(summary.nldPathLatestPct).color}
+            label={formatPct(summary.nldPathLatestPct)}
+            sx={{ fontWeight: 700 }}
+          />
+        )}
+        rows={[
+          { label: `Path uptime (${summary.latestMonthLabel})`, value: formatPct(summary.nldPathLatestPct) },
+          { label: 'Avg uptime (last 3 months)', value: formatPct(summary.avg3moPct) },
+          { label: 'Events (last 90 days)', value: summary.events90 }
+        ]}
+      />
+    )),
+    [nldSummaries]
+  )
+
   const columns = useMemo(() => {
-    const circuitCols = [
-      { field:'circuitId', headerName:'Circuit', flex:1, minWidth:170 },
-      { field:'nodeA', headerName:'Node A', flex:1, minWidth:120 },
-      { field:'nodeB', headerName:'Node B', flex:1, minWidth:120 },
-      { field:'techType', headerName:'Tech', width:80 },
+    const baseColumns = [
+      { field: 'circuitId', headerName: 'Circuit', flex: 1, minWidth: 170 },
+      { field: 'nodeA', headerName: 'Node A', flex: 0.9, minWidth: 130 },
+      { field: 'nodeB', headerName: 'Node B', flex: 0.9, minWidth: 130 },
+      { field: 'techType', headerName: 'Tech', width: 92 }
     ]
 
-    const monthCols = months.map(m => {
-      const key = monthKey(m)
-      const label = monthLabel(m)
+    const monthColumns = months.map((month) => {
+      const key = monthKey(month)
       return {
         field: `m_${key}`,
-        headerName: label,
-        width: 140,
+        headerName: monthLabel(month),
+        width: 136,
         align: 'center',
         headerAlign: 'center',
         sortable: true,
         cellClassName: 'uptimeCell',
-        renderCell: (p) => {
-          const u = p?.row?.uptime?.[key]
-          const pct = u?.pct
+        renderCell: (params) => {
+          const uptime = params?.row?.uptime?.[key]
+          const pct = uptime?.pct
           const chip = pctChipForValue(pct)
-          const hours = u?.downHrs ?? 0
-          const tip = pct == null
+          const hours = uptime?.downHrs ?? 0
+          const title = pct == null
             ? 'No data'
-            : `Uptime: ${pct.toFixed(2)}%\nDowntime: ${hours.toFixed(2)} h\nTotal: ${u.totalHrs.toFixed(1)} h`
+            : `Uptime: ${pct.toFixed(2)}%\nDowntime: ${hours.toFixed(2)} h\nTotal: ${uptime.totalHrs.toFixed(1)} h`
+
           return (
-            <Stack
-              sx={{ width:'100%', lineHeight: 1.2 }}
-              alignItems="center"
-              spacing={0.25}
-            >
-              <Chip size="small" color={chip.color} label={chip.label} title={tip} sx={{ fontWeight: 600 }} />
-              <Typography variant="caption" sx={{ opacity: 0.75 }}>
-                ↓ {hours.toFixed(2)}h
+            <Stack sx={{ width: '100%', lineHeight: 1.15 }} alignItems="center" spacing={0.25}>
+              <Chip size="small" color={chip.color} label={chip.label} title={title} sx={{ fontWeight: 700 }} />
+              <Typography variant="caption" sx={{ opacity: 0.72 }}>
+                down {hours.toFixed(2)}h
               </Typography>
             </Stack>
           )
         },
         sortComparator: (_a, _b, p1, p2) => {
-          const u1 = p1?.row?.uptime?.[key]?.pct ?? -Infinity
-          const u2 = p2?.row?.uptime?.[key]?.pct ?? -Infinity
-          return u1 - u2
+          const valueA = p1?.row?.uptime?.[key]?.pct ?? -Infinity
+          const valueB = p2?.row?.uptime?.[key]?.pct ?? -Infinity
+          return valueA - valueB
         }
       }
     })
 
-    return [...circuitCols, ...monthCols]
+    return [...baseColumns, ...monthColumns]
   }, [months])
 
-  /* ── render per-NLD group ──────────────────────────── */
-  const byNld = useMemo(() => groupBy(rowsWithUptime, 'nldGroup'), [rowsWithUptime])
-
   return (
-    <Box px={2} py={1}>
-      <Typography variant="h5" fontWeight={700} mb={1}>
-        NLD Uptime
-      </Typography>
-      <Typography variant="body2" sx={{ mb: 2, opacity: 0.85 }}>
-        Uptime is calculated per circuit per month from <strong>June 2025</strong> to <strong>{NOW.format('MMMM YYYY')}</strong> using
-        <em> impactHours</em> from light-level events. For the current month, uptime is based on elapsed hours to date.
-      </Typography>
-
-      {isLoading ? (
-        <Paper
-          elevation={0}
-          variant="outlined"
-          sx={{
-            minHeight: 240,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexDirection: 'column',
-            gap: 1.5
-          }}
-        >
-          <CircularProgress size={32} />
-          <Typography variant="body2" color="text.secondary">
-            Loading uptime data...
-          </Typography>
-        </Paper>
-      ) : (
-        <>
-          {/* ===== Summary Tiles (industry-style) ===== */}
+    <PageShell
+      eyebrow="Engineering"
+      title="NLD Uptime"
+      description="Per-circuit monthly uptime from light-level events, with NLD path summaries and grouped drilldown from June 2025 through the current month."
+      accent={ACCENT}
+      stats={[
+        { label: 'Circuits', value: circuits.length, helper: 'tracked in engineering base' },
+        { label: 'NLD Groups', value: nldCount, helper: 'visible service groups' },
+        { label: 'Months Covered', value: months.length, helper: `${monthLabel(months[0])} to ${monthLabel(months[months.length - 1])}` },
+        { label: 'Status', value: isLoading ? 'Loading...' : 'Ready', helper: isLoading ? 'building uptime view' : 'uptime view available' }
+      ]}
+    >
+      <SectionCard
+        title="Uptime Summary"
+        subtitle="Latest path health, weighted three-month uptime, and recent event counts by NLD group."
+        accent={ACCENT}
+      >
+        {isLoading ? (
+          <Box
+            sx={{
+              minHeight: 220,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexDirection: 'column',
+              gap: 1.2
+            }}
+          >
+            <CircularProgress size={30} />
+            <Typography variant="body2" color="text.secondary">
+              Loading circuit and event history...
+            </Typography>
+          </Box>
+        ) : (
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
-              gap: 1.25,
-              mb: 2
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
+              gap: 0.9
             }}
           >
-            {nldSummaries.map(s => (
-              <Paper key={s.nld} elevation={2} sx={{ p: 1.5 }}>
-                <Stack spacing={0.75}>
-                  <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>
-                    {s.nld}
-                  </Typography>
-
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                      NLD Path Uptime ({s.latestMonthLabel})
-                    </Typography>
-                    <Chip
-                      size="small"
-                      color={pctChipForValue(s.nldPathLatestPct).color}
-                      label={formatPct(s.nldPathLatestPct)}
-                      sx={{ fontWeight: 700 }}
-                    />
-                  </Stack>
-
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                      Avg Uptime (last 3 mo)
-                    </Typography>
-                    <Chip
-                      size="small"
-                      color={pctChipForValue(s.avg3moPct).color}
-                      label={formatPct(s.avg3moPct)}
-                      sx={{ fontWeight: 700 }}
-                    />
-                  </Stack>
-
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                      Events (last 90d)
-                    </Typography>
-                    <Chip
-                      size="small"
-                      color={s.events90 > 0 ? 'warning' : 'success'}
-                      label={s.events90}
-                      sx={{ fontWeight: 700 }}
-                    />
-                  </Stack>
-                </Stack>
-              </Paper>
-            ))}
+            {summaryCards}
           </Box>
+        )}
+      </SectionCard>
 
-          {Object.entries(byNld).map(([grp, list]) => (
-            <Accordion key={grp} defaultExpanded sx={{ mb:1 }}>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  {grp}&nbsp;
-                  <Chip label={list.length} size="small" sx={{ ml:1 }} />
-                </Typography>
+      <SectionCard
+        title="Circuit Uptime by NLD"
+        subtitle="Expand an NLD group to inspect monthly uptime per circuit. Current month values use elapsed hours to date."
+        accent={ACCENT}
+        noPadding
+      >
+        {Object.entries(groupedByNld)
+          .sort(([left], [right]) => String(left).localeCompare(String(right)))
+          .map(([group, list]) => (
+            <Accordion key={group} defaultExpanded disableGutters sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
+              <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />} sx={{ px: 1.2, minHeight: 48 }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ width: '100%' }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                    {group}
+                  </Typography>
+                  <Chip size="small" label={`${list.length} circuits`} />
+                </Stack>
               </AccordionSummary>
-              <AccordionDetails sx={{ p:0 }}>
-                <Paper elevation={0}>
+              <AccordionDetails sx={{ p: 0 }}>
+                <Box sx={{ height: 520 }}>
                   <DataGrid
                     rows={list}
                     columns={columns}
-                    getRowId={(r) => r.id}
-                    rowHeight={64}
-                    columnHeaderHeight={44}
-                    density="standard"
-                    pageSizeOptions={[25,50,100]}
-                    initialState={{ pagination:{ paginationModel:{ pageSize:25 } } }}
+                    getRowId={(row) => row.id}
+                    density="compact"
+                    rowHeight={58}
+                    columnHeaderHeight={42}
+                    pageSizeOptions={[25, 50, 100]}
+                    initialState={{ pagination: { paginationModel: { pageSize: 25, page: 0 } } }}
                     slots={{ toolbar: GridToolbar }}
-                    slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } } }}
-                    sx={(theme) => ({
+                    slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 250 } } }}
+                    sx={{
                       border: 0,
-                      '.MuiDataGrid-cell:hover': { bgcolor:'rgba(0,0,0,0.04)' },
+                      '& .MuiDataGrid-toolbarContainer': {
+                        px: 1,
+                        py: 0.7,
+                        borderBottom: '1px solid',
+                        borderColor: 'divider'
+                      },
                       '& .uptimeCell': {
                         display: 'flex',
                         alignItems: 'center',
-                        py: 0.5,
-                      },
-                    })}
+                        py: 0.35
+                      }
+                    }}
                   />
-                </Paper>
+                </Box>
               </AccordionDetails>
             </Accordion>
           ))}
-        </>
-      )}
-    </Box>
+      </SectionCard>
+    </PageShell>
   )
 }

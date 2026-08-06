@@ -410,7 +410,7 @@ export default function NldMapPage () {
                 >
                   <Tooltip permanent direction="top" offset={[0, -8]}>
                     <a
-                      href={`/noc-adherence/#/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
+                      href={`/engineering/nlds?circuit=${encodeURIComponent(n?.circuitId ?? '')}`}
                       style={{ textDecoration: 'none', color: 'inherit', fontWeight: 600 }}
                       onClick={(e) => {
                         e.preventDefault()

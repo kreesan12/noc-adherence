@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -9,77 +10,90 @@ import {
   DialogTitle,
   MenuItem,
   Snackbar,
+  Stack,
   TextField,
   Typography,
   Checkbox,
   FormControlLabel
 } from '@mui/material'
-import { DataGrid } from '@mui/x-data-grid'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import ImportExportRoundedIcon from '@mui/icons-material/ImportExportRounded'
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded'
+import AutorenewRoundedIcon from '@mui/icons-material/AutorenewRounded'
+import PublishedWithChangesRoundedIcon from '@mui/icons-material/PublishedWithChangesRounded'
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
+import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
+import api from '../api'
+import { updateShift, swapShifts, swapRange, reassignRange } from '../api/shifts'
+import { PageShell, SectionCard, FilterStrip } from '../components/ui/PageScaffold'
 
-// dayjs plugins --------------------------------------------------------------
 dayjs.extend(utc)
 
-// api wrappers ----------------------------------------------------------------
-import api from '../api'
-import {
-  updateShift,
-  swapShifts,
-  swapRange,
-  reassignRange
-} from '../api/shifts'
+const ACCENT = '#2563eb'
 
-/*
-───────────────────────────────────────────────────────────────────────────────
- ShiftManager.jsx – now supports
-   • one‑by‑one swap (existing)
-   • swap *range* between two agents
-   • re‑assign range from Agent A → B (optionally mark A on leave)
-───────────────────────────────────────────────────────────────────────────────*/
-export default function ShiftManager () {
-  /* ───────── state ─────────────────────────────────── */
-  const [rows, setRows]       = useState([])
-  const [teams, setTeams]     = useState([])
-  const [agents, setAgents]   = useState([])
+function formatShiftDate(value) {
+  return value ? dayjs.utc(value).format('YYYY-MM-DD HH:mm') : '-'
+}
+
+export default function ShiftManager() {
+  const [rows, setRows] = useState([])
+  const [teams, setTeams] = useState([])
+  const [agents, setAgents] = useState([])
   const [filters, setFilters] = useState({
-    team : '',
+    team: '',
     agent: '',
-    from : dayjs(),
-    to   : dayjs().add(7, 'day')
+    from: dayjs(),
+    to: dayjs().add(7, 'day')
   })
-  const [loading,      setLoading]      = useState(false)
-  const [editItem,     setEditItem]     = useState(null)
-  const [swapSource,   setSwapSource]   = useState(null) // single‑shift swap
-  const [snack,        setSnack]        = useState('')
-  // dialogs for range ops
-  const [swapDlgOpen,      setSwapDlgOpen]      = useState(false)
-  const [reassignDlgOpen,  setReassignDlgOpen]  = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [editItem, setEditItem] = useState(null)
+  const [swapSource, setSwapSource] = useState(null)
+  const [snack, setSnack] = useState('')
+  const [swapDlgOpen, setSwapDlgOpen] = useState(false)
+  const [reassignDlgOpen, setReassignDlgOpen] = useState(false)
 
-  /* ───────── 1) load agents once  ───────────────────── */
   useEffect(() => {
-    (async () => {
-      const { data } = await api.get('/agents')
-      setAgents(data)
-      setTeams([...new Set(data.map(a => a.team))])
+    let cancelled = false
+
+    ;(async () => {
+      try {
+        const { data } = await api.get('/agents')
+        if (cancelled) return
+        setAgents(data ?? [])
+        setTeams([...new Set((data ?? []).map((agent) => agent.team).filter(Boolean))].sort())
+      } catch (error) {
+        console.error('Load agents:', error)
+        if (!cancelled) setSnack('Failed to load agents')
+      }
     })()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  /* ───────── 2) fetch shifts on demand ──────────────── */
-  async function loadShifts () {
+  useEffect(() => {
+    loadShifts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function loadShifts() {
     try {
       setLoading(true)
       const { team, agent, from, to } = filters
       const { data } = await api.get('/shifts', {
         params: {
-          team     : team  || undefined,
-          agentId  : agent || undefined,
+          team: team || undefined,
+          agentId: agent || undefined,
           startDate: from.format('YYYY-MM-DD'),
-          endDate  : to.format('YYYY-MM-DD')
+          endDate: to.format('YYYY-MM-DD')
         }
       })
-      setRows(data)
+      setRows(data ?? [])
     } catch (err) {
       console.error('Load shifts:', err)
       setSnack('Failed to fetch shifts')
@@ -88,21 +102,20 @@ export default function ShiftManager () {
     }
   }
 
-  /* ───────── 3) export selected rows to XLSX ────────── */
-  function handleExport () {
+  function handleExport() {
     if (!rows.length) {
       setSnack('Nothing to export')
       return
     }
 
-    const data = rows.map(r => ({
-      ID        : r.id,
-      Agent     : r.agentName,
-      Team      : r.team,
-      Start     : r.startAt   ? dayjs.utc(r.startAt).format('YYYY-MM-DD HH:mm') : '',
-      End       : r.endAt     ? dayjs.utc(r.endAt).format('YYYY-MM-DD HH:mm')   : '',
-      LunchStart: r.breakStart? dayjs.utc(r.breakStart).format('YYYY-MM-DD HH:mm'): '',
-      LunchEnd  : r.breakEnd  ? dayjs.utc(r.breakEnd).format('YYYY-MM-DD HH:mm') : ''
+    const data = rows.map((row) => ({
+      ID: row.id,
+      Agent: row.agentName,
+      Team: row.team,
+      Start: row.startAt ? dayjs.utc(row.startAt).format('YYYY-MM-DD HH:mm') : '',
+      End: row.endAt ? dayjs.utc(row.endAt).format('YYYY-MM-DD HH:mm') : '',
+      LunchStart: row.breakStart ? dayjs.utc(row.breakStart).format('YYYY-MM-DD HH:mm') : '',
+      LunchEnd: row.breakEnd ? dayjs.utc(row.breakEnd).format('YYYY-MM-DD HH:mm') : ''
     }))
 
     const ws = XLSX.utils.json_to_sheet(data)
@@ -114,36 +127,7 @@ export default function ShiftManager () {
     )
   }
 
-  /* ───────── 4) grid columns  ───────────────────────── */
-  const columns = useMemo(() => [
-    { field: 'id',        headerName: 'ID',    width: 70  },
-    { field: 'agentName', headerName: 'Agent', flex: 1    },
-    { field: 'team',      headerName: 'Team',  flex: 0.7  },
-    {
-      field: 'startAt', headerName: 'Start', flex: 1,
-      renderCell: p => p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
-    },
-    {
-      field: 'endAt', headerName: 'End', flex: 1,
-      renderCell: p => p.value ? dayjs.utc(p.value).format('YYYY-MM-DD HH:mm') : '—'
-    },
-    {
-      field: 'actions', headerName: '', width: 120, sortable: false,
-      renderCell: params => (
-        <>
-          <Button size='small' onClick={() => setEditItem(params.row)}>✏️</Button>
-          <Button
-            size='small'
-            onClick={() => swapSource ? handleSwap(params.row) : setSwapSource(params.row)}
-            color={swapSource && swapSource.id === params.row.id ? 'secondary' : 'primary'}
-          >↔︎</Button>
-        </>
-      )
-    }
-  ], [swapSource])
-
-  /* ───────── 5) helpers (edit / swap single) ─────────── */
-  async function handleEditSave (changes) {
+  async function handleEditSave(changes) {
     try {
       await updateShift(editItem.id, changes)
       setSnack('Shift updated')
@@ -154,7 +138,7 @@ export default function ShiftManager () {
     }
   }
 
-  async function handleSwap (targetRow) {
+  async function handleSwap(targetRow) {
     try {
       await swapShifts(swapSource.id, targetRow.id)
       setSnack('Shift swap complete')
@@ -165,178 +149,376 @@ export default function ShiftManager () {
     }
   }
 
-  /* ───────── derived agent list for team filter ─────── */
-  const agentOptions = useMemo(() => (
-    filters.team ? agents.filter(a => a.team === filters.team) : agents
-  ), [agents, filters.team])
-
-  /* ───────── range‑op submit handlers ───────────────── */
-  async function submitSwapRange (payload) {
+  async function submitSwapRange(payload) {
     try {
       await swapRange(payload)
       setSnack('Range swap complete')
       setSwapDlgOpen(false)
       await loadShifts()
-    } catch (e) {
-      console.error(e)
+    } catch (error) {
+      console.error(error)
       setSnack('Range swap failed')
     }
   }
 
-  async function submitReassign (payload) {
+  async function submitReassign(payload) {
     try {
       await reassignRange(payload)
-      setSnack('Re‑assignment complete')
+      setSnack('Reassignment complete')
       setReassignDlgOpen(false)
       await loadShifts()
-    } catch (e) {
-      console.error(e)
-      setSnack('Re‑assignment failed')
+    } catch (error) {
+      console.error(error)
+      setSnack('Reassignment failed')
     }
   }
 
-  /* ───────── render ─────────────────────────────────── */
+  const agentOptions = useMemo(
+    () => (filters.team ? agents.filter((agent) => agent.team === filters.team) : agents),
+    [agents, filters.team]
+  )
+
+  const uniqueAgentsInRows = useMemo(
+    () => new Set(rows.map((row) => row.agentName).filter(Boolean)).size,
+    [rows]
+  )
+
+  const rangeDays = useMemo(
+    () => Math.max(1, filters.to.startOf('day').diff(filters.from.startOf('day'), 'day') + 1),
+    [filters.from, filters.to]
+  )
+
+  const columns = useMemo(
+    () => [
+      { field: 'id', headerName: 'ID', width: 78 },
+      { field: 'agentName', headerName: 'Agent', flex: 1, minWidth: 180 },
+      { field: 'team', headerName: 'Team', width: 120 },
+      {
+        field: 'startAt',
+        headerName: 'Start',
+        minWidth: 168,
+        flex: 0.9,
+        renderCell: (params) => formatShiftDate(params.value)
+      },
+      {
+        field: 'endAt',
+        headerName: 'End',
+        minWidth: 168,
+        flex: 0.9,
+        renderCell: (params) => formatShiftDate(params.value)
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        width: 150,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const selectedForSwap = swapSource?.id === params.row.id
+          return (
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<EditRoundedIcon sx={{ fontSize: 16 }} />}
+                onClick={() => setEditItem(params.row)}
+                sx={{ minWidth: 0, px: 0.75 }}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small"
+                variant={selectedForSwap ? 'contained' : 'text'}
+                color={selectedForSwap ? 'secondary' : 'primary'}
+                startIcon={<SwapHorizRoundedIcon sx={{ fontSize: 16 }} />}
+                onClick={() => (swapSource ? handleSwap(params.row) : setSwapSource(params.row))}
+                sx={{ minWidth: 0, px: 0.75 }}
+              >
+                {selectedForSwap ? 'Armed' : 'Swap'}
+              </Button>
+            </Stack>
+          )
+        }
+      }
+    ],
+    [swapSource]
+  )
+
   return (
-    <Box p={2}>
-      <Typography variant='h5' gutterBottom>Shift manager</Typography>
+    <PageShell
+      eyebrow="Staffing and Scheduling"
+      title="Shift Manager"
+      description="Review shift coverage, edit individual shifts, and run controlled swap or reassignment operations across a selected date window."
+      accent={ACCENT}
+      stats={[
+        { label: 'Rows Loaded', value: loading ? 'Loading...' : rows.length, helper: 'current shift rows' },
+        { label: 'Teams', value: teams.length, helper: 'available teams' },
+        { label: 'Agents In View', value: uniqueAgentsInRows, helper: 'from current result set' },
+        { label: 'Window', value: `${rangeDays}d`, helper: `${filters.from.format('DD MMM')} to ${filters.to.format('DD MMM')}` }
+      ]}
+    >
+      <SectionCard
+        title="Range and Actions"
+        subtitle="Filter the view first, then export, swap, or reassign against the same working window."
+        accent={ACCENT}
+      >
+        <FilterStrip>
+          <TextField
+            select
+            label="Team"
+            size="small"
+            value={filters.team}
+            onChange={(event) => setFilters((prev) => ({ ...prev, team: event.target.value, agent: '' }))}
+            sx={{ minWidth: 150 }}
+          >
+            <MenuItem value="">All</MenuItem>
+            {teams.map((team) => (
+              <MenuItem key={team} value={team}>{team}</MenuItem>
+            ))}
+          </TextField>
 
-      {/* Filters */}
-      <Box display='flex' gap={2} mb={2} flexWrap='wrap' alignItems='flex-end'>
-        {/* team */}
-        <TextField select label='Team' size='small' value={filters.team}
-          onChange={e => setFilters(p => ({ ...p, team: e.target.value, agent: '' }))}
-          sx={{ minWidth: 160 }}>
-          <MenuItem value=''>All</MenuItem>
-          {teams.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-        </TextField>
+          <TextField
+            select
+            label="Agent"
+            size="small"
+            value={filters.agent}
+            onChange={(event) => setFilters((prev) => ({ ...prev, agent: event.target.value }))}
+            sx={{ minWidth: 180 }}
+            disabled={agentOptions.length === 0}
+          >
+            <MenuItem value="">All</MenuItem>
+            {agentOptions.map((agent) => (
+              <MenuItem key={agent.id} value={agent.id}>{agent.fullName}</MenuItem>
+            ))}
+          </TextField>
 
-        {/* agent */}
-        <TextField select label='Agent' size='small' value={filters.agent}
-          onChange={e => setFilters(p => ({ ...p, agent: e.target.value }))}
-          sx={{ minWidth: 160 }} disabled={agentOptions.length === 0}>
-          <MenuItem value=''>All</MenuItem>
-          {agentOptions.map(a => <MenuItem key={a.id} value={a.id}>{a.fullName}</MenuItem>)}
-        </TextField>
+          <TextField
+            type="date"
+            size="small"
+            label="From"
+            InputLabelProps={{ shrink: true }}
+            value={filters.from.format('YYYY-MM-DD')}
+            onChange={(event) => setFilters((prev) => ({ ...prev, from: dayjs(event.target.value) }))}
+          />
 
-        {/* date range */}
-        <TextField type='date' size='small' label='From' InputLabelProps={{ shrink: true }}
-          value={filters.from.format('YYYY-MM-DD')}
-          onChange={e => setFilters(p => ({ ...p, from: dayjs(e.target.value) }))} />
-        <TextField type='date' size='small' label='To' InputLabelProps={{ shrink: true }}
-          value={filters.to.format('YYYY-MM-DD')}
-          onChange={e => setFilters(p => ({ ...p, to: dayjs(e.target.value) }))} />
+          <TextField
+            type="date"
+            size="small"
+            label="To"
+            InputLabelProps={{ shrink: true }}
+            value={filters.to.format('YYYY-MM-DD')}
+            onChange={(event) => setFilters((prev) => ({ ...prev, to: dayjs(event.target.value) }))}
+          />
 
-        {/* actions */}
-        <Button variant='contained' onClick={loadShifts} disabled={loading} sx={{ height: 40 }}>
-          {loading ? <CircularProgress size={22} /> : 'Load shifts'}
-        </Button>
-        <Button variant='outlined' onClick={handleExport} disabled={!rows.length} sx={{ height: 40 }}>Export</Button>
-        {/* range op launch buttons */}
-        <Button variant='outlined' onClick={() => setSwapDlgOpen(true)} sx={{ height: 40 }}>Swap range</Button>
-        <Button variant='outlined' onClick={() => setReassignDlgOpen(true)} sx={{ height: 40 }}>Re‑assign range</Button>
-      </Box>
+          <Button
+            variant="contained"
+            startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SearchRoundedIcon />}
+            onClick={loadShifts}
+            disabled={loading}
+            sx={{ minHeight: 36 }}
+          >
+            Refresh
+          </Button>
 
-      {/* Table */}
-      <div style={{ height: 560, width: '100%' }}>
-        <DataGrid rows={rows} columns={columns} pageSize={25} />
-      </div>
+          <Button
+            variant="outlined"
+            startIcon={<FileDownloadRoundedIcon />}
+            onClick={handleExport}
+            disabled={!rows.length}
+            sx={{ minHeight: 36 }}
+          >
+            Export
+          </Button>
 
-      {/* dialogs */}
-      {editItem && <EditShiftDialog shift={editItem} onCancel={() => setEditItem(null)} onSave={handleEditSave} />}
-      {swapDlgOpen  && <SwapRangeDialog    agents={agents} teams={teams}     onCancel={()=>setSwapDlgOpen(false)}     onConfirm={submitSwapRange}   />}
-      {reassignDlgOpen && <ReassignRangeDialog agents={agents} teams={teams} onCancel={()=>setReassignDlgOpen(false)} onConfirm={submitReassign}    />}
+          <Button
+            variant="outlined"
+            startIcon={<AutorenewRoundedIcon />}
+            onClick={() => setSwapDlgOpen(true)}
+            sx={{ minHeight: 36 }}
+          >
+            Swap Range
+          </Button>
 
-      {/* snack */}
-      <Snackbar open={!!snack} autoHideDuration={4000} message={snack} onClose={()=>setSnack('')} />
-    </Box>
+          <Button
+            variant="outlined"
+            startIcon={<PublishedWithChangesRoundedIcon />}
+            onClick={() => setReassignDlgOpen(true)}
+            sx={{ minHeight: 36 }}
+          >
+            Reassign Range
+          </Button>
+
+          {swapSource ? (
+            <Chip
+              color="secondary"
+              variant="filled"
+              label={`Swap armed: ${swapSource.agentName}`}
+              onDelete={() => setSwapSource(null)}
+            />
+          ) : null}
+        </FilterStrip>
+      </SectionCard>
+
+      <SectionCard
+        title="Shift Grid"
+        subtitle="Use edit for direct changes or arm a row for a one-to-one swap inside the current result set."
+        accent={ACCENT}
+        noPadding
+      >
+        <Box sx={{ height: 610 }}>
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            density="compact"
+            disableRowSelectionOnClick
+            loading={loading}
+            pageSizeOptions={[25, 50, 100]}
+            initialState={{
+              pagination: { paginationModel: { pageSize: 25, page: 0 } }
+            }}
+            slots={{ toolbar: GridToolbar }}
+            slotProps={{
+              toolbar: {
+                showQuickFilter: true,
+                quickFilterProps: { debounceMs: 250 }
+              }
+            }}
+            sx={{
+              border: 0,
+              '& .MuiDataGrid-toolbarContainer': {
+                px: 1,
+                py: 0.7,
+                borderBottom: '1px solid',
+                borderColor: 'divider'
+              },
+              '& .MuiDataGrid-cell': {
+                alignItems: 'center'
+              }
+            }}
+          />
+        </Box>
+      </SectionCard>
+
+      {editItem ? (
+        <EditShiftDialog shift={editItem} onCancel={() => setEditItem(null)} onSave={handleEditSave} />
+      ) : null}
+      {swapDlgOpen ? (
+        <SwapRangeDialog
+          agents={agents}
+          teams={teams}
+          onCancel={() => setSwapDlgOpen(false)}
+          onConfirm={submitSwapRange}
+        />
+      ) : null}
+      {reassignDlgOpen ? (
+        <ReassignRangeDialog
+          agents={agents}
+          teams={teams}
+          onCancel={() => setReassignDlgOpen(false)}
+          onConfirm={submitReassign}
+        />
+      ) : null}
+
+      <Snackbar open={!!snack} autoHideDuration={4000} message={snack} onClose={() => setSnack('')} />
+    </PageShell>
   )
 }
 
-/* ───────── dialog – single shift edit ───────────────────── */
-function EditShiftDialog ({ shift, onCancel, onSave }) {
+function EditShiftDialog({ shift, onCancel, onSave }) {
   const [start, setStart] = useState(dayjs.utc(shift.startAt).format('YYYY-MM-DDTHH:mm'))
-  const [end,   setEnd]   = useState(dayjs.utc(shift.endAt  ).format('YYYY-MM-DDTHH:mm'))
+  const [end, setEnd] = useState(dayjs.utc(shift.endAt).format('YYYY-MM-DDTHH:mm'))
+
   return (
-    <Dialog open onClose={onCancel}>
-      <DialogTitle>Edit shift</DialogTitle>
-      <DialogContent sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
-        <TextField label='Start' type='datetime-local' value={start} onChange={e => setStart(e.target.value)} />
-        <TextField label='End'   type='datetime-local' value={end}   onChange={e => setEnd(e.target.value)} />
+    <Dialog open onClose={onCancel} fullWidth maxWidth="xs">
+      <DialogTitle>Edit Shift</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+        <TextField label="Start" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+        <TextField label="End" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
       </DialogContent>
       <DialogActions>
         <Button onClick={onCancel}>Cancel</Button>
-        <Button onClick={()=>onSave({ startAt:start, endAt:end })}>Save</Button>
+        <Button onClick={() => onSave({ startAt: start, endAt: end })}>Save</Button>
       </DialogActions>
     </Dialog>
   )
 }
 
-/* ───────── dialog – swap shifts across range ───────────── */
-function SwapRangeDialog ({ agents, teams, onCancel, onConfirm }) {
-  const [agentIdA, setA] = useState('')
-  const [agentIdB, setB] = useState('')
-  const [team,        setTeam] = useState('')
-  const [from, setFrom]  = useState(dayjs().startOf('week'))
-  const [to,   setTo]    = useState(dayjs().endOf('week'))
+function SwapRangeDialog({ agents, teams, onCancel, onConfirm }) {
+  const [agentIdA, setAgentA] = useState('')
+  const [agentIdB, setAgentB] = useState('')
+  const [team, setTeam] = useState('')
+  const [from, setFrom] = useState(dayjs().startOf('week'))
+  const [to, setTo] = useState(dayjs().endOf('week'))
 
-  // only show agents on the chosen team
-  const filteredAgents = team
-    ? agents.filter(a => a.team === team)
-    : []
-
+  const filteredAgents = team ? agents.filter((agent) => agent.team === team) : []
   const disabled = !team || !agentIdA || !agentIdB || agentIdA === agentIdB || from.isAfter(to)
 
-  const submit = () => onConfirm({ agentIdA:Number(agentIdA), agentIdB:Number(agentIdB), from:from.format('YYYY-MM-DD'), to:to.format('YYYY-MM-DD') })
+  const submit = () => onConfirm({
+    agentIdA: Number(agentIdA),
+    agentIdB: Number(agentIdB),
+    from: from.format('YYYY-MM-DD'),
+    to: to.format('YYYY-MM-DD')
+  })
 
   return (
-    <Dialog open onClose={onCancel} fullWidth maxWidth='sm'>
-      <DialogTitle>Swap shifts between two agents</DialogTitle>
-      <DialogContent sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
-        {/* 1) Team picker */}
+    <Dialog open onClose={onCancel} fullWidth maxWidth="sm">
+      <DialogTitle>Swap Shifts Across a Range</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
         <TextField
-          select fullWidth label='Team'
+          select
+          fullWidth
+          label="Team"
           value={team}
-          onChange={e => {
-            setTeam(e.target.value)
-            setA('')      // reset agent selections
-            setB('')
+          onChange={(event) => {
+            setTeam(event.target.value)
+            setAgentA('')
+            setAgentB('')
           }}
-          margin='normal'
         >
-          <MenuItem value=''>Select team</MenuItem>
-          {teams.map(t => (
-            <MenuItem key={t} value={t}>{t}</MenuItem>
+          <MenuItem value="">Select team</MenuItem>
+          {teams.map((teamValue) => (
+            <MenuItem key={teamValue} value={teamValue}>{teamValue}</MenuItem>
           ))}
         </TextField>
-        {/* 2) Agent A picker */}
-        <TextField
-          select label='Agent A'
-          value={agentIdA}
-          onChange={e=>setA(e.target.value)}
-          disabled={!team}
-        >
-          {filteredAgents.map(a => (
-            <MenuItem key={a.id} value={a.id}>
-              {a.fullName}
-            </MenuItem>
-          ))}
-         </TextField>
-                 {/* 3) Agent B picker */}
-        <TextField
-          select label='Agent B'
-          value={agentIdB}
-          onChange={e=>setB(e.target.value)}
-          disabled={!team}
-        >
-          {filteredAgents.map(a => (
-            <MenuItem key={a.id} value={a.id}>
-              {a.fullName}
-            </MenuItem>
-          ))}
-         </TextField>
 
-        <TextField type='date' label='From' InputLabelProps={{ shrink:true }} value={from.format('YYYY-MM-DD')} onChange={e=>setFrom(dayjs(e.target.value))} />
-        <TextField type='date' label='To'   InputLabelProps={{ shrink:true }} value={to.format('YYYY-MM-DD')}   onChange={e=>setTo(dayjs(e.target.value))} />
+        <TextField
+          select
+          label="Agent A"
+          value={agentIdA}
+          onChange={(event) => setAgentA(event.target.value)}
+          disabled={!team}
+        >
+          {filteredAgents.map((agent) => (
+            <MenuItem key={agent.id} value={agent.id}>{agent.fullName}</MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Agent B"
+          value={agentIdB}
+          onChange={(event) => setAgentB(event.target.value)}
+          disabled={!team}
+        >
+          {filteredAgents.map((agent) => (
+            <MenuItem key={agent.id} value={agent.id}>{agent.fullName}</MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          type="date"
+          label="From"
+          InputLabelProps={{ shrink: true }}
+          value={from.format('YYYY-MM-DD')}
+          onChange={(event) => setFrom(dayjs(event.target.value))}
+        />
+        <TextField
+          type="date"
+          label="To"
+          InputLabelProps={{ shrink: true }}
+          value={to.format('YYYY-MM-DD')}
+          onChange={(event) => setTo(dayjs(event.target.value))}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onCancel}>Cancel</Button>
@@ -346,80 +528,89 @@ function SwapRangeDialog ({ agents, teams, onCancel, onConfirm }) {
   )
 }
 
-/* ───────── dialog – reassign range ─────────────────────── */
-function ReassignRangeDialog ({ agents, teams, onCancel, onConfirm }) {
-  const [fromAgentId, setFromAgent] = useState('')
-  const [toAgentId,   setToAgent]   = useState('')
-  const [team,         setTeam]     = useState('')
-  const [from,        setFrom]      = useState(dayjs().startOf('week'))
-  const [to,          setTo]        = useState(dayjs().endOf('week'))
-  const [markLeave,   setMarkLeave] = useState(true)
+function ReassignRangeDialog({ agents, teams, onCancel, onConfirm }) {
+  const [fromAgentId, setFromAgentId] = useState('')
+  const [toAgentId, setToAgentId] = useState('')
+  const [team, setTeam] = useState('')
+  const [from, setFrom] = useState(dayjs().startOf('week'))
+  const [to, setTo] = useState(dayjs().endOf('week'))
+  const [markLeave, setMarkLeave] = useState(true)
 
-  const filteredAgents = team
-  ? agents.filter(a => a.team === team)
-  : []
-
+  const filteredAgents = team ? agents.filter((agent) => agent.team === team) : []
   const disabled = !team || !fromAgentId || !toAgentId || fromAgentId === toAgentId || from.isAfter(to)
 
   const submit = () => onConfirm({
-    fromAgentId:Number(fromAgentId),
-    toAgentId  :Number(toAgentId),
-    from:from.format('YYYY-MM-DD'),
-    to  :to.format('YYYY-MM-DD'),
+    fromAgentId: Number(fromAgentId),
+    toAgentId: Number(toAgentId),
+    from: from.format('YYYY-MM-DD'),
+    to: to.format('YYYY-MM-DD'),
     markLeave
   })
 
   return (
-    <Dialog open onClose={onCancel} fullWidth maxWidth='sm'>
-      <DialogTitle>Re‑assign shifts from one agent to another</DialogTitle>
-      <DialogContent sx={{ display:'flex', flexDirection:'column', gap:2, mt:1 }}>
-        {/* 1) Team picker */}
+    <Dialog open onClose={onCancel} fullWidth maxWidth="sm">
+      <DialogTitle>Reassign Shifts Across a Range</DialogTitle>
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
         <TextField
-          select fullWidth label='Team'
+          select
+          fullWidth
+          label="Team"
           value={team}
-          onChange={e => {
-            setTeam(e.target.value)
-            setFromAgent('')
-            setToAgent('')
+          onChange={(event) => {
+            setTeam(event.target.value)
+            setFromAgentId('')
+            setToAgentId('')
           }}
-          margin='normal'
         >
-          <MenuItem value=''>Select team</MenuItem>
-          {teams.map(t => (
-            <MenuItem key={t} value={t}>{t}</MenuItem>
+          <MenuItem value="">Select team</MenuItem>
+          {teams.map((teamValue) => (
+            <MenuItem key={teamValue} value={teamValue}>{teamValue}</MenuItem>
           ))}
         </TextField>
 
-        {/* 2) From agent */}
         <TextField
-          select label='From (agent on leave)'
+          select
+          label="From Agent"
           value={fromAgentId}
-          onChange={e=>setFromAgent(e.target.value)}
+          onChange={(event) => setFromAgentId(event.target.value)}
           disabled={!team}
         >
-          {filteredAgents.map(a => (
-            <MenuItem key={a.id} value={a.id}>
-              {a.fullName}
-            </MenuItem>
+          {filteredAgents.map((agent) => (
+            <MenuItem key={agent.id} value={agent.id}>{agent.fullName}</MenuItem>
           ))}
-         </TextField>
+        </TextField>
 
-        {/* 3) To agent */}
         <TextField
-          select label='To (covering agent)'
+          select
+          label="To Agent"
           value={toAgentId}
-          onChange={e=>setToAgent(e.target.value)}
+          onChange={(event) => setToAgentId(event.target.value)}
           disabled={!team}
         >
-          {filteredAgents.map(a => (
-            <MenuItem key={a.id} value={a.id}>
-              {a.fullName}
-            </MenuItem>
+          {filteredAgents.map((agent) => (
+            <MenuItem key={agent.id} value={agent.id}>{agent.fullName}</MenuItem>
           ))}
-         </TextField>
-        <TextField type='date' label='From' InputLabelProps={{ shrink:true }} value={from.format('YYYY-MM-DD')} onChange={e=>setFrom(dayjs(e.target.value))} />
-        <TextField type='date' label='To' InputLabelProps={{ shrink:true }} value={to.format('YYYY-MM-DD')} onChange={e=>setTo(dayjs(e.target.value))} />
-        <FormControlLabel control={<Checkbox checked={markLeave} onChange={e=>setMarkLeave(e.target.checked)} />} label='Mark original agent as on leave' />
+        </TextField>
+
+        <TextField
+          type="date"
+          label="From"
+          InputLabelProps={{ shrink: true }}
+          value={from.format('YYYY-MM-DD')}
+          onChange={(event) => setFrom(dayjs(event.target.value))}
+        />
+        <TextField
+          type="date"
+          label="To"
+          InputLabelProps={{ shrink: true }}
+          value={to.format('YYYY-MM-DD')}
+          onChange={(event) => setTo(dayjs(event.target.value))}
+        />
+
+        <FormControlLabel
+          control={<Checkbox checked={markLeave} onChange={(event) => setMarkLeave(event.target.checked)} />}
+          label="Mark the original agent as on leave"
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onCancel}>Cancel</Button>
@@ -429,10 +620,3 @@ function ReassignRangeDialog ({ agents, teams, onCancel, onConfirm }) {
   )
 }
 
-/*
-───────────────────────────────────────────────────────────────
-Future enhancement → generate iCalendar invites (.ics)
-----------------------------------------------------------------
-Use `ical-generator` in the backend to create VEVENTS, then e‑mail to
-agents once range operations succeed.
-*/

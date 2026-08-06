@@ -68,7 +68,14 @@
   - frontend build and publish
   - backend install and migrations
   - nginx reload
-- Retained the old frontend GitHub Actions workflow only as a manual legacy marker so future pushes do not keep deploying to GitHub Pages.
+- Deleted the retired frontend GitHub Pages workflow so the repo no longer carries a stale frontend deployment path.
+- Removed the unused frontend Google Maps loader path and its browser-key requirement because the active NLD map uses Leaflet instead.
+
+### Security Hardening
+
+- Removed the insecure fallback JWT secret from the auth route. The API now requires `JWT_SECRET` to be present explicitly.
+- Added a server env example file to document expected production variables without storing real secrets in the repo.
+- Expanded `.gitignore` for local certs, PEM files, and local xneelo/Heroku helper folders so sensitive local material is less likely to be committed by accident.
 
 ### Frontend And Auth Refresh
 
