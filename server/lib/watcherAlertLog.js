@@ -10,23 +10,20 @@ export async function recordWatcherAlert({
   payload = null
 }) {
   try {
-    await prisma.watcherAlertLog.create({
+    const result = await prisma.watcherAlertLog.createMany({
       data: {
         dedupeKey,
         watcherKey,
         alertType,
         entityId: entityId == null ? null : String(entityId),
         payload: payload ?? undefined
-      }
+      },
+      skipDuplicates: true
     })
 
     warnedPersistenceFailure = false
-    return true
+    return result.count > 0
   } catch (error) {
-    if (error?.code === 'P2002') {
-      return false
-    }
-
     if (!warnedPersistenceFailure) {
       console.warn('[WATCHER ALERT LOG] Falling back to in-memory dedupe:', error?.message || error)
       warnedPersistenceFailure = true
