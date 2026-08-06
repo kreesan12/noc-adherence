@@ -59,6 +59,7 @@
 - Refreshed the shared frontend shell with a tighter theme, smaller global sizing, new nav styling, improved background treatment, and a more modern login experience.
 - Improved auth hydration so protected routes wait for `/me` on refresh instead of bouncing users back to the login page prematurely.
 - Fixed logout token cleanup to clear the API auth header properly.
+- Added route-level lazy loading so major app pages no longer ship as one giant initial frontend bundle.
 
 ### User Administration
 

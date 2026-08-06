@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import {
   Badge,
   Box,
@@ -12,6 +12,7 @@ import {
   ListItemIcon,
   ListItemText,
   ThemeProvider,
+  CircularProgress,
   Typography,
   styled
 } from '@mui/material'
@@ -40,44 +41,44 @@ import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRound
 
 import theme from './theme'
 import techTheme from './techTheme'
-import TechShell from './components/TechShell'
 import AppFrame from './components/AppFrame'
 
 import './lib/dayjs.js'
 import { listVacancies } from './api/workforce'
 
-import AdherencePage from './pages/AdherencePage'
-import SchedulePage from './pages/SchedulePage'
-import VolumePage from './pages/VolumePage'
-import RosterUpload from './components/RosterUpload'
 import LoginPage from './pages/LoginPage'
-import AgentsPage from './pages/AgentsPage'
-import StaffingPage from './pages/StaffingPage'
-import ShiftManager from './pages/ShiftManager'
-import LeavePlannerPage from './pages/LeavePlannerPage'
-import WorkforcePage from './pages/WorkforcePage'
-import NldLightLevelsPage from './pages/NldLightLevelsPage'
-import NldMappingPage from './pages/NldMappingPage'
-import NldMapPage from './pages/NldMapPage'
-import NldUptimePage from './pages/NldUptimePage'
-import CircuitEditorPage from './pages/CircuitEditorPage'
-import NldServicesPage from './pages/NldServicesPage.jsx'
-import OvertimeCapturePage from './pages/OvertimeCapturePage'
-import OvertimeSupervisorPage from './pages/OvertimeSupervisorPage'
-import OvertimeManagerPage from './pages/OvertimeManagerPage'
-import SignaturePage from './pages/SignaturePage'
-import RocAppointmentsPage from './pages/RocAppointmentsPage'
-import SlaReportingPage from './pages/SlaReportingPage'
-import StockManagementPage from './pages/StockManagementPage'
-import UserAdminPage from './pages/UserAdminPage'
-
-import TechMyDayPage from './pages/TechMyDayPage.jsx'
-import TechAppointmentDetailPage from './pages/TechAppointmentDetailPage.jsx'
-import TechLoginPage from './pages/TechLoginPage.jsx'
 
 import { AuthProvider, useAuth } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import UserStatus from './components/UserStatus'
+
+const TechShell = lazy(() => import('./components/TechShell'))
+const RosterUpload = lazy(() => import('./components/RosterUpload'))
+const AdherencePage = lazy(() => import('./pages/AdherencePage'))
+const SchedulePage = lazy(() => import('./pages/SchedulePage'))
+const VolumePage = lazy(() => import('./pages/VolumePage'))
+const AgentsPage = lazy(() => import('./pages/AgentsPage'))
+const StaffingPage = lazy(() => import('./pages/StaffingPage'))
+const ShiftManager = lazy(() => import('./pages/ShiftManager'))
+const LeavePlannerPage = lazy(() => import('./pages/LeavePlannerPage'))
+const WorkforcePage = lazy(() => import('./pages/WorkforcePage'))
+const UserAdminPage = lazy(() => import('./pages/UserAdminPage'))
+const NldLightLevelsPage = lazy(() => import('./pages/NldLightLevelsPage'))
+const NldMappingPage = lazy(() => import('./pages/NldMappingPage'))
+const NldMapPage = lazy(() => import('./pages/NldMapPage'))
+const NldUptimePage = lazy(() => import('./pages/NldUptimePage'))
+const CircuitEditorPage = lazy(() => import('./pages/CircuitEditorPage'))
+const NldServicesPage = lazy(() => import('./pages/NldServicesPage.jsx'))
+const OvertimeCapturePage = lazy(() => import('./pages/OvertimeCapturePage'))
+const OvertimeSupervisorPage = lazy(() => import('./pages/OvertimeSupervisorPage'))
+const OvertimeManagerPage = lazy(() => import('./pages/OvertimeManagerPage'))
+const SignaturePage = lazy(() => import('./pages/SignaturePage'))
+const RocAppointmentsPage = lazy(() => import('./pages/RocAppointmentsPage'))
+const SlaReportingPage = lazy(() => import('./pages/SlaReportingPage'))
+const StockManagementPage = lazy(() => import('./pages/StockManagementPage'))
+const TechMyDayPage = lazy(() => import('./pages/TechMyDayPage.jsx'))
+const TechAppointmentDetailPage = lazy(() => import('./pages/TechAppointmentDetailPage.jsx'))
+const TechLoginPage = lazy(() => import('./pages/TechLoginPage.jsx'))
 
 const DRAWER_WIDTH = 236
 
@@ -375,6 +376,25 @@ function FloatingTechUserStatus() {
   return <UserStatus />
 }
 
+function RouteFallback() {
+  return (
+    <Box
+      sx={{
+        minHeight: '40vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      <CircularProgress size={26} />
+    </Box>
+  )
+}
+
+function loadable(element) {
+  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
+}
+
 const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/'
 
 export default function App() {
@@ -394,41 +414,41 @@ export default function App() {
                 path="/tech"
                 element={
                   <ThemeProvider theme={techTheme}>
-                    <TechShell />
+                    {loadable(<TechShell />)}
                   </ThemeProvider>
                 }
               >
                 <Route index element={<Navigate to="/tech/my-day" replace />} />
-                <Route path="login" element={<TechLoginPage />} />
-                <Route path="my-day" element={<TechMyDayPage />} />
-                <Route path="appointments/:id" element={<TechAppointmentDetailPage />} />
+                <Route path="login" element={loadable(<TechLoginPage />)} />
+                <Route path="my-day" element={loadable(<TechMyDayPage />)} />
+                <Route path="appointments/:id" element={loadable(<TechAppointmentDetailPage />)} />
               </Route>
 
               <Route element={<ProtectedRoute />}>
-                <Route path="/" element={<AdherencePage />} />
-                <Route path="/schedule" element={<SchedulePage />} />
-                <Route path="/volume" element={<VolumePage />} />
-                <Route path="/roster" element={<RosterUpload />} />
-                <Route path="/agents" element={<AgentsPage />} />
-                <Route path="/staffing" element={<StaffingPage />} />
-                <Route path="/shifts" element={<ShiftManager />} />
-                <Route path="/leave-planner" element={<LeavePlannerPage />} />
-                <Route path="/workforce" element={<WorkforcePage />} />
+                <Route path="/" element={loadable(<AdherencePage />)} />
+                <Route path="/schedule" element={loadable(<SchedulePage />)} />
+                <Route path="/volume" element={loadable(<VolumePage />)} />
+                <Route path="/roster" element={loadable(<RosterUpload />)} />
+                <Route path="/agents" element={loadable(<AgentsPage />)} />
+                <Route path="/staffing" element={loadable(<StaffingPage />)} />
+                <Route path="/shifts" element={loadable(<ShiftManager />)} />
+                <Route path="/leave-planner" element={loadable(<LeavePlannerPage />)} />
+                <Route path="/workforce" element={loadable(<WorkforcePage />)} />
                 <Route path="/managers" element={<Navigate to="/settings/users" replace />} />
-                <Route path="/settings/users" element={<UserAdminPage />} />
-                <Route path="/engineering/nlds" element={<NldLightLevelsPage />} />
-                <Route path="/nld-mapping" element={<NldMappingPage />} />
-                <Route path="/nld-map" element={<NldMapPage />} />
-                <Route path="/nld-uptime" element={<NldUptimePage />} />
-                <Route path="/nld-admin" element={<CircuitEditorPage />} />
-                <Route path="/engineering/nld-services" element={<NldServicesPage />} />
-                <Route path="/sla-reporting" element={<SlaReportingPage />} />
-                <Route path="/stock-management" element={<StockManagementPage />} />
-                <Route path="/overtime/capture" element={<OvertimeCapturePage />} />
-                <Route path="/overtime/supervisor" element={<OvertimeSupervisorPage />} />
-                <Route path="/overtime/manager" element={<OvertimeManagerPage />} />
-                <Route path="/settings/signature" element={<SignaturePage />} />
-                <Route path="/roc-appointments" element={<RocAppointmentsPage />} />
+                <Route path="/settings/users" element={loadable(<UserAdminPage />)} />
+                <Route path="/engineering/nlds" element={loadable(<NldLightLevelsPage />)} />
+                <Route path="/nld-mapping" element={loadable(<NldMappingPage />)} />
+                <Route path="/nld-map" element={loadable(<NldMapPage />)} />
+                <Route path="/nld-uptime" element={loadable(<NldUptimePage />)} />
+                <Route path="/nld-admin" element={loadable(<CircuitEditorPage />)} />
+                <Route path="/engineering/nld-services" element={loadable(<NldServicesPage />)} />
+                <Route path="/sla-reporting" element={loadable(<SlaReportingPage />)} />
+                <Route path="/stock-management" element={loadable(<StockManagementPage />)} />
+                <Route path="/overtime/capture" element={loadable(<OvertimeCapturePage />)} />
+                <Route path="/overtime/supervisor" element={loadable(<OvertimeSupervisorPage />)} />
+                <Route path="/overtime/manager" element={loadable(<OvertimeManagerPage />)} />
+                <Route path="/settings/signature" element={loadable(<SignaturePage />)} />
+                <Route path="/roc-appointments" element={loadable(<RocAppointmentsPage />)} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />
