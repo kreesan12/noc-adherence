@@ -1,7 +1,7 @@
 // server/routes/auth.js
 import { Router }  from 'express'
-import bcrypt      from 'bcryptjs'
 import jwt         from 'jsonwebtoken'
+import { hashPassword, passwordMatches } from '../lib/loginUsers.js'
 
 const SECRET = process.env.JWT_SECRET || 'devsecret'
 
@@ -36,15 +36,28 @@ export default function authRoutesFactory (prisma) {
       return res.status(401).json({ error:'bad credentials' })
 
     /* 2️⃣  pick the hashed column name */
-    const hash = sup ? user.hash        // column in "Supervisor"
-                     : user.password    // column in "Manager"
+    const storedPassword = sup ? user.hash : user.password
 
-    if (!bcrypt.compareSync(password, hash))
+    if (!passwordMatches(password, storedPassword))
       return res.status(401).json({ error:'bad credentials' })
+
+    if (!sup) {
+      const nextPasswordValue = storedPassword === password
+        ? hashPassword(password)
+        : storedPassword
+
+      await prisma.manager.update({
+        where: { id: user.id },
+        data: {
+          password: nextPasswordValue,
+          lastLogin: new Date()
+        }
+      })
+    }
 
     /* 3️⃣  issue token */
     const token = jwt.sign(
-      { id:user.id, name:user.fullName, role:user.role },
+      { id:user.id, name:user.fullName, role:user.role, kind: sup ? 'supervisor' : 'manager' },
       SECRET,
       { expiresIn:'8h' }
     )

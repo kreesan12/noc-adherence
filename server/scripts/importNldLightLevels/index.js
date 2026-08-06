@@ -159,14 +159,15 @@ async function fetchAttachment (client,msg,part) {
 
 /* ── Main import ───────────────────────────────────────── */
 async function main (targetDate) {
+  const g   = await gmail()
+  const msg = await findMail(g, targetDate)
+
   const pool = new pg.Pool({
     connectionString: DATABASE_URL,
     ssl:{ rejectUnauthorized:false }
   })
   const cx = await pool.connect()
-
-  const g   = await gmail()
-  const msg = await findMail(g, targetDate)
+  let inTransaction = false
 
   const csvBuffers=[]
   for (const p of msg.payload.parts ?? []) {
@@ -189,8 +190,10 @@ async function main (targetDate) {
 
   const seenInBatch = new Set()
 
-  await cx.query('BEGIN')
   try {
+    await cx.query('BEGIN')
+    inTransaction = true
+
     for (const r of allRows) {
       /* normalise circuitId */
       const rawCircuitId = (r.Circuit ?? r['Circuit ID'] ?? '').trim()
@@ -297,9 +300,10 @@ async function main (targetDate) {
     }
 
     await cx.query('COMMIT')
+    inTransaction = false
     console.log('Imported light levels for', targetDate.format('YYYY-MM-DD'))
   } catch (e) {
-    await cx.query('ROLLBACK')
+    if (inTransaction) await cx.query('ROLLBACK')
     console.error('Import failed:', e)
     process.exitCode = 1
   } finally {

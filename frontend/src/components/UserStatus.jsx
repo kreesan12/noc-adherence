@@ -56,6 +56,7 @@ export default function UserStatus({ inDrawer = false }) {
   const user = ctxUser ?? fallbackUser
   const initials = useMemo(() => getInitials(user?.name), [user])
   const chip = useMemo(() => roleChipProps(user?.role), [user])
+  const loginHref = `${(import.meta.env.BASE_URL || '/').replace(/\/$/, '') || ''}/login`
 
   const handleOpen = (e) => setAnchorEl(e.currentTarget)
   const handleClose = () => setAnchorEl(null)
@@ -67,7 +68,7 @@ export default function UserStatus({ inDrawer = false }) {
     } finally {
       localStorage.removeItem('token')
       setFallbackUser(null)
-      window.location.replace('/noc-adherence/login')
+      window.location.replace(loginHref)
     }
   }
 

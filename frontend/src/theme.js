@@ -1,52 +1,56 @@
+import { alpha, createTheme } from '@mui/material/styles'
 
-// frontend/src/theme.js
-import { createTheme, alpha } from '@mui/material/styles'
+const primaryMain = '#0f766e'
+const secondaryMain = '#2563eb'
+const ink = '#0f172a'
 
 export default createTheme({
   palette: {
     mode: 'light',
-    primary: { main: '#0B6E4F' },     // Frogfoot-ish green
-    secondary: { main: '#1E88E5' },   // crisp blue for accents
+    primary: { main: primaryMain },
+    secondary: { main: secondaryMain },
+    success: { main: '#16a34a' },
+    warning: { main: '#f59e0b' },
+    error: { main: '#dc2626' },
+    info: { main: '#0284c7' },
     background: {
-      default: '#F6F8FB',
-      paper: '#FFFFFF'
+      default: '#f7fafc',
+      paper: '#ffffff'
     },
     text: {
-      primary: '#111827',
-      secondary: '#4B5563'
+      primary: ink,
+      secondary: '#475569'
     },
-    divider: alpha('#111827', 0.08)
+    divider: alpha(ink, 0.08)
   },
 
-  shape: { borderRadius: 8 },
+  shape: { borderRadius: 10 },
 
   typography: {
     fontFamily: [
-      'Inter',
+      'Manrope',
       'system-ui',
       '-apple-system',
+      'BlinkMacSystemFont',
       'Segoe UI',
-      'Roboto',
-      'Helvetica',
-      'Arial',
       'sans-serif'
     ].join(','),
-    h4: { fontWeight: 900, letterSpacing: -0.4, fontSize: '1.8rem' },
-    h5: { fontWeight: 900, letterSpacing: -0.3, fontSize: '1.45rem' },
-    h6: { fontWeight: 800, letterSpacing: -0.2, fontSize: '1.1rem' },
-    subtitle1: { fontSize: '0.92rem' },
-    subtitle2: { fontSize: '0.84rem', fontWeight: 700 },
-    body1: { fontSize: '0.9rem' },
-    body2: { fontSize: '0.82rem' },
-    caption: { fontSize: '0.74rem' },
-    button: { fontWeight: 800, textTransform: 'none', fontSize: '0.82rem' }
+    h4: { fontWeight: 800, letterSpacing: -0.6, fontSize: '1.55rem', lineHeight: 1.08 },
+    h5: { fontWeight: 800, letterSpacing: -0.45, fontSize: '1.32rem', lineHeight: 1.1 },
+    h6: { fontWeight: 800, letterSpacing: -0.25, fontSize: '1.04rem', lineHeight: 1.12 },
+    subtitle1: { fontSize: '0.9rem', fontWeight: 700 },
+    subtitle2: { fontSize: '0.78rem', fontWeight: 800, letterSpacing: 0.15 },
+    body1: { fontSize: '0.84rem', lineHeight: 1.45 },
+    body2: { fontSize: '0.76rem', lineHeight: 1.45 },
+    caption: { fontSize: '0.7rem', lineHeight: 1.4 },
+    button: { fontWeight: 800, textTransform: 'none', fontSize: '0.76rem', letterSpacing: 0.1 }
   },
 
   components: {
     MuiCssBaseline: {
       styleOverrides: {
-        html: { fontSize: '14px' },
-        body: { backgroundColor: '#F6F8FB' },
+        html: { fontSize: '13px' },
+        body: { backgroundColor: '#f7fafc' },
         '#root': { minHeight: '100vh' }
       }
     },
@@ -55,8 +59,17 @@ export default createTheme({
       defaultProps: { elevation: 0 },
       styleOverrides: {
         root: {
-          border: '1px solid rgba(17, 24, 39, 0.08)',
-          backgroundImage: 'none'
+          border: `1px solid ${alpha(ink, 0.07)}`,
+          backgroundImage: 'none',
+          boxShadow: '0 18px 38px rgba(15, 23, 42, 0.045)'
+        }
+      }
+    },
+
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: 14
         }
       }
     },
@@ -66,9 +79,10 @@ export default createTheme({
       styleOverrides: {
         root: {
           borderRadius: 10,
-          minHeight: 34,
-          paddingInline: 12,
-          paddingBlock: 7
+          minHeight: 31,
+          paddingInline: 11,
+          paddingBlock: 6,
+          boxShadow: 'none'
         }
       }
     },
@@ -77,19 +91,32 @@ export default createTheme({
       defaultProps: { size: 'small' }
     },
 
+    MuiFormLabel: {
+      styleOverrides: {
+        root: {
+          fontSize: '0.76rem',
+          fontWeight: 700,
+          color: '#475569'
+        }
+      }
+    },
+
     MuiInputBase: {
       styleOverrides: {
         root: {
           borderRadius: 10,
-          fontSize: '0.84rem'
+          fontSize: '0.78rem'
         }
       }
     },
 
     MuiOutlinedInput: {
       styleOverrides: {
+        root: {
+          backgroundColor: alpha('#ffffff', 0.92)
+        },
         input: {
-          padding: '9px 11px'
+          padding: '8px 10px'
         }
       }
     },
@@ -97,7 +124,23 @@ export default createTheme({
     MuiInputLabel: {
       styleOverrides: {
         root: {
-          fontSize: '0.8rem'
+          fontSize: '0.76rem'
+        }
+      }
+    },
+
+    MuiDrawer: {
+      styleOverrides: {
+        paper: {
+          boxShadow: '20px 0 48px rgba(15, 23, 42, 0.18)'
+        }
+      }
+    },
+
+    MuiListItemButton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 10
         }
       }
     },
@@ -105,12 +148,14 @@ export default createTheme({
     MuiTableCell: {
       styleOverrides: {
         root: {
-          padding: '8px 10px',
-          fontSize: '0.82rem'
+          padding: '7px 9px',
+          fontSize: '0.76rem'
         },
         head: {
-          fontSize: '0.76rem',
-          fontWeight: 800
+          fontSize: '0.72rem',
+          fontWeight: 800,
+          color: '#334155',
+          backgroundColor: alpha(primaryMain, 0.04)
         }
       }
     },
@@ -118,10 +163,19 @@ export default createTheme({
     MuiTab: {
       styleOverrides: {
         root: {
-          minHeight: 36,
-          paddingInline: 10,
-          paddingBlock: 8,
-          fontSize: '0.82rem'
+          minHeight: 34,
+          paddingInline: 9,
+          paddingBlock: 7,
+          fontSize: '0.76rem',
+          fontWeight: 700
+        }
+      }
+    },
+
+    MuiTabs: {
+      styleOverrides: {
+        root: {
+          minHeight: 36
         }
       }
     },
@@ -129,8 +183,8 @@ export default createTheme({
     MuiMenuItem: {
       styleOverrides: {
         root: {
-          minHeight: 34,
-          fontSize: '0.84rem'
+          minHeight: 32,
+          fontSize: '0.78rem'
         }
       }
     },
@@ -138,9 +192,9 @@ export default createTheme({
     MuiCardContent: {
       styleOverrides: {
         root: {
-          padding: 14,
+          padding: 12,
           '&:last-child': {
-            paddingBottom: 14
+            paddingBottom: 12
           }
         }
       }
@@ -149,9 +203,9 @@ export default createTheme({
     MuiToolbar: {
       styleOverrides: {
         root: {
-          minHeight: 48,
+          minHeight: 44,
           '@media (min-width: 600px)': {
-            minHeight: 48
+            minHeight: 44
           }
         }
       }
@@ -160,7 +214,7 @@ export default createTheme({
     MuiFormControlLabel: {
       styleOverrides: {
         label: {
-          fontSize: '0.82rem'
+          fontSize: '0.76rem'
         }
       }
     },
@@ -169,10 +223,11 @@ export default createTheme({
       styleOverrides: {
         root: {
           borderRadius: 999,
-          height: 22,
+          height: 21,
+          fontWeight: 700,
           '& .MuiChip-label': {
             paddingInline: 8,
-            fontSize: '0.74rem'
+            fontSize: '0.68rem'
           }
         }
       }
@@ -180,15 +235,15 @@ export default createTheme({
 
     MuiDialog: {
       styleOverrides: {
-        paper: { borderRadius: 10 }
+        paper: { borderRadius: 14 }
       }
     },
 
     MuiDialogTitle: {
       styleOverrides: {
         root: {
-          padding: '12px 14px',
-          fontSize: '0.98rem',
+          padding: '12px 14px 8px',
+          fontSize: '0.96rem',
           fontWeight: 800
         }
       }
@@ -205,23 +260,45 @@ export default createTheme({
     MuiDialogActions: {
       styleOverrides: {
         root: {
-          padding: '10px 14px'
+          padding: '10px 14px 14px'
+        }
+      }
+    },
+
+    MuiAccordion: {
+      styleOverrides: {
+        root: {
+          borderRadius: 14,
+          overflow: 'hidden',
+          '&:before': {
+            display: 'none'
+          }
+        }
+      }
+    },
+
+    MuiAlert: {
+      styleOverrides: {
+        root: {
+          borderRadius: 12
         }
       }
     },
 
     MuiDataGrid: {
       defaultProps: {
-        rowHeight: 34,
-        columnHeaderHeight: 36
+        rowHeight: 32,
+        columnHeaderHeight: 34
       },
       styleOverrides: {
         root: {
-          fontSize: '0.8rem',
-          borderRadius: 8
+          fontSize: '0.76rem',
+          borderRadius: 14,
+          backgroundColor: '#ffffff'
         },
         columnHeaders: {
-          fontSize: '0.76rem'
+          fontSize: '0.72rem',
+          backgroundColor: alpha(primaryMain, 0.04)
         },
         columnHeaderTitle: {
           fontWeight: 800
@@ -230,7 +307,7 @@ export default createTheme({
           paddingInline: 8
         },
         footerContainer: {
-          minHeight: 38
+          minHeight: 36
         },
         toolbarContainer: {
           padding: '6px 8px'

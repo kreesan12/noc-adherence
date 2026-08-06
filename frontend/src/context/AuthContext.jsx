@@ -6,16 +6,26 @@ export const useAuth = () => useContext(AuthCtx)
 
 export function AuthProvider ({ children }) {
   const [user, setUser] = useState(null)
+  const [authReady, setAuthReady] = useState(false)
 
   // re-hydrate on refresh
   useEffect(() => {
     const saved = localStorage.getItem('token')
-    if (saved) {
-      setToken(saved)
-      api.get('/me')
-        .then(r => setUser(r.data))
-        .catch(() => localStorage.removeItem('token'))
+    if (!saved) {
+      setToken(null)
+      setAuthReady(true)
+      return
     }
+
+    setToken(saved)
+    api.get('/me')
+      .then(r => setUser(r.data))
+      .catch(() => {
+        setToken(null)
+        localStorage.removeItem('token')
+        setUser(null)
+      })
+      .finally(() => setAuthReady(true))
   }, [])
 
   async function login (email, password) {
@@ -24,15 +34,17 @@ export function AuthProvider ({ children }) {
     localStorage.setItem('token', data.token)
     const me = await api.get('/me')
     setUser(me.data)
+    setAuthReady(true)
   }
 
   function logout () {
+    setToken(null)
     localStorage.removeItem('token')
     setUser(null)
   }
 
   return (
-    <AuthCtx.Provider value={{ user, login, logout }}>
+    <AuthCtx.Provider value={{ user, login, logout, authReady }}>
       {children}
     </AuthCtx.Provider>
   )

@@ -24,6 +24,7 @@ import leaveRoutes from './routes/leave.js'
 import workforceRouter from './routes/workforce.js'
 import engineeringRoutes from './routes/engineering.js'
 import managersRoutes from './routes/managers.js'
+import userAdminRoutes from './routes/userAdmin.js'
 import nldsRoutes from './routes/nlds.js'
 import nldServices from './routes/nldServices.js'
 import nldMonitoringRoutes from './routes/nldMonitoring.js'
@@ -239,6 +240,12 @@ app.use(
   '/api/managers',
   verifyToken, authRole('admin'),
   managersRoutes(prisma)
+)
+
+app.use(
+  '/api/admin/users',
+  verifyToken, authRole('admin'),
+  userAdminRoutes(prisma)
 )
 
 /* ---------- Global error handler ---------- */
