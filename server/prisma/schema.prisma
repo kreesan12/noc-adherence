@@ -704,13 +704,19 @@ model StagedZendeskTicketComment {
   @@map("staged_zendesk_ticket_comment")
 }
 
-// NEW ENUM
+enum ManagerRole {
+  engineering
+  manager
+
+  @@map("manager_role")
+}
+
 model Manager {
   id        Int         @id @default(autoincrement())
   fullName  String      @map("full_name") // ← map to full_name
   email     String      @unique
   password  String // column is already “password”
-  role      String      @default("manager")
+  role      ManagerRole @default(manager)
   createdAt DateTime    @default(now()) @map("created_at")
   lastLogin DateTime?   @map("last_login")
 

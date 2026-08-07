@@ -87,7 +87,7 @@
   - includes the Zendesk last-update note from custom field `5352766585489`
 - Hardened user-admin role and delete handling:
   - watcher test requests now always store a string actor label instead of failing on numeric token ids
-  - manager login roles now use the legacy string-backed database column shape instead of assuming a missing Postgres enum
+  - manager login roles now align to the live legacy Postgres enum type `manager_role`
   - supervisor and manager deletes/promotions now detach linked records safely before removing the source login
   - stored signatures are migrated when moving a login between supervisor and manager lanes
 - Added queued test-dispatch support for WhatsApp watchers:
