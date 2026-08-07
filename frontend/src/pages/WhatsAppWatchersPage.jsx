@@ -36,6 +36,7 @@ import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRound
 import { useAuth } from '../context/AuthContext'
 import {
   getWhatsAppWatcherConfig,
+  getWhatsAppWatcherDispatchHistory,
   getWhatsAppWatcherHistory,
   queueWhatsAppWatcherTest,
   saveWhatsAppWatcherConfig
@@ -150,6 +151,11 @@ function isWatcherAssigned(section, jid) {
   return getGroupIds(section).includes(String(jid || '').trim())
 }
 
+function linkedWatcherRoutes(draft, jid) {
+  if (!draft) return []
+  return WATCHER_ROUTE_ACTIONS.filter((action) => isWatcherAssigned(draft[action.sectionKey], jid))
+}
+
 function watcherLabel(key) {
   switch (String(key || '').toLowerCase()) {
     case 'nld':
@@ -207,6 +213,19 @@ function watcherDefaultGroupLabel(meta, groupLookup) {
   const defaultGroupId = String(meta?.defaultGroupId || '').trim()
   if (!defaultGroupId) return 'No default WhatsApp group configured'
   return groupChipLabel(defaultGroupId, groupLookup)
+}
+
+function statusTone(statusRaw) {
+  const status = String(statusRaw || '').toLowerCase()
+  if (status === 'sent') return 'success'
+  if (status === 'failed') return 'error'
+  if (status === 'processing') return 'warning'
+  return 'default'
+}
+
+function compactList(values, formatter = (value) => String(value)) {
+  if (!Array.isArray(values) || !values.length) return 'None'
+  return values.slice(0, 3).map((value) => formatter(value)).join(', ')
 }
 
 function ParticipantPreviewChips({ participantJids }) {
@@ -336,6 +355,7 @@ export default function WhatsAppWatchersPage() {
   const [defaults, setDefaults] = useState(null)
   const [draft, setDraft] = useState(null)
   const [historyRows, setHistoryRows] = useState([])
+  const [dispatchRows, setDispatchRows] = useState([])
   const [historyFilter, setHistoryFilter] = useState('')
   const [historyLimit, setHistoryLimit] = useState(20)
   const [groupRows, setGroupRows] = useState([])
@@ -382,6 +402,18 @@ export default function WhatsAppWatchersPage() {
     }
   }
 
+  async function loadDispatchHistory(filter = historyFilter, limit = historyLimit) {
+    try {
+      const { data } = await getWhatsAppWatcherDispatchHistory({
+        watcherKey: filter,
+        limit
+      })
+      setDispatchRows(data.rows || [])
+    } catch (err) {
+      setError(extractError(err, 'Failed to load watcher dispatch history'))
+    }
+  }
+
   async function loadGroups(search = groupSearch, limit = groupLimit) {
     setGroupLoading(true)
     try {
@@ -410,6 +442,7 @@ export default function WhatsAppWatchersPage() {
         majorOutage: thresholdsToText(data.config?.majorOutage?.breachThresholdsHours)
       })
       await loadHistory(historyFilter, historyLimit)
+      await loadDispatchHistory(historyFilter, historyLimit)
       await loadGroups(groupSearch, groupLimit)
     } catch (err) {
       setError(extractError(err, 'Failed to load WhatsApp watcher settings'))
@@ -425,6 +458,7 @@ export default function WhatsAppWatchersPage() {
   useEffect(() => {
     if (!isAdmin) return
     loadHistory(historyFilter, historyLimit)
+    loadDispatchHistory(historyFilter, historyLimit)
   }, [historyFilter, historyLimit, isAdmin])
 
   useEffect(() => {
@@ -720,8 +754,8 @@ export default function WhatsAppWatchersPage() {
           sx={{ px: 1, borderBottom: '1px solid', borderColor: 'divider' }}
         >
           <Tab value="controls" label="Watcher Controls" />
-          <Tab value="groups" label="WhatsApp Group IDs" />
-          <Tab value="logs" label="Logs" />
+          <Tab value="groups" label={`WhatsApp Group IDs (${groupRows.length})`} />
+          <Tab value="logs" label={`Logs (${historyRows.length})`} />
         </Tabs>
       </Paper>
 
@@ -1583,7 +1617,7 @@ export default function WhatsAppWatchersPage() {
                     <TableCell sx={{ fontWeight: 800 }}>Route ID</TableCell>
                     <TableCell sx={{ fontWeight: 800 }}>Members</TableCell>
                     <TableCell sx={{ fontWeight: 800 }}>Last Seen</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Watcher Routing</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Watcher Links and Routing</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1602,35 +1636,60 @@ export default function WhatsAppWatchersPage() {
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(row.lastSeenAt)}</TableCell>
-                      <TableCell sx={{ minWidth: 520 }}>
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                          <Button size="small" variant="outlined" onClick={() => copyText(row.jid, `Copied ${row.name || row.jid}`)}>
-                            Copy JID
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            disabled={!Array.isArray(row.participantJids) || !row.participantJids.length}
-                            onClick={() => copyText((row.participantJids || []).join('\n'), `Copied ${row.participantJids?.length || 0} member IDs from ${row.name || row.jid}`)}
-                          >
-                            Copy member IDs
-                          </Button>
-                          {WATCHER_ROUTE_ACTIONS.map((action) => {
-                            const assigned = draft ? isWatcherAssigned(draft[action.sectionKey], row.jid) : false
-                            return (
-                              <Button
-                                key={`${row.jid}-${action.watcherKey}`}
+                      <TableCell sx={{ minWidth: 560 }}>
+                        <Stack spacing={0.7}>
+                          <Stack direction="row" spacing={0.45} flexWrap="wrap" useFlexGap>
+                            {linkedWatcherRoutes(draft, row.jid).length ? linkedWatcherRoutes(draft, row.jid).map((action) => (
+                              <Chip
+                                key={`${row.jid}-${action.watcherKey}-linked`}
                                 size="small"
-                                variant="outlined"
                                 color={action.color}
-                                disabled={!draft || assigned}
-                                onClick={() => applyGroupToWatcher(action.sectionKey, row.jid)}
-                                sx={assigned ? { opacity: 0.55 } : undefined}
-                              >
-                                {assigned ? `${action.label} linked` : `Add ${action.label}`}
-                              </Button>
-                            )
-                          })}
+                                variant="outlined"
+                                label={`${action.label} linked`}
+                              />
+                            )) : (
+                              <Typography variant="caption" color="text.secondary">
+                                No watcher uses this group in the current editor state.
+                              </Typography>
+                            )}
+                          </Stack>
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                            <Button size="small" variant="outlined" onClick={() => copyText(row.jid, `Copied ${row.name || row.jid}`)}>
+                              Copy JID
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={!Array.isArray(row.participantJids) || !row.participantJids.length}
+                              onClick={() => copyText((row.participantJids || []).join('\n'), `Copied ${row.participantJids?.length || 0} member IDs from ${row.name || row.jid}`)}
+                            >
+                              Copy member IDs
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={!Array.isArray(row.participantJids) || !row.participantJids.length}
+                              onClick={() => copyText((row.participantJids || []).map((jid) => compactParticipantHandle(jid)).join('\n'), `Copied ${row.participantJids?.length || 0} member handles from ${row.name || row.jid}`)}
+                            >
+                              Copy member handles
+                            </Button>
+                            {WATCHER_ROUTE_ACTIONS.map((action) => {
+                              const assigned = draft ? isWatcherAssigned(draft[action.sectionKey], row.jid) : false
+                              return (
+                                <Button
+                                  key={`${row.jid}-${action.watcherKey}`}
+                                  size="small"
+                                  variant="outlined"
+                                  color={action.color}
+                                  disabled={!draft || assigned}
+                                  onClick={() => applyGroupToWatcher(action.sectionKey, row.jid)}
+                                  sx={assigned ? { opacity: 0.55 } : undefined}
+                                >
+                                  {assigned ? `${action.label} linked` : `Add ${action.label}`}
+                                </Button>
+                              )
+                            })}
+                          </Stack>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -1651,85 +1710,156 @@ export default function WhatsAppWatchersPage() {
       ) : null}
 
       {activeTab === 'logs' ? (
-        <SectionCard
-          title="Watcher Logs"
-          subtitle="Latest deduplicated watcher sends recorded in the database. This helps us confirm what already went out before a restart, deploy, or template change."
-          accent="#0f766e"
-          actions={(
-            <FilterStrip>
-              <TextField
-                select
-                size="small"
-                label="Watcher"
-                value={historyFilter}
-                onChange={(event) => setHistoryFilter(event.target.value)}
-                sx={{ minWidth: 170 }}
-              >
-                <MenuItem value="">All watchers</MenuItem>
-                <MenuItem value="nld">NLD</MenuItem>
-                <MenuItem value="backhaul">Backhaul</MenuItem>
-                <MenuItem value="major_outage">Major Outage</MenuItem>
-                <MenuItem value="vip">VIP</MenuItem>
-              </TextField>
-              <TextField
-                select
-                size="small"
-                label="Rows"
-                value={historyLimit}
-                onChange={(event) => setHistoryLimit(Number(event.target.value) || 20)}
-                sx={{ width: 110 }}
-              >
-                {ROW_LIMIT_OPTIONS.map((option) => (
-                  <MenuItem key={option} value={option}>{option}</MenuItem>
-                ))}
-              </TextField>
-              <Button size="small" variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => loadHistory(historyFilter, historyLimit)}>
-                Refresh history
-              </Button>
-            </FilterStrip>
-          )}
-        >
-          <Stack spacing={0.9}>
-            <Typography variant="body2" color="text.secondary">
-              Showing the latest {historyRows.length} rows for the current filter. Test sends also land here once the dispatch worker sends them.
-            </Typography>
+        <Stack spacing={1}>
+          <SectionCard
+            title="Watcher Logs"
+            subtitle="Latest deduplicated watcher sends recorded in the database. This helps us confirm what already went out before a restart, deploy, or template change."
+            accent="#0f766e"
+            actions={(
+              <FilterStrip>
+                <TextField
+                  select
+                  size="small"
+                  label="Watcher"
+                  value={historyFilter}
+                  onChange={(event) => setHistoryFilter(event.target.value)}
+                  sx={{ minWidth: 170 }}
+                >
+                  <MenuItem value="">All watchers</MenuItem>
+                  <MenuItem value="nld">NLD</MenuItem>
+                  <MenuItem value="backhaul">Backhaul</MenuItem>
+                  <MenuItem value="major_outage">Major Outage</MenuItem>
+                  <MenuItem value="vip">VIP</MenuItem>
+                </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Rows"
+                  value={historyLimit}
+                  onChange={(event) => setHistoryLimit(Number(event.target.value) || 20)}
+                  sx={{ width: 110 }}
+                >
+                  {ROW_LIMIT_OPTIONS.map((option) => (
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
+                  ))}
+                </TextField>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<RefreshRoundedIcon />}
+                  onClick={() => {
+                    loadHistory(historyFilter, historyLimit)
+                    loadDispatchHistory(historyFilter, historyLimit)
+                  }}
+                >
+                  Refresh history
+                </Button>
+              </FilterStrip>
+            )}
+          >
+            <Stack spacing={0.9}>
+              <Typography variant="body2" color="text.secondary">
+                Showing the latest {historyRows.length} sent-alert rows for the current filter. Test sends also land here once the dispatch worker sends them.
+              </Typography>
 
-            <Box sx={{ overflowX: 'auto' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 800 }}>Sent At</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Watcher</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Alert Type</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Entity</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Summary</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {historyRows.length ? historyRows.map((row) => (
-                    <TableRow key={row.id} hover>
-                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(row.sentAt)}</TableCell>
-                      <TableCell>
-                        <Chip size="small" label={watcherLabel(row.watcherKey)} variant="outlined" />
-                      </TableCell>
-                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.alertType}</TableCell>
-                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.entityId || '-'}</TableCell>
-                      <TableCell sx={{ minWidth: 320 }}>{compactPayload(row.payload)}</TableCell>
-                    </TableRow>
-                  )) : (
+              <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small">
+                  <TableHead>
                     <TableRow>
-                      <TableCell colSpan={5}>
-                        <Typography variant="body2" color="text.secondary">
-                          No sent watcher alerts found yet for this filter.
-                        </Typography>
-                      </TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Sent At</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Watcher</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Alert Type</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Entity</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Summary</TableCell>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </Box>
-          </Stack>
-        </SectionCard>
+                  </TableHead>
+                  <TableBody>
+                    {historyRows.length ? historyRows.map((row) => (
+                      <TableRow key={row.id} hover>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(row.sentAt)}</TableCell>
+                        <TableCell>
+                          <Chip size="small" label={watcherLabel(row.watcherKey)} variant="outlined" />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.alertType}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.entityId || '-'}</TableCell>
+                        <TableCell sx={{ minWidth: 320 }}>{compactPayload(row.payload)}</TableCell>
+                      </TableRow>
+                    )) : (
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <Typography variant="body2" color="text.secondary">
+                            No sent watcher alerts found yet for this filter.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Stack>
+          </SectionCard>
+
+          <SectionCard
+            title="Dispatch Request History"
+            subtitle="Queue-level visibility for manual test sends and future admin-triggered dispatch actions, including routing, mention targets, and worker outcomes."
+            accent="#7c3aed"
+          >
+            <Stack spacing={0.9}>
+              <Typography variant="body2" color="text.secondary">
+                Showing the latest {dispatchRows.length} queued dispatch rows for the current filter. This is the quickest way to see whether a watcher test failed before send, while sending, or after send.
+              </Typography>
+
+              <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 800 }}>Created</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Watcher</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Type</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Requested By</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Groups</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Mentions</TableCell>
+                      <TableCell sx={{ fontWeight: 800 }}>Worker Result</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {dispatchRows.length ? dispatchRows.map((row) => (
+                      <TableRow key={`dispatch-${row.id}`} hover>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(row.createdAt)}</TableCell>
+                        <TableCell>
+                          <Chip size="small" label={watcherLabel(row.watcherKey)} variant="outlined" />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.dispatchType}</TableCell>
+                        <TableCell>
+                          <Chip size="small" color={statusTone(row.status)} label={String(row.status || 'pending')} />
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.requestedBy || '-'}</TableCell>
+                        <TableCell sx={{ minWidth: 220 }}>
+                          {compactList(row.targetGroupIds, (jid) => groupChipLabel(String(jid), groupLookup))}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 180 }}>
+                          {compactList(row.mentionJids, (jid) => mentionChipLabel(String(jid)))}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 260 }}>
+                          {compactPayload(row.result)}
+                        </TableCell>
+                      </TableRow>
+                    )) : (
+                      <TableRow>
+                        <TableCell colSpan={8}>
+                          <Typography variant="body2" color="text.secondary">
+                            No dispatch requests found yet for this filter.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </Box>
+            </Stack>
+          </SectionCard>
+        </Stack>
       ) : null}
     </PageShell>
   )

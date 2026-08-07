@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-08-07
+
+### User Access Control
+
+- Added explicit auth-lane editing for login users inside the frontend User Admin page:
+  - admins can now be stored in either the `Supervisor` table or the `Manager` table
+  - managers and engineering users stay pinned to the `Manager` table
+  - supervisors stay pinned to the `Supervisor` table
+- Added backend validation so invalid role-table combinations are rejected cleanly instead of failing later in Prisma or Postgres.
+- Changed the default lane for newly created `admin` users to the `Manager` table.
+- Hardened self-protection rules so a user cannot delete or reassign their own currently active login record into another auth lane from the admin screen.
+- Added live auth-lane summary counts to the User Admin screen so the team can see how many records sit in each underlying login table.
+
+### WhatsApp Watchers
+
+- Extended the WhatsApp watcher admin page with clearer group-management tooling:
+  - group directory tab now shows which watchers already link to each WhatsApp group in the current editor state
+  - added copy helpers for group JIDs, raw member IDs, and compact member handles
+  - tab labels now surface live row counts for groups and logs
+- Added a second watcher log surface for dispatch queue history:
+  - new backend route `GET /api/admin/whatsapp-watchers/dispatch-history`
+  - new frontend section shows queued test/manual dispatches, worker status, target groups, mention targets, and result payloads
+
+### Grafana Replacement Discovery
+
+- Investigated the existing Grafana Cloud dashboard access path for eventual in-app migration.
+- Confirmed the Grafana workspace is using `grafana_com` OAuth rather than local password-form auth.
+- Confirmed the dashboard is not anonymously readable and that simple basic-auth API calls return `401`.
+- Identified that extraction of the live dashboard queries will require either:
+  - a Grafana API token / service account token, or
+  - a browser-authenticated export of the dashboard JSON.
+
 ## 2026-08-06
 
 ### Platform Move

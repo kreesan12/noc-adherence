@@ -72,6 +72,21 @@ export default function whatsappWatchersRouter() {
     })
   })
 
+  r.get('/dispatch-history', async (req, res) => {
+    const watcherKey = String(req.query.watcherKey || '').trim().toLowerCase()
+    const limit = Math.min(Math.max(Number(req.query.limit || 50) || 50, 1), 200)
+
+    const rows = await prisma.watcherDispatchRequest.findMany({
+      where: watcherKey ? { watcherKey } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: limit
+    })
+
+    res.json({
+      rows
+    })
+  })
+
   r.post('/test', async (req, res) => {
     const watcherKey = String(req.body?.watcherKey || '').trim().toLowerCase()
     const sectionKey = WATCHER_SECTION_MAP[watcherKey]

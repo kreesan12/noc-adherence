@@ -2,17 +2,18 @@ import { Router } from 'express'
 import { z } from 'zod'
 
 import {
-  MANAGER_LOGIN_ROLES,
   SUPERVISOR_LOGIN_ROLES,
   assertLoginEmailAvailable,
   buildUserEmailDraft,
+  defaultLoginKindForRole,
   findLoginUser,
   generateTemporaryPassword,
   hashPassword,
   isPasswordHash,
   listLoginUsers,
+  normalizeLoginKind,
   normalizeLoginRole,
-  roleFamily,
+  resolveLoginKindForRole,
   serializeLoginUser
 } from '../lib/loginUsers.js'
 import {
@@ -26,13 +27,15 @@ const createSchema = z.object({
   fullName: z.string().trim().min(2),
   email: z.string().trim().email(),
   role: z.string().trim().min(1),
+  kind: z.string().trim().optional().or(z.literal('')),
   password: z.string().trim().min(8).optional().or(z.literal(''))
 })
 
 const updateSchema = z.object({
   fullName: z.string().trim().min(2),
   email: z.string().trim().email(),
-  role: z.string().trim().min(1)
+  role: z.string().trim().min(1),
+  kind: z.string().trim().optional().or(z.literal(''))
 })
 
 function buildAppUrl(req) {
@@ -54,14 +57,19 @@ function toResetPayload(req, user, tempPassword, reason) {
   }
 }
 
-async function ensureNotSelfDestructive(prisma, reqUser, targetKind, targetId, nextRole = null) {
+async function ensureNotSelfDestructive(reqUser, targetKind, targetId, nextRole = null, nextKind = null) {
   if (!reqUser) return
   if (String(reqUser.id) !== String(targetId)) return
   const reqRole = String(reqUser.role || '').toLowerCase()
-  const reqKind = SUPERVISOR_LOGIN_ROLES.includes(reqRole) ? 'supervisor' : 'manager'
+  const reqKind = normalizeLoginKind(reqUser.kind || (SUPERVISOR_LOGIN_ROLES.includes(reqRole) ? 'supervisor' : 'manager'))
   if (reqKind !== targetKind) return
 
-  if (nextRole && nextRole === reqRole) return
+  const resolvedRole = nextRole ? normalizeLoginRole(nextRole) : reqRole
+  const resolvedKind = nextKind
+    ? normalizeLoginKind(nextKind)
+    : resolveLoginKindForRole(resolvedRole, null, reqKind)
+
+  if (resolvedRole === reqRole && resolvedKind === reqKind) return
 
   throw new Error('You cannot delete or reassign your own active login from this screen.')
 }
@@ -86,14 +94,14 @@ export default function userAdminRouter(prisma) {
   r.post('/', async (req, res) => {
     const parsed = createSchema.parse(req.body || {})
     const role = normalizeLoginRole(parsed.role)
-    const family = roleFamily(role)
+    const kind = resolveLoginKindForRole(role, parsed.kind, defaultLoginKindForRole(role))
     const email = parsed.email.trim().toLowerCase()
     const tempPassword = (parsed.password || '').trim() || generateTemporaryPassword()
     const passwordValue = hashPassword(tempPassword)
 
     await assertLoginEmailAvailable(prisma, email)
 
-    const created = family === 'supervisor'
+    const created = kind === 'supervisor'
       ? await prisma.supervisor.create({
           data: {
             fullName: parsed.fullName.trim(),
@@ -111,7 +119,7 @@ export default function userAdminRouter(prisma) {
           }
         })
 
-    const user = serializeLoginUser(created, family)
+    const user = serializeLoginUser(created, kind)
 
     res.status(201).json({
       user,
@@ -126,15 +134,16 @@ export default function userAdminRouter(prisma) {
 
     const parsed = updateSchema.parse(req.body || {})
     const nextRole = normalizeLoginRole(parsed.role)
-    const nextFamily = roleFamily(nextRole)
-
-    await ensureNotSelfDestructive(prisma, req.user, kind, id, nextRole)
-    await assertLoginEmailAvailable(prisma, parsed.email, { kind, id })
 
     const existing = await findLoginUser(prisma, kind, id)
     if (!existing) return res.status(404).json({ error: 'User not found' })
 
-    if (existing.kind === nextFamily) {
+    const targetKind = resolveLoginKindForRole(nextRole, parsed.kind, existing.kind)
+
+    await ensureNotSelfDestructive(req.user, kind, id, nextRole, targetKind)
+    await assertLoginEmailAvailable(prisma, parsed.email, { kind, id })
+
+    if (existing.kind === targetKind) {
       const updated = existing.kind === 'supervisor'
         ? await prisma.supervisor.update({
             where: { id },
@@ -169,7 +178,7 @@ export default function userAdminRouter(prisma) {
         })
         await migrateSupervisorSignatureToManager(tx, id, created.id)
         await deleteSupervisorWithCleanup(tx, id)
-        return serializeLoginUser(created, 'manager')
+        return serializeLoginUser(created, targetKind)
       }
 
       const source = await tx.manager.findUnique({ where: { id } })
@@ -187,7 +196,7 @@ export default function userAdminRouter(prisma) {
       })
       await migrateManagerSignatureToSupervisor(tx, id, created.id)
       await deleteManagerWithCleanup(tx, id)
-      return serializeLoginUser(created, 'supervisor')
+      return serializeLoginUser(created, targetKind)
     })
 
     res.json({ user: moved })
@@ -226,7 +235,7 @@ export default function userAdminRouter(prisma) {
     const id = Number(req.params.id)
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid user id' })
 
-    await ensureNotSelfDestructive(prisma, req.user, kind, id)
+    await ensureNotSelfDestructive(req.user, kind, id)
 
     const existing = await findLoginUser(prisma, kind, id)
     if (!existing) return res.status(404).json({ error: 'User not found' })

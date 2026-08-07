@@ -48,11 +48,45 @@ const ROLE_OPTIONS = [
   { value: 'engineering', label: 'Engineering' }
 ]
 
+const KIND_OPTIONS = [
+  { value: 'manager', label: 'Manager table' },
+  { value: 'supervisor', label: 'Supervisor table' }
+]
+
 const EMPTY_FORM = {
   fullName: '',
   email: '',
   role: 'manager',
+  kind: 'manager',
   password: ''
+}
+
+function supportedKindsForRole(roleRaw) {
+  const role = String(roleRaw || '').toLowerCase()
+  if (role === 'admin') return ['manager', 'supervisor']
+  if (role === 'supervisor') return ['supervisor']
+  return ['manager']
+}
+
+function defaultKindForRole(roleRaw) {
+  return supportedKindsForRole(roleRaw)[0]
+}
+
+function kindHelperText(roleRaw, kindRaw) {
+  const role = String(roleRaw || '').toLowerCase()
+  const kind = String(kindRaw || '').toLowerCase()
+
+  if (role === 'admin') {
+    return kind === 'manager'
+      ? 'Admin users can live in either auth table. Manager table is now the default lane for new admin accounts.'
+      : 'Admin users can live in either auth table. Supervisor table remains available for compatibility when needed.'
+  }
+
+  if (role === 'supervisor') {
+    return 'Supervisor users can only live in the supervisor auth table.'
+  }
+
+  return 'Manager and engineering users can only live in the manager auth table.'
 }
 
 function extractError(error, fallback) {
@@ -102,6 +136,8 @@ export default function UserAdminPage() {
     supervisors: 0,
     managers: 0,
     engineering: 0,
+    supervisorTableCount: 0,
+    managerTableCount: 0,
     legacyPasswordCount: 0
   })
   const [loading, setLoading] = useState(false)
@@ -149,10 +185,12 @@ export default function UserAdminPage() {
     })
   }, [rows, search, roleFilter, kindFilter])
 
+  const availableKinds = useMemo(() => supportedKindsForRole(form.role), [form.role])
+
   function openCreate() {
     setFormMode('create')
     setFormUser(null)
-    setForm({ ...EMPTY_FORM, role: 'manager' })
+    setForm({ ...EMPTY_FORM, role: 'manager', kind: 'manager' })
     setFormOpen(true)
   }
 
@@ -163,9 +201,25 @@ export default function UserAdminPage() {
       fullName: row.fullName || '',
       email: row.email || '',
       role: row.role || 'manager',
+      kind: row.kind || defaultKindForRole(row.role),
       password: ''
     })
     setFormOpen(true)
+  }
+
+  function updateFormRole(nextRole) {
+    setForm((state) => {
+      const supportedKinds = supportedKindsForRole(nextRole)
+      const nextKind = supportedKinds.includes(state.kind)
+        ? state.kind
+        : supportedKinds[0]
+
+      return {
+        ...state,
+        role: nextRole,
+        kind: nextKind
+      }
+    })
   }
 
   async function submitForm() {
@@ -186,7 +240,8 @@ export default function UserAdminPage() {
         await updateUser(formUser.kind, formUser.id, {
           fullName: form.fullName,
           email: form.email,
-          role: form.role
+          role: form.role,
+          kind: form.kind
         })
         setNotice(`Updated ${form.fullName}`)
       }
@@ -393,7 +448,7 @@ export default function UserAdminPage() {
         <MetricCard label="Managers" value={summary.managers || 0} subtext="Planning and people management access." tone="#4f46e5" icon={<ManageAccountsRoundedIcon fontSize="small" />} />
         <MetricCard label="Needs Upgrade" value={summary.legacyPasswordCount || 0} subtext="Legacy password rows still waiting for a hashed path." tone="#d97706" icon={<LockResetRoundedIcon fontSize="small" />} />
         <MetricCard label="Visible Users" value={filteredRows.length || 0} subtext="Current result set after search and lane filters." tone="#0284c7" icon={<ShieldRoundedIcon fontSize="small" />} />
-        <MetricCard label="Access Lanes" value="2" subtext="Supervisor and manager auth stores are both governed here." tone="#0f766e" icon={<AdminPanelSettingsRoundedIcon fontSize="small" />} />
+        <MetricCard label="Access Lanes" value={`${summary.managerTableCount || 0} / ${summary.supervisorTableCount || 0}`} subtext="Manager-table vs supervisor-table login rows." tone="#0f766e" icon={<AdminPanelSettingsRoundedIcon fontSize="small" />} />
       </Box>
 
       <SectionCard
@@ -488,12 +543,35 @@ export default function UserAdminPage() {
               select
               label="Role"
               value={form.role}
-              onChange={(event) => setForm((state) => ({ ...state, role: event.target.value }))}
+              onChange={(event) => updateFormRole(event.target.value)}
             >
               {ROLE_OPTIONS.map((role) => (
                 <MenuItem key={role.value} value={role.value}>{role.label}</MenuItem>
               ))}
             </TextField>
+            <TextField
+              select
+              label="Access lane"
+              value={availableKinds.includes(form.kind) ? form.kind : availableKinds[0]}
+              onChange={(event) => setForm((state) => ({ ...state, kind: event.target.value }))}
+              disabled={availableKinds.length === 1}
+              helperText={kindHelperText(form.role, form.kind)}
+            >
+              {KIND_OPTIONS.map((kind) => (
+                <MenuItem
+                  key={kind.value}
+                  value={kind.value}
+                  disabled={!availableKinds.includes(kind.value)}
+                >
+                  {kind.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            {formMode === 'edit' && formUser?.kind !== form.kind ? (
+              <Alert severity="info">
+                Saving this change will move the login record from the {formUser?.kind} table into the {form.kind} table and carry the password/signature data across.
+              </Alert>
+            ) : null}
             {formMode === 'create' ? (
               <TextField
                 label="Temporary password"

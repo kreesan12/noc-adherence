@@ -17,6 +17,15 @@ export function getWhatsAppWatcherHistory({ watcherKey = '', limit = 50 } = {}) 
   })
 }
 
+export function getWhatsAppWatcherDispatchHistory({ watcherKey = '', limit = 50 } = {}) {
+  return api.get('/admin/whatsapp-watchers/dispatch-history', {
+    params: {
+      watcherKey,
+      limit
+    }
+  })
+}
+
 export function queueWhatsAppWatcherTest(watcherKey, options = {}) {
   return api.post('/admin/whatsapp-watchers/test', {
     watcherKey,

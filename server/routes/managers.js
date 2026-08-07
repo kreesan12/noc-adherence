@@ -7,7 +7,7 @@ const createSchema = z.object({
   fullName: z.string().trim().min(2),
   email: z.string().trim().email(),
   password: z.string().trim().min(8),
-  role: z.enum(['manager', 'engineering']).default('manager')
+  role: z.enum(['admin', 'manager', 'engineering']).default('manager')
 })
 
 export default function managersRouter (prisma) {

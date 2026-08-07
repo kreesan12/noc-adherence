@@ -55,6 +55,7 @@
 - Runtime behavior:
   - watcher timing, routing groups, tags, and alert wording are now read from shared database config
   - config changes are applied on the next poll cycle without restarting `noc-automation`
+  - watcher admin also exposes queue-level dispatch history so test sends can be checked without SSH access
 
 ### Database
 
@@ -78,6 +79,27 @@
     - stores admin-edited watcher config
   - `watcher_alert_log`
     - stores persistent dedupe keys for sent watcher alerts so restarts do not replay old messages
+  - `watcher_dispatch_request`
+    - stores queued manual/test dispatch jobs, target groups, mention targets, and worker results
+
+## External Monitoring Migration Notes
+
+- The legacy NOC monitoring dashboard currently lives in Grafana Cloud:
+  - workspace: `https://ffnoc.grafana.net`
+  - dashboard UID: `NMRl9fBVk`
+- As of Friday, August 7, 2026, the Grafana stack is not using local password-form auth for the workspace itself.
+- The workspace advertises `grafana_com` OAuth and redirects through:
+  - `https://grafana.com/oauth2/authorize`
+- Practical implication:
+  - scripted export of the dashboard definition from this repo will need either a Grafana API token/service-account token or a browser-authenticated dashboard JSON export
+- Direct basic-auth attempts against:
+  - `/api/user`
+  - `/api/dashboards/uid/NMRl9fBVk`
+  returned `401 Invalid username or password`
+- Recommendation for the native Ops Hub replacement:
+  1. obtain a Grafana API token or export the dashboard JSON once
+  2. capture the panel queries and datasource usage into a local design note
+  3. rebuild the polling/reporting against ring-fenced Zendesk-backed tables in this platform instead of live minute-by-minute external calls
   - `watcher_dispatch_request`
     - stores queued admin-triggered test messages that the automation host drains and sends through the live WhatsApp session
   - `whatsapp_group_directory`

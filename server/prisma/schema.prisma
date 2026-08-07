@@ -705,6 +705,7 @@ model StagedZendeskTicketComment {
 }
 
 enum ManagerRole {
+  admin
   engineering
   manager
 

@@ -1,11 +1,23 @@
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 
-export const SUPERVISOR_LOGIN_ROLES = ['admin', 'supervisor']
-export const MANAGER_LOGIN_ROLES = ['engineering', 'manager']
+export const LOGIN_USER_KINDS = ['supervisor', 'manager']
+export const SUPERVISOR_ONLY_LOGIN_ROLES = ['supervisor']
+export const MANAGER_ONLY_LOGIN_ROLES = ['engineering', 'manager']
+export const DUAL_LANE_LOGIN_ROLES = ['admin']
+export const SUPERVISOR_LOGIN_ROLES = [
+  ...DUAL_LANE_LOGIN_ROLES,
+  ...SUPERVISOR_ONLY_LOGIN_ROLES
+]
+export const MANAGER_LOGIN_ROLES = [
+  ...DUAL_LANE_LOGIN_ROLES,
+  ...MANAGER_ONLY_LOGIN_ROLES
+]
 export const LOGIN_USER_ROLES = [
-  ...SUPERVISOR_LOGIN_ROLES,
-  ...MANAGER_LOGIN_ROLES
+  ...new Set([
+    ...SUPERVISOR_LOGIN_ROLES,
+    ...MANAGER_LOGIN_ROLES
+  ])
 ]
 const APP_NAME = 'Frogfoot Ops Hub'
 
@@ -33,9 +45,51 @@ export function normalizeLoginRole(rawRole) {
   return role
 }
 
-export function roleFamily(roleRaw) {
+export function normalizeLoginKind(rawKind) {
+  const kind = String(rawKind || '').trim().toLowerCase()
+  if (!LOGIN_USER_KINDS.includes(kind)) {
+    throw new Error(`Unsupported login table: ${rawKind || 'blank'}`)
+  }
+  return kind
+}
+
+export function supportedKindsForRole(roleRaw) {
   const role = normalizeLoginRole(roleRaw)
-  return SUPERVISOR_LOGIN_ROLES.includes(role) ? 'supervisor' : 'manager'
+  if (DUAL_LANE_LOGIN_ROLES.includes(role)) return ['manager', 'supervisor']
+  if (SUPERVISOR_ONLY_LOGIN_ROLES.includes(role)) return ['supervisor']
+  return ['manager']
+}
+
+export function defaultLoginKindForRole(roleRaw) {
+  return supportedKindsForRole(roleRaw)[0]
+}
+
+export function canAssignRoleToKind(roleRaw, kindRaw) {
+  const role = normalizeLoginRole(roleRaw)
+  const kind = normalizeLoginKind(kindRaw)
+  return supportedKindsForRole(role).includes(kind)
+}
+
+export function resolveLoginKindForRole(roleRaw, requestedKind = null, fallbackKind = null) {
+  const role = normalizeLoginRole(roleRaw)
+  const supportedKinds = supportedKindsForRole(role)
+
+  if (requestedKind != null && String(requestedKind).trim()) {
+    const kind = normalizeLoginKind(requestedKind)
+    if (supportedKinds.includes(kind)) return kind
+    throw new Error(`${role} users cannot be stored in the ${kind} table.`)
+  }
+
+  if (fallbackKind != null && String(fallbackKind).trim()) {
+    const kind = normalizeLoginKind(fallbackKind)
+    if (supportedKinds.includes(kind)) return kind
+  }
+
+  return supportedKinds[0]
+}
+
+export function roleFamily(roleRaw, preferredKind = null) {
+  return resolveLoginKindForRole(roleRaw, preferredKind)
 }
 
 export function generateTemporaryPassword(length = 14) {
@@ -84,12 +138,14 @@ export function buildUserEmailDraft({
 
 export function serializeLoginUser(row, kind) {
   const passwordValue = kind === 'supervisor' ? row.hash : row.password
+  const role = String(row.role || '').toLowerCase()
   return {
     id: row.id,
     kind,
     fullName: row.fullName,
     email: row.email,
-    role: String(row.role || '').toLowerCase(),
+    role,
+    supportedKinds: supportedKindsForRole(role),
     lastLogin: row.lastLogin || null,
     createdAt: row.createdAt || null,
     passwordState: isPasswordHash(passwordValue) ? 'hashed' : 'legacy_plaintext'
@@ -136,6 +192,8 @@ export async function listLoginUsers(prisma) {
     supervisors: users.filter((row) => row.role === 'supervisor').length,
     managers: users.filter((row) => row.role === 'manager').length,
     engineering: users.filter((row) => row.role === 'engineering').length,
+    supervisorTableCount: supervisors.length,
+    managerTableCount: managers.length,
     legacyPasswordCount: users.filter((row) => row.passwordState === 'legacy_plaintext').length
   }
 
