@@ -16,6 +16,11 @@ const WATCHER_SECTION_MAP = {
   vip: 'vip'
 }
 
+function normalizeIdList(value) {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))]
+}
+
 export default function whatsappWatchersRouter() {
   const r = Router()
 
@@ -71,15 +76,29 @@ export default function whatsappWatchersRouter() {
       return res.status(400).json({ error: 'Watcher config section not found.' })
     }
 
-    const groupIds = Array.isArray(section.groupIds)
-      ? [...new Set(section.groupIds.map((value) => String(value || '').trim()).filter(Boolean))]
-      : []
+    const hasOverrideGroupIds = Array.isArray(req.body?.targetGroupIds)
+    const hasOverrideMentionJids = Array.isArray(req.body?.mentionJids)
+    const overrideGroupIds = normalizeIdList(req.body?.targetGroupIds)
+    const overrideMentionJids = normalizeIdList(req.body?.mentionJids)
+
+    const groupIds = hasOverrideGroupIds
+      ? overrideGroupIds
+      : Array.isArray(section.groupIds)
+        ? normalizeIdList(section.groupIds)
+        : []
+
+    const mentionJids = hasOverrideMentionJids
+      ? overrideMentionJids
+      : Array.isArray(section.mentionJids)
+        ? normalizeIdList(section.mentionJids)
+        : []
 
     const requestedBy = req.user?.email || req.user?.fullName || req.user?.id || 'admin'
     const message = buildWatcherTestMessage({
       watcherKey,
       requestedBy,
-      groupIds
+      groupIds,
+      mentionJids
     })
 
     const row = await prisma.watcherDispatchRequest.create({
@@ -87,6 +106,7 @@ export default function whatsappWatchersRouter() {
         watcherKey,
         dispatchType: 'test',
         targetGroupIds: groupIds,
+        mentionJids,
         message,
         requestedBy,
         status: 'pending'
@@ -99,6 +119,7 @@ export default function whatsappWatchersRouter() {
         id: row.id,
         watcherKey,
         targetGroupIds: groupIds,
+        mentionJids,
         status: row.status
       }
     })

@@ -74,6 +74,10 @@
   - automation now syncs joined WhatsApp groups into `whatsapp_group_directory`
   - admins can search the live group list in `/settings/whatsapp-watchers`
   - each watcher can now send to more than one WhatsApp group in the same poll cycle
+- Improved watcher mention handling:
+  - watcher tests now use the current on-screen group and mention overrides without forcing a save first
+  - queued test dispatches now carry mention targets through the worker into the real WhatsApp send
+  - mention fields now render cleaner number-only input values plus removable mention chips in the admin UI
 - Added a dedicated major outage WhatsApp watcher for non-NLD tickets in the `Outage Capturing` flow:
   - watches the `NOC Outage Team` outage lane while excluding NLD outages
   - sends new, aging-breach, and resolved notifications

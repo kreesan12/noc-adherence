@@ -33,6 +33,11 @@ function normalizeGroupIds(value) {
   return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))]
 }
 
+function normalizeMentionIds(value) {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))]
+}
+
 function compactWatcherLabel(key) {
   switch (String(key || '').toLowerCase()) {
     case 'nld':
@@ -49,11 +54,14 @@ function compactWatcherLabel(key) {
 }
 
 function buildPayload(row, groups, result, error = null) {
+  const mentionTargets = normalizeMentionIds(row.mentionJids)
   return {
     dispatchType: row.dispatchType,
     requestedBy: row.requestedBy || '',
     targetGroupCount: groups.length,
     targetGroups: groups,
+    mentionTargetCount: mentionTargets.length,
+    mentionTargets,
     sentGroups: result?.sent || [],
     failedGroups: result?.failed || [],
     error: error ? String(error?.message || error) : ''
@@ -74,9 +82,13 @@ export function startWatcherDispatchWorker(sendSlaAlert) {
 
   async function processRow(row) {
     const groups = normalizeGroupIds(row.targetGroupIds)
+    const mentionJids = normalizeMentionIds(row.mentionJids)
 
     try {
-      const result = await sendSlaAlert(row.message, groups.length ? { groupIds: groups } : {})
+      const result = await sendSlaAlert(row.message, {
+        ...(groups.length ? { groupIds: groups } : {}),
+        ...(mentionJids.length ? { mentionJids } : {})
+      })
       await prisma.watcherDispatchRequest.update({
         where: { id: row.id },
         data: {
@@ -95,7 +107,7 @@ export function startWatcherDispatchWorker(sendSlaAlert) {
       })
 
       console.log(
-        `[WATCHER DISPATCH] Sent ${row.dispatchType} for ${compactWatcherLabel(row.watcherKey)} to ${result?.sent?.length || 0} group(s)`
+        `[WATCHER DISPATCH] Sent ${row.dispatchType} for ${compactWatcherLabel(row.watcherKey)} to ${result?.sent?.length || 0} group(s) with ${mentionJids.length} mention target(s)`
       )
     } catch (error) {
       await prisma.watcherDispatchRequest.update({
@@ -133,10 +145,11 @@ export function startWatcherDispatchWorker(sendSlaAlert) {
   void tick()
 }
 
-export function buildWatcherTestMessage({ watcherKey, requestedBy, groupIds = [] }) {
+export function buildWatcherTestMessage({ watcherKey, requestedBy, groupIds = [], mentionJids = [] }) {
   const timestamp = dayjs().format('YYYY-MM-DD HH:mm:ss')
   const label = compactWatcherLabel(watcherKey)
   const targetText = groupIds.length ? `${groupIds.length} configured group(s)` : 'default WhatsApp group'
+  const mentionText = mentionJids.length ? `${mentionJids.length} mention target(s)` : 'no mention targets configured'
 
   return [
     `${label} watcher test`,
@@ -144,6 +157,7 @@ export function buildWatcherTestMessage({ watcherKey, requestedBy, groupIds = []
     'This is a manual routing test from Frogfoot Ops Hub.',
     `Requested by: ${requestedBy || 'admin'}`,
     `Requested at: ${timestamp}`,
-    `Target route: ${targetText}`
+    `Target route: ${targetText}`,
+    `Mentions: ${mentionText}`
   ].join('\n')
 }

@@ -1070,6 +1070,7 @@ model WatcherDispatchRequest {
   watcherKey     String   @map("watcher_key")
   dispatchType   String   @default("test") @map("dispatch_type")
   targetGroupIds Json     @map("target_group_ids")
+  mentionJids    Json?    @map("mention_jids")
   message        String
   requestedBy    String?  @map("requested_by")
   status         String   @default("pending")

@@ -111,6 +111,20 @@ function parseMentionIdsInput(value) {
   return parseGroupIdsInput(value)
 }
 
+function compactMentionId(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  return raw.split('@')[0].split(':')[0]
+}
+
+function mentionInputValue(values) {
+  if (!Array.isArray(values)) return ''
+  return values
+    .map((value) => compactMentionId(value))
+    .filter(Boolean)
+    .join('\n')
+}
+
 function getGroupIds(section) {
   if (!section || typeof section !== 'object') return []
 
@@ -153,9 +167,29 @@ function buildNewVipRule(index) {
   }
 }
 
+function watcherSectionKey(watcherKey) {
+  switch (String(watcherKey || '').toLowerCase()) {
+    case 'nld':
+      return 'nld'
+    case 'backhaul':
+      return 'backhaul'
+    case 'major_outage':
+      return 'majorOutage'
+    case 'vip':
+      return 'vip'
+    default:
+      return ''
+  }
+}
+
 function groupChipLabel(jid, groupLookup) {
   const group = groupLookup.get(jid)
   return group?.name ? `${group.name} | ${jid}` : jid
+}
+
+function mentionChipLabel(value) {
+  const compact = compactMentionId(value)
+  return compact ? `@${compact}` : String(value || '')
 }
 
 function SectionFieldGrid({ children }) {
@@ -204,6 +238,25 @@ function WatcherGroupChips({ section, groupLookup, onDelete, color }) {
           key={jid}
           size="small"
           label={groupChipLabel(jid, groupLookup)}
+          onDelete={() => onDelete(jid)}
+          variant="outlined"
+          color={color}
+        />
+      ))}
+    </Stack>
+  )
+}
+
+function WatcherMentionChips({ mentionJids, onDelete, color }) {
+  if (!Array.isArray(mentionJids) || !mentionJids.length) return null
+
+  return (
+    <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+      {mentionJids.map((jid) => (
+        <Chip
+          key={jid}
+          size="small"
+          label={mentionChipLabel(jid)}
           onDelete={() => onDelete(jid)}
           variant="outlined"
           color={color}
@@ -424,6 +477,13 @@ export default function WhatsAppWatchersPage() {
     }))
   }
 
+  function removeMentionFromWatcher(section, jid) {
+    setSection(section, (current) => ({
+      ...current,
+      mentionJids: (current?.mentionJids || []).filter((item) => String(item || '').trim() !== String(jid || '').trim())
+    }))
+  }
+
   function updateWatcherGroupText(section, value) {
     setWatcherGroupIds(section, parseGroupIdsInput(value))
   }
@@ -466,12 +526,24 @@ export default function WhatsAppWatchersPage() {
     setNotice('')
 
     try {
-      const { data } = await queueWhatsAppWatcherTest(watcherKey)
+      const sectionKey = watcherSectionKey(watcherKey)
+      const section = sectionKey ? draft?.[sectionKey] : null
+      const payload = section
+        ? {
+            targetGroupIds: getGroupIds(section),
+            mentionJids: Array.isArray(section.mentionJids) ? section.mentionJids : []
+          }
+        : {}
+
+      const { data } = await queueWhatsAppWatcherTest(watcherKey, payload)
       const queuedTargets = data?.queued?.targetGroupIds?.length
         ? `${data.queued.targetGroupIds.length} configured group(s)`
         : 'the default WhatsApp group'
+      const queuedMentions = data?.queued?.mentionJids?.length
+        ? ` with ${data.queued.mentionJids.length} mention target(s)`
+        : ''
 
-      setNotice(`${watcherLabel(watcherKey)} test queued to ${queuedTargets}. It will send from the automation host shortly.`)
+      setNotice(`${watcherLabel(watcherKey)} test queued to ${queuedTargets}${queuedMentions}. It will send from the automation host shortly.`)
       await loadHistory(historyFilter, historyLimit)
     } catch (err) {
       setError(extractError(err, `Failed to queue ${watcherLabel(watcherKey)} test message`))
@@ -656,9 +728,9 @@ export default function WhatsAppWatchersPage() {
                     <TextField
                       size="small"
                       label="Mention WhatsApp IDs"
-                      value={(draft.nld.mentionJids || []).join('\n')}
+                      value={mentionInputValue(draft.nld.mentionJids)}
                       onChange={(event) => updateWatcherMentionText('nld', event.target.value)}
-                      helperText="Optional. One WhatsApp user JID or number per line."
+                      helperText="Optional. Paste one WhatsApp number or user JID per line. Test sends use the mention list currently shown here."
                       multiline
                       minRows={2}
                       maxRows={4}
@@ -727,6 +799,11 @@ export default function WhatsAppWatchersPage() {
                     groupLookup={groupLookup}
                     color="info"
                     onDelete={(jid) => removeGroupFromWatcher('nld', jid)}
+                  />
+                  <WatcherMentionChips
+                    mentionJids={draft.nld.mentionJids}
+                    color="info"
+                    onDelete={(jid) => removeMentionFromWatcher('nld', jid)}
                   />
 
                   <TemplateGrid>
@@ -827,9 +904,9 @@ export default function WhatsAppWatchersPage() {
                     <TextField
                       size="small"
                       label="Mention WhatsApp IDs"
-                      value={(draft.backhaul.mentionJids || []).join('\n')}
+                      value={mentionInputValue(draft.backhaul.mentionJids)}
                       onChange={(event) => updateWatcherMentionText('backhaul', event.target.value)}
-                      helperText="Optional. One WhatsApp user JID or number per line."
+                      helperText="Optional. Paste one WhatsApp number or user JID per line. Test sends use the mention list currently shown here."
                       multiline
                       minRows={2}
                       maxRows={4}
@@ -870,6 +947,11 @@ export default function WhatsAppWatchersPage() {
                     groupLookup={groupLookup}
                     color="warning"
                     onDelete={(jid) => removeGroupFromWatcher('backhaul', jid)}
+                  />
+                  <WatcherMentionChips
+                    mentionJids={draft.backhaul.mentionJids}
+                    color="warning"
+                    onDelete={(jid) => removeMentionFromWatcher('backhaul', jid)}
                   />
 
                   <TemplateGrid>
@@ -946,9 +1028,9 @@ export default function WhatsAppWatchersPage() {
                     <TextField
                       size="small"
                       label="Mention WhatsApp IDs"
-                      value={(draft.majorOutage.mentionJids || []).join('\n')}
+                      value={mentionInputValue(draft.majorOutage.mentionJids)}
                       onChange={(event) => updateWatcherMentionText('majorOutage', event.target.value)}
-                      helperText="Optional. One WhatsApp user JID or number per line."
+                      helperText="Optional. Paste one WhatsApp number or user JID per line. Test sends use the mention list currently shown here."
                       multiline
                       minRows={2}
                       maxRows={4}
@@ -989,6 +1071,11 @@ export default function WhatsAppWatchersPage() {
                     groupLookup={groupLookup}
                     color="error"
                     onDelete={(jid) => removeGroupFromWatcher('majorOutage', jid)}
+                  />
+                  <WatcherMentionChips
+                    mentionJids={draft.majorOutage.mentionJids}
+                    color="error"
+                    onDelete={(jid) => removeMentionFromWatcher('majorOutage', jid)}
                   />
 
                   <TemplateGrid>
@@ -1068,9 +1155,9 @@ export default function WhatsAppWatchersPage() {
                     <TextField
                       size="small"
                       label="Mention WhatsApp IDs"
-                      value={(draft.vip.mentionJids || []).join('\n')}
+                      value={mentionInputValue(draft.vip.mentionJids)}
                       onChange={(event) => updateWatcherMentionText('vip', event.target.value)}
-                      helperText="Optional. One WhatsApp user JID or number per line."
+                      helperText="Optional. Paste one WhatsApp number or user JID per line. Test sends use the mention list currently shown here."
                       multiline
                       minRows={2}
                       maxRows={4}
@@ -1103,6 +1190,11 @@ export default function WhatsAppWatchersPage() {
                     groupLookup={groupLookup}
                     color="secondary"
                     onDelete={(jid) => removeGroupFromWatcher('vip', jid)}
+                  />
+                  <WatcherMentionChips
+                    mentionJids={draft.vip.mentionJids}
+                    color="secondary"
+                    onDelete={(jid) => removeMentionFromWatcher('vip', jid)}
                   />
 
                   <TemplateGrid>
@@ -1203,7 +1295,7 @@ export default function WhatsAppWatchersPage() {
       {activeTab === 'groups' ? (
         <SectionCard
           title="WhatsApp Group IDs"
-          subtitle="Live groups are synced from the automation WhatsApp session into the database so admins can search by name and route watchers without guessing JIDs. Buttons grey out once a watcher already targets that group in the editor."
+          subtitle="Live groups are synced from the automation WhatsApp session into the database so admins can search by name, route watchers without guessing JIDs, and copy member IDs for mention lists. Buttons grey out once a watcher already targets that group in the editor."
           accent="#0f766e"
           actions={(
             <FilterStrip>
