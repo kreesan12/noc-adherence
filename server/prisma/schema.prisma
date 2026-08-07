@@ -1086,6 +1086,7 @@ model WhatsAppGroupDirectory {
   jid              String   @id @map("jid")
   name             String   @map("name")
   participantCount Int      @default(0) @map("participant_count")
+  participantJids  Json?    @map("participant_jids")
   sessionId        String?  @map("session_id")
   lastSeenAt       DateTime @default(now()) @map("last_seen_at")
   updatedAt        DateTime @updatedAt @map("updated_at")

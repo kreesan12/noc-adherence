@@ -181,12 +181,14 @@ sudo journalctl -u noc-automation -f
   - edit watcher enable flags
   - change poll intervals and lookback windows
   - set one or more WhatsApp group JID targets per watcher
+  - set one or more WhatsApp user JIDs to mention per watcher
   - update Zendesk tag rules
   - adjust alert titles, reasons, and action lines
   - queue manual route-test messages per watcher
 - Live group discovery:
   - automation periodically syncs joined WhatsApp groups into the database
   - the admin page exposes a searchable group directory with copy/apply actions for each watcher
+  - synced group rows now also retain participant JIDs so admins can copy member IDs for watcher mention targeting
 - Current watcher lanes:
   - NLD outage watcher
   - backhaul watcher

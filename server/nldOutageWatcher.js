@@ -449,7 +449,10 @@ export function startNldOutageWatcher(sendSlaAlert) {
     }
 
     const sendNld = async (message) => {
-      await sendSlaAlert(message, config.groupIds?.length ? { groupIds: config.groupIds } : {})
+      await sendSlaAlert(message, {
+        ...(config.groupIds?.length ? { groupIds: config.groupIds } : {}),
+        ...(config.mentionJids?.length ? { mentionJids: config.mentionJids } : {})
+      })
     }
 
     try {
@@ -519,7 +522,7 @@ export function startNldOutageWatcher(sendSlaAlert) {
         if (!isNldTicket(ticket) || !isResolvedStatus(ticket.status)) continue
 
         const outage = enrichOutageTicket(ticket, now)
-        const key = `resolved-${ticket.id}-${ticket.status}-${ticket.updated_at}`
+        const key = `resolved-${ticket.id}-${ticket.status}`
         const shouldSend = await shouldSendAlert(warnedResolved, {
           dedupeKey: key,
           watcherKey: 'nld',

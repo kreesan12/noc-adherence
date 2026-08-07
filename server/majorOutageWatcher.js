@@ -233,7 +233,10 @@ export function startMajorOutageWatcher(sendSlaAlert) {
 
     const sendMajorOutage = async (message) => {
       try {
-        await sendSlaAlert(message, config.groupIds?.length ? { groupIds: config.groupIds } : {})
+        await sendSlaAlert(message, {
+          ...(config.groupIds?.length ? { groupIds: config.groupIds } : {}),
+          ...(config.mentionJids?.length ? { mentionJids: config.mentionJids } : {})
+        })
       } catch (error) {
         console.error('[MAJOR OUTAGE WATCHER] send failed:', error?.message || error)
       }
@@ -302,7 +305,7 @@ export function startMajorOutageWatcher(sendSlaAlert) {
         if (!isMajorOutageTicket(ticket) || !isResolvedStatus(ticket.status)) continue
 
         const summary = buildSummary(ticket, now)
-        const key = `major-outage-resolved-${ticket.id}-${ticket.status}-${ticket.updated_at}`
+        const key = `major-outage-resolved-${ticket.id}-${ticket.status}`
         const shouldSend = await shouldSendAlert(warnedResolved, {
           dedupeKey: key,
           watcherKey: 'major_outage',

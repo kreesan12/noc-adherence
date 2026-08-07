@@ -47,6 +47,35 @@ function normalizeGroupIds (value) {
   )]
 }
 
+function normalizeMentionId (value) {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+  if (raw.includes('@')) return raw
+
+  const digits = raw.replace(/[^\d]/g, '')
+  if (!digits) return null
+  return `${digits}@s.whatsapp.net`
+}
+
+function normalizeMentionIds (value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(/[\n,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+  return [...new Set(
+    rawValues
+      .map((item) => normalizeMentionId(item))
+      .filter(Boolean)
+  )]
+}
+
+function mentionToken (jid) {
+  return `@${String(jid || '').split('@')[0].split(':')[0]}`
+}
+
 function makeReadyPromise () {
   readyPromise = new Promise((resolve, reject) => {
     readyResolve = resolve
@@ -221,17 +250,25 @@ export async function sendSlaAlert (message, opts = {}) {
   const targets = overrideTargets.length ? overrideTargets : normalizeGroupIds(targetGroupId)
   if (!targets.length) throw new Error('Target WhatsApp group not configured')
 
-  const text =
+  const baseText =
     message ||
     process.env.DEFAULT_WHATSAPP_MSG ||
     'SLA breach alert. Please check.'
+  const mentionJids = normalizeMentionIds(opts?.mentionJids)
+  const text = mentionJids.length
+    ? `${mentionJids.map((jid) => mentionToken(jid)).join(' ')}\n${baseText}`
+    : baseText
 
   const sent = []
   const failed = []
 
   for (const jid of targets) {
     try {
-      await sock.sendMessage(jid, { text }, { linkPreview: false })
+      await sock.sendMessage(
+        jid,
+        mentionJids.length ? { text, mentions: mentionJids } : { text },
+        { linkPreview: false }
+      )
       sent.push(jid)
       console.log('[WA] Message sent to', jid)
     } catch (error) {
@@ -260,7 +297,10 @@ export async function listWhatsAppGroups ({ readyTimeoutMs = 60_000 } = {}) {
     .map((group) => ({
       id: group.id,
       name: group.subject || '',
-      participants: group.participants?.length || 0
+      participants: group.participants?.length || 0,
+      participantJids: (group.participants || [])
+        .map((participant) => String(participant?.id || '').trim())
+        .filter(Boolean)
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }

@@ -107,6 +107,10 @@ function parseGroupIdsInput(value) {
   )].slice(0, 25)
 }
 
+function parseMentionIdsInput(value) {
+  return parseGroupIdsInput(value)
+}
+
 function getGroupIds(section) {
   if (!section || typeof section !== 'object') return []
 
@@ -424,6 +428,10 @@ export default function WhatsAppWatchersPage() {
     setWatcherGroupIds(section, parseGroupIdsInput(value))
   }
 
+  function updateWatcherMentionText(section, value) {
+    setSectionField(section, 'mentionJids', parseMentionIdsInput(value))
+  }
+
   async function saveAll() {
     if (!draft || !defaults) return
     setSaving(true)
@@ -647,6 +655,17 @@ export default function WhatsAppWatchersPage() {
                     />
                     <TextField
                       size="small"
+                      label="Mention WhatsApp IDs"
+                      value={(draft.nld.mentionJids || []).join('\n')}
+                      onChange={(event) => updateWatcherMentionText('nld', event.target.value)}
+                      helperText="Optional. One WhatsApp user JID or number per line."
+                      multiline
+                      minRows={2}
+                      maxRows={4}
+                      sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
+                    />
+                    <TextField
+                      size="small"
                       type="number"
                       label="Poll interval (seconds)"
                       value={Math.round(Number(draft.nld.pollMs || 0) / 1000)}
@@ -807,6 +826,17 @@ export default function WhatsAppWatchersPage() {
                     />
                     <TextField
                       size="small"
+                      label="Mention WhatsApp IDs"
+                      value={(draft.backhaul.mentionJids || []).join('\n')}
+                      onChange={(event) => updateWatcherMentionText('backhaul', event.target.value)}
+                      helperText="Optional. One WhatsApp user JID or number per line."
+                      multiline
+                      minRows={2}
+                      maxRows={4}
+                      sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
+                    />
+                    <TextField
+                      size="small"
                       type="number"
                       label="Poll interval (seconds)"
                       value={Math.round(Number(draft.backhaul.pollMs || 0) / 1000)}
@@ -908,6 +938,17 @@ export default function WhatsAppWatchersPage() {
                       value={getGroupIds(draft.majorOutage).join('\n')}
                       onChange={(event) => updateWatcherGroupText('majorOutage', event.target.value)}
                       helperText="One JID per line. Leave blank to use the default WhatsApp group."
+                      multiline
+                      minRows={2}
+                      maxRows={4}
+                      sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
+                    />
+                    <TextField
+                      size="small"
+                      label="Mention WhatsApp IDs"
+                      value={(draft.majorOutage.mentionJids || []).join('\n')}
+                      onChange={(event) => updateWatcherMentionText('majorOutage', event.target.value)}
+                      helperText="Optional. One WhatsApp user JID or number per line."
                       multiline
                       minRows={2}
                       maxRows={4}
@@ -1019,6 +1060,17 @@ export default function WhatsAppWatchersPage() {
                       value={getGroupIds(draft.vip).join('\n')}
                       onChange={(event) => updateWatcherGroupText('vip', event.target.value)}
                       helperText="One JID per line. Leave blank to use the default WhatsApp group."
+                      multiline
+                      minRows={2}
+                      maxRows={4}
+                      sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
+                    />
+                    <TextField
+                      size="small"
+                      label="Mention WhatsApp IDs"
+                      value={(draft.vip.mentionJids || []).join('\n')}
+                      onChange={(event) => updateWatcherMentionText('vip', event.target.value)}
+                      helperText="Optional. One WhatsApp user JID or number per line."
                       multiline
                       minRows={2}
                       maxRows={4}
@@ -1215,6 +1267,14 @@ export default function WhatsAppWatchersPage() {
                         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                           <Button size="small" variant="outlined" onClick={() => copyText(row.jid, `Copied ${row.name || row.jid}`)}>
                             Copy JID
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            disabled={!Array.isArray(row.participantJids) || !row.participantJids.length}
+                            onClick={() => copyText((row.participantJids || []).join('\n'), `Copied ${row.participantJids?.length || 0} member IDs from ${row.name || row.jid}`)}
+                          >
+                            Copy member IDs
                           </Button>
                           {WATCHER_ROUTE_ACTIONS.map((action) => {
                             const assigned = draft ? isWatcherAssigned(draft[action.sectionKey], row.jid) : false

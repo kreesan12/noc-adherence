@@ -86,6 +86,10 @@
   - row count controls on logs and group tables
   - disabled group-link buttons when a watcher is already assigned to a group
   - per-watcher test message actions for NLD, backhaul, major outage, and VIP lanes
+  - per-watcher mention ID fields for WhatsApp user tagging
+  - copy actions for synced group member IDs
+- Fixed duplicate resolved WhatsApp alerts across watcher lanes:
+  - resolved dedupe keys no longer roll forward on every Zendesk `updated_at` change
 - Updated the NLD outage aging message to prefer the Zendesk custom-field update note from:
   - field id `5352766585489`
   - with `updated_at` retained as a fallback

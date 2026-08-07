@@ -64,6 +64,16 @@ function normalizeGroupIdValue(value) {
   return text.includes('@') ? text : `${text}@g.us`
 }
 
+function normalizeMentionIdValue(value) {
+  const text = safeStr(value).trim()
+  if (!text) return ''
+  if (text.includes('@')) return text
+
+  const digits = text.replace(/[^\d]/g, '')
+  if (!digits) return ''
+  return `${digits}@s.whatsapp.net`
+}
+
 function parseGroupIds(value, fallback = []) {
   const incoming = Array.isArray(value)
     ? value
@@ -81,6 +91,23 @@ function parseGroupIds(value, fallback = []) {
   )].slice(0, 25)
 }
 
+function parseMentionIds(value, fallback = []) {
+  const incoming = Array.isArray(value)
+    ? value
+    : safeStr(value)
+        .split(/[\n,;]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+  const resolved = incoming.length ? incoming : (Array.isArray(fallback) ? fallback : [fallback])
+
+  return [...new Set(
+    resolved
+      .map((item) => normalizeMentionIdValue(item))
+      .filter(Boolean)
+  )].slice(0, 25)
+}
+
 function buildDefaultConfig() {
   return {
     nld: {
@@ -89,6 +116,7 @@ function buildDefaultConfig() {
         process.env.WHATSAPP_NLD_GROUP_IDS || process.env.WHATSAPP_NLD_GROUP_ID || '',
         []
       ),
+      mentionJids: parseMentionIds(process.env.WHATSAPP_NLD_MENTION_JIDS || '', []),
       pollMs: Number(process.env.NLD_POLL_MS || 5 * 60 * 1000),
       windowMinutes: Number(process.env.NLD_WINDOW_MINUTES || 60),
       breachThresholdsHours: parseHourThresholds(
@@ -117,6 +145,7 @@ function buildDefaultConfig() {
         process.env.WHATSAPP_BACKHAUL_GROUP_IDS || process.env.WHATSAPP_BACKHAUL_GROUP_ID || '',
         []
       ),
+      mentionJids: parseMentionIds(process.env.WHATSAPP_BACKHAUL_MENTION_JIDS || '', []),
       pollMs: Number(process.env.BACKHAUL_POLL_MS || 5 * 60 * 1000),
       lookbackHours: Number(process.env.BACKHAUL_LOOKBACK_HOURS || 4),
       resolvedLookbackHours: Number(process.env.BACKHAUL_RESOLVED_LOOKBACK_HOURS || 24),
@@ -139,6 +168,7 @@ function buildDefaultConfig() {
         process.env.WHATSAPP_MAJOR_OUTAGE_GROUP_IDS || process.env.WHATSAPP_MAJOR_OUTAGE_GROUP_ID || '',
         []
       ),
+      mentionJids: parseMentionIds(process.env.WHATSAPP_MAJOR_OUTAGE_MENTION_JIDS || '', []),
       pollMs: Number(process.env.MAJOR_OUTAGE_POLL_MS || 5 * 60 * 1000),
       lookbackHours: Number(process.env.MAJOR_OUTAGE_LOOKBACK_HOURS || 4),
       resolvedLookbackHours: Number(process.env.MAJOR_OUTAGE_RESOLVED_LOOKBACK_HOURS || 24),
@@ -160,6 +190,7 @@ function buildDefaultConfig() {
         process.env.WHATSAPP_VIP_GROUP_IDS || process.env.WHATSAPP_VIP_GROUP_ID || '',
         []
       ),
+      mentionJids: parseMentionIds(process.env.WHATSAPP_VIP_MENTION_JIDS || '', []),
       pollMs: Number(process.env.VIP_POLL_MS || 2 * 60 * 1000),
       lookbackHours: Number(process.env.VIP_LOOKBACK_HOURS || 2),
       orgId: String(process.env.VIP_ORG_ID || '42757142385041').trim(),
@@ -197,6 +228,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
     nld: {
       enabled: parseBoolean(source.nld?.enabled, defaults.nld.enabled),
       groupIds: parseGroupIds(source.nld?.groupIds ?? source.nld?.groupId, defaults.nld.groupIds),
+      mentionJids: parseMentionIds(source.nld?.mentionJids, defaults.nld.mentionJids),
       pollMs: parseWholeNumber(source.nld?.pollMs, defaults.nld.pollMs, { min: 30 * 1000, max: 60 * 60 * 1000 }),
       windowMinutes: parseWholeNumber(source.nld?.windowMinutes, defaults.nld.windowMinutes, { min: 5, max: 24 * 60 }),
       breachThresholdsHours: parseThresholds(source.nld?.breachThresholdsHours, defaults.nld.breachThresholdsHours),
@@ -219,6 +251,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
     backhaul: {
       enabled: parseBoolean(source.backhaul?.enabled, defaults.backhaul.enabled),
       groupIds: parseGroupIds(source.backhaul?.groupIds ?? source.backhaul?.groupId, defaults.backhaul.groupIds),
+      mentionJids: parseMentionIds(source.backhaul?.mentionJids, defaults.backhaul.mentionJids),
       pollMs: parseWholeNumber(source.backhaul?.pollMs, defaults.backhaul.pollMs, { min: 30 * 1000, max: 60 * 60 * 1000 }),
       lookbackHours: parseWholeNumber(source.backhaul?.lookbackHours, defaults.backhaul.lookbackHours, { min: 1, max: 24 * 14 }),
       resolvedLookbackHours: parseWholeNumber(source.backhaul?.resolvedLookbackHours, defaults.backhaul.resolvedLookbackHours, { min: 1, max: 24 * 14 }),
@@ -235,6 +268,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
     majorOutage: {
       enabled: parseBoolean(source.majorOutage?.enabled, defaults.majorOutage.enabled),
       groupIds: parseGroupIds(source.majorOutage?.groupIds ?? source.majorOutage?.groupId, defaults.majorOutage.groupIds),
+      mentionJids: parseMentionIds(source.majorOutage?.mentionJids, defaults.majorOutage.mentionJids),
       pollMs: parseWholeNumber(source.majorOutage?.pollMs, defaults.majorOutage.pollMs, { min: 30 * 1000, max: 60 * 60 * 1000 }),
       lookbackHours: parseWholeNumber(source.majorOutage?.lookbackHours, defaults.majorOutage.lookbackHours, { min: 1, max: 24 * 14 }),
       resolvedLookbackHours: parseWholeNumber(source.majorOutage?.resolvedLookbackHours, defaults.majorOutage.resolvedLookbackHours, { min: 1, max: 24 * 14 }),
@@ -250,6 +284,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
     vip: {
       enabled: parseBoolean(source.vip?.enabled, defaults.vip.enabled),
       groupIds: parseGroupIds(source.vip?.groupIds ?? source.vip?.groupId, defaults.vip.groupIds),
+      mentionJids: parseMentionIds(source.vip?.mentionJids, defaults.vip.mentionJids),
       pollMs: parseWholeNumber(source.vip?.pollMs, defaults.vip.pollMs, { min: 30 * 1000, max: 60 * 60 * 1000 }),
       lookbackHours: parseWholeNumber(source.vip?.lookbackHours, defaults.vip.lookbackHours, { min: 1, max: 24 * 14 }),
       orgId: parseOptionalString(source.vip?.orgId, defaults.vip.orgId, 60),

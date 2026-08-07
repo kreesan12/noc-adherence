@@ -17,6 +17,7 @@ async function runGroupSync() {
       update: {
         name: group.name || group.id,
         participantCount: group.participants || 0,
+        participantJids: group.participantJids || [],
         sessionId: SESSION_ID,
         lastSeenAt: now
       },
@@ -24,6 +25,7 @@ async function runGroupSync() {
         jid: group.id,
         name: group.name || group.id,
         participantCount: group.participants || 0,
+        participantJids: group.participantJids || [],
         sessionId: SESSION_ID,
         lastSeenAt: now
       }

@@ -196,7 +196,10 @@ export function startBackhaulWatcher(sendSlaAlert) {
 
     const sendBackhaul = async (message) => {
       try {
-        await sendSlaAlert(message, config.groupIds?.length ? { groupIds: config.groupIds } : {})
+        await sendSlaAlert(message, {
+          ...(config.groupIds?.length ? { groupIds: config.groupIds } : {}),
+          ...(config.mentionJids?.length ? { mentionJids: config.mentionJids } : {})
+        })
       } catch (error) {
         console.error('[BACKHAUL WATCHER] send failed:', error?.message || error)
       }
@@ -263,7 +266,7 @@ export function startBackhaulWatcher(sendSlaAlert) {
         if (!isResolvedStatus(ticket.status)) continue
 
         const summary = buildTicketSummary(ticket, now)
-        const key = `backhaul-resolved-${ticket.id}-${ticket.status}-${ticket.updated_at}`
+        const key = `backhaul-resolved-${ticket.id}-${ticket.status}`
         const shouldSend = await shouldSendAlert(warnedResolved, {
           dedupeKey: key,
           watcherKey: 'backhaul',
