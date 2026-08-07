@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   CircularProgress,
   FormControlLabel,
   IconButton,
@@ -26,6 +27,7 @@ import {
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import RestoreRoundedIcon from '@mui/icons-material/RestoreRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
@@ -117,6 +119,13 @@ function compactMentionId(value) {
   return raw.split('@')[0].split(':')[0]
 }
 
+function compactParticipantHandle(value) {
+  const local = compactMentionId(value)
+  if (!local) return String(value || '')
+  if (String(value || '').includes('@lid')) return `LID ${local}`
+  return local
+}
+
 function mentionInputValue(values) {
   if (!Array.isArray(values)) return ''
   return values
@@ -189,7 +198,39 @@ function groupChipLabel(jid, groupLookup) {
 
 function mentionChipLabel(value) {
   const compact = compactMentionId(value)
-  return compact ? `@${compact}` : String(value || '')
+  if (!compact) return String(value || '')
+  if (String(value || '').includes('@lid')) return `LID ${compact}`
+  return `@${compact}`
+}
+
+function watcherDefaultGroupLabel(meta, groupLookup) {
+  const defaultGroupId = String(meta?.defaultGroupId || '').trim()
+  if (!defaultGroupId) return 'No default WhatsApp group configured'
+  return groupChipLabel(defaultGroupId, groupLookup)
+}
+
+function ParticipantPreviewChips({ participantJids }) {
+  if (!Array.isArray(participantJids) || !participantJids.length) {
+    return <Typography variant="caption" color="text.secondary">No members synced yet</Typography>
+  }
+
+  const preview = participantJids.slice(0, 4)
+  const remainder = participantJids.length - preview.length
+
+  return (
+    <Stack direction="row" spacing={0.45} flexWrap="wrap" useFlexGap>
+      {preview.map((jid) => (
+        <Chip
+          key={jid}
+          size="small"
+          variant="outlined"
+          label={compactParticipantHandle(jid)}
+          sx={{ maxWidth: 150 }}
+        />
+      ))}
+      {remainder > 0 ? <Chip size="small" label={`+${remainder} more`} /> : null}
+    </Stack>
+  )
 }
 
 function SectionFieldGrid({ children }) {
@@ -302,6 +343,12 @@ export default function WhatsAppWatchersPage() {
   const [groupLoading, setGroupLoading] = useState(false)
   const [groupLimit, setGroupLimit] = useState(20)
   const [testingWatcherKey, setTestingWatcherKey] = useState('')
+  const [watcherExpanded, setWatcherExpanded] = useState({
+    nld: false,
+    backhaul: false,
+    majorOutage: false,
+    vip: false
+  })
   const [thresholdText, setThresholdText] = useState({
     nld: '',
     backhaul: '',
@@ -394,6 +441,13 @@ export default function WhatsAppWatchersPage() {
 
   function setSectionField(section, field, value) {
     setSection(section, (current) => ({ ...current, [field]: value }))
+  }
+
+  function toggleWatcherExpanded(section) {
+    setWatcherExpanded((current) => ({
+      ...current,
+      [section]: !current[section]
+    }))
   }
 
   function setTemplateField(section, field, value) {
@@ -695,118 +749,162 @@ export default function WhatsAppWatchersPage() {
                 accent="#2563eb"
                 actions={(
                   <Stack direction="row" spacing={0.6} flexWrap="wrap">
-                    <TestButton watcherKey="nld" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
-                    <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('nld')}>
-                      Reset section
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      endIcon={(
+                        <ExpandMoreRoundedIcon
+                          sx={{
+                            transition: 'transform 160ms ease',
+                            transform: watcherExpanded.nld ? 'rotate(180deg)' : 'rotate(0deg)'
+                          }}
+                        />
+                      )}
+                      onClick={() => toggleWatcherExpanded('nld')}
+                    >
+                      {watcherExpanded.nld ? 'Collapse' : 'Expand'}
                     </Button>
+                    {watcherExpanded.nld ? (
+                      <>
+                        <TestButton watcherKey="nld" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
+                        <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('nld')}>
+                          Reset section
+                        </Button>
+                      </>
+                    ) : null}
                   </Stack>
                 )}
               >
                 <Stack spacing={1.15}>
-                  <FormControlLabel
-                    control={(
-                      <Switch
-                        checked={!!draft.nld.enabled}
-                        onChange={(event) => setSectionField('nld', 'enabled', event.target.checked)}
+                  <FilterStrip>
+                    <Chip
+                      size="small"
+                      color={draft.nld.enabled ? 'success' : 'default'}
+                      label={draft.nld.enabled ? 'Enabled' : 'Paused'}
+                    />
+                    <Chip
+                      size="small"
+                      color={getGroupIds(draft.nld).length ? 'info' : 'default'}
+                      label={getGroupIds(draft.nld).length ? `${getGroupIds(draft.nld).length} explicit group(s)` : 'Using default route'}
+                    />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`${draft.nld.mentionJids?.length || 0} mention target(s)`}
+                    />
+                    <Chip size="small" variant="outlined" label={`Poll ${compactDelay(draft.nld.pollMs)}`} />
+                  </FilterStrip>
+
+                  <Typography variant="caption" color="text.secondary">
+                    Default WhatsApp route: {watcherDefaultGroupLabel(meta, groupLookup)}
+                  </Typography>
+
+                  <Collapse in={watcherExpanded.nld} unmountOnExit>
+                    <Stack spacing={1.15}>
+                      <FormControlLabel
+                        control={(
+                          <Switch
+                            checked={!!draft.nld.enabled}
+                            onChange={(event) => setSectionField('nld', 'enabled', event.target.checked)}
+                          />
+                        )}
+                        label="Watcher enabled"
                       />
-                    )}
-                    label="Watcher enabled"
-                  />
 
-                  <SectionFieldGrid>
-                    <TextField
-                      size="small"
-                      label="Target WhatsApp groups"
-                      value={getGroupIds(draft.nld).join('\n')}
-                      onChange={(event) => updateWatcherGroupText('nld', event.target.value)}
-                      helperText="One JID per line. Leave blank to use the default WhatsApp group."
-                      multiline
-                      minRows={2}
-                      maxRows={4}
-                      sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
-                    />
-                    <TextField
-                      size="small"
-                      label="Mention WhatsApp IDs"
-                      value={mentionInputValue(draft.nld.mentionJids)}
-                      onChange={(event) => updateWatcherMentionText('nld', event.target.value)}
-                      helperText="Optional. Paste one WhatsApp number or user JID per line. Test sends use the mention list currently shown here."
-                      multiline
-                      minRows={2}
-                      maxRows={4}
-                      sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Poll interval (seconds)"
-                      value={Math.round(Number(draft.nld.pollMs || 0) / 1000)}
-                      onChange={(event) => setSectionField('nld', 'pollMs', toWholeNumber(event.target.value, 300) * 1000)}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Recent window (minutes)"
-                      value={draft.nld.windowMinutes}
-                      onChange={(event) => setSectionField('nld', 'windowMinutes', toWholeNumber(event.target.value, 60))}
-                    />
-                    <TextField
-                      size="small"
-                      label="Breach tiers (hours)"
-                      value={thresholdText.nld}
-                      onChange={(event) => setThresholdText((current) => ({ ...current, nld: event.target.value }))}
-                      helperText="Example: 4, 8, 12, 24"
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Partial lookback (hours)"
-                      value={draft.nld.partialLookbackHours}
-                      onChange={(event) => setSectionField('nld', 'partialLookbackHours', toWholeNumber(event.target.value, 24))}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Cluster window (hours)"
-                      value={draft.nld.clusterWindowHours}
-                      onChange={(event) => setSectionField('nld', 'clusterWindowHours', toWholeNumber(event.target.value, 3))}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Cluster min events"
-                      value={draft.nld.clusterMinEvents}
-                      onChange={(event) => setSectionField('nld', 'clusterMinEvents', toWholeNumber(event.target.value, 3))}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Not-logged reminder (minutes)"
-                      value={draft.nld.notLoggedMinutes}
-                      onChange={(event) => setSectionField('nld', 'notLoggedMinutes', toWholeNumber(event.target.value, 30))}
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Resolved lookback (hours)"
-                      value={draft.nld.resolvedLookbackHours}
-                      onChange={(event) => setSectionField('nld', 'resolvedLookbackHours', toWholeNumber(event.target.value, 24))}
-                    />
-                  </SectionFieldGrid>
+                      <SectionFieldGrid>
+                        <TextField
+                          size="small"
+                          label="Target WhatsApp groups"
+                          value={getGroupIds(draft.nld).join('\n')}
+                          onChange={(event) => updateWatcherGroupText('nld', event.target.value)}
+                          helperText="One JID per line. Leave blank to use the default WhatsApp group."
+                          multiline
+                          minRows={2}
+                          maxRows={4}
+                          sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
+                        />
+                        <TextField
+                          size="small"
+                          label="Mention WhatsApp IDs"
+                          value={mentionInputValue(draft.nld.mentionJids)}
+                          onChange={(event) => updateWatcherMentionText('nld', event.target.value)}
+                          helperText="Optional. Paste one WhatsApp number or user JID per line. Test sends use the mention list currently shown here."
+                          multiline
+                          minRows={2}
+                          maxRows={4}
+                          sx={{ gridColumn: { xs: '1 / -1', xl: 'span 2' } }}
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Poll interval (seconds)"
+                          value={Math.round(Number(draft.nld.pollMs || 0) / 1000)}
+                          onChange={(event) => setSectionField('nld', 'pollMs', toWholeNumber(event.target.value, 300) * 1000)}
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Recent window (minutes)"
+                          value={draft.nld.windowMinutes}
+                          onChange={(event) => setSectionField('nld', 'windowMinutes', toWholeNumber(event.target.value, 60))}
+                        />
+                        <TextField
+                          size="small"
+                          label="Breach tiers (hours)"
+                          value={thresholdText.nld}
+                          onChange={(event) => setThresholdText((current) => ({ ...current, nld: event.target.value }))}
+                          helperText="Example: 4, 8, 12, 24"
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Partial lookback (hours)"
+                          value={draft.nld.partialLookbackHours}
+                          onChange={(event) => setSectionField('nld', 'partialLookbackHours', toWholeNumber(event.target.value, 24))}
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Cluster window (hours)"
+                          value={draft.nld.clusterWindowHours}
+                          onChange={(event) => setSectionField('nld', 'clusterWindowHours', toWholeNumber(event.target.value, 3))}
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Cluster min events"
+                          value={draft.nld.clusterMinEvents}
+                          onChange={(event) => setSectionField('nld', 'clusterMinEvents', toWholeNumber(event.target.value, 3))}
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Not-logged reminder (minutes)"
+                          value={draft.nld.notLoggedMinutes}
+                          onChange={(event) => setSectionField('nld', 'notLoggedMinutes', toWholeNumber(event.target.value, 30))}
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Resolved lookback (hours)"
+                          value={draft.nld.resolvedLookbackHours}
+                          onChange={(event) => setSectionField('nld', 'resolvedLookbackHours', toWholeNumber(event.target.value, 24))}
+                        />
+                      </SectionFieldGrid>
 
-                  <WatcherGroupChips
-                    section={draft.nld}
-                    groupLookup={groupLookup}
-                    color="info"
-                    onDelete={(jid) => removeGroupFromWatcher('nld', jid)}
-                  />
-                  <WatcherMentionChips
-                    mentionJids={draft.nld.mentionJids}
-                    color="info"
-                    onDelete={(jid) => removeMentionFromWatcher('nld', jid)}
-                  />
+                      <WatcherGroupChips
+                        section={draft.nld}
+                        groupLookup={groupLookup}
+                        color="info"
+                        onDelete={(jid) => removeGroupFromWatcher('nld', jid)}
+                      />
+                      <WatcherMentionChips
+                        mentionJids={draft.nld.mentionJids}
+                        color="info"
+                        onDelete={(jid) => removeMentionFromWatcher('nld', jid)}
+                      />
 
-                  <TemplateGrid>
+                      <TemplateGrid>
                     <TextField
                       size="small"
                       label="Recent alert title"
@@ -855,7 +953,9 @@ export default function WhatsAppWatchersPage() {
                       value={draft.nld.templates.partialNotLoggedAction}
                       onChange={(event) => setTemplateField('nld', 'partialNotLoggedAction', event.target.value)}
                     />
-                  </TemplateGrid>
+                      </TemplateGrid>
+                    </Stack>
+                  </Collapse>
                 </Stack>
               </SectionCard>
 
@@ -865,25 +965,70 @@ export default function WhatsAppWatchersPage() {
                 accent="#ea580c"
                 actions={(
                   <Stack direction="row" spacing={0.6} flexWrap="wrap">
-                    <TestButton watcherKey="backhaul" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
-                    <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('backhaul')}>
-                      Reset section
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      endIcon={(
+                        <ExpandMoreRoundedIcon
+                          sx={{
+                            transition: 'transform 160ms ease',
+                            transform: watcherExpanded.backhaul ? 'rotate(180deg)' : 'rotate(0deg)'
+                          }}
+                        />
+                      )}
+                      onClick={() => toggleWatcherExpanded('backhaul')}
+                    >
+                      {watcherExpanded.backhaul ? 'Collapse' : 'Expand'}
                     </Button>
+                    {watcherExpanded.backhaul ? (
+                      <>
+                        <TestButton watcherKey="backhaul" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
+                        <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('backhaul')}>
+                          Reset section
+                        </Button>
+                      </>
+                    ) : null}
                   </Stack>
                 )}
               >
                 <Stack spacing={1.15}>
-                  <FormControlLabel
-                    control={(
-                      <Switch
-                        checked={!!draft.backhaul.enabled}
-                        onChange={(event) => setSectionField('backhaul', 'enabled', event.target.checked)}
-                      />
-                    )}
-                    label="Watcher enabled"
-                  />
+                  <FilterStrip>
+                    <Chip
+                      size="small"
+                      color={draft.backhaul.enabled ? 'success' : 'default'}
+                      label={draft.backhaul.enabled ? 'Enabled' : 'Paused'}
+                    />
+                    <Chip
+                      size="small"
+                      color={getGroupIds(draft.backhaul).length ? 'warning' : 'default'}
+                      label={getGroupIds(draft.backhaul).length ? `${getGroupIds(draft.backhaul).length} explicit group(s)` : 'Using default route'}
+                    />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`${draft.backhaul.mentionJids?.length || 0} mention target(s)`}
+                    />
+                    <Chip size="small" variant="outlined" label={`Poll ${compactDelay(draft.backhaul.pollMs)}`} />
+                    <Chip size="small" variant="outlined" label={`Tag ${draft.backhaul.tag || 'not set'}`} />
+                  </FilterStrip>
 
-                  <SectionFieldGrid>
+                  <Typography variant="caption" color="text.secondary">
+                    Default WhatsApp route: {watcherDefaultGroupLabel(meta, groupLookup)}
+                  </Typography>
+
+                  <Collapse in={watcherExpanded.backhaul} unmountOnExit>
+                    <Stack spacing={1.15}>
+                      <FormControlLabel
+                        control={(
+                          <Switch
+                            checked={!!draft.backhaul.enabled}
+                            onChange={(event) => setSectionField('backhaul', 'enabled', event.target.checked)}
+                          />
+                        )}
+                        label="Watcher enabled"
+                      />
+
+                      <SectionFieldGrid>
                     <TextField
                       size="small"
                       label="Backhaul Zendesk tag"
@@ -940,21 +1085,21 @@ export default function WhatsAppWatchersPage() {
                       onChange={(event) => setThresholdText((current) => ({ ...current, backhaul: event.target.value }))}
                       helperText="Example: 4, 8, 12, 24"
                     />
-                  </SectionFieldGrid>
+                      </SectionFieldGrid>
 
-                  <WatcherGroupChips
-                    section={draft.backhaul}
-                    groupLookup={groupLookup}
-                    color="warning"
-                    onDelete={(jid) => removeGroupFromWatcher('backhaul', jid)}
-                  />
-                  <WatcherMentionChips
-                    mentionJids={draft.backhaul.mentionJids}
-                    color="warning"
-                    onDelete={(jid) => removeMentionFromWatcher('backhaul', jid)}
-                  />
+                      <WatcherGroupChips
+                        section={draft.backhaul}
+                        groupLookup={groupLookup}
+                        color="warning"
+                        onDelete={(jid) => removeGroupFromWatcher('backhaul', jid)}
+                      />
+                      <WatcherMentionChips
+                        mentionJids={draft.backhaul.mentionJids}
+                        color="warning"
+                        onDelete={(jid) => removeMentionFromWatcher('backhaul', jid)}
+                      />
 
-                  <TemplateGrid>
+                      <TemplateGrid>
                     <TextField
                       size="small"
                       label="New alert title"
@@ -985,7 +1130,9 @@ export default function WhatsAppWatchersPage() {
                       value={draft.backhaul.templates.breachAction}
                       onChange={(event) => setTemplateField('backhaul', 'breachAction', event.target.value)}
                     />
-                  </TemplateGrid>
+                      </TemplateGrid>
+                    </Stack>
+                  </Collapse>
                 </Stack>
               </SectionCard>
 
@@ -995,25 +1142,69 @@ export default function WhatsAppWatchersPage() {
                 accent="#dc2626"
                 actions={(
                   <Stack direction="row" spacing={0.6} flexWrap="wrap">
-                    <TestButton watcherKey="major_outage" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
-                    <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('majorOutage')}>
-                      Reset section
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      endIcon={(
+                        <ExpandMoreRoundedIcon
+                          sx={{
+                            transition: 'transform 160ms ease',
+                            transform: watcherExpanded.majorOutage ? 'rotate(180deg)' : 'rotate(0deg)'
+                          }}
+                        />
+                      )}
+                      onClick={() => toggleWatcherExpanded('majorOutage')}
+                    >
+                      {watcherExpanded.majorOutage ? 'Collapse' : 'Expand'}
                     </Button>
+                    {watcherExpanded.majorOutage ? (
+                      <>
+                        <TestButton watcherKey="major_outage" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
+                        <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('majorOutage')}>
+                          Reset section
+                        </Button>
+                      </>
+                    ) : null}
                   </Stack>
                 )}
               >
                 <Stack spacing={1.15}>
-                  <FormControlLabel
-                    control={(
-                      <Switch
-                        checked={!!draft.majorOutage.enabled}
-                        onChange={(event) => setSectionField('majorOutage', 'enabled', event.target.checked)}
-                      />
-                    )}
-                    label="Watcher enabled"
-                  />
+                  <FilterStrip>
+                    <Chip
+                      size="small"
+                      color={draft.majorOutage.enabled ? 'success' : 'default'}
+                      label={draft.majorOutage.enabled ? 'Enabled' : 'Paused'}
+                    />
+                    <Chip
+                      size="small"
+                      color={getGroupIds(draft.majorOutage).length ? 'error' : 'default'}
+                      label={getGroupIds(draft.majorOutage).length ? `${getGroupIds(draft.majorOutage).length} explicit group(s)` : 'Using default route'}
+                    />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`${draft.majorOutage.mentionJids?.length || 0} mention target(s)`}
+                    />
+                    <Chip size="small" variant="outlined" label={`Poll ${compactDelay(draft.majorOutage.pollMs)}`} />
+                  </FilterStrip>
 
-                  <SectionFieldGrid>
+                  <Typography variant="caption" color="text.secondary">
+                    Default WhatsApp route: {watcherDefaultGroupLabel(meta, groupLookup)}
+                  </Typography>
+
+                  <Collapse in={watcherExpanded.majorOutage} unmountOnExit>
+                    <Stack spacing={1.15}>
+                      <FormControlLabel
+                        control={(
+                          <Switch
+                            checked={!!draft.majorOutage.enabled}
+                            onChange={(event) => setSectionField('majorOutage', 'enabled', event.target.checked)}
+                          />
+                        )}
+                        label="Watcher enabled"
+                      />
+
+                      <SectionFieldGrid>
                     <TextField
                       size="small"
                       label="Target WhatsApp groups"
@@ -1064,21 +1255,21 @@ export default function WhatsAppWatchersPage() {
                       onChange={(event) => setThresholdText((current) => ({ ...current, majorOutage: event.target.value }))}
                       helperText="Example: 2, 4, 8, 12"
                     />
-                  </SectionFieldGrid>
+                      </SectionFieldGrid>
 
-                  <WatcherGroupChips
-                    section={draft.majorOutage}
-                    groupLookup={groupLookup}
-                    color="error"
-                    onDelete={(jid) => removeGroupFromWatcher('majorOutage', jid)}
-                  />
-                  <WatcherMentionChips
-                    mentionJids={draft.majorOutage.mentionJids}
-                    color="error"
-                    onDelete={(jid) => removeMentionFromWatcher('majorOutage', jid)}
-                  />
+                      <WatcherGroupChips
+                        section={draft.majorOutage}
+                        groupLookup={groupLookup}
+                        color="error"
+                        onDelete={(jid) => removeGroupFromWatcher('majorOutage', jid)}
+                      />
+                      <WatcherMentionChips
+                        mentionJids={draft.majorOutage.mentionJids}
+                        color="error"
+                        onDelete={(jid) => removeMentionFromWatcher('majorOutage', jid)}
+                      />
 
-                  <TemplateGrid>
+                      <TemplateGrid>
                     <TextField
                       size="small"
                       label="New alert title"
@@ -1109,7 +1300,9 @@ export default function WhatsAppWatchersPage() {
                       value={draft.majorOutage.templates.breachAction}
                       onChange={(event) => setTemplateField('majorOutage', 'breachAction', event.target.value)}
                     />
-                  </TemplateGrid>
+                      </TemplateGrid>
+                    </Stack>
+                  </Collapse>
                 </Stack>
               </SectionCard>
 
@@ -1119,28 +1312,73 @@ export default function WhatsAppWatchersPage() {
                 accent="#7c3aed"
                 actions={(
                   <Stack direction="row" spacing={0.6} flexWrap="wrap">
-                    <TestButton watcherKey="vip" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
-                    <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={addVipRule}>
-                      Add rule
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      endIcon={(
+                        <ExpandMoreRoundedIcon
+                          sx={{
+                            transition: 'transform 160ms ease',
+                            transform: watcherExpanded.vip ? 'rotate(180deg)' : 'rotate(0deg)'
+                          }}
+                        />
+                      )}
+                      onClick={() => toggleWatcherExpanded('vip')}
+                    >
+                      {watcherExpanded.vip ? 'Collapse' : 'Expand'}
                     </Button>
-                    <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('vip')}>
-                      Reset section
-                    </Button>
+                    {watcherExpanded.vip ? (
+                      <>
+                        <TestButton watcherKey="vip" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
+                        <Button size="small" variant="outlined" startIcon={<AddRoundedIcon />} onClick={addVipRule}>
+                          Add rule
+                        </Button>
+                        <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('vip')}>
+                          Reset section
+                        </Button>
+                      </>
+                    ) : null}
                   </Stack>
                 )}
               >
                 <Stack spacing={1.15}>
-                  <FormControlLabel
-                    control={(
-                      <Switch
-                        checked={!!draft.vip.enabled}
-                        onChange={(event) => setSectionField('vip', 'enabled', event.target.checked)}
-                      />
-                    )}
-                    label="Watcher enabled"
-                  />
+                  <FilterStrip>
+                    <Chip
+                      size="small"
+                      color={draft.vip.enabled ? 'success' : 'default'}
+                      label={draft.vip.enabled ? 'Enabled' : 'Paused'}
+                    />
+                    <Chip
+                      size="small"
+                      color={getGroupIds(draft.vip).length ? 'secondary' : 'default'}
+                      label={getGroupIds(draft.vip).length ? `${getGroupIds(draft.vip).length} explicit group(s)` : 'Using default route'}
+                    />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`${draft.vip.mentionJids?.length || 0} mention target(s)`}
+                    />
+                    <Chip size="small" variant="outlined" label={`Poll ${compactDelay(draft.vip.pollMs)}`} />
+                    <Chip size="small" variant="outlined" label={`${draft.vip.tagRules?.length || 0} VIP rule(s)`} />
+                  </FilterStrip>
 
-                  <SectionFieldGrid>
+                  <Typography variant="caption" color="text.secondary">
+                    Default WhatsApp route: {watcherDefaultGroupLabel(meta, groupLookup)}
+                  </Typography>
+
+                  <Collapse in={watcherExpanded.vip} unmountOnExit>
+                    <Stack spacing={1.15}>
+                      <FormControlLabel
+                        control={(
+                          <Switch
+                            checked={!!draft.vip.enabled}
+                            onChange={(event) => setSectionField('vip', 'enabled', event.target.checked)}
+                          />
+                        )}
+                        label="Watcher enabled"
+                      />
+
+                      <SectionFieldGrid>
                     <TextField
                       size="small"
                       label="Target WhatsApp groups"
@@ -1183,21 +1421,21 @@ export default function WhatsAppWatchersPage() {
                       value={draft.vip.orgId}
                       onChange={(event) => setSectionField('vip', 'orgId', event.target.value)}
                     />
-                  </SectionFieldGrid>
+                      </SectionFieldGrid>
 
-                  <WatcherGroupChips
-                    section={draft.vip}
-                    groupLookup={groupLookup}
-                    color="secondary"
-                    onDelete={(jid) => removeGroupFromWatcher('vip', jid)}
-                  />
-                  <WatcherMentionChips
-                    mentionJids={draft.vip.mentionJids}
-                    color="secondary"
-                    onDelete={(jid) => removeMentionFromWatcher('vip', jid)}
-                  />
+                      <WatcherGroupChips
+                        section={draft.vip}
+                        groupLookup={groupLookup}
+                        color="secondary"
+                        onDelete={(jid) => removeGroupFromWatcher('vip', jid)}
+                      />
+                      <WatcherMentionChips
+                        mentionJids={draft.vip.mentionJids}
+                        color="secondary"
+                        onDelete={(jid) => removeMentionFromWatcher('vip', jid)}
+                      />
 
-                  <TemplateGrid>
+                      <TemplateGrid>
                     <TextField
                       size="small"
                       label="Organization alert title"
@@ -1210,79 +1448,81 @@ export default function WhatsAppWatchersPage() {
                       value={draft.vip.templates.orgReason}
                       onChange={(event) => setTemplateField('vip', 'orgReason', event.target.value)}
                     />
-                  </TemplateGrid>
+                      </TemplateGrid>
 
-                  <Box sx={{ display: 'grid', gap: 0.85 }}>
-                    {(draft.vip.tagRules || []).map((rule, index) => (
-                      <Paper
-                        key={`${rule.key || 'rule'}-${index}`}
-                        sx={{
-                          p: 1,
-                          borderRadius: 2.2,
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          background: 'linear-gradient(135deg, rgba(124,58,237,0.05) 0%, rgba(255,255,255,1) 100%)'
-                        }}
-                      >
-                        <Stack spacing={0.85}>
-                          <Stack direction="row" spacing={0.8} alignItems="center" justifyContent="space-between">
-                            <Stack direction="row" spacing={0.7} alignItems="center" flexWrap="wrap">
-                              <Typography variant="subtitle2" fontWeight={800}>
-                                VIP Tag Rule {index + 1}
-                              </Typography>
-                              <Chip size="small" label={rule.tag || 'No tag yet'} variant="outlined" />
+                      <Box sx={{ display: 'grid', gap: 0.85 }}>
+                        {(draft.vip.tagRules || []).map((rule, index) => (
+                          <Paper
+                            key={`${rule.key || 'rule'}-${index}`}
+                            sx={{
+                              p: 1,
+                              borderRadius: 2.2,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              background: 'linear-gradient(135deg, rgba(124,58,237,0.05) 0%, rgba(255,255,255,1) 100%)'
+                            }}
+                          >
+                            <Stack spacing={0.85}>
+                              <Stack direction="row" spacing={0.8} alignItems="center" justifyContent="space-between">
+                                <Stack direction="row" spacing={0.7} alignItems="center" flexWrap="wrap">
+                                  <Typography variant="subtitle2" fontWeight={800}>
+                                    VIP Tag Rule {index + 1}
+                                  </Typography>
+                                  <Chip size="small" label={rule.tag || 'No tag yet'} variant="outlined" />
+                                </Stack>
+                                <Tooltip title="Delete rule">
+                                  <IconButton size="small" color="error" onClick={() => removeVipRule(index)}>
+                                    <DeleteOutlineRoundedIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Stack>
+
+                              <SectionFieldGrid>
+                                <TextField
+                                  size="small"
+                                  label="Rule key"
+                                  value={rule.key}
+                                  onChange={(event) => updateVipRule(index, 'key', event.target.value)}
+                                />
+                                <TextField
+                                  size="small"
+                                  label="Zendesk tag"
+                                  value={rule.tag}
+                                  onChange={(event) => updateVipRule(index, 'tag', event.target.value)}
+                                />
+                                <TextField
+                                  size="small"
+                                  label="Alert title"
+                                  value={rule.title}
+                                  onChange={(event) => updateVipRule(index, 'title', event.target.value)}
+                                />
+                                <TextField
+                                  size="small"
+                                  label="Reason line"
+                                  value={rule.reason}
+                                  onChange={(event) => updateVipRule(index, 'reason', event.target.value)}
+                                />
+                              </SectionFieldGrid>
+
+                              <Box>
+                                <TextField
+                                  select
+                                  size="small"
+                                  label="Include priority in alert"
+                                  value={rule.includePriority ? 'yes' : 'no'}
+                                  onChange={(event) => updateVipRule(index, 'includePriority', event.target.value === 'yes')}
+                                  sx={{ minWidth: 220 }}
+                                >
+                                  <MenuItem value="yes">Yes</MenuItem>
+                                  <MenuItem value="no">No</MenuItem>
+                                </TextField>
+                              </Box>
                             </Stack>
-                            <Tooltip title="Delete rule">
-                              <IconButton size="small" color="error" onClick={() => removeVipRule(index)}>
-                                <DeleteOutlineRoundedIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
-
-                          <SectionFieldGrid>
-                            <TextField
-                              size="small"
-                              label="Rule key"
-                              value={rule.key}
-                              onChange={(event) => updateVipRule(index, 'key', event.target.value)}
-                            />
-                            <TextField
-                              size="small"
-                              label="Zendesk tag"
-                              value={rule.tag}
-                              onChange={(event) => updateVipRule(index, 'tag', event.target.value)}
-                            />
-                            <TextField
-                              size="small"
-                              label="Alert title"
-                              value={rule.title}
-                              onChange={(event) => updateVipRule(index, 'title', event.target.value)}
-                            />
-                            <TextField
-                              size="small"
-                              label="Reason line"
-                              value={rule.reason}
-                              onChange={(event) => updateVipRule(index, 'reason', event.target.value)}
-                            />
-                          </SectionFieldGrid>
-
-                          <Box>
-                            <TextField
-                              select
-                              size="small"
-                              label="Include priority in alert"
-                              value={rule.includePriority ? 'yes' : 'no'}
-                              onChange={(event) => updateVipRule(index, 'includePriority', event.target.value === 'yes')}
-                              sx={{ minWidth: 220 }}
-                            >
-                              <MenuItem value="yes">Yes</MenuItem>
-                              <MenuItem value="no">No</MenuItem>
-                            </TextField>
-                          </Box>
-                        </Stack>
-                      </Paper>
-                    ))}
-                  </Box>
+                          </Paper>
+                        ))}
+                      </Box>
+                    </Stack>
+                  </Collapse>
                 </Stack>
               </SectionCard>
             </>
@@ -1339,9 +1579,9 @@ export default function WhatsAppWatchersPage() {
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 800 }}>Group Name</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>JID</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Participants</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Group</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Route ID</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Members</TableCell>
                     <TableCell sx={{ fontWeight: 800 }}>Last Seen</TableCell>
                     <TableCell sx={{ fontWeight: 800 }}>Watcher Routing</TableCell>
                   </TableRow>
@@ -1353,7 +1593,14 @@ export default function WhatsAppWatchersPage() {
                         <Typography variant="body2" fontWeight={700}>{row.name || 'Unnamed group'}</Typography>
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>{row.jid}</TableCell>
-                      <TableCell>{row.participantCount}</TableCell>
+                      <TableCell sx={{ minWidth: 220 }}>
+                        <Stack spacing={0.55}>
+                          <Typography variant="body2" fontWeight={700}>
+                            {row.participantCount} member{row.participantCount === 1 ? '' : 's'}
+                          </Typography>
+                          <ParticipantPreviewChips participantJids={row.participantJids} />
+                        </Stack>
+                      </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDateTime(row.lastSeenAt)}</TableCell>
                       <TableCell sx={{ minWidth: 520 }}>
                         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>

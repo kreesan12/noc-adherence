@@ -15,6 +15,12 @@ import {
   roleFamily,
   serializeLoginUser
 } from '../lib/loginUsers.js'
+import {
+  detachManagerReferences,
+  detachSupervisorReferences,
+  migrateManagerSignatureToSupervisor,
+  migrateSupervisorSignatureToManager
+} from '../lib/loginUserLifecycle.js'
 
 const createSchema = z.object({
   fullName: z.string().trim().min(2),
@@ -58,6 +64,16 @@ async function ensureNotSelfDestructive(prisma, reqUser, targetKind, targetId, n
   if (nextRole && nextRole === reqRole) return
 
   throw new Error('You cannot delete or reassign your own active login from this screen.')
+}
+
+async function deleteSupervisorWithCleanup(tx, id) {
+  await detachSupervisorReferences(tx, id)
+  await tx.supervisor.delete({ where: { id } })
+}
+
+async function deleteManagerWithCleanup(tx, id) {
+  await detachManagerReferences(tx, id)
+  await tx.manager.delete({ where: { id } })
 }
 
 export default function userAdminRouter(prisma) {
@@ -151,7 +167,8 @@ export default function userAdminRouter(prisma) {
             password: source?.hash || hashPassword(generateTemporaryPassword())
           }
         })
-        await tx.supervisor.delete({ where: { id } })
+        await migrateSupervisorSignatureToManager(tx, id, created.id)
+        await deleteSupervisorWithCleanup(tx, id)
         return serializeLoginUser(created, 'manager')
       }
 
@@ -168,7 +185,8 @@ export default function userAdminRouter(prisma) {
           hash: nextHash
         }
       })
-      await tx.manager.delete({ where: { id } })
+      await migrateManagerSignatureToSupervisor(tx, id, created.id)
+      await deleteManagerWithCleanup(tx, id)
       return serializeLoginUser(created, 'supervisor')
     })
 
@@ -213,11 +231,13 @@ export default function userAdminRouter(prisma) {
     const existing = await findLoginUser(prisma, kind, id)
     if (!existing) return res.status(404).json({ error: 'User not found' })
 
-    if (kind === 'supervisor') {
-      await prisma.supervisor.delete({ where: { id } })
-    } else {
-      await prisma.manager.delete({ where: { id } })
-    }
+    await prisma.$transaction(async (tx) => {
+      if (kind === 'supervisor') {
+        await deleteSupervisorWithCleanup(tx, id)
+      } else {
+        await deleteManagerWithCleanup(tx, id)
+      }
+    })
 
     res.status(204).end()
   })

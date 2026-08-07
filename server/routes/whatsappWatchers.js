@@ -21,6 +21,16 @@ function normalizeIdList(value) {
   return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))]
 }
 
+function formatActor(reqUser) {
+  return String(
+    reqUser?.email ||
+    reqUser?.fullName ||
+    reqUser?.name ||
+    reqUser?.id ||
+    'admin'
+  ).trim()
+}
+
 export default function whatsappWatchersRouter() {
   const r = Router()
 
@@ -39,7 +49,7 @@ export default function whatsappWatchersRouter() {
       return res.status(400).json({ error: 'A watcher config object is required.' })
     }
 
-    const actor = req.user?.email || req.user?.fullName || req.user?.id || 'admin'
+    const actor = formatActor(req.user)
     const config = await saveWhatsappWatcherConfig(payload, actor)
     res.json({
       config,
@@ -93,7 +103,7 @@ export default function whatsappWatchersRouter() {
         ? normalizeIdList(section.mentionJids)
         : []
 
-    const requestedBy = req.user?.email || req.user?.fullName || req.user?.id || 'admin'
+    const requestedBy = formatActor(req.user)
     const message = buildWatcherTestMessage({
       watcherKey,
       requestedBy,

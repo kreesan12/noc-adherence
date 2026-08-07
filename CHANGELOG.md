@@ -78,10 +78,18 @@
   - watcher tests now use the current on-screen group and mention overrides without forcing a save first
   - queued test dispatches now carry mention targets through the worker into the real WhatsApp send
   - mention fields now render cleaner number-only input values plus removable mention chips in the admin UI
+  - watcher control sections now default to collapsed, with per-watcher expand controls and summary badges
+  - each watcher now shows the default WhatsApp fallback route for admin reference
+  - the group directory now shows friendlier member-handle previews instead of only raw participant IDs
 - Added a dedicated major outage WhatsApp watcher for non-NLD tickets in the `Outage Capturing` flow:
   - watches the `NOC Outage Team` outage lane while excluding NLD outages
   - sends new, aging-breach, and resolved notifications
   - includes the Zendesk last-update note from custom field `5352766585489`
+- Hardened user-admin role and delete handling:
+  - watcher test requests now always store a string actor label instead of failing on numeric token ids
+  - manager login roles now use the legacy string-backed database column shape instead of assuming a missing Postgres enum
+  - supervisor and manager deletes/promotions now detach linked records safely before removing the source login
+  - stored signatures are migrated when moving a login between supervisor and manager lanes
 - Added queued test-dispatch support for WhatsApp watchers:
   - new requests are stored in `watcher_dispatch_request`
   - the automation host now drains those requests and sends manual route-test messages without needing direct UI-to-WhatsApp access

@@ -3,6 +3,9 @@ import { parseHourThresholds, safeStr } from './watcherUtils.js'
 
 const CONFIG_KEY = 'whatsapp_watchers'
 const CACHE_TTL_MS = 30 * 1000
+const DEFAULT_ROUTE_GROUP_ID = normalizeGroupIdValue(
+  process.env.WHATSAPP_GROUP_ID || '120363403922602776@g.us'
+)
 
 const DEFAULT_VIP_TAG_RULES = [
   {
@@ -368,5 +371,7 @@ export const WHATSAPP_WATCHER_CONFIG_META = {
   key: CONFIG_KEY,
   refreshBehavior: 'Changes apply on the next watcher poll on the automation server.',
   templateScope: 'Template fields currently control alert titles, reasons, and action lines while keeping the body layout standardized for readability.',
-  routingScope: 'Each watcher can route to one or more WhatsApp groups. Paste one JID per line or use the live group directory below.'
+  routingScope: 'Each watcher can route to one or more WhatsApp groups. Paste one JID per line or use the live group directory below.',
+  defaultGroupId: DEFAULT_ROUTE_GROUP_ID,
+  defaultGroupNote: 'If a watcher has no explicit group list configured, WhatsApp sends fall back to this default route.'
 }
