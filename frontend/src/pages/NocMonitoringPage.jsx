@@ -271,6 +271,71 @@ function SignalChip({ label, tone = '#64748b' }) {
   )
 }
 
+function RowWindowSelector({ value, onChange, options = [10, 20, 50, 'all'] }) {
+  return (
+    <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" justifyContent="flex-end">
+      {options.map((option) => {
+        const selected = value === option
+        const label = option === 'all' ? 'All' : String(option)
+        return (
+          <Chip
+            key={label}
+            size="small"
+            label={label}
+            clickable
+            onClick={() => onChange(option)}
+            sx={{
+              height: 22,
+              fontWeight: 700,
+              color: selected ? '#f8fafc' : OPS_MUTED,
+              bgcolor: selected ? 'rgba(15, 118, 110, 0.26)' : 'rgba(15, 23, 42, 0.64)',
+              border: `1px solid ${selected ? alpha('#34d399', 0.42) : 'rgba(148, 163, 184, 0.18)'}`,
+              '& .MuiChip-label': {
+                px: 0.95
+              }
+            }}
+          />
+        )
+      })}
+    </Stack>
+  )
+}
+
+function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }) {
+  return (
+    <Box sx={{ display: 'grid', gridTemplateColumns: columns, gap: 0.75 }}>
+      {items.map((item) => (
+        <Box
+          key={item.label}
+          sx={{
+            p: 0.85,
+            borderRadius: 2.2,
+            border: `1px solid ${alpha(item.tone || ACCENT, 0.22)}`,
+            bgcolor: alpha(item.tone || ACCENT, 0.08)
+          }}
+        >
+          <Stack spacing={0.35}>
+            <Stack direction="row" spacing={0.55} alignItems="center" justifyContent="space-between">
+              <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.55 }}>
+                {item.label}
+              </Typography>
+              {item.badge ? <SignalChip label={item.badge} tone={item.tone || ACCENT} /> : null}
+            </Stack>
+            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1, color: '#f8fafc' }}>
+              {item.value}
+            </Typography>
+            {item.helper ? (
+              <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                {item.helper}
+              </Typography>
+            ) : null}
+          </Stack>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
 function SpotlightCard({ item }) {
   return (
     <Box
@@ -305,7 +370,7 @@ function SpotlightCard({ item }) {
   )
 }
 
-function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.' }) {
+function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.', getRowSx }) {
   return (
     <Box sx={{ overflowX: 'auto', borderRadius: 2.4, border: `1px solid ${OPS_BORDER}`, background: OPS_PANEL_SOFT }}>
       <Table size="small" sx={{ minWidth: 760 }}>
@@ -320,7 +385,7 @@ function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.' })
         </TableHead>
         <TableBody>
           {rows.length ? rows.map((row, index) => (
-            <TableRow key={row.id || row.ticketId || row.routeLabel || `${index}-${row.label || 'row'}`} hover>
+            <TableRow key={row.id || row.ticketId || row.routeLabel || `${index}-${row.label || 'row'}`} hover sx={getRowSx ? getRowSx(row) : undefined}>
               {columns.map((column) => (
                 <TableCell key={column.key} sx={{ verticalAlign: 'top' }}>
                   {column.render ? column.render(row) : row[column.key]}
@@ -397,7 +462,7 @@ function HorizontalBarChart({ rows, dataKey, emptyMessage, colorMap = {}, height
   )
 }
 
-function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260 }) {
+function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260, showLegend = true }) {
   if (!rows.length) {
     return <AnalyticsChartFallback minHeight={height} message={emptyMessage} />
   }
@@ -410,7 +475,7 @@ function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260 }) {
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} interval={2} />
           <YAxis tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} />
           <Tooltip />
-          <Legend wrapperStyle={{ color: OPS_MUTED }} />
+          {showLegend ? <Legend wrapperStyle={{ color: OPS_MUTED }} /> : null}
           {lines.map((line) => (
             <Line
               key={line.key}
@@ -419,6 +484,8 @@ function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260 }) {
               name={line.label}
               stroke={line.color}
               strokeWidth={2}
+              strokeDasharray={line.strokeDasharray}
+              opacity={line.opacity ?? 1}
               dot={false}
               activeDot={{ r: 4 }}
             />
@@ -581,6 +648,8 @@ export default function NocMonitoringPage() {
   const [error, setError] = useState('')
   const [payload, setPayload] = useState(null)
   const [tab, setTab] = useState('overview')
+  const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
+  const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
 
   const loadSnapshot = useCallback(async () => {
     setError('')
@@ -766,6 +835,57 @@ export default function NocMonitoringPage() {
     }
   }, [historyTier1VoiceQueue])
 
+  const t1CommandMetrics = useMemo(() => ([
+    {
+      label: 'P1 unattended',
+      value: formatCount(summary.tier1P1Unattended || 0),
+      helper: `${formatCount(summary.tier1P1Breached || 0)} breached 30m action SLA`
+    },
+    {
+      label: 'Due now',
+      value: formatCount((collections.tier1UrgentTickets || []).length),
+      helper: 'breached or due within four hours'
+    },
+    {
+      label: 'Change control',
+      value: formatCount(summary.tier1ChangeControlOpen || 0),
+      helper: 'rows carrying noc_change_checks'
+    },
+    {
+      label: 'Voice queue',
+      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
+      helper: tier1VoiceQueue
+        ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue | ${summary.telephonyTier1SlaBreached ? '20s SLA breached' : 'within 20s SLA'}`
+        : 'Tier 1 voice queue not visible in this snapshot'
+    }
+  ]), [collections, summary, tier1VoiceQueue])
+
+  const topCommandMetrics = useMemo(() => {
+    if (tab === 'tier1') return t1CommandMetrics
+    return [
+      {
+        label: 'Priority lanes live',
+        value: formatCount((summary.outageP1 || 0) + (summary.outageP2 || 0) + (summary.outageP3 || 0) + (summary.outageP4 || 0) + (summary.outagePower || 0)),
+        helper: `${formatCount(summary.outageNewUnassigned || 0)} unattended outage rows`
+      },
+      {
+        label: 'Tier 1 due now',
+        value: formatCount((collections.tier1UrgentTickets || []).length),
+        helper: 'breached or due within four hours'
+      },
+      {
+        label: 'Tier 2 handovers',
+        value: formatCount(summary.t2HandoverOpen || 0),
+        helper: `${formatCount(summary.tier2NewUnassigned || 0)} new unattended alongside handovers`
+      },
+      {
+        label: 'Voice feed',
+        value: telephonySummary ? 'live' : 'offline',
+        helper: telephonySummary ? `${formatCount(summary.telephonyWaiting || 0)} callers waiting right now` : 'Illation feed not available in this snapshot'
+      }
+    ]
+  }, [collections, summary, tab, telephonySummary, t1CommandMetrics])
+
   const tier1ComparisonMetrics = useMemo(() => ([
     {
       label: 'Tickets received',
@@ -814,7 +934,13 @@ export default function NocMonitoringPage() {
       subtext: `${formatCount(summary.tier1P1Breached || 0)} above 30m action SLA`,
       tone: (summary.tier1P1Breached || 0) > 0 ? '#dc2626' : '#0f766e',
       icon: <WarningAmberRoundedIcon fontSize="small" />,
-      rootSx: CONTROL_METRIC_ROOT_SX,
+      rootSx: {
+        ...CONTROL_METRIC_ROOT_SX,
+        borderColor: alpha((summary.tier1P1Breached || 0) > 0 ? '#dc2626' : '#0f766e', 0.34),
+        boxShadow: (summary.tier1P1Breached || 0) > 0
+          ? '0 0 0 1px rgba(220, 38, 38, 0.18), 0 18px 36px rgba(127, 29, 29, 0.28)'
+          : CONTROL_METRIC_ROOT_SX.boxShadow
+      },
       valueSx: CONTROL_METRIC_VALUE_SX
     },
     {
@@ -901,6 +1027,87 @@ export default function NocMonitoringPage() {
     [t1AutomationCreatedTodaySummary]
   )
 
+  const sortTier1Rows = useCallback((rows) => [...(rows || [])].sort((a, b) => {
+    const aRemaining = Number.isFinite(Number(a?.remainingHours)) ? Number(a.remainingHours) : Number.POSITIVE_INFINITY
+    const bRemaining = Number.isFinite(Number(b?.remainingHours)) ? Number(b.remainingHours) : Number.POSITIVE_INFINITY
+    if (aRemaining !== bRemaining) return aRemaining - bRemaining
+
+    const actionRank = { P1: 0, P2: 1, Change: 2, P3: 3, P4: 4, Other: 5 }
+    const aAction = actionRank[a?.pLevel] ?? 99
+    const bAction = actionRank[b?.pLevel] ?? 99
+    if (aAction !== bAction) return aAction - bAction
+
+    return Number(b?.ageHours || 0) - Number(a?.ageHours || 0)
+  }), [])
+
+  const t1P1AttentionRows = useMemo(
+    () => sortTier1Rows(collections.tier1P1UnattendedTickets || []),
+    [collections, sortTier1Rows]
+  )
+
+  const t1DueNowRows = useMemo(
+    () => sortTier1Rows(collections.tier1UrgentTickets || []),
+    [collections, sortTier1Rows]
+  )
+
+  const t1ActionViewRows = useMemo(
+    () => sortTier1Rows(collections.tier1Tickets || []),
+    [collections, sortTier1Rows]
+  )
+
+  const t1DueNowVisibleRows = useMemo(
+    () => t1DueNowLimit === 'all' ? t1DueNowRows : t1DueNowRows.slice(0, Number(t1DueNowLimit || 15)),
+    [t1DueNowLimit, t1DueNowRows]
+  )
+
+  const t1ActionViewVisibleRows = useMemo(
+    () => t1ActionViewLimit === 'all' ? t1ActionViewRows : t1ActionViewRows.slice(0, Number(t1ActionViewLimit || 20)),
+    [t1ActionViewLimit, t1ActionViewRows]
+  )
+
+  const t1DueNowBreachedCount = useMemo(
+    () => t1DueNowRows.filter((row) => row.dueBucket === 'BREACHED' || Number(row.remainingHours) <= 0).length,
+    [t1DueNowRows]
+  )
+
+  const t1DueNowTwoHourCount = useMemo(
+    () => t1DueNowRows.filter((row) => Number(row.remainingHours) > 0 && Number(row.remainingHours) <= 2).length,
+    [t1DueNowRows]
+  )
+
+  const t1DueNowFourHourCount = useMemo(
+    () => t1DueNowRows.filter((row) => Number(row.remainingHours) > 2 && Number(row.remainingHours) <= 4).length,
+    [t1DueNowRows]
+  )
+
+  const t1P1BreachedRowCount = useMemo(
+    () => t1P1AttentionRows.filter((row) => row.dueBucket === 'BREACHED' || Number(row.remainingHours) <= 0).length,
+    [t1P1AttentionRows]
+  )
+
+  const getTier1UrgencyRowSx = useCallback((row) => {
+    const remaining = Number(row?.remainingHours)
+    if (row?.dueBucket === 'BREACHED' || (Number.isFinite(remaining) && remaining <= 0)) {
+      return {
+        backgroundColor: 'rgba(127, 29, 29, 0.22)',
+        boxShadow: 'inset 3px 0 0 rgba(248, 113, 113, 0.95)'
+      }
+    }
+    if (Number.isFinite(remaining) && remaining <= 2) {
+      return {
+        backgroundColor: 'rgba(124, 45, 18, 0.18)',
+        boxShadow: 'inset 3px 0 0 rgba(251, 146, 60, 0.9)'
+      }
+    }
+    if (Number.isFinite(remaining) && remaining <= 4) {
+      return {
+        backgroundColor: 'rgba(120, 53, 15, 0.14)',
+        boxShadow: 'inset 3px 0 0 rgba(245, 158, 11, 0.82)'
+      }
+    }
+    return undefined
+  }, [])
+
   const tier2ComparisonMetrics = useMemo(() => ([
     {
       label: 'Tickets received',
@@ -985,6 +1192,64 @@ export default function NocMonitoringPage() {
     { key: 'ageHours', label: 'Age', render: (row) => formatAgeHours(row.ageHours) },
     { key: 'subject', label: 'Subject' }
   ], [])
+
+  const t1ActionColumnParts = useMemo(() => ({
+    ticket: { key: 'id', label: 'Ticket', render: (row) => <ExternalTicketLink href={row.url} label={`#${row.id}`} /> },
+    action: { key: 'pLevel', label: 'Action', render: (row) => <SignalChip label={row.pLevel} tone={T1_ACTION_TONE_MAP[row.pLevel] || '#64748b'} /> },
+    dueBucket: { key: 'dueBucket', label: 'Due Bucket', render: (row) => <SignalChip label={row.dueBucket} tone={T1_DUE_BUCKET_TONE_MAP[row.dueBucket] || '#64748b'} /> },
+    remaining: {
+      key: 'remainingHours',
+      label: 'Remaining',
+      render: (row) => row.remainingHours === null
+        ? '--'
+        : <Typography variant="body2" sx={{ fontWeight: 800, color: row.remainingHours <= 0 ? '#fca5a5' : row.remainingHours <= 4 ? '#fdba74' : OPS_TEXT }}>{`${row.remainingHours.toFixed(1)}h`}</Typography>
+    },
+    status: { key: 'status', label: 'Status', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
+    priority: { key: 'priority', label: 'Priority', render: (row) => <Chip size="small" label={row.priority} color={priorityColor(row.priority)} /> },
+    product: { key: 'product', label: 'Product' },
+    service: { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
+    operationalState: { key: 'operationalState', label: 'Operational State', render: (row) => <SignalChip label={row.operationalState} tone={T1_OPERATIONAL_STATE_TONE_MAP[row.operationalState] || '#64748b'} /> },
+    automation: {
+      key: 'automationRoutes',
+      label: 'Automation',
+      render: (row) => row.automationRoutes?.length ? (
+        <Stack direction="row" spacing={0.4} useFlexGap flexWrap="wrap">
+          {row.automationRoutes.map((route) => (
+            <SignalChip key={`${row.id}-${route}`} label={route} tone="#7c3aed" />
+          ))}
+        </Stack>
+      ) : '--'
+    },
+    age: { key: 'ageHours', label: 'Age', render: (row) => formatAgeHours(row.ageHours) },
+    subject: { key: 'subject', label: 'Subject' }
+  }), [])
+
+  const t1FocusColumns = useMemo(() => [
+    t1ActionColumnParts.ticket,
+    t1ActionColumnParts.action,
+    t1ActionColumnParts.dueBucket,
+    t1ActionColumnParts.remaining,
+    t1ActionColumnParts.status,
+    t1ActionColumnParts.product,
+    t1ActionColumnParts.service,
+    t1ActionColumnParts.age,
+    t1ActionColumnParts.subject
+  ], [t1ActionColumnParts])
+
+  const t1ActionColumns = useMemo(() => [
+    t1ActionColumnParts.ticket,
+    t1ActionColumnParts.action,
+    t1ActionColumnParts.dueBucket,
+    t1ActionColumnParts.remaining,
+    t1ActionColumnParts.status,
+    t1ActionColumnParts.priority,
+    t1ActionColumnParts.product,
+    t1ActionColumnParts.service,
+    t1ActionColumnParts.operationalState,
+    t1ActionColumnParts.automation,
+    t1ActionColumnParts.age,
+    t1ActionColumnParts.subject
+  ], [t1ActionColumnParts])
 
   const t1Columns = useMemo(() => [
     { key: 'id', label: 'Ticket', render: (row) => <ExternalTicketLink href={row.url} label={`#${row.id}`} /> },
@@ -1190,28 +1455,7 @@ export default function NocMonitoringPage() {
             background: `linear-gradient(135deg, ${alpha('#0f766e', 0.12)} 0%, ${alpha('#1d4ed8', 0.08)} 56%, rgba(8,15,30,0.92) 100%)`
           }}
         >
-        {[
-          {
-            label: 'Priority lanes live',
-            value: formatCount((summary.outageP1 || 0) + (summary.outageP2 || 0) + (summary.outageP3 || 0) + (summary.outageP4 || 0) + (summary.outagePower || 0)),
-            helper: `${formatCount(summary.outageNewUnassigned || 0)} unattended outage rows`
-          },
-          {
-            label: 'Tier 1 due now',
-            value: formatCount((collections.tier1UrgentTickets || []).length),
-            helper: 'breached or due within four hours'
-          },
-          {
-            label: 'Tier 2 handovers',
-            value: formatCount(summary.t2HandoverOpen || 0),
-            helper: `${formatCount(summary.tier2NewUnassigned || 0)} new unattended alongside handovers`
-          },
-          {
-            label: 'Voice feed',
-            value: telephonySummary ? 'live' : 'offline',
-            helper: telephonySummary ? `${formatCount(summary.telephonyWaiting || 0)} callers waiting right now` : 'Illation feed not available in this snapshot'
-          }
-        ].map((item) => (
+        {topCommandMetrics.map((item) => (
           <Box
             key={item.label}
             sx={{
@@ -1460,8 +1704,159 @@ export default function NocMonitoringPage() {
           <MetricStrip items={tier1ComparisonMetrics} />
           <MetricStrip items={tier1RedFlagMetrics} />
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Tier 1 Queue Trend" subtitle={`Persisted queue pressure across the last ${historyWindowLabel}, focused on total open work and urgent SLA rows.`} tone="#0f766e" minHeight={0}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 1.05fr 0.9fr' }, gap: 1.05 }}>
+            <OpsSection title="Ticket Intake Pace" subtitle="Today versus the same weekday on the last two weeks for received Tier 1 work." tone="#0f766e" minHeight={0}>
+              <Stack spacing={0.85}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Today',
+                      value: formatCount(summary.t1ReceivedToday || 0),
+                      tone: '#0f766e',
+                      badge: formatSignedDelta((summary.t1ReceivedToday || 0) - (summary.t1ReceivedLastWeek || 0)),
+                      helper: 'current ops day'
+                    },
+                    {
+                      label: '7 days ago',
+                      value: formatCount(summary.t1ReceivedLastWeek || 0),
+                      tone: '#22c55e',
+                      helper: 'same weekday'
+                    },
+                    {
+                      label: '14 days ago',
+                      value: formatCount(summary.t1ReceivedPreviousWeek || 0),
+                      tone: '#86efac',
+                      helper: 'same weekday'
+                    }
+                  ]}
+                />
+                <MultiLineChartPanel
+                  rows={t1ReceivedComparisonSeries}
+                  lines={[
+                    { key: 'today', label: 'Today', color: '#0f766e' },
+                    { key: 'lastWeek', label: '7 days ago', color: '#22c55e', strokeDasharray: '5 4', opacity: 0.92 },
+                    { key: 'previousWeek', label: '14 days ago', color: '#86efac', strokeDasharray: '2 5', opacity: 0.8 }
+                  ]}
+                  emptyMessage="No Tier 1 received comparison data is available right now."
+                  showLegend={false}
+                  height={215}
+                />
+              </Stack>
+            </OpsSection>
+
+            <OpsSection title="Ticket Solved Pace" subtitle="Today versus the same weekday on the last two weeks for solved Tier 1 work." tone="#16a34a" minHeight={0}>
+              <Stack spacing={0.85}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Today',
+                      value: formatCount(summary.t1SolvedToday || 0),
+                      tone: '#16a34a',
+                      badge: formatSignedDelta((summary.t1SolvedToday || 0) - (summary.t1SolvedLastWeek || 0)),
+                      helper: 'current ops day'
+                    },
+                    {
+                      label: '7 days ago',
+                      value: formatCount(summary.t1SolvedLastWeek || 0),
+                      tone: '#4ade80',
+                      helper: 'same weekday'
+                    },
+                    {
+                      label: '14 days ago',
+                      value: formatCount(summary.t1SolvedPreviousWeek || 0),
+                      tone: '#bbf7d0',
+                      helper: 'same weekday'
+                    }
+                  ]}
+                />
+                <MultiLineChartPanel
+                  rows={t1SolvedComparisonSeries}
+                  lines={[
+                    { key: 'today', label: 'Today', color: '#16a34a' },
+                    { key: 'lastWeek', label: '7 days ago', color: '#4ade80', strokeDasharray: '5 4', opacity: 0.92 },
+                    { key: 'previousWeek', label: '14 days ago', color: '#bbf7d0', strokeDasharray: '2 5', opacity: 0.82 }
+                  ]}
+                  emptyMessage="No Tier 1 solved comparison data is available right now."
+                  showLegend={false}
+                  height={215}
+                />
+              </Stack>
+            </OpsSection>
+
+            <OpsSection title="Voice Queue Pulse" subtitle={`Live ${summary.telephonyTier1QueueName || 'Tier 1 voice'} queue compared against the stored monitoring window.`} tone="#0891b2" minHeight={0}>
+              <Stack spacing={0.85}>
+                <OpsValueTiles
+                  columns={{ xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Waiting now',
+                      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
+                      tone: summary.telephonyTier1SlaBreached ? '#dc2626' : '#0891b2',
+                      helper: summary.telephonyTier1SlaBreached ? '20s SLA breached' : 'within 20s SLA'
+                    },
+                    {
+                      label: 'Answered',
+                      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Answered || 0) : '--',
+                      tone: '#0891b2',
+                      badge: tier1VoiceWeekCompare.lastWeek ? formatSignedDelta((summary.telephonyTier1Answered || 0) - (tier1VoiceWeekCompare.lastWeek.answered || 0)) : '--',
+                      helper: 'today versus 7 days ago'
+                    },
+                    {
+                      label: 'Missed',
+                      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Missed || 0) : '--',
+                      tone: '#7c3aed',
+                      helper: 'current ops day'
+                    },
+                    {
+                      label: 'Max queue',
+                      value: tier1VoiceQueue ? formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0) : '--',
+                      tone: summary.telephonyTier1SlaBreached ? '#dc2626' : '#38bdf8',
+                      helper: 'worst live queue wait'
+                    }
+                  ]}
+                />
+                <MultiLineChartPanel
+                  rows={historyTier1VoiceQueue}
+                  lines={[
+                    { key: 'waiting', label: 'Waiting', color: '#dc2626' },
+                    { key: 'answered', label: 'Answered', color: '#0891b2' },
+                    { key: 'missed', label: 'Missed', color: '#7c3aed', strokeDasharray: '5 4', opacity: 0.9 }
+                  ]}
+                  emptyMessage="Tier 1 voice queue history will appear as more telephony snapshots are stored."
+                  showLegend={false}
+                  height={215}
+                />
+              </Stack>
+            </OpsSection>
+          </Box>
+
+          <OpsSection title="Tier 1 Queue Trend" subtitle={`Persisted queue pressure across the last ${historyWindowLabel}, focused on total open work and urgent SLA rows.`} tone="#0f766e" minHeight={0}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.92fr 1.08fr' }, gap: 1 }}>
+              <OpsValueTiles
+                columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
+                items={[
+                  {
+                    label: 'Open now',
+                    value: formatCount(summary.tier1Open || 0),
+                    tone: '#0f766e',
+                    helper: 'current Tier 1 queue'
+                  },
+                  {
+                    label: 'Urgent now',
+                    value: formatCount(t1DueNowRows.length),
+                    tone: '#ea580c',
+                    helper: 'breached or due <= 4h'
+                  },
+                  {
+                    label: 'Window drift',
+                    value: historyTier1.length ? formatSignedDelta((historyTier1[historyTier1.length - 1]?.open || 0) - (historyTier1[0]?.open || 0)) : '--',
+                    tone: '#475569',
+                    helper: historyWindowLabel
+                  }
+                ]}
+              />
               <MultiLineChartPanel
                 rows={historyTier1}
                 lines={[
@@ -1469,45 +1864,11 @@ export default function NocMonitoringPage() {
                   { key: 'urgent', label: 'Urgent / due now', color: '#dc2626' }
                 ]}
                 emptyMessage="Tier 1 historical pressure will appear after a few stored monitoring buckets."
+                showLegend={false}
+                height={230}
               />
-            </OpsSection>
-
-            <OpsSection title="Tier 1 Voice Queue Trend" subtitle={`Live ${summary.telephonyTier1QueueName || 'Tier 1 voice'} queue pressure over the stored ${historyWindowLabel} monitoring window.`} tone="#0891b2" minHeight={0}>
-              <MultiLineChartPanel
-                rows={historyTier1VoiceQueue}
-                lines={[
-                  { key: 'waiting', label: 'Waiting', color: '#dc2626' },
-                  { key: 'answered', label: 'Answered', color: '#0891b2' },
-                  { key: 'missed', label: 'Missed', color: '#7c3aed' }
-                ]}
-                emptyMessage="Tier 1 voice queue history will appear as more telephony snapshots are stored."
-              />
-            </OpsSection>
-
-            <OpsSection title="Ticket Intake Compare" subtitle={`Today versus the same weekday on ${summary.dayKey ? 'the last two weeks' : 'prior periods'} for Tier 1 received tickets.`} tone="#0f766e" minHeight={0}>
-              <MultiLineChartPanel
-                rows={t1ReceivedComparisonSeries}
-                lines={[
-                  { key: 'today', label: 'Today', color: '#0f766e' },
-                  { key: 'lastWeek', label: '7 days ago', color: '#22c55e' },
-                  { key: 'previousWeek', label: '14 days ago', color: '#86efac' }
-                ]}
-                emptyMessage="No Tier 1 received comparison data is available right now."
-              />
-            </OpsSection>
-
-            <OpsSection title="Ticket Solved Compare" subtitle="Today versus the same weekday on the last two weeks for Tier 1 solved tickets." tone="#16a34a" minHeight={0}>
-              <MultiLineChartPanel
-                rows={t1SolvedComparisonSeries}
-                lines={[
-                  { key: 'today', label: 'Today', color: '#16a34a' },
-                  { key: 'lastWeek', label: '7 days ago', color: '#4ade80' },
-                  { key: 'previousWeek', label: '14 days ago', color: '#bbf7d0' }
-                ]}
-                emptyMessage="No Tier 1 solved comparison data is available right now."
-              />
-            </OpsSection>
-          </Box>
+            </Box>
+          </OpsSection>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(4, minmax(0, 1fr))' }, gap: 1.05 }}>
             <OpsSection title="Tier 1 Status Shape" subtitle="How the live unsolved Tier 1 queue is sitting by current ticket status." tone="#0f172a" minHeight={0}>
@@ -1528,21 +1889,91 @@ export default function NocMonitoringPage() {
           </Box>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr 1fr' }, gap: 1.05 }}>
-            <OpsSection title="Tier 1 P1 Attention" subtitle="New unattended Tier 1 P1 tickets, with the 30-minute action SLA in mind." tone="#dc2626" minHeight={0}>
-              <MonitoringTable rows={collections.tier1P1UnattendedTickets || []} columns={t1Columns} emptyMessage="No unattended Tier 1 P1 tickets are open right now." />
+            <OpsSection
+              title="Tier 1 P1 Attention"
+              subtitle="New unattended Tier 1 P1 tickets, with the 30-minute action SLA in mind."
+              tone="#dc2626"
+              minHeight={0}
+              action={<SignalChip label={`${formatCount(t1P1BreachedRowCount)} breached`} tone="#dc2626" />}
+            >
+              <Stack spacing={0.8}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'P1 unattended',
+                      value: formatCount(t1P1AttentionRows.length),
+                      tone: '#dc2626',
+                      helper: 'awaiting first touch'
+                    },
+                    {
+                      label: 'Breached',
+                      value: formatCount(t1P1BreachedRowCount),
+                      tone: '#f97316',
+                      helper: 'already over the action SLA'
+                    }
+                  ]}
+                />
+                <MonitoringTable rows={t1P1AttentionRows} columns={t1FocusColumns} emptyMessage="No unattended Tier 1 P1 tickets are open right now." getRowSx={getTier1UrgencyRowSx} />
+              </Stack>
             </OpsSection>
 
             <OpsSection title="Change Control Queue" subtitle="Tier 1 change-related work separated out so it does not hide inside the generic action queue." tone="#8b5cf6" minHeight={0}>
-              <MonitoringTable rows={collections.tier1ChangeControlTickets || []} columns={t1Columns} emptyMessage="No Tier 1 change-control tickets are open right now." />
+              <MonitoringTable rows={collections.tier1ChangeControlTickets || []} columns={t1FocusColumns} emptyMessage="No Tier 1 change-control tickets are open right now." />
             </OpsSection>
 
-            <OpsSection title="Tier 1 Due Now" subtitle="Breached and due-soon Tier 1 rows that need close operational attention." tone="#ea580c" minHeight={0}>
-              <MonitoringTable rows={collections.tier1UrgentTickets || []} columns={t1Columns} emptyMessage="No breached or due-soon Tier 1 rows are open right now." />
+            <OpsSection
+              title="Tier 1 Due Now"
+              subtitle="Breached and due-soon Tier 1 rows that need close operational attention."
+              tone="#ea580c"
+              minHeight={0}
+              action={<SignalChip label={`${formatCount(t1DueNowBreachedCount)} breached`} tone="#dc2626" />}
+            >
+              <Stack spacing={0.8}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Breached',
+                      value: formatCount(t1DueNowBreachedCount),
+                      tone: '#dc2626',
+                      helper: 'already over SLA'
+                    },
+                    {
+                      label: '<= 2 hours',
+                      value: formatCount(t1DueNowTwoHourCount),
+                      tone: '#ea580c',
+                      helper: 'next danger bucket'
+                    },
+                    {
+                      label: '<= 4 hours',
+                      value: formatCount(t1DueNowFourHourCount),
+                      tone: '#d97706',
+                      helper: 'still inside close watch'
+                    }
+                  ]}
+                />
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                    Showing {formatCount(t1DueNowVisibleRows.length)} of {formatCount(t1DueNowRows.length)} urgent Tier 1 rows.
+                  </Typography>
+                  <RowWindowSelector value={t1DueNowLimit} onChange={setT1DueNowLimit} options={[10, 20, 50, 'all']} />
+                </Stack>
+                <MonitoringTable rows={t1DueNowVisibleRows} columns={t1FocusColumns} emptyMessage="No breached or due-soon Tier 1 rows are open right now." getRowSx={getTier1UrgencyRowSx} />
+              </Stack>
             </OpsSection>
           </Box>
 
-          <OpsSection title="Tier 1 Action View" subtitle="This is the working queue view with P-level, product, and due bucket context in one table." tone="#0f766e" minHeight={0}>
-            <MonitoringTable rows={collections.tier1Tickets || []} columns={t1Columns} emptyMessage="No Tier 1 tickets are open right now." />
+          <OpsSection title="Tier 1 Action View" subtitle="This is the working queue view with action lane, due bucket, and queue context arranged in the order operators normally scan it." tone="#0f766e" minHeight={0}>
+            <Stack spacing={0.8}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                  Showing {formatCount(t1ActionViewVisibleRows.length)} of {formatCount(t1ActionViewRows.length)} live Tier 1 queue rows, sorted by SLA pressure first.
+                </Typography>
+                <RowWindowSelector value={t1ActionViewLimit} onChange={setT1ActionViewLimit} options={[20, 50, 100, 'all']} />
+              </Stack>
+              <MonitoringTable rows={t1ActionViewVisibleRows} columns={t1ActionColumns} emptyMessage="No Tier 1 tickets are open right now." getRowSx={getTier1UrgencyRowSx} />
+            </Stack>
           </OpsSection>
         </Box>
       ) : null}

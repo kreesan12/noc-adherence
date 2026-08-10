@@ -36,6 +36,11 @@
   - automation routing
   - denser comparison/red-flag cards
   - more readable chip-driven Tier 1 working tables
+- Tightened the Tier 1 operator workflow again with:
+  - a Tier 1-only command strip instead of shared overview cues
+  - more console-style received, solved, and voice pace comparisons
+  - stronger breach emphasis in the P1 and due-now tables
+  - row-window controls on the noisy Tier 1 due-now and action-view tables
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 
