@@ -54,12 +54,8 @@ if (!skipRefresh) {
 }
 
 logStep(`Running authenticated browser smoke for ${route}`)
-run(npmCommand(), [
-  '--prefix',
-  'frontend',
-  'run',
-  'smoke',
-  '--',
+run('node', [
+  'frontend/scripts/browser-smoke-check.mjs',
   '--url',
   `${baseUrl}/`,
   '--route',
@@ -70,9 +66,7 @@ run(npmCommand(), [
   expectText,
   '--waitMs',
   waitMs
-], {
-  shell: false
-})
+])
 
 process.stdout.write('\nRelease refresh + smoke completed successfully.\n')
 
@@ -111,10 +105,6 @@ function shellQuote(value) {
 
 function logStep(message) {
   process.stdout.write(`\n[ops-hub] ${message}\n`)
-}
-
-function npmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm'
 }
 
 function run(command, commandArgs, { captureOutput = false, shell = false } = {}) {
