@@ -5,7 +5,7 @@ import {
   formatAgeHours,
   formatPlural,
   formatTimestamp,
-  isResolvedStatus,
+  isSolvedStatus,
   makeAuthHeader,
   makeTtlCache,
   safeStr,
@@ -263,10 +263,10 @@ export function startBackhaulWatcher(sendSlaAlert) {
       const resolved = []
 
       for (const ticket of updatedTickets) {
-        if (!isResolvedStatus(ticket.status)) continue
+        if (!isSolvedStatus(ticket.status)) continue
 
         const summary = buildTicketSummary(ticket, now)
-        const key = `backhaul-resolved-${ticket.id}-${ticket.status}`
+        const key = `backhaul-resolved-${ticket.id}-solved`
         const shouldSend = await shouldSendAlert(warnedResolved, {
           dedupeKey: key,
           watcherKey: 'backhaul',

@@ -23,11 +23,13 @@ let previewProc = null
 
 try {
   const previewPort = args.preview ? await findAvailablePort(Number(args.port || 4173)) : Number(args.port || 4173)
-  const targetUrl = args.url || `http://127.0.0.1:${previewPort}/`
+  const baseUrl = args.url || `http://127.0.0.1:${previewPort}/`
+  const route = args.route || '/'
+  const targetUrl = new URL(route, baseUrl).toString()
 
   if (args.preview) {
     previewProc = startPreview(previewPort)
-    await waitForHttp(targetUrl, 45000)
+    await waitForHttp(baseUrl, 45000)
   }
 
   const executablePath = resolveBrowserPath(args.browserPath || process.env.SMOKE_BROWSER_PATH)
@@ -37,9 +39,15 @@ try {
 
   const report = await runBrowserCheck({
     executablePath,
+    baseUrl,
     targetUrl,
     waitMs,
-    screenshotPath
+    screenshotPath,
+    route,
+    authToken: args.authToken || process.env.SMOKE_AUTH_TOKEN || '',
+    loginEmail: args.loginEmail || process.env.SMOKE_LOGIN_EMAIL || '',
+    loginPassword: args.loginPassword || process.env.SMOKE_LOGIN_PASSWORD || '',
+    expectText: args.expectText || process.env.SMOKE_EXPECT_TEXT || ''
   })
 
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
@@ -137,7 +145,18 @@ function resolveBrowserPath(preferred) {
   return candidates.find((candidate) => candidate && existsSync(candidate))
 }
 
-async function runBrowserCheck({ executablePath, targetUrl, waitMs, screenshotPath }) {
+async function runBrowserCheck({
+  executablePath,
+  baseUrl,
+  targetUrl,
+  waitMs,
+  screenshotPath,
+  route,
+  authToken,
+  loginEmail,
+  loginPassword,
+  expectText
+}) {
   const browser = await chromium.launch({
     headless: true,
     executablePath
@@ -174,7 +193,25 @@ async function runBrowserCheck({ executablePath, targetUrl, waitMs, screenshotPa
     }
   })
 
-  const initialResponse = await page.goto(targetUrl, { waitUntil: 'load', timeout: 60000 })
+  let initialResponse
+
+  if (authToken) {
+    initialResponse = await page.goto(baseUrl, { waitUntil: 'load', timeout: 60000 })
+    await page.evaluate((token) => {
+      localStorage.setItem('token', token)
+    }, authToken)
+    initialResponse = await page.goto(targetUrl, { waitUntil: 'load', timeout: 60000 })
+  } else {
+    initialResponse = await page.goto(targetUrl, { waitUntil: 'load', timeout: 60000 })
+  }
+
+  if (loginEmail && loginPassword && page.url().includes('/login')) {
+    await attemptLogin(page, { loginEmail, loginPassword })
+    const routeUrl = new URL(route || '/', baseUrl).toString()
+    if (!page.url().includes(route)) {
+      await page.goto(routeUrl, { waitUntil: 'load', timeout: 60000 })
+    }
+  }
 
   try {
     await page.waitForFunction(() => {
@@ -186,8 +223,11 @@ async function runBrowserCheck({ executablePath, targetUrl, waitMs, screenshotPa
   await page.waitForTimeout(waitMs)
 
   const title = await page.title()
+  const currentUrl = page.url()
   const bodyText = await page.locator('body').innerText().catch(() => '')
   const rootHtml = await page.locator('#root').innerHTML().catch(() => '')
+  const bodyHasExpectedText = expectText ? bodyText.toLowerCase().includes(String(expectText).toLowerCase()) : true
+  const onLoginPageAfterAuth = (loginEmail || authToken) && currentUrl.includes('/login')
 
   await page.screenshot({ path: screenshotPath, fullPage: true })
   await browser.close()
@@ -195,15 +235,22 @@ async function runBrowserCheck({ executablePath, targetUrl, waitMs, screenshotPa
   const ok = pageErrors.length === 0 &&
     requestFailures.length === 0 &&
     responseErrors.length === 0 &&
-    (rootHtml.trim().length > 0 || bodyText.trim().length > 0)
+    (rootHtml.trim().length > 0 || bodyText.trim().length > 0) &&
+    bodyHasExpectedText &&
+    !onLoginPageAfterAuth
 
   return {
     ok,
     url: targetUrl,
+    currentUrl,
+    route,
     title,
     status: initialResponse?.status() ?? null,
     bodyTextLength: bodyText.length,
     rootHtmlLength: rootHtml.length,
+    bodyHasExpectedText,
+    expectText,
+    authenticated: Boolean(authToken || (loginEmail && loginPassword)),
     consoleEntries,
     pageErrors,
     requestFailures,
@@ -212,12 +259,31 @@ async function runBrowserCheck({ executablePath, targetUrl, waitMs, screenshotPa
   }
 }
 
+async function attemptLogin(page, { loginEmail, loginPassword }) {
+  await page.waitForSelector('input[type="email"], input[name="email"], input[autocomplete="username"]', { timeout: 30000 })
+  await page.locator('input[type="email"], input[name="email"], input[autocomplete="username"]').first().fill(loginEmail)
+  await page.locator('input[type="password"], input[name="password"], input[autocomplete="current-password"]').first().fill(loginPassword)
+
+  const loginButton = page.getByRole('button', { name: /login|sign in/i }).first()
+  await Promise.all([
+    page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {}),
+    loginButton.click()
+  ])
+
+  await page.waitForTimeout(2000)
+}
+
 function printSummary(report, screenshotPath, reportPath) {
   console.log(`SMOKE URL: ${report.url}`)
+  console.log(`SMOKE CURRENT URL: ${report.currentUrl}`)
   console.log(`SMOKE STATUS: ${report.status}`)
   console.log(`SMOKE TITLE: ${report.title}`)
   console.log(`SMOKE BODY LENGTH: ${report.bodyTextLength}`)
   console.log(`SMOKE ROOT LENGTH: ${report.rootHtmlLength}`)
+  if (report.expectText) {
+    console.log(`SMOKE EXPECT TEXT: ${report.expectText}`)
+    console.log(`SMOKE EXPECT TEXT FOUND: ${report.bodyHasExpectedText}`)
+  }
 
   if (report.pageErrors.length) {
     console.log('SMOKE PAGE ERRORS:')

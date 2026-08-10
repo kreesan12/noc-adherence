@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-08-10
+
+### NOC Monitoring Hub
+
+- Expanded the native `NOC Monitoring Hub` so it carries much more of the former Grafana operational surface inside one backend-cached snapshot.
+- Added backend snapshot coverage for:
+  - outage priority lanes
+  - outage region impact and service-type summaries
+  - backhaul owner load summaries
+  - Tier 1 product split and due-now queue focus
+  - Tier 2 service-type and age-profile summaries
+  - telephony queue waiting and missed-call agent summaries from the Illation stats feed
+- Refactored partial-NLD event normalization into a shared helper module:
+  - `server/lib/nldEventUtils.js`
+- Tightened resolved watcher behavior across NLD, backhaul, and major-outage flows so solved-to-closed churn does not replay resolved alerts.
+- Reworked the monitoring frontend so it reads more like a command dashboard than a standard workspace page:
+  - compact command strip
+  - denser card rhythm
+  - richer live drilldown sections across overview, outage, Tier 1, Tier 2, NLD, and voice tabs
+- Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
+  - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
+
 ## 2026-08-07
 
 ### User Access Control

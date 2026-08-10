@@ -2,6 +2,13 @@ import dayjs from 'dayjs'
 import prisma from './prisma.js'
 import { fetchJsonWithTimeout, makeAuthHeader, zendeskAgentTicketLink, compactText } from './watcherUtils.js'
 import { getWhatsappWatcherConfig } from './whatsappWatcherConfig.js'
+import {
+  buildOutageRouteIndex,
+  findPartialClusters,
+  findPartialNotLogged,
+  normalizeRoute,
+  transformPartialNldAlerts
+} from './nldEventUtils.js'
 
 const SNAPSHOT_KEY = 'noc_monitoring_snapshot_v1'
 const SOFT_TTL_MS = Number(process.env.NOC_MONITORING_SNAPSHOT_TTL_MS || 15 * 60 * 1000)
@@ -58,7 +65,257 @@ const LANE_TONES = {
   skipped: '#475569'
 }
 
+const MONITORING_TIMEZONE = String(process.env.NOC_MONITORING_TIMEZONE || 'Africa/Johannesburg').trim()
+const TICKET_PRODUCT_TAGS = {
+  FTTB: ['t2_fttb'],
+  FTTH: ['t2_ftth', 'ff_air', 'dstv', 'rise']
+}
+const T2_PARTY_TAG_RULES = [
+  { label: 'DFA', tags: ['noc_t2-dfa_escalation'] },
+  { label: 'Liquid', tags: ['noc_t2-liquid_escalation'] },
+  { label: 'LA', tags: ['noc_t2-link_africa'] },
+  { label: 'CCC', tags: ['noc_t2-ccc'] },
+  { label: 'Linked to Outage', tags: ['noc_t2-outage_linked', 'noc_outages_escalation_clone'] },
+  { label: 'MNT', tags: ['maintenance_escalation_clone'] },
+  { label: 'Tier 3', tags: ['noc_t3_escalation'] },
+  { label: 'PMT', tags: ['noc_t2-pmt_escalation'] },
+  { label: 'DD', tags: ['noc_t2-dimension_data_escalation'] },
+  { label: 'Wiocc', tags: ['noc_t2-wiocc_escalation'] },
+  { label: 'Faircom', tags: ['noc_t2-faircom/faircape_escalation'] },
+  { label: 'WAN', tags: ['noc_t2-waterfall_access_node_escalation'] },
+  { label: 'Comsol', tags: ['noc_t2-comsol_escalation'] },
+  { label: 'Seacom', tags: ['noc_t2-seacom_escalation'] },
+  { label: 'FCC', tags: ['noc_t2-fcc_escalation'] },
+  { label: 'CMC', tags: ['noc_t2-cmc_escalation'] }
+]
+const OUTAGE_PRIORITY_DEFS = [
+  { key: 'new_unassigned', label: 'New / unattended', tone: '#334155' },
+  { key: 'p1', label: 'P1 alerts', tone: '#dc2626' },
+  { key: 'p2', label: 'P2 alerts', tone: '#ea580c' },
+  { key: 'p3', label: 'P3 / southbound', tone: '#d97706' },
+  { key: 'p4', label: 'P4 alerts', tone: '#2563eb' },
+  { key: 'power', label: 'Power alerts', tone: '#7c3aed' }
+]
+const T1_ACTION_DEFS = [
+  { key: 'P1', label: 'P1 new / unattended', tone: '#dc2626' },
+  { key: 'P2', label: 'P2 ISP waiting', tone: '#ea580c' },
+  { key: 'P3', label: 'P3 FTTB vendor update', tone: '#d97706' },
+  { key: 'P4', label: 'P4 FTTH MNT update', tone: '#2563eb' },
+  { key: 'Other', label: 'Other / uncategorised', tone: '#475569' }
+]
+const T1_DUE_BUCKET_ORDER = ['BREACHED', 'Due <=2h', 'Due <=4h', 'Due 4-8h', 'Due 8-24h', 'Safe >24h', 'Other/No SLA']
+const T1_DUE_BUCKET_TONES = {
+  BREACHED: '#dc2626',
+  'Due <=2h': '#ea580c',
+  'Due <=4h': '#f97316',
+  'Due 4-8h': '#d97706',
+  'Due 8-24h': '#0284c7',
+  'Safe >24h': '#0f766e',
+  'Other/No SLA': '#64748b'
+}
+const AGE_BUCKET_DEFS = [
+  { key: '<=2h', label: '<=2h', maxHours: 2, tone: '#22c55e' },
+  { key: '2-4h', label: '2-4h', minHours: 2, maxHours: 4, tone: '#84cc16' },
+  { key: '4-8h', label: '4-8h', minHours: 4, maxHours: 8, tone: '#eab308' },
+  { key: '8-24h', label: '8-24h', minHours: 8, maxHours: 24, tone: '#f97316' },
+  { key: '24-48h', label: '24-48h', minHours: 24, maxHours: 48, tone: '#ef4444' },
+  { key: '>48h', label: '>48h', minHours: 48, tone: '#991b1b' }
+]
+
 let refreshPromise = null
+
+function formatYmdInTz(date = new Date(), timeZone = MONITORING_TIMEZONE) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date)
+
+  const year = parts.find((part) => part.type === 'year')?.value || '0000'
+  const month = parts.find((part) => part.type === 'month')?.value || '01'
+  const day = parts.find((part) => part.type === 'day')?.value || '01'
+  return `${year}-${month}-${day}`
+}
+
+function hourKeyInTz(value, timeZone = MONITORING_TIMEZONE) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    hour12: false
+  }).formatToParts(date)
+  return parts.find((part) => part.type === 'hour')?.value || null
+}
+
+function tagSet(ticket) {
+  return new Set(Array.isArray(ticket?.tags) ? ticket.tags.map((tag) => String(tag).toLowerCase()) : [])
+}
+
+function hasAnyTag(ticket, tags) {
+  const present = tagSet(ticket)
+  return tags.some((tag) => present.has(String(tag).toLowerCase()))
+}
+
+function classifyTicketProduct(ticket) {
+  if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTB)) return 'FTTB'
+  if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTH)) return 'FTTH'
+  return 'Other'
+}
+
+function classifyT1ActionLevel(ticket) {
+  if (hasAnyTag(ticket, ['play_p1'])) return 'P1'
+  if (hasAnyTag(ticket, ['play_p2'])) return 'P2'
+  if (hasAnyTag(ticket, ['play_p3'])) return 'P3'
+  if (hasAnyTag(ticket, ['play_p4', 'isp_frac_auto'])) return 'P4'
+  return 'Other'
+}
+
+function classifyT2Party(ticket) {
+  for (const rule of T2_PARTY_TAG_RULES) {
+    if (hasAnyTag(ticket, rule.tags)) return rule.label
+  }
+  return 'with T2'
+}
+
+function classifyOutagePriority(ticket) {
+  if (normalizeStatus(ticket.status) === 'new' && !ticket.assignee_id) return 'new_unassigned'
+  if (hasAnyTag(ticket, ['temp_alert', 'network_alert']) && hasAnyTag(ticket, ['nam_priority_p1'])) return 'p1'
+  if (hasAnyTag(ticket, ['network_alert']) && hasAnyTag(ticket, ['nam_priority_p2'])) return 'p2'
+  if (hasAnyTag(ticket, ['soutbound_alert', 'network_alert']) && hasAnyTag(ticket, ['nam_priority_p3'])) return 'p3'
+  if (hasAnyTag(ticket, ['network_alert']) && hasAnyTag(ticket, ['nam_priority_p4'])) return 'p4'
+  if (hasAnyTag(ticket, ['power_alert'])) return 'power'
+  return ''
+}
+
+function t1SlaHoursForProduct(product) {
+  if (product === 'FTTB') return 24
+  if (product === 'FTTH') return 48
+  return 0
+}
+
+function classifyDueBucket(remainingHours, slaHours) {
+  if (!slaHours) return 'Other/No SLA'
+  if (remainingHours <= 0) return 'BREACHED'
+  if (remainingHours <= 2) return 'Due <=2h'
+  if (remainingHours <= 4) return 'Due <=4h'
+  if (remainingHours <= 8) return 'Due 4-8h'
+  if (remainingHours <= 24) return 'Due 8-24h'
+  return 'Safe >24h'
+}
+
+function buildT1ActionRow(ticket, now = dayjs()) {
+  const base = buildTicketBase(ticket, now)
+  const product = classifyTicketProduct(ticket)
+  const pLevel = classifyT1ActionLevel(ticket)
+  const slaHours = t1SlaHoursForProduct(product)
+  const remainingHours = slaHours ? Number((slaHours - base.ageHours).toFixed(1)) : null
+
+  return {
+    ...base,
+    product,
+    pLevel,
+    serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
+    slaHours,
+    remainingHours,
+    dueBucket: classifyDueBucket(remainingHours ?? null, slaHours),
+    subject: compactText(ticket.subject || '', 160)
+  }
+}
+
+function buildT2TicketRow(ticket, now = dayjs()) {
+  const base = buildTicketBase(ticket, now)
+  return {
+    ...base,
+    product: classifyTicketProduct(ticket),
+    serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
+    party: classifyT2Party(ticket),
+    handover: hasAnyTag(ticket, ['handover_ticket_macro'])
+  }
+}
+
+function buildHourlyTicketSeries(rows, stampField, labelPrefix = '') {
+  const buckets = new Map(Array.from({ length: 24 }, (_, hour) => [String(hour).padStart(2, '0'), 0]))
+  rows.forEach((row) => {
+    const hourKey = hourKeyInTz(row?.[stampField])
+    if (hourKey && buckets.has(hourKey)) {
+      buckets.set(hourKey, buckets.get(hourKey) + 1)
+    }
+  })
+
+  let cumulative = 0
+  return Array.from(buckets.entries()).map(([hour, count]) => {
+    cumulative += count
+    return {
+      hour,
+      label: `${labelPrefix}${hour}:00`,
+      count,
+      cumulative
+    }
+  })
+}
+
+function summarizeRowsByKey(rows, keyField, toneMap = {}, { sortDesc = true } = {}) {
+  const map = new Map()
+  rows.forEach((row) => {
+    const key = firstText(row?.[keyField], 'Unknown')
+    const current = map.get(key) || { key, label: key, count: 0, tone: toneMap[key] || '#0f766e' }
+    current.count += 1
+    map.set(key, current)
+  })
+
+  const values = Array.from(map.values())
+  values.sort((left, right) => sortDesc ? right.count - left.count : left.count - right.count)
+  return values
+}
+
+function summarizeTotalsByKey(rows, keyField, valueField, toneMap = {}, { sortDesc = true } = {}) {
+  const map = new Map()
+  rows.forEach((row) => {
+    const key = firstText(row?.[keyField], 'Unknown')
+    const current = map.get(key) || {
+      key,
+      label: key,
+      count: 0,
+      rowCount: 0,
+      tone: toneMap[key] || '#0f766e'
+    }
+    current.count += asNumber(row?.[valueField], 0)
+    current.rowCount += 1
+    map.set(key, current)
+  })
+
+  const values = Array.from(map.values())
+  values.sort((left, right) => sortDesc ? right.count - left.count : left.count - right.count)
+  return values
+}
+
+function summarizeAgeBuckets(rows, field = 'ageHours', defs = AGE_BUCKET_DEFS) {
+  return defs.map((definition) => {
+    const count = rows.filter((row) => {
+      const value = asNumber(row?.[field], 0)
+      if (definition.minHours !== undefined && value < definition.minHours) return false
+      if (definition.maxHours !== undefined && value > definition.maxHours) return false
+      return true
+    }).length
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      tone: definition.tone,
+      count
+    }
+  })
+}
+
+function buildTicketTimelineMeta(now = dayjs()) {
+  const dayKey = formatYmdInTz(now.toDate())
+  return {
+    timezone: MONITORING_TIMEZONE,
+    dayKey
+  }
+}
 
 function makeZendeskHeaders() {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
@@ -256,13 +513,21 @@ async function fetchZendeskSkips() {
   })
 }
 
+async function fetchPartialNldAlertsRaw() {
+  return fetchZendeskExport(
+    'type:ticket tags:iris_partial_nld created>=30daysago -tags:"partial_nld_alert_duplicate_solved"'
+  )
+}
+
 async function fetchTelephonySnapshot() {
   if (!ILLATION_STATS_URL) {
     return {
       available: false,
       reason: 'Telephony snapshot is not configured yet.',
       queues: [],
-      agents: []
+      agents: [],
+      hourly: [],
+      summary: null
     }
   }
 
@@ -282,13 +547,17 @@ async function fetchTelephonySnapshot() {
       available: false,
       reason: 'Telephony snapshot needs auth headers before it can be queried from Ops Hub.',
       queues: [],
-      agents: []
+      agents: [],
+      hourly: [],
+      summary: null
     }
   }
 
   const data = await fetchJsonWithTimeout(ILLATION_STATS_URL, { headers, timeoutMs: 20000 })
-  const queueRoot = data?.data?.queues
-  const agentRoot = data?.data?.queues?.agents || data?.data?.agents || []
+  const root = data?.data || {}
+  const queueRoot = root.queues
+  const topLevelAgents = root.agents || []
+  const hourlyRoot = Array.isArray(root.hourly) ? root.hourly : []
 
   const queues = Array.isArray(queueRoot)
     ? queueRoot
@@ -296,9 +565,13 @@ async function fetchTelephonySnapshot() {
         .filter(([key, value]) => key !== 'agents' && value && typeof value === 'object')
         .map(([key, value]) => ({ key, ...value }))
 
-  const agents = Array.isArray(agentRoot)
-    ? agentRoot
-    : Object.entries(agentRoot || {}).map(([key, value]) => ({ key, ...value }))
+  const flattenedQueueAgents = Array.isArray(queues)
+    ? queues.flatMap((queue) => (Array.isArray(queue.agents) ? queue.agents.map((agent) => ({ queue_name: queue.queue_name || queue.name || queue.key || '', ...agent })) : []))
+    : []
+
+  const agents = Array.isArray(topLevelAgents)
+    ? topLevelAgents
+    : Object.entries(topLevelAgents || {}).map(([key, value]) => ({ key, ...value }))
 
   const normalizedQueues = queues.map((row, index) => ({
     id: row.id || row.key || `queue-${index + 1}`,
@@ -307,21 +580,52 @@ async function fetchTelephonySnapshot() {
     active: asNumber(row.active ?? row.in_call ?? row.calls_active ?? row.agents_busy, 0),
     answered: asNumber(row.answered ?? row.calls_answered ?? row.answered_calls, 0),
     missed: asNumber(row.missed ?? row.calls_missed ?? row.missed_calls, 0),
-    avgAnswerSeconds: asNumber(row.avg_answer_seconds ?? row.average_answer_time ?? row.avg_answer_time, 0)
+    avgAnswerSeconds: asNumber(row.avg_answer_seconds ?? row.average_answer_time ?? row.avg_answer_time, 0),
+    avgTalkSeconds: asNumber(row.avg_talk_time, 0),
+    sla: asNumber(row.sla, 0),
+    totalCalls: asNumber(row.total_calls, 0),
+    registeredAgents: asNumber(row.registered_agents, 0),
+    waitingAgents: asNumber(row.waiting_agents, 0)
   }))
 
-  const normalizedAgents = agents.map((row, index) => ({
+  const agentSource = flattenedQueueAgents.length ? flattenedQueueAgents : agents
+  const normalizedAgents = agentSource.map((row, index) => ({
     id: row.id || row.extension || row.key || `agent-${index + 1}`,
     name: firstText(row.name, row.agent_name, row.extension, `Agent ${index + 1}`),
     state: firstText(row.state, row.status, 'unknown'),
     queue: firstText(row.queue, row.queue_name, ''),
-    activeCalls: asNumber(row.active_calls ?? row.calls_active ?? row.active, 0)
+    activeCalls: asNumber(row.active_calls ?? row.calls_active ?? row.active, 0),
+    loggedIn: Boolean(row.logged_in),
+    registered: Boolean(row.registered),
+    inboundCalls: asNumber(row.inbound_calls, 0),
+    missedCalls: asNumber(row.missed_calls, 0),
+    timeInState: firstText(row.time_in_state, '')
+  }))
+
+  const normalizedHourly = hourlyRoot.map((row, index) => ({
+    id: row.hour || `hour-${index + 1}`,
+    hour: firstText(row.hour, String(index).padStart(2, '0')),
+    received: asNumber(row.received, 0),
+    abandoned: asNumber(row.abandoned, 0),
+    avgTalkSeconds: asNumber(row.aht ?? row.avg_talk_time, 0)
   }))
 
   return {
     available: true,
     queues: normalizedQueues,
-    agents: normalizedAgents
+    agents: normalizedAgents,
+    hourly: normalizedHourly,
+    summary: {
+      avgTalkSeconds: asNumber(root.avg_talk_time, 0),
+      avgAnswerSeconds: asNumber(root.avg_answer_time, 0),
+      avgAbandonSeconds: asNumber(root.avg_abandon_time, 0),
+      abandonRate: asNumber(root.abandon_rate, 0),
+      callsAnswered: asNumber(root.calls_answered, 0),
+      callsMissed: asNumber(root.calls_missed, 0),
+      callsWaiting: asNumber(root.calls_waiting, 0),
+      customerCallCount: asNumber(root.customer_call_count, 0),
+      maxQueueSeconds: asNumber(root.max_time_caller_in_queue, 0)
+    }
   }
 }
 
@@ -443,10 +747,15 @@ function buildSpotlights({ majorOutages, nldOutages, backhauls, vipTickets, tier
 async function collectLiveSnapshot() {
   const warnings = []
   const now = dayjs()
+  const timelineMeta = buildTicketTimelineMeta(now)
   const watcherConfig = await getWhatsappWatcherConfig({ forceFresh: true }).catch(() => null)
   const backhaulTag = watcherConfig?.backhaul?.tag || process.env.BACKHAUL_TAG || 'iris_backhaul_down'
   const vipOrgId = watcherConfig?.vip?.orgId || process.env.VIP_ORG_ID || '42757142385041'
   const vipTagRules = Array.isArray(watcherConfig?.vip?.tagRules) ? watcherConfig.vip.tagRules : []
+  const nldPartialLookbackHours = Number(watcherConfig?.nld?.partialLookbackHours || 30)
+  const nldClusterWindowHours = Number(watcherConfig?.nld?.clusterWindowHours || 6)
+  const nldClusterMinEvents = Number(watcherConfig?.nld?.clusterMinEvents || 3)
+  const nldNotLoggedMinutes = Number(watcherConfig?.nld?.notLoggedMinutes || 30)
 
   async function safe(label, fn, fallback) {
     try {
@@ -457,51 +766,66 @@ async function collectLiveSnapshot() {
     }
   }
 
-  const rawOutages = await safe(
-    'outages',
-    () => fetchZendeskExport(`group:${OUTAGE_GROUP_ID} form:"${OUTAGE_FORM_NAME}" status<solved`),
-    []
-  )
+  const [
+    rawOutages,
+    rawBackhaulTickets,
+    rawVipOrgTickets,
+    rawTier1OpenTickets,
+    rawTier2OpenTickets,
+    rawTier2UnassignedTickets,
+    rawTier1CreatedToday,
+    rawTier1SolvedToday,
+    rawTier2CreatedToday,
+    rawTier2SolvedToday,
+    rawPartialNldTickets,
+    rawSkips,
+    telephony
+  ] = await Promise.all([
+    safe('outages', () => fetchZendeskExport(`group:${OUTAGE_GROUP_ID} form:"${OUTAGE_FORM_NAME}" status<solved`), []),
+    safe('backhaul', () => fetchZendeskExport(`form:"NOC Alert Management" type:ticket status<solved tags:"${backhaulTag}"`), []),
+    safe('vip-org', () => fetchZendeskExport(`type:ticket status<solved organization_id:${vipOrgId}`), []),
+    safe('tier1', () => fetchZendeskExport(`group:"${TIER1_GROUP_NAME}" form:"${INITIAL_FORM_NAME}" status<solved`), []),
+    safe('tier2', () => fetchZendeskExport(`group:"${TIER2_GROUP_NAME}" form:"${INITIAL_FORM_NAME}" status<solved`), []),
+    safe('tier2-unassigned', () => fetchZendeskExport(`assignee:none status:new tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}"`), []),
+    safe('tier1-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 created>=${timelineMeta.dayKey} created<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
+    safe('tier1-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 solved>=${timelineMeta.dayKey} solved<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
+    safe('tier2-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 created>=${timelineMeta.dayKey} created<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}" status<closed`), []),
+    safe('tier2-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 solved>=${timelineMeta.dayKey} solved<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
+    safe('nld-partials', () => fetchPartialNldAlertsRaw(), []),
+    safe('skips', () => fetchZendeskSkips(), []),
+    safe('telephony', () => fetchTelephonySnapshot(), {
+      available: false,
+      reason: 'Telephony snapshot unavailable.',
+      queues: [],
+      agents: []
+    })
+  ])
+
   const outageRows = rawOutages.map((ticket) => buildOutageRow(ticket, now))
   const nldOutages = sortByAgeDesc(outageRows.filter((ticket) => isNldOutage(ticket)))
   const majorOutages = sortByAgeDesc(outageRows.filter((ticket) => !isNldOutage(ticket)))
 
-  const backhaulRows = sortByAgeDesc(
-    (await safe(
-      'backhaul',
-      () => fetchZendeskExport(`form:"NOC Alert Management" type:ticket status<solved tags:"${backhaulTag}"`),
-      []
-    )).map((ticket) => buildBackhaulRow(ticket, now))
-  )
+  const backhaulRows = sortByAgeDesc(rawBackhaulTickets.map((ticket) => buildBackhaulRow(ticket, now)))
 
-  const vipOrgRows = (await safe(
-    'vip-org',
-    () => fetchZendeskExport(`type:ticket status<solved organization_id:${vipOrgId}`),
-    []
-  )).map((ticket) => ({
+  const vipOrgRows = rawVipOrgTickets.map((ticket) => ({
     ...buildTicketBase(ticket, now),
     sourceLabels: ['VIP Org']
   }))
 
-  const vipRuleRows = []
-  for (const rule of vipTagRules) {
-    const tag = asText(rule.tag)
-    if (!tag) continue
-
-    const tickets = await safe(
-      `vip-tag-${tag}`,
-      () => fetchZendeskExport(`type:ticket status<solved tags:${tag}`),
-      []
-    )
-
-    tickets.forEach((ticket) => {
-      vipRuleRows.push({
-        ...buildTicketBase(ticket, now),
-        sourceLabels: [rule.title || tag],
-        vipRuleKey: rule.key || tag
+  const vipRuleRows = (
+    await Promise.all(
+      vipTagRules.map(async (rule) => {
+        const tag = asText(rule.tag)
+        if (!tag) return []
+        const tickets = await safe(`vip-tag-${tag}`, () => fetchZendeskExport(`type:ticket status<solved tags:${tag}`), [])
+        return tickets.map((ticket) => ({
+          ...buildTicketBase(ticket, now),
+          sourceLabels: [rule.title || tag],
+          vipRuleKey: rule.key || tag
+        }))
       })
-    })
-  }
+    )
+  ).flat()
 
   const vipTickets = sortByAgeDesc(
     dedupeById([...vipOrgRows, ...vipRuleRows]).map((row) => {
@@ -516,41 +840,156 @@ async function collectLiveSnapshot() {
     })
   )
 
-  const tier1Tickets = sortByAgeDesc(
-    (await safe(
-      'tier1',
-      () => fetchZendeskExport(`group:"${TIER1_GROUP_NAME}" form:"${INITIAL_FORM_NAME}" status<solved`),
-      []
-    )).map((ticket) => buildTicketBase(ticket, now))
-  )
-
-  const tier2Tickets = sortByAgeDesc(
-    (await safe(
-      'tier2',
-      () => fetchZendeskExport(`group:"${TIER2_GROUP_NAME}" form:"${INITIAL_FORM_NAME}" status<solved`),
-      []
-    )).map((ticket) => buildTicketBase(ticket, now))
-  )
-
-  const tier2NewUnassigned = (await safe(
-    'tier2-unassigned',
-    () => fetchZendeskExport(`assignee:none status:new tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}"`),
-    []
-  )).length
+  const tier1Tickets = sortByAgeDesc(rawTier1OpenTickets.map((ticket) => buildT1ActionRow(ticket, now)))
+  const tier2Tickets = sortByAgeDesc(rawTier2OpenTickets.map((ticket) => buildT2TicketRow(ticket, now)))
+  const tier2NewUnassignedRows = sortByAgeDesc(rawTier2UnassignedTickets.map((ticket) => buildT2TicketRow(ticket, now)))
+  const tier2NewUnassigned = tier2NewUnassignedRows.length
+  const tier2HandoverRows = sortByAgeDesc(tier2Tickets.filter((row) => row.handover))
 
   const skippedTickets = sortByAgeDesc(
-    (await safe('skips', () => fetchZendeskSkips(), [])).map((row) => ({
+    rawSkips.map((row) => ({
       ...row,
       ageHours: buildAgeHours(row.createdAt, now)
     }))
   )
 
-  const telephony = await safe('telephony', () => fetchTelephonySnapshot(), {
-    available: false,
-    reason: 'Telephony snapshot unavailable.',
-    queues: [],
-    agents: []
+  const outagePriorityCollections = {
+    new_unassigned: sortByAgeDesc(
+      rawOutages
+        .filter((ticket) => normalizeStatus(ticket.status) === 'new' && !ticket.assignee_id)
+        .map((ticket) => buildOutageRow(ticket, now))
+    ),
+    p1: sortByAgeDesc(
+      rawOutages
+        .filter((ticket) => normalizeStatus(ticket.status) === 'new' && !ticket.assignee_id && hasAnyTag(ticket, ['temp_alert', 'network_alert']) && hasAnyTag(ticket, ['nam_priority_p1']))
+        .map((ticket) => buildOutageRow(ticket, now))
+    ),
+    p2: sortByAgeDesc(
+      rawOutages
+        .filter((ticket) => normalizeStatus(ticket.status) === 'new' && !ticket.assignee_id && hasAnyTag(ticket, ['network_alert']) && hasAnyTag(ticket, ['nam_priority_p2']))
+        .map((ticket) => buildOutageRow(ticket, now))
+    ),
+    p3: sortByAgeDesc(
+      rawOutages
+        .filter((ticket) => normalizeStatus(ticket.status) === 'new' && hasAnyTag(ticket, ['soutbound_alert', 'network_alert']) && hasAnyTag(ticket, ['nam_priority_p3']))
+        .map((ticket) => buildOutageRow(ticket, now))
+    ),
+    p4: sortByAgeDesc(
+      rawOutages
+        .filter((ticket) => normalizeStatus(ticket.status) === 'new' && !ticket.assignee_id && hasAnyTag(ticket, ['network_alert']) && hasAnyTag(ticket, ['nam_priority_p4']))
+        .map((ticket) => buildOutageRow(ticket, now))
+    ),
+    power: sortByAgeDesc(
+      rawOutages
+        .filter((ticket) => normalizeStatus(ticket.status) === 'new' && !ticket.assignee_id && hasAnyTag(ticket, ['power_alert']))
+        .map((ticket) => buildOutageRow(ticket, now))
+    )
+  }
+
+  const outagePrioritySummary = OUTAGE_PRIORITY_DEFS.map((definition) => {
+    const rows = outagePriorityCollections[definition.key] || []
+    const oldest = sortByAgeDesc(rows)[0]
+    return {
+      key: definition.key,
+      label: definition.label,
+      tone: definition.tone,
+      count: rows.length,
+      highestAgeHours: Number((oldest?.ageHours || 0).toFixed(1))
+    }
   })
+
+  const t1ActionSummary = T1_ACTION_DEFS.map((definition) => {
+    const rows = tier1Tickets.filter((row) => row.pLevel === definition.key)
+    return {
+      key: definition.key,
+      label: definition.label,
+      tone: definition.tone,
+      count: rows.length,
+      fttb: rows.filter((row) => row.product === 'FTTB').length,
+      ftth: rows.filter((row) => row.product === 'FTTH').length,
+      other: rows.filter((row) => row.product === 'Other').length
+    }
+  })
+
+  const t1ProductSummary = summarizeRowsByKey(tier1Tickets, 'product', { FTTB: '#0f766e', FTTH: '#2563eb', Other: '#64748b' })
+  const t1DueBucketSummary = T1_DUE_BUCKET_ORDER.map((bucket) => ({
+    key: bucket,
+    label: bucket,
+    tone: T1_DUE_BUCKET_TONES[bucket] || '#64748b',
+    count: tier1Tickets.filter((row) => row.dueBucket === bucket).length
+  }))
+  const t1UrgentRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => ['BREACHED', 'Due <=2h', 'Due <=4h'].includes(row.dueBucket))
+  )
+
+  const t2ActiveRows = tier2Tickets.filter((row) => !['pending', 'new'].includes(normalizeStatus(row.status)))
+  const t2PartySummary = summarizeRowsByKey(t2ActiveRows, 'party')
+  const t2ProductSummary = summarizeRowsByKey(tier2Tickets, 'product', { FTTB: '#0f766e', FTTH: '#2563eb', Other: '#64748b' })
+  const t2ServiceTypeSummary = summarizeRowsByKey(tier2Tickets, 'serviceType')
+  const t2AgeBucketSummary = summarizeAgeBuckets(tier2Tickets)
+  const outageRegionImpactSummary = summarizeTotalsByKey(outageRows, 'region', 'subscriberImpact')
+  const outageServiceTypeSummary = summarizeRowsByKey(outageRows, 'serviceType')
+  const backhaulOwnerSummary = summarizeRowsByKey(backhaulRows, 'owner')
+  const telephonyQueueWaitingSummary = [...(telephony.queues || [])]
+    .map((row) => ({
+      key: row.name || 'Unknown queue',
+      label: row.name || 'Unknown queue',
+      tone: '#0891b2',
+      count: asNumber(row.waiting, 0),
+      active: asNumber(row.active, 0),
+      answered: asNumber(row.answered, 0),
+      missed: asNumber(row.missed, 0)
+    }))
+    .sort((left, right) => right.count - left.count)
+  const telephonyMissedAgentSummary = [...(telephony.agents || [])]
+    .map((row) => ({
+      key: `${row.name || 'Unknown'}-${row.queue || 'No queue'}`,
+      label: row.name || 'Unknown agent',
+      tone: '#dc2626',
+      count: asNumber(row.missedCalls, 0),
+      queue: row.queue || 'No queue'
+    }))
+    .filter((row) => row.count > 0)
+    .sort((left, right) => right.count - left.count)
+
+  const t1ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedToday, 'created_at')
+  const t1SolvedHourlyRaw = buildHourlyTicketSeries(rawTier1SolvedToday.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
+  const t2ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier2CreatedToday, 'created_at')
+  const t2SolvedHourlyRaw = buildHourlyTicketSeries(rawTier2SolvedToday.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
+  const hourlySeries = t1ReceivedHourlyRaw.map((row, index) => ({
+    hour: row.hour,
+    label: row.label,
+    t1Received: row.count,
+    t1Solved: t1SolvedHourlyRaw[index]?.count || 0,
+    t2Received: t2ReceivedHourlyRaw[index]?.count || 0,
+    t2Solved: t2SolvedHourlyRaw[index]?.count || 0
+  }))
+
+  const partialEvents = transformPartialNldAlerts(rawPartialNldTickets, {
+    partialLookbackHours: nldPartialLookbackHours,
+    zendeskSubdomain: ZENDESK_SUBDOMAIN
+  }).map((row) => ({
+    ...row,
+    routeLabel: firstText(row.nldRoute, row.partialCircuit, 'Unknown route')
+  }))
+  const partialRouteSummary = summarizeRowsByKey(partialEvents, 'routeLabel')
+  const partialClusters = findPartialClusters(partialEvents, {
+    nowMs: Date.now(),
+    clusterWindowHours: nldClusterWindowHours,
+    clusterMinEvents: nldClusterMinEvents
+  }).map((cluster) => ({
+    ...cluster,
+    routeLabel: cluster.routeKey,
+    eventCount: cluster.events.length,
+    circuitCount: new Set(cluster.events.map((event) => event.circuit)).size
+  }))
+  const outageIndex = buildOutageRouteIndex(nldOutages)
+  const partialNotLogged = findPartialNotLogged(partialEvents, outageIndex, {
+    partialNotLoggedMinutes: nldNotLoggedMinutes
+  }).map((row) => ({
+    ...row,
+    routeLabel: firstText(row.nldRoute, row.partialCircuit, 'Unknown route')
+  }))
 
   const lanes = [
     laneSummary('major_outage', 'Major outages', majorOutages, LANE_TONES.major_outage, { agedThresholdHours: 2, impactField: 'subscriberImpact' }),
@@ -572,7 +1011,27 @@ async function collectLiveSnapshot() {
     tier1Open: tier1Tickets.length,
     tier2Open: tier2Tickets.length,
     tier2NewUnassigned,
+    t2HandoverOpen: tier2HandoverRows.length,
+    t1ReceivedToday: rawTier1CreatedToday.length,
+    t1SolvedToday: rawTier1SolvedToday.length,
+    t2ReceivedToday: rawTier2CreatedToday.length,
+    t2SolvedToday: rawTier2SolvedToday.length,
+    outageNewUnassigned: outagePriorityCollections.new_unassigned.length,
+    outageP1: outagePriorityCollections.p1.length,
+    outageP2: outagePriorityCollections.p2.length,
+    outageP3: outagePriorityCollections.p3.length,
+    outageP4: outagePriorityCollections.p4.length,
+    outagePower: outagePriorityCollections.power.length,
+    nldPartialEventCount: partialEvents.length,
+    nldPartialClusterCount: partialClusters.length,
+    nldPartialNotLoggedCount: partialNotLogged.length,
     skippedCount: skippedTickets.length,
+    timezone: timelineMeta.timezone,
+    dayKey: timelineMeta.dayKey,
+    telephonyAnswered: telephony.summary?.callsAnswered ?? null,
+    telephonyMissed: telephony.summary?.callsMissed ?? null,
+    telephonyAbandonRate: telephony.summary?.abandonRate ?? null,
+    telephonyAvgAnswerSeconds: telephony.summary?.avgAnswerSeconds ?? null,
     telephonyWaiting: telephony.available ? telephony.queues.reduce((total, row) => total + asNumber(row.waiting, 0), 0) : null,
     telephonyQueues: telephony.available ? telephony.queues.length : 0
   }
@@ -593,19 +1052,62 @@ async function collectLiveSnapshot() {
       skippedTickets,
       telephony
     }),
+    trends: {
+      hourlySeries: hourlySeries.slice(0, 24),
+      outagePrioritySummary,
+      outageRegionImpactSummary: outageRegionImpactSummary.slice(0, 12),
+      outageServiceTypeSummary: outageServiceTypeSummary.slice(0, 12),
+      backhaulOwnerSummary: backhaulOwnerSummary.slice(0, 12),
+      t1ActionSummary,
+      t1ProductSummary,
+      t1DueBucketSummary,
+      t2AgeBucketSummary,
+      t2PartySummary: t2PartySummary.slice(0, 16),
+      t2ProductSummary,
+      t2ServiceTypeSummary: t2ServiceTypeSummary.slice(0, 16),
+      telephonyQueueWaitingSummary: telephonyQueueWaitingSummary.slice(0, 16),
+      telephonyMissedAgentSummary: telephonyMissedAgentSummary.slice(0, 16),
+      partialRouteSummary: partialRouteSummary.slice(0, 16)
+    },
     collections: {
       majorOutages: majorOutages.slice(0, 200),
       nldOutages: nldOutages.slice(0, 200),
       backhauls: backhaulRows.slice(0, 200),
       vipTickets: vipTickets.slice(0, 200),
-      tier1Tickets: tier1Tickets.slice(0, 200),
-      tier2Tickets: tier2Tickets.slice(0, 200),
+      tier1Tickets: tier1Tickets.slice(0, 300),
+      tier1UrgentTickets: t1UrgentRows.slice(0, 150),
+      tier2Tickets: tier2Tickets.slice(0, 300),
+      tier2NewUnassignedTickets: tier2NewUnassignedRows.slice(0, 150),
+      tier2HandoverTickets: tier2HandoverRows.slice(0, 150),
+      outagePriorityTickets: {
+        newUnassigned: outagePriorityCollections.new_unassigned.slice(0, 150),
+        p1: outagePriorityCollections.p1.slice(0, 150),
+        p2: outagePriorityCollections.p2.slice(0, 150),
+        p3: outagePriorityCollections.p3.slice(0, 150),
+        p4: outagePriorityCollections.p4.slice(0, 150),
+        power: outagePriorityCollections.power.slice(0, 150)
+      },
+      outageRegionImpactSummary: outageRegionImpactSummary.slice(0, 24),
+      outageServiceTypeSummary: outageServiceTypeSummary.slice(0, 24),
+      backhaulOwnerSummary: backhaulOwnerSummary.slice(0, 24),
+      t1ProductSummary,
+      t2PartySummary: t2PartySummary.slice(0, 24),
+      t2ProductSummary,
+      t2ServiceTypeSummary: t2ServiceTypeSummary.slice(0, 24),
+      t2AgeBucketSummary,
+      nldPartialEvents: sortByAgeDesc(partialEvents).slice(0, 300),
+      nldPartialClusters: partialClusters.slice(0, 100),
+      nldPartialNotLogged: sortByAgeDesc(partialNotLogged).slice(0, 150),
       skippedTickets: skippedTickets.slice(0, 200),
       telephonyQueues: (telephony.queues || []).slice(0, 100),
       telephonyAgents: (telephony.agents || []).slice(0, 100),
+      telephonyHourly: (telephony.hourly || []).slice(0, 48),
+      telephonyQueueWaitingSummary: telephonyQueueWaitingSummary.slice(0, 24),
+      telephonyMissedAgentSummary: telephonyMissedAgentSummary.slice(0, 24),
       telephonyMeta: {
         available: !!telephony.available,
-        reason: telephony.reason || ''
+        reason: telephony.reason || '',
+        summary: telephony.summary || null
       }
     }
   }

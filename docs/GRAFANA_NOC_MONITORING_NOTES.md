@@ -169,3 +169,21 @@ Implementation status as of August 10, 2026:
 - The first backend version stores a cached snapshot in `automation_settings` under `noc_monitoring_snapshot_v1`.
 - The browser no longer needs to fan out into many live panel-style calls for the initial monitoring view.
 - Telephony data is intentionally optional and should remain backend-polled or snapshot-driven rather than browser-live.
+- Current native coverage now includes:
+  - outage priority lanes (`new/unattended`, `P1`, `P2`, `P3`, `P4`, `power`)
+  - major outage, NLD outage, and backhaul detail desks
+  - Tier 1 action queue with SLA buckets and due-now focus
+  - Tier 2 queue, party split, product split, service-type split, handover rows, and age profile
+  - partial NLD events, route clusters, and not-logged views
+  - skipped tickets on a dedicated hygiene tab
+  - Illation telephony queue, agent, and hourly call-flow views through the backend snapshot
+- Current native design direction is intentionally diverging from the rest of the site:
+  - denser command-strip layout
+  - snapshot-first operations cards
+  - domain-tinted panels for outage / ticket / voice lanes
+  - drilldown tabs instead of a long single blended page
+- Remaining parity gaps still worth another pass:
+  - more exact recreation of every Grafana derived alert panel if the team still uses them operationally
+  - any custom Grafana transforms that relied on week-ago comparison windows
+  - stronger historical persistence if we decide the current cached snapshot should evolve into dedicated local snapshot tables
+  - richer telephony drilldowns if queue-supervisor workflows need more than the current live snapshot

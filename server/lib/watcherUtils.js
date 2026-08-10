@@ -122,3 +122,8 @@ export function isResolvedStatus(status) {
   const value = safeStr(status).toLowerCase()
   return value === 'solved' || value === 'closed'
 }
+
+export function isSolvedStatus(status) {
+  const value = safeStr(status).toLowerCase()
+  return value === 'solved'
+}

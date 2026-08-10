@@ -5,7 +5,7 @@ import {
   formatAgeHours,
   formatPlural,
   formatTimestamp,
-  isResolvedStatus,
+  isSolvedStatus,
   makeAuthHeader,
   makeTtlCache,
   zendeskAgentTicketLink
@@ -302,10 +302,10 @@ export function startMajorOutageWatcher(sendSlaAlert) {
       const resolved = []
 
       for (const ticket of updatedTickets) {
-        if (!isMajorOutageTicket(ticket) || !isResolvedStatus(ticket.status)) continue
+        if (!isMajorOutageTicket(ticket) || !isSolvedStatus(ticket.status)) continue
 
         const summary = buildSummary(ticket, now)
-        const key = `major-outage-resolved-${ticket.id}-${ticket.status}`
+        const key = `major-outage-resolved-${ticket.id}-solved`
         const shouldSend = await shouldSendAlert(warnedResolved, {
           dedupeKey: key,
           watcherKey: 'major_outage',

@@ -36,6 +36,19 @@
   - `nginx`
 - TLS:
   - Let's Encrypt via `certbot`
+- Monitoring snapshot behavior:
+  - the native `NOC Monitoring Hub` reads from a backend-cached snapshot instead of making many browser-live upstream calls
+  - current snapshot cache key:
+    - `noc_monitoring_snapshot_v1`
+  - cache storage table:
+    - `automation_settings`
+  - optional telephony snapshot envs:
+    - `ILLATION_DASHBOARD_STATS_URL`
+    - `ILLATION_DASHBOARD_AUTH_HEADER`
+    - `ILLATION_DASHBOARD_BEARER_TOKEN`
+    - `ILLATION_DASHBOARD_API_KEY`
+  - release smoke support:
+    - `server/scripts/issueSmokeToken.js` can issue a short-lived JWT for authenticated browser smoke checks without using a real user password
 
 ### Background Automation
 
