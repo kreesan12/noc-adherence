@@ -555,6 +555,8 @@ export default function NocMonitoringPage() {
   const t1AutomationCreatedTodaySummary = trends.t1AutomationCreatedTodaySummary || []
   const t1ReceivedComparisonSeries = trends.t1ReceivedComparisonSeries || []
   const t1SolvedComparisonSeries = trends.t1SolvedComparisonSeries || []
+  const t2ReceivedComparisonSeries = trends.t2ReceivedComparisonSeries || []
+  const t2SolvedComparisonSeries = trends.t2SolvedComparisonSeries || []
   const t2AgeBucketSummary = trends.t2AgeBucketSummary || []
   const t2PartySummary = trends.t2PartySummary || []
   const t2ProductSummary = trends.t2ProductSummary || []
@@ -695,7 +697,7 @@ export default function NocMonitoringPage() {
     {
       label: 'Open Tier 1',
       value: formatCount(summary.tier1Open || 0),
-      subtext: `${formatCount((collections.tier1UrgentTickets || []).length)} urgent by current due buckets`,
+      subtext: `${formatCount((collections.tier1UrgentTickets || []).length)} urgent | ${formatCount(summary.tier1ChangeControlOpen || 0)} change control`,
       tone: '#1d4ed8',
       icon: <SupportAgentRoundedIcon fontSize="small" />
     },
@@ -707,6 +709,37 @@ export default function NocMonitoringPage() {
       icon: <InsightsRoundedIcon fontSize="small" />
     }
   ]), [collections, historyTier1, historyWindowLabel, summary, tier1VoiceQueue])
+
+  const tier2ComparisonMetrics = useMemo(() => ([
+    {
+      label: 'Tickets received',
+      value: formatCount(summary.t2ReceivedToday || 0),
+      subtext: `7d ${formatCount(summary.t2ReceivedLastWeek || 0)} | 14d ${formatCount(summary.t2ReceivedPreviousWeek || 0)}`,
+      tone: '#1d4ed8',
+      icon: <InsightsRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Tickets solved',
+      value: formatCount(summary.t2SolvedToday || 0),
+      subtext: `7d ${formatCount(summary.t2SolvedLastWeek || 0)} | 14d ${formatCount(summary.t2SolvedPreviousWeek || 0)}`,
+      tone: '#60a5fa',
+      icon: <SupportAgentRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'New unattended',
+      value: formatCount(summary.tier2NewUnassigned || 0),
+      subtext: 'Tier 2 new and unassigned right now',
+      tone: '#dc2626',
+      icon: <WarningAmberRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Handover open',
+      value: formatCount(summary.t2HandoverOpen || 0),
+      subtext: 'live handover macro queue',
+      tone: '#ea580c',
+      icon: <MonitorHeartRoundedIcon fontSize="small" />
+    }
+  ]), [summary])
 
   const priorityRows = useMemo(() => {
     const groups = collections.outagePriorityTickets || {}
@@ -1271,9 +1304,13 @@ export default function NocMonitoringPage() {
             </OpsSection>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr 1fr' }, gap: 1.05 }}>
             <OpsSection title="Tier 1 P1 Attention" subtitle="New unattended Tier 1 P1 tickets, with the 30-minute action SLA in mind." tone="#dc2626" minHeight={0}>
               <MonitoringTable rows={collections.tier1P1UnattendedTickets || []} columns={t1Columns} emptyMessage="No unattended Tier 1 P1 tickets are open right now." />
+            </OpsSection>
+
+            <OpsSection title="Change Control Queue" subtitle="Tier 1 change-related work separated out so it does not hide inside the generic action queue." tone="#8b5cf6" minHeight={0}>
+              <MonitoringTable rows={collections.tier1ChangeControlTickets || []} columns={t1Columns} emptyMessage="No Tier 1 change-control tickets are open right now." />
             </OpsSection>
 
             <OpsSection title="Tier 1 Due Now" subtitle="Breached and due-soon Tier 1 rows that need close operational attention." tone="#ea580c" minHeight={0}>
@@ -1289,38 +1326,33 @@ export default function NocMonitoringPage() {
 
       {tab === 'tier2' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <MetricStrip
-            items={[
-              {
-                label: 'Tier 2 open',
-                value: formatCount(summary.tier2Open || 0),
-                subtext: 'all live Tier 2 queue items',
-                tone: '#1d4ed8',
-                icon: <SupportAgentRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'New unattended',
-                value: formatCount(summary.tier2NewUnassigned || 0),
-                subtext: 'status:new and assignee:none',
-                tone: '#dc2626',
-                icon: <WarningAmberRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Handover',
-                value: formatCount(summary.t2HandoverOpen || 0),
-                subtext: 'open handover macro items',
-                tone: '#ea580c',
-                icon: <InsightsRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Today flow',
-                value: `${formatCount(summary.t2ReceivedToday || 0)} / ${formatCount(summary.t2SolvedToday || 0)}`,
-                subtext: 'received versus solved today',
-                tone: '#0891b2',
-                icon: <MonitorHeartRoundedIcon fontSize="small" />
-              }
-            ]}
-          />
+          <MetricStrip items={tier2ComparisonMetrics} />
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+            <OpsSection title="Tier 2 Intake Compare" subtitle="Today versus the same weekday on the last two weeks for Tier 2 received tickets." tone="#1d4ed8" minHeight={0}>
+              <MultiLineChartPanel
+                rows={t2ReceivedComparisonSeries}
+                lines={[
+                  { key: 'today', label: 'Today', color: '#1d4ed8' },
+                  { key: 'lastWeek', label: '7 days ago', color: '#60a5fa' },
+                  { key: 'previousWeek', label: '14 days ago', color: '#bfdbfe' }
+                ]}
+                emptyMessage="No Tier 2 received comparison data is available right now."
+              />
+            </OpsSection>
+
+            <OpsSection title="Tier 2 Solved Compare" subtitle="Today versus the same weekday on the last two weeks for Tier 2 solved tickets." tone="#0891b2" minHeight={0}>
+              <MultiLineChartPanel
+                rows={t2SolvedComparisonSeries}
+                lines={[
+                  { key: 'today', label: 'Today', color: '#0891b2' },
+                  { key: 'lastWeek', label: '7 days ago', color: '#38bdf8' },
+                  { key: 'previousWeek', label: '14 days ago', color: '#bae6fd' }
+                ]}
+                emptyMessage="No Tier 2 solved comparison data is available right now."
+              />
+            </OpsSection>
+          </Box>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
             <OpsSection title="Tier 2 Queue Trend" subtitle={`Open queue, unattended rows, and handover drift over the last ${historyWindowLabel}.`} tone="#1d4ed8" minHeight={0}>

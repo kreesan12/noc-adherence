@@ -20,8 +20,8 @@
   - outage region impact and service-type summaries
   - backhaul owner load summaries
   - Tier 1 day-over-day comparisons for received and solved work
-  - Tier 1 product split, operational-state, automation-route, and due-now queue focus
-  - Tier 2 service-type and age-profile summaries
+  - Tier 1 product split, operational-state, automation-route, change-control, and due-now queue focus
+  - Tier 2 service-type, age-profile, and same-weekday comparison summaries
   - telephony queue waiting and missed-call agent summaries from the Illation stats feed
 - Refactored partial-NLD event normalization into a shared helper module:
   - `server/lib/nldEventUtils.js`

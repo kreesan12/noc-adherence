@@ -52,6 +52,7 @@
     - `NOC_MONITORING_T1_VOICE_QUEUE`
     - `NOC_MONITORING_T1_P1_SLA_MINUTES`
     - `NOC_MONITORING_T1_VOICE_SLA_SECONDS`
+    - `NOC_MONITORING_T1_CHANGE_CONTROL_TAG`
   - release helper:
     - `scripts/release-refresh-and-smoke.mjs` can issue a short-lived token over SSH, refresh the live monitoring snapshot, and run the authenticated browser smoke in one pass
   - optional telephony snapshot envs:

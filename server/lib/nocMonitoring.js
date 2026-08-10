@@ -26,6 +26,7 @@ const TIER2_GROUP_NAME = String(process.env.NOC_MONITORING_T2_GROUP || 'NOC Tier
 const TIER1_VOICE_QUEUE_NAME = String(process.env.NOC_MONITORING_T1_VOICE_QUEUE || 'NOCTier1_Queue').trim()
 const TIER1_P1_SLA_MINUTES = Math.max(5, Number(process.env.NOC_MONITORING_T1_P1_SLA_MINUTES || 30))
 const TIER1_VOICE_SLA_SECONDS = Math.max(5, Number(process.env.NOC_MONITORING_T1_VOICE_SLA_SECONDS || 20))
+const TIER1_CHANGE_CONTROL_TAG = String(process.env.NOC_MONITORING_T1_CHANGE_CONTROL_TAG || 'noc_change_checks').trim().toLowerCase()
 const ILLATION_STATS_URL = String(process.env.ILLATION_DASHBOARD_STATS_URL || '').trim()
 const ILLATION_AUTH_HEADER = String(process.env.ILLATION_DASHBOARD_AUTH_HEADER || '').trim()
 const ILLATION_BEARER_TOKEN = String(process.env.ILLATION_DASHBOARD_BEARER_TOKEN || '').trim()
@@ -196,9 +197,7 @@ function classifyTicketProduct(ticket) {
 }
 
 function isChangeControlTicket(ticket) {
-  const subject = asText(ticket?.subject || ticket?.title).toLowerCase()
-  if (subject.includes('change')) return true
-  return tagMatches(ticket, 'change')
+  return hasAnyTag(ticket, [TIER1_CHANGE_CONTROL_TAG])
 }
 
 function classifyT1ActionLevel(ticket) {
@@ -1154,7 +1153,11 @@ async function collectLiveSnapshot() {
     rawTier1SolvedLastWeek,
     rawTier1SolvedPreviousWeek,
     rawTier2CreatedToday,
+    rawTier2CreatedLastWeek,
+    rawTier2CreatedPreviousWeek,
     rawTier2SolvedToday,
+    rawTier2SolvedLastWeek,
+    rawTier2SolvedPreviousWeek,
     rawPartialNldTickets,
     rawSkips,
     telephony
@@ -1171,8 +1174,12 @@ async function collectLiveSnapshot() {
     safe('tier1-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', timelineMeta.dayKey)}`), []),
     safe('tier1-solved-last-week', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', lastWeekDayKey)}`), []),
     safe('tier1-solved-previous-week', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', previousWeekDayKey)}`), []),
-    safe('tier2-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 created>=${timelineMeta.dayKey} created<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}" status<closed`), []),
-    safe('tier2-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 solved>=${timelineMeta.dayKey} solved<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
+    safe('tier2-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}" status<closed ${buildDayWindowQuery('created', timelineMeta.dayKey)}`), []),
+    safe('tier2-created-last-week', () => fetchZendeskExport(`tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}" status<closed ${buildDayWindowQuery('created', lastWeekDayKey)}`), []),
+    safe('tier2-created-previous-week', () => fetchZendeskExport(`tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}" status<closed ${buildDayWindowQuery('created', previousWeekDayKey)}`), []),
+    safe('tier2-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', timelineMeta.dayKey)}`), []),
+    safe('tier2-solved-last-week', () => fetchZendeskExport(`tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', lastWeekDayKey)}`), []),
+    safe('tier2-solved-previous-week', () => fetchZendeskExport(`tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', previousWeekDayKey)}`), []),
     safe('nld-partials', () => fetchPartialNldAlertsRaw(), []),
     safe('skips', () => fetchZendeskSkips(), []),
     safe('telephony', () => fetchTelephonySnapshot(), {
@@ -1319,6 +1326,9 @@ async function collectLiveSnapshot() {
     tier1Tickets.filter((row) => row.pLevel === 'P1' && normalizeStatus(row.status) === 'new')
   )
   const t1P1BreachedRows = t1P1UnattendedRows.filter((row) => row.p1ActionBreached)
+  const t1ChangeControlRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => row.pLevel === 'Change')
+  )
   const t1AutomationOpenSummary = summarizeRuleHits(rawTier1OpenTickets, T1_AUTOMATION_ROUTE_RULES)
   const t1AutomationCreatedTodaySummary = summarizeRuleHits(rawTier1CreatedToday, T1_AUTOMATION_ROUTE_RULES)
 
@@ -1362,7 +1372,11 @@ async function collectLiveSnapshot() {
   const t1SolvedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier1SolvedLastWeek.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
   const t1SolvedPreviousWeekHourlyRaw = buildHourlyTicketSeries(rawTier1SolvedPreviousWeek.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
   const t2ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier2CreatedToday, 'created_at')
+  const t2ReceivedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier2CreatedLastWeek, 'created_at')
+  const t2ReceivedPreviousWeekHourlyRaw = buildHourlyTicketSeries(rawTier2CreatedPreviousWeek, 'created_at')
   const t2SolvedHourlyRaw = buildHourlyTicketSeries(rawTier2SolvedToday.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
+  const t2SolvedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier2SolvedLastWeek.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
+  const t2SolvedPreviousWeekHourlyRaw = buildHourlyTicketSeries(rawTier2SolvedPreviousWeek.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
   const hourlySeries = t1ReceivedHourlyRaw.map((row, index) => ({
     hour: row.hour,
     label: row.label,
@@ -1380,6 +1394,16 @@ async function collectLiveSnapshot() {
     { key: 'today', rows: t1SolvedHourlyRaw },
     { key: 'lastWeek', rows: t1SolvedLastWeekHourlyRaw },
     { key: 'previousWeek', rows: t1SolvedPreviousWeekHourlyRaw }
+  ])
+  const t2ReceivedComparisonSeries = mergeHourlySeriesByKey([
+    { key: 'today', rows: t2ReceivedHourlyRaw },
+    { key: 'lastWeek', rows: t2ReceivedLastWeekHourlyRaw },
+    { key: 'previousWeek', rows: t2ReceivedPreviousWeekHourlyRaw }
+  ])
+  const t2SolvedComparisonSeries = mergeHourlySeriesByKey([
+    { key: 'today', rows: t2SolvedHourlyRaw },
+    { key: 'lastWeek', rows: t2SolvedLastWeekHourlyRaw },
+    { key: 'previousWeek', rows: t2SolvedPreviousWeekHourlyRaw }
   ])
 
   const partialEvents = transformPartialNldAlerts(rawPartialNldTickets, {
@@ -1428,6 +1452,7 @@ async function collectLiveSnapshot() {
     tier1Open: tier1Tickets.length,
     tier1P1Unattended: t1P1UnattendedRows.length,
     tier1P1Breached: t1P1BreachedRows.length,
+    tier1ChangeControlOpen: t1ChangeControlRows.length,
     tier2Open: tier2Tickets.length,
     tier2NewUnassigned,
     t2HandoverOpen: tier2HandoverRows.length,
@@ -1438,7 +1463,11 @@ async function collectLiveSnapshot() {
     t1SolvedLastWeek: rawTier1SolvedLastWeek.length,
     t1SolvedPreviousWeek: rawTier1SolvedPreviousWeek.length,
     t2ReceivedToday: rawTier2CreatedToday.length,
+    t2ReceivedLastWeek: rawTier2CreatedLastWeek.length,
+    t2ReceivedPreviousWeek: rawTier2CreatedPreviousWeek.length,
     t2SolvedToday: rawTier2SolvedToday.length,
+    t2SolvedLastWeek: rawTier2SolvedLastWeek.length,
+    t2SolvedPreviousWeek: rawTier2SolvedPreviousWeek.length,
     outageNewUnassigned: outagePriorityCollections.new_unassigned.length,
     outageP1: outagePriorityCollections.p1.length,
     outageP2: outagePriorityCollections.p2.length,
@@ -1500,6 +1529,8 @@ async function collectLiveSnapshot() {
       t1AutomationCreatedTodaySummary,
       t1ReceivedComparisonSeries: t1ReceivedComparisonSeries.slice(0, 24),
       t1SolvedComparisonSeries: t1SolvedComparisonSeries.slice(0, 24),
+      t2ReceivedComparisonSeries: t2ReceivedComparisonSeries.slice(0, 24),
+      t2SolvedComparisonSeries: t2SolvedComparisonSeries.slice(0, 24),
       t2AgeBucketSummary,
       t2PartySummary: t2PartySummary.slice(0, 16),
       t2ProductSummary,
@@ -1517,6 +1548,7 @@ async function collectLiveSnapshot() {
       tier1UrgentTickets: t1UrgentRows.slice(0, 150),
       tier1P1UnattendedTickets: t1P1UnattendedRows.slice(0, 150),
       tier1P1BreachedTickets: t1P1BreachedRows.slice(0, 150),
+      tier1ChangeControlTickets: t1ChangeControlRows.slice(0, 150),
       tier2Tickets: tier2Tickets.slice(0, 300),
       tier2NewUnassignedTickets: tier2NewUnassignedRows.slice(0, 150),
       tier2HandoverTickets: tier2HandoverRows.slice(0, 150),
