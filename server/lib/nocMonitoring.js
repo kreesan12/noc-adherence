@@ -43,6 +43,8 @@ const FIELD_IDS = {
   subscriberImpact: '5552674828049',
   lastUpdate: '5352766585489',
   serviceType: '6715159991185',
+  tier1OperationalState: '5352663380497',
+  tier1EscalationPath: '6681896923281',
   outageStatus: '4419340564625',
   outageType: '14118200804369',
   outageOwner: '6832283279121',
@@ -229,6 +231,26 @@ function classifyT1OperationalState(ticket, pLevel, status) {
   return 'Other / review'
 }
 
+function classifyT1EscalationPath(ticket, pLevel) {
+  const explicitValue = humanizeFieldChoice(cf(ticket, FIELD_IDS.tier1EscalationPath))
+  if (explicitValue) return explicitValue
+
+  switch (pLevel) {
+    case 'P1':
+      return 'Tier 1 desk'
+    case 'P2':
+      return 'ISP / customer'
+    case 'P3':
+      return 'Vendor / carrier'
+    case 'P4':
+      return 'MNT / automation'
+    case 'Change':
+      return 'Change control'
+    default:
+      return 'Tier 1 review'
+  }
+}
+
 function classifyT1AutomationRoutes(ticket) {
   return T1_AUTOMATION_ROUTE_RULES.filter((rule) => hasAnyTag(ticket, rule.tags))
 }
@@ -284,13 +306,16 @@ function buildT1ActionRow(ticket, now = dayjs()) {
   const remainingHours = slaHours ? Number((slaHours - base.ageHours).toFixed(1)) : null
   const automationRoutes = classifyT1AutomationRoutes(ticket)
   const status = normalizeStatus(ticket.status)
+  const explicitOperationalState = humanizeFieldChoice(cf(ticket, FIELD_IDS.tier1OperationalState))
+  const escalationPath = classifyT1EscalationPath(ticket, pLevel)
   const p1ActionBreached = pLevel === 'P1' && status === 'new' && base.ageHours >= (TIER1_P1_SLA_MINUTES / 60)
 
   return {
     ...base,
     product,
     pLevel,
-    operationalState: classifyT1OperationalState(ticket, pLevel, status),
+    operationalState: explicitOperationalState || classifyT1OperationalState(ticket, pLevel, status),
+    escalationPath,
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
     slaHours,
     remainingHours,
@@ -475,6 +500,26 @@ function firstText(...values) {
     if (text) return text
   }
   return ''
+}
+
+function humanizeFieldChoice(value) {
+  const text = asText(value)
+  if (!text) return ''
+
+  const uppercaseWords = new Set(['p1', 'p2', 'p3', 'p4', 'fttb', 'ftth', 'mnt', 'dfa', 'isp', 'nld', 'vip', 'noc'])
+
+  return text
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => {
+      const normalized = part.toLowerCase()
+      if (uppercaseWords.has(normalized)) return normalized.toUpperCase()
+      return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+    })
+    .join(' ')
 }
 
 function sortByAgeDesc(rows) {
@@ -880,6 +925,7 @@ function buildHistoryPayload(snapshot) {
     t1ActionSummary: Array.isArray(snapshot?.trends?.t1ActionSummary) ? snapshot.trends.t1ActionSummary : [],
     t1DueBucketSummary: Array.isArray(snapshot?.trends?.t1DueBucketSummary) ? snapshot.trends.t1DueBucketSummary : [],
     t1ProductSummary: Array.isArray(snapshot?.trends?.t1ProductSummary) ? snapshot.trends.t1ProductSummary : [],
+    t1EscalationPathSummary: Array.isArray(snapshot?.trends?.t1EscalationPathSummary) ? snapshot.trends.t1EscalationPathSummary : [],
     t2AgeBucketSummary: Array.isArray(snapshot?.trends?.t2AgeBucketSummary) ? snapshot.trends.t2AgeBucketSummary : [],
     t2PartySummary: Array.isArray(snapshot?.trends?.t2PartySummary) ? snapshot.trends.t2PartySummary.slice(0, 12) : [],
     t2ProductSummary: Array.isArray(snapshot?.trends?.t2ProductSummary) ? snapshot.trends.t2ProductSummary : [],
@@ -1328,6 +1374,14 @@ async function collectLiveSnapshot() {
     'Closed / cleanup': '#475569',
     'Other / review': '#64748b'
   })
+  const t1EscalationPathSummary = summarizeRowsByKey(tier1Tickets, 'escalationPath', {
+    'Tier 1 desk': '#0f766e',
+    'ISP / customer': '#ea580c',
+    'Vendor / carrier': '#d97706',
+    'MNT / automation': '#2563eb',
+    'Change control': '#8b5cf6',
+    'Tier 1 review': '#475569'
+  })
   const t1DueBucketSummary = T1_DUE_BUCKET_ORDER.map((bucket) => ({
     key: bucket,
     label: bucket,
@@ -1539,6 +1593,7 @@ async function collectLiveSnapshot() {
       t1ProductSummary,
       t1StatusSummary,
       t1OperationalStateSummary,
+      t1EscalationPathSummary,
       t1DueBucketSummary,
       t1AutomationOpenSummary,
       t1AutomationCreatedTodaySummary,
@@ -1581,6 +1636,7 @@ async function collectLiveSnapshot() {
       t1ProductSummary,
       t1StatusSummary,
       t1OperationalStateSummary,
+      t1EscalationPathSummary,
       t1AutomationOpenSummary,
       t1AutomationCreatedTodaySummary,
       t2PartySummary: t2PartySummary.slice(0, 24),

@@ -53,6 +53,21 @@
   - Change Control
   - Automation-routed
 - Tightened Tier 1 operational-state normalization so hold, review, cleanup, and lane-specific follow-up states are cleaner and more consistent in the dashboard.
+- Wired real Zendesk Tier 1 custom fields into monitoring rows for:
+  - operational state
+  - escalation path
+- Reworked the Tier 1 supervisor flow so it now separates:
+  - action-lane pressure
+  - queue focus / breach attention
+  - queue ownership via escalation path
+  - automation routing context
+- Added click-through Tier 1 counter shortcuts from:
+  - P1 Attention
+  - Change Control Queue
+  - Due Now
+  into the filtered Action View.
+- Added export of the currently filtered Tier 1 Action View so supervisors can lift the exact live queue slice they are looking at.
+- Added Tier 1 escalation-path filtering and summary visuals to support a more holistic unresolved-queue view without losing the action-lane lens.
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 

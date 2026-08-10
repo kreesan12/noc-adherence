@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -28,6 +28,7 @@ import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded'
 import CrisisAlertRoundedIcon from '@mui/icons-material/CrisisAlertRounded'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import CallRoundedIcon from '@mui/icons-material/CallRounded'
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import dayjs from 'dayjs'
 import {
   Bar,
@@ -44,6 +45,7 @@ import {
 } from 'recharts'
 import { fetchNocMonitoringSnapshot, refreshNocMonitoringSnapshot } from '../api/nocMonitoring'
 import { PageShell } from '../components/ui/PageScaffold'
+import { downloadWorkbook } from '../utils/slaExport'
 import {
   AnalyticsChartFallback,
   AnalyticsLoadingBlock,
@@ -150,6 +152,14 @@ const T1_OPERATIONAL_STATE_TONE_MAP = {
   'Closed / cleanup': '#475569',
   'Other / review': '#64748b'
 }
+const T1_ESCALATION_PATH_TONE_MAP = {
+  'Tier 1 desk': '#0f766e',
+  'ISP / customer': '#ea580c',
+  'Vendor / carrier': '#d97706',
+  'MNT / automation': '#2563eb',
+  'Change control': '#8b5cf6',
+  'Tier 1 review': '#475569'
+}
 const T1_PRESET_TONE_MAP = {
   all: '#0f766e',
   p1Only: '#dc2626',
@@ -177,6 +187,7 @@ const T1_OPERATIONAL_STATE_ORDER = [
   'Other / review'
 ]
 const T1_ACTION_ORDER = ['P1', 'P2', 'P3', 'P4', 'Change', 'Other']
+const T1_ESCALATION_PATH_ORDER = ['Tier 1 desk', 'ISP / customer', 'Vendor / carrier', 'MNT / automation', 'Change control', 'Tier 1 review']
 const T1_DUE_BUCKET_ORDER_UI = ['BREACHED', 'Due <=2h', 'Due <=4h', 'Due 4-8h', 'Due 8-24h', 'Safe >24h', 'Change control', 'Other/No SLA']
 
 const T1_PRESETS = [
@@ -186,6 +197,14 @@ const T1_PRESETS = [
   { key: 'changeControl', label: 'Change Control' },
   { key: 'automationRouted', label: 'Automation-routed' }
 ]
+const DEFAULT_T1_ACTION_FILTERS = {
+  systemState: 'all',
+  operationalState: 'all',
+  escalationPath: 'all',
+  pLevel: 'all',
+  dueBucket: 'all',
+  automationRoute: 'all'
+}
 
 function formatCount(value) {
   return new Intl.NumberFormat('en-ZA').format(Number(value || 0))
@@ -232,6 +251,20 @@ function formatSignedDelta(value, suffix = '') {
   const rounded = Math.round(numeric)
   const sign = rounded > 0 ? '+' : ''
   return `${sign}${rounded}${suffix}`
+}
+
+function safeFilePart(value) {
+  return String(value || 'export')
+    .trim()
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'export'
+}
+
+function formatExportValue(value) {
+  if (Array.isArray(value)) return value.join(', ')
+  if (value === null || value === undefined || value === '') return '--'
+  return value
 }
 
 function titleCaseWords(value) {
@@ -329,6 +362,41 @@ function SignalChip({ label, tone = '#64748b' }) {
         }
       }}
     />
+  )
+}
+
+function DrillCounterButton({ label, count, helper, tone = ACCENT, onClick }) {
+  return (
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={onClick}
+      sx={{
+        minWidth: 0,
+        justifyContent: 'flex-start',
+        px: 1,
+        py: 0.55,
+        borderRadius: 2.2,
+        color: '#f8fafc',
+        borderColor: alpha(tone, 0.4),
+        bgcolor: alpha(tone, 0.1),
+        textTransform: 'none'
+      }}
+    >
+      <Stack spacing={0.1} alignItems="flex-start">
+        <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.15 }}>
+          {label}
+        </Typography>
+        <Typography variant="body2" sx={{ fontWeight: 800, color: '#ffffff', lineHeight: 1.1 }}>
+          {formatCount(count)}
+        </Typography>
+        {helper ? (
+          <Typography variant="caption" sx={{ color: alpha('#e5eef8', 0.78), lineHeight: 1.1 }}>
+            {helper}
+          </Typography>
+        ) : null}
+      </Stack>
+    </Button>
   )
 }
 
@@ -755,21 +823,17 @@ function OpsSection(props) {
 }
 
 export default function NocMonitoringPage() {
+  const t1ActionViewRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [exportingT1Action, setExportingT1Action] = useState(false)
   const [error, setError] = useState('')
   const [payload, setPayload] = useState(null)
   const [tab, setTab] = useState('overview')
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
   const [t1QuickPreset, setT1QuickPreset] = useState('all')
-  const [t1ActionFilters, setT1ActionFilters] = useState({
-    systemState: 'all',
-    operationalState: 'all',
-    pLevel: 'all',
-    dueBucket: 'all',
-    automationRoute: 'all'
-  })
+  const [t1ActionFilters, setT1ActionFilters] = useState(DEFAULT_T1_ACTION_FILTERS)
 
   const loadSnapshot = useCallback(async () => {
     setError('')
@@ -861,6 +925,7 @@ export default function NocMonitoringPage() {
   const t1ProductSummary = trends.t1ProductSummary || []
   const t1StatusSummary = trends.t1StatusSummary || []
   const t1OperationalStateSummary = trends.t1OperationalStateSummary || []
+  const t1EscalationPathSummary = trends.t1EscalationPathSummary || []
   const t1DueBucketSummary = trends.t1DueBucketSummary || []
   const t1AutomationOpenSummary = trends.t1AutomationOpenSummary || []
   const t1AutomationCreatedTodaySummary = trends.t1AutomationCreatedTodaySummary || []
@@ -1104,6 +1169,11 @@ export default function NocMonitoringPage() {
     [t1ActionSummary]
   )
 
+  const t1EscalationRows = useMemo(
+    () => (t1EscalationPathSummary || []).filter((row) => Number(row.count || 0) > 0),
+    [t1EscalationPathSummary]
+  )
+
   const t1QueueFocusRows = useMemo(() => ([
     {
       key: 'p1-unattended',
@@ -1185,6 +1255,11 @@ export default function NocMonitoringPage() {
     [t1ActionViewRows]
   )
 
+  const t1EscalationPathOptions = useMemo(
+    () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.escalationPath).filter(Boolean))], T1_ESCALATION_PATH_ORDER),
+    [t1ActionViewRows]
+  )
+
   const t1PLevelOptions = useMemo(
     () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.pLevel).filter(Boolean))], T1_ACTION_ORDER),
     [t1ActionViewRows]
@@ -1219,6 +1294,7 @@ export default function NocMonitoringPage() {
   const matchesT1ActionFilters = useCallback((row, filters, ignoreField = null) => {
     if (ignoreField !== 'systemState' && filters.systemState !== 'all' && row.status !== filters.systemState) return false
     if (ignoreField !== 'operationalState' && filters.operationalState !== 'all' && row.operationalState !== filters.operationalState) return false
+    if (ignoreField !== 'escalationPath' && filters.escalationPath !== 'all' && row.escalationPath !== filters.escalationPath) return false
     if (ignoreField !== 'pLevel' && filters.pLevel !== 'all' && row.pLevel !== filters.pLevel) return false
     if (ignoreField !== 'dueBucket' && filters.dueBucket !== 'all' && row.dueBucket !== filters.dueBucket) return false
     if (ignoreField !== 'automationRoute' && filters.automationRoute !== 'all' && !(row.automationRoutes || []).includes(filters.automationRoute)) return false
@@ -1252,6 +1328,7 @@ export default function NocMonitoringPage() {
   const t1FilterAnyCounts = useMemo(() => ({
     systemState: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'systemState')).length,
     operationalState: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'operationalState')).length,
+    escalationPath: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'escalationPath')).length,
     pLevel: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'pLevel')).length,
     dueBucket: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'dueBucket')).length,
     automationRoute: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'automationRoute')).length
@@ -1259,6 +1336,7 @@ export default function NocMonitoringPage() {
 
   const t1SystemStateCountMap = useMemo(() => buildT1FieldCountMap('systemState', t1SystemStateOptions), [buildT1FieldCountMap, t1SystemStateOptions])
   const t1OperationalStateCountMap = useMemo(() => buildT1FieldCountMap('operationalState', t1OperationalStateOptions), [buildT1FieldCountMap, t1OperationalStateOptions])
+  const t1EscalationPathCountMap = useMemo(() => buildT1FieldCountMap('escalationPath', t1EscalationPathOptions), [buildT1FieldCountMap, t1EscalationPathOptions])
   const t1PLevelCountMap = useMemo(() => buildT1FieldCountMap('pLevel', t1PLevelOptions), [buildT1FieldCountMap, t1PLevelOptions])
   const t1DueBucketCountMap = useMemo(() => buildT1FieldCountMap('dueBucket', t1DueBucketOptions), [buildT1FieldCountMap, t1DueBucketOptions])
   const t1AutomationRouteCountMap = useMemo(() => buildT1FieldCountMap('automationRoute', t1AutomationRouteOptions), [buildT1FieldCountMap, t1AutomationRouteOptions])
@@ -1277,6 +1355,78 @@ export default function NocMonitoringPage() {
     () => t1ActionViewLimit === 'all' ? t1FilteredActionViewRows : t1FilteredActionViewRows.slice(0, Number(t1ActionViewLimit || 20)),
     [t1ActionViewLimit, t1FilteredActionViewRows]
   )
+
+  const resetT1ActionFilters = useCallback(() => {
+    setT1QuickPreset('all')
+    setT1ActionFilters(DEFAULT_T1_ACTION_FILTERS)
+  }, [])
+
+  const applyT1ActionLens = useCallback((preset = 'all', nextFilters = {}) => {
+    setTab('tier1')
+    setT1QuickPreset(preset)
+    setT1ActionFilters({
+      ...DEFAULT_T1_ACTION_FILTERS,
+      ...nextFilters
+    })
+    setT1ActionViewLimit(20)
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        t1ActionViewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 90)
+    }
+  }, [])
+
+  const handleExportT1ActionView = useCallback(async () => {
+    setExportingT1Action(true)
+    try {
+      const quickPresetLabel = T1_PRESETS.find((preset) => preset.key === t1QuickPreset)?.label || 'All queue'
+      await downloadWorkbook(
+        `tier1-action-view-${safeFilePart(quickPresetLabel)}-${dayjs().format('YYYYMMDD_HHmm')}.xlsx`,
+        [
+          {
+            name: 'Filters',
+            rows: [{
+              SnapshotGeneratedAt: snapshot?.generatedAt || '--',
+              QuickPreset: quickPresetLabel,
+              SystemState: t1ActionFilters.systemState,
+              OperationalState: t1ActionFilters.operationalState,
+              EscalationPath: t1ActionFilters.escalationPath,
+              ActionLane: t1ActionFilters.pLevel,
+              DueBucket: t1ActionFilters.dueBucket,
+              AutomationRoute: t1ActionFilters.automationRoute,
+              FilteredRows: t1FilteredActionViewRows.length,
+              VisibleRows: t1ActionViewVisibleRows.length,
+              LiveQueueRows: t1ActionViewRows.length
+            }]
+          },
+          {
+            name: 'Tier1 Action View',
+            rows: t1FilteredActionViewRows.map((row) => ({
+              Ticket: row.id ? `#${row.id}` : '--',
+              Subject: formatExportValue(row.subject),
+              ActionLane: formatExportValue(row.pLevel),
+              DueBucket: formatExportValue(row.dueBucket),
+              RemainingHours: row.remainingHours ?? '--',
+              SystemState: formatExportValue(row.status),
+              Priority: formatExportValue(row.priority),
+              Product: formatExportValue(row.product),
+              ServiceType: formatExportValue(row.serviceType),
+              OperationalState: formatExportValue(row.operationalState),
+              EscalationPath: formatExportValue(row.escalationPath),
+              AutomationRoutes: formatExportValue(row.automationRoutes),
+              AgeHours: Number.isFinite(Number(row.ageHours)) ? Number(row.ageHours).toFixed(1) : '--',
+              CreatedAt: formatExportValue(row.createdAt),
+              UpdatedAt: formatExportValue(row.updatedAt),
+              Url: formatExportValue(row.url)
+            }))
+          }
+        ]
+      )
+    } finally {
+      setExportingT1Action(false)
+    }
+  }, [exportingT1Action, snapshot?.generatedAt, t1ActionFilters, t1ActionViewRows.length, t1ActionViewVisibleRows.length, t1FilteredActionViewRows, t1QuickPreset])
 
   const t1DueNowBreachedCount = useMemo(
     () => t1DueNowRows.filter((row) => row.dueBucket === 'BREACHED' || Number(row.remainingHours) <= 0).length,
@@ -1422,6 +1572,7 @@ export default function NocMonitoringPage() {
     product: { key: 'product', label: 'Product' },
     service: { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
     operationalState: { key: 'operationalState', label: 'Operational State', render: (row) => <SignalChip label={row.operationalState} tone={T1_OPERATIONAL_STATE_TONE_MAP[row.operationalState] || '#64748b'} /> },
+    escalationPath: { key: 'escalationPath', label: 'Escalation Path', render: (row) => <SignalChip label={row.escalationPath || 'Tier 1 review'} tone={T1_ESCALATION_PATH_TONE_MAP[row.escalationPath] || '#475569'} /> },
     automation: {
       key: 'automationRoutes',
       label: 'Automation',
@@ -1459,6 +1610,7 @@ export default function NocMonitoringPage() {
     t1ActionColumnParts.product,
     t1ActionColumnParts.service,
     t1ActionColumnParts.operationalState,
+    t1ActionColumnParts.escalationPath,
     t1ActionColumnParts.automation,
     t1ActionColumnParts.age,
     t1ActionColumnParts.subject
@@ -1472,6 +1624,7 @@ export default function NocMonitoringPage() {
     { key: 'product', label: 'Product' },
     { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
     { key: 'operationalState', label: 'Operational State', render: (row) => <SignalChip label={row.operationalState} tone={T1_OPERATIONAL_STATE_TONE_MAP[row.operationalState] || '#64748b'} /> },
+    { key: 'escalationPath', label: 'Escalation Path', render: (row) => <SignalChip label={row.escalationPath || 'Tier 1 review'} tone={T1_ESCALATION_PATH_TONE_MAP[row.escalationPath] || '#475569'} /> },
     {
       key: 'automationRoutes',
       label: 'Automation',
@@ -1887,13 +2040,21 @@ export default function NocMonitoringPage() {
 
       {tab === 'tier1' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.95fr 0.95fr 1.1fr' }, gap: 1.05 }}>
+          <OpsAlert severity="info">
+            Tier 1 now separates the same unresolved queue into two lenses: action lanes for what the desk must do next, and escalation path for where the work is currently sitting. That keeps the supervisor view holistic without double counting the environment.
+          </OpsAlert>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
             <OpsSection title="Action Mix" subtitle="Live Tier 1 queue grouped by the working action lanes so the desk can see what type of work is piling up." tone="#0f766e" minHeight={0}>
               <CompactBreakdownList rows={t1ActionMixRows} total={summary.tier1Open || 0} emptyMessage="No Tier 1 action mix is available right now." />
             </OpsSection>
 
             <OpsSection title="Queue Focus" subtitle="The live Tier 1 hotspots that need immediate operator attention right now." tone="#dc2626" minHeight={0}>
               <CompactBreakdownList rows={t1QueueFocusRows} emptyMessage="No Tier 1 focus signals are available right now." />
+            </OpsSection>
+
+            <OpsSection title="Queue Ownership" subtitle="The same live unresolved Tier 1 estate grouped by the active escalation or ownership path." tone="#8b5cf6" minHeight={0}>
+              <CompactBreakdownList rows={t1EscalationRows} total={summary.tier1Open || 0} emptyMessage="No Tier 1 escalation-path mix is available right now." />
             </OpsSection>
 
             <OpsSection title="Automation Routing" subtitle="How much of the current and today-created Tier 1 work is already tagged into downstream automated lanes." tone="#8b5cf6" minHeight={0}>
@@ -2096,8 +2257,8 @@ export default function NocMonitoringPage() {
               <VerticalBarChart rows={t1DueBucketSummary} dataKey="count" emptyMessage="No Tier 1 SLA bucket data is available right now." colorMap={Object.fromEntries(t1DueBucketSummary.map((row) => [row.key, row.tone]))} />
             </OpsSection>
 
-            <OpsSection title="Tier 1 Product Split" subtitle="Current open Tier 1 work grouped by product family." tone="#0f766e" minHeight={0}>
-              <SummaryStatBlock rows={t1ProductSummary} emptyMessage="No Tier 1 product split is available right now." />
+            <OpsSection title="Escalation Path Shape" subtitle="Whole Tier 1 unresolved queue grouped by the active escalation or ownership path." tone="#8b5cf6" minHeight={0}>
+              <VerticalBarChart rows={t1EscalationPathSummary} dataKey="count" emptyMessage="No Tier 1 escalation-path split is available right now." colorMap={Object.fromEntries(t1EscalationPathSummary.map((row) => [row.key, row.tone || T1_ESCALATION_PATH_TONE_MAP[row.key] || '#64748b']))} />
             </OpsSection>
           </Box>
 
@@ -2110,6 +2271,10 @@ export default function NocMonitoringPage() {
               action={<SignalChip label={`${formatCount(t1P1BreachedRowCount)} breached`} tone="#dc2626" />}
             >
               <Stack spacing={0.8}>
+                <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                  <DrillCounterButton label="Open P1 queue" count={t1P1AttentionRows.length} helper="jump to action view" tone="#dc2626" onClick={() => applyT1ActionLens('p1Only', { systemState: 'new' })} />
+                  <DrillCounterButton label="Breached P1" count={t1P1BreachedRowCount} helper="filtered to breached" tone="#f97316" onClick={() => applyT1ActionLens('p1Only', { systemState: 'new', dueBucket: 'BREACHED' })} />
+                </Stack>
                 <OpsValueTiles
                   columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
                   items={[
@@ -2132,7 +2297,12 @@ export default function NocMonitoringPage() {
             </OpsSection>
 
             <OpsSection title="Change Control Queue" subtitle="Tier 1 change-related work separated out so it does not hide inside the generic action queue." tone="#8b5cf6" minHeight={0}>
-              <MonitoringTable rows={collections.tier1ChangeControlTickets || []} columns={t1FocusColumns} emptyMessage="No Tier 1 change-control tickets are open right now." />
+              <Stack spacing={0.8}>
+                <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                  <DrillCounterButton label="Change queue" count={(collections.tier1ChangeControlTickets || []).length} helper="jump to action view" tone="#8b5cf6" onClick={() => applyT1ActionLens('changeControl')} />
+                </Stack>
+                <MonitoringTable rows={collections.tier1ChangeControlTickets || []} columns={t1FocusColumns} emptyMessage="No Tier 1 change-control tickets are open right now." />
+              </Stack>
             </OpsSection>
 
             <OpsSection
@@ -2143,6 +2313,10 @@ export default function NocMonitoringPage() {
               action={<SignalChip label={`${formatCount(t1DueNowBreachedCount)} breached`} tone="#dc2626" />}
             >
               <Stack spacing={0.8}>
+                <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                  <DrillCounterButton label="Urgent queue" count={t1DueNowRows.length} helper="jump to action view" tone="#ea580c" onClick={() => applyT1ActionLens('dueNow')} />
+                  <DrillCounterButton label="Only breached" count={t1DueNowBreachedCount} helper="due bucket filtered" tone="#dc2626" onClick={() => applyT1ActionLens('dueNow', { dueBucket: 'BREACHED' })} />
+                </Stack>
                 <OpsValueTiles
                   columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
                   items={[
@@ -2177,7 +2351,8 @@ export default function NocMonitoringPage() {
             </OpsSection>
           </Box>
 
-          <OpsSection title="Tier 1 Action View" subtitle="This is the working queue view with action lane, system state, operational state, and due-bucket context arranged in the order operators normally scan it." tone="#0f766e" minHeight={0}>
+          <Box ref={t1ActionViewRef}>
+          <OpsSection title="Tier 1 Action View" subtitle="This is the working queue view with action lane, system state, operational state, escalation path, and due-bucket context arranged in the order operators normally scan it." tone="#0f766e" minHeight={0}>
             <Stack spacing={0.8}>
               <Box
                 sx={{
@@ -2190,31 +2365,40 @@ export default function NocMonitoringPage() {
                 <Stack spacing={0.85}>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                     <Typography variant="caption" sx={{ color: OPS_MUTED }}>
-                      Saved queue lenses plus drill filters for action lane, system state, operational state, due bucket, and automation route.
+                      Saved queue lenses plus drill filters for action lane, system state, operational state, escalation path, due bucket, and automation route.
                     </Typography>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => {
-                        setT1QuickPreset('all')
-                        setT1ActionFilters({
-                          systemState: 'all',
-                          operationalState: 'all',
-                          pLevel: 'all',
-                          dueBucket: 'all',
-                          automationRoute: 'all'
-                        })
-                      }}
-                      sx={{
-                        minWidth: 0,
-                        px: 1.1,
-                        py: 0.2,
-                        color: '#cbd5e1',
-                        borderColor: 'rgba(148, 163, 184, 0.24)'
-                      }}
-                    >
-                      Reset filters
-                    </Button>
+                    <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<DownloadRoundedIcon />}
+                        onClick={handleExportT1ActionView}
+                        disabled={exportingT1Action || !t1FilteredActionViewRows.length}
+                        sx={{
+                          minWidth: 0,
+                          px: 1.1,
+                          py: 0.2,
+                          color: '#cbd5e1',
+                          borderColor: 'rgba(148, 163, 184, 0.24)'
+                        }}
+                      >
+                        {exportingT1Action ? 'Exporting...' : 'Export filtered'}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={resetT1ActionFilters}
+                        sx={{
+                          minWidth: 0,
+                          px: 1.1,
+                          py: 0.2,
+                          color: '#cbd5e1',
+                          borderColor: 'rgba(148, 163, 184, 0.24)'
+                        }}
+                      >
+                        Reset filters
+                      </Button>
+                    </Stack>
                   </Stack>
                   <FilterChipGroup
                     label="Quick presets"
@@ -2242,6 +2426,15 @@ export default function NocMonitoringPage() {
                       tone="#0f766e"
                       countMap={t1PLevelCountMap}
                       anyCount={t1FilterAnyCounts.pLevel}
+                    />
+                    <FilterChipGroup
+                      label="Escalation Path"
+                      value={t1ActionFilters.escalationPath}
+                      onChange={(next) => setT1ActionFilters((current) => ({ ...current, escalationPath: next }))}
+                      options={t1EscalationPathOptions}
+                      tone="#8b5cf6"
+                      countMap={t1EscalationPathCountMap}
+                      anyCount={t1FilterAnyCounts.escalationPath}
                     />
                     <FilterChipGroup
                       label="Due Bucket"
@@ -2294,6 +2487,7 @@ export default function NocMonitoringPage() {
               <MonitoringTable rows={t1ActionViewVisibleRows} columns={t1ActionColumns} emptyMessage="No Tier 1 tickets are open right now." getRowSx={getTier1UrgencyRowSx} />
             </Stack>
           </OpsSection>
+        </Box>
         </Box>
       ) : null}
 
