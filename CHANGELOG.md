@@ -30,6 +30,12 @@
   - compact command strip
   - denser card rhythm
   - richer live drilldown sections across overview, outage, Tier 1, Tier 2, NLD, and voice tabs
+- Re-tuned the Tier 1 tab layout so it now leads with:
+  - action mix
+  - queue focus
+  - automation routing
+  - denser comparison/red-flag cards
+  - more readable chip-driven Tier 1 working tables
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 
