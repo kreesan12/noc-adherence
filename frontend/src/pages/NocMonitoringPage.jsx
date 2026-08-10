@@ -633,6 +633,15 @@ export default function NocMonitoringPage() {
     }
   ]), [summary, telephonySummary])
 
+  const tier1VoiceWeekCompare = useMemo(() => {
+    const latest = historyTier1VoiceQueue?.[historyTier1VoiceQueue.length - 1]
+    if (!latest?.bucketStart) return { lastWeek: null, previousWeek: null }
+    return {
+      lastWeek: findHistoryPointNear(historyTier1VoiceQueue, dayjs(latest.bucketStart).subtract(7, 'day').toISOString()),
+      previousWeek: findHistoryPointNear(historyTier1VoiceQueue, dayjs(latest.bucketStart).subtract(14, 'day').toISOString())
+    }
+  }, [historyTier1VoiceQueue])
+
   const tier1ComparisonMetrics = useMemo(() => ([
     {
       label: 'Tickets received',
@@ -665,15 +674,6 @@ export default function NocMonitoringPage() {
       icon: <MonitorHeartRoundedIcon fontSize="small" />
     }
   ]), [summary, t1AutomationCreatedTodaySummary, tier1VoiceQueue, tier1VoiceWeekCompare])
-
-  const tier1VoiceWeekCompare = useMemo(() => {
-    const latest = historyTier1VoiceQueue?.[historyTier1VoiceQueue.length - 1]
-    if (!latest?.bucketStart) return { lastWeek: null, previousWeek: null }
-    return {
-      lastWeek: findHistoryPointNear(historyTier1VoiceQueue, dayjs(latest.bucketStart).subtract(7, 'day').toISOString()),
-      previousWeek: findHistoryPointNear(historyTier1VoiceQueue, dayjs(latest.bucketStart).subtract(14, 'day').toISOString())
-    }
-  }, [historyTier1VoiceQueue])
 
   const tier1RedFlagMetrics = useMemo(() => ([
     {

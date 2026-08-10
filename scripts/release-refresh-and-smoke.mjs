@@ -54,7 +54,7 @@ if (!skipRefresh) {
 }
 
 logStep(`Running authenticated browser smoke for ${route}`)
-run('npm', [
+run(npmCommand(), [
   '--prefix',
   'frontend',
   'run',
@@ -70,7 +70,9 @@ run('npm', [
   expectText,
   '--waitMs',
   waitMs
-])
+], {
+  shell: false
+})
 
 process.stdout.write('\nRelease refresh + smoke completed successfully.\n')
 
@@ -111,11 +113,16 @@ function logStep(message) {
   process.stdout.write(`\n[ops-hub] ${message}\n`)
 }
 
-function run(command, commandArgs, { captureOutput = false } = {}) {
+function npmCommand() {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm'
+}
+
+function run(command, commandArgs, { captureOutput = false, shell = false } = {}) {
   const result = spawnSync(command, commandArgs, {
     cwd: process.cwd(),
     encoding: 'utf8',
-    stdio: captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit'
+    stdio: captureOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+    shell
   })
 
   if (result.status !== 0) {
