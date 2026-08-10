@@ -55,6 +55,13 @@
     - `NOC_MONITORING_T1_CHANGE_CONTROL_TAG`
   - release helper:
     - `scripts/release-refresh-and-smoke.mjs` can issue a short-lived token over SSH, refresh the live monitoring snapshot, and run the authenticated browser smoke in one pass
+  - warm-cache service:
+    - `server/scripts/refreshNocMonitoringSnapshot.js`
+  - warm-cache timer:
+    - `noc-monitoring-warm-cache.timer`
+  - live browser behavior:
+    - `/api/noc-monitoring/current` now reads the stored snapshot without browser-triggered Zendesk refreshes
+    - `/api/noc-monitoring/telephony/current` serves a short-TTL telephony pulse for 5-second queue updates
   - optional telephony snapshot envs:
     - `ILLATION_DASHBOARD_STATS_URL`
     - `ILLATION_DASHBOARD_AUTH_HEADER`
@@ -171,6 +178,7 @@
   - `postgresql`
   - `noc-api`
   - `noc-db-backup.timer`
+  - `noc-monitoring-warm-cache.timer`
 
 ### `noc-automation-01`
 
@@ -307,6 +315,21 @@ These now run on `noc-automation-01` via `systemd` timers.
   - `/srv/postgresql/backups/nightly`
 - Retention:
   - dumps older than 14 days are deleted automatically
+
+### NOC Monitoring Warm Cache
+
+- Host:
+  - `noc-api-01`
+- Timer:
+  - `noc-monitoring-warm-cache.timer`
+- Service:
+  - `noc-monitoring-warm-cache.service`
+- Schedule:
+  - every `5 minutes`
+- Purpose:
+  - refresh the cached Zendesk-backed monitoring snapshot centrally on the server
+  - keep browsers off direct high-volume Zendesk refresh calls
+  - allow the UI to poll telephony separately every `5 seconds` without touching Zendesk
 
 ## Environment Notes
 

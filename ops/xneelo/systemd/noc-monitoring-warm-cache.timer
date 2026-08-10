@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh cached NOC monitoring snapshot every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=noc-monitoring-warm-cache.service
+
+[Install]
+WantedBy=timers.target

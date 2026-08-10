@@ -13,3 +13,8 @@ export async function refreshNocMonitoringSnapshot({ historyHours } = {}) {
   })
   return data
 }
+
+export async function fetchNocMonitoringTelephonyPulse() {
+  const { data } = await api.get('/noc-monitoring/telephony/current')
+  return data
+}

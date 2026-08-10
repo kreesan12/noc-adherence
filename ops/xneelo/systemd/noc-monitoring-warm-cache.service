@@ -1,0 +1,11 @@
+[Unit]
+Description=Warm cached NOC monitoring snapshot
+After=network-online.target postgresql.service noc-api.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/apps/noc-adherence/server
+ExecStart=/usr/bin/env node scripts/refreshNocMonitoringSnapshot.js --historyHours 72 --requestedBy systemd-warm-cache
+

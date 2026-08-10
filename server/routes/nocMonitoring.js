@@ -3,6 +3,7 @@ import { verifyToken } from './auth.js'
 import {
   getNocMonitoringConfigMeta,
   getNocMonitoringSnapshot,
+  getNocMonitoringTelephonyPulse,
   refreshNocMonitoringSnapshot
 } from '../lib/nocMonitoring.js'
 
@@ -27,12 +28,22 @@ export default function nocMonitoringRoutes() {
 
   r.get('/current', verifyToken, async (req, res) => {
     const historyHours = parseHistoryHours(req.query.historyHours)
-    const { snapshot, freshness, history } = await getNocMonitoringSnapshot({ historyHours })
+    const { snapshot, freshness, history } = await getNocMonitoringSnapshot({ autoRefresh: false, historyHours })
     res.json({
       snapshot,
       freshness,
       history,
       meta: getNocMonitoringConfigMeta()
+    })
+  })
+
+  r.get('/telephony/current', verifyToken, async (req, res) => {
+    const pulse = await getNocMonitoringTelephonyPulse()
+    res.json({
+      pulse,
+      meta: {
+        pollMsRecommended: 5000
+      }
     })
   })
 

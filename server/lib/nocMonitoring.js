@@ -11,13 +11,18 @@ import {
 } from './nldEventUtils.js'
 
 const SNAPSHOT_KEY = 'noc_monitoring_snapshot_v1'
+const T1_TIMER_CACHE_KEY = 'noc_monitoring_t1_timer_cache_v1'
 const SOFT_TTL_MS = Number(process.env.NOC_MONITORING_SNAPSHOT_TTL_MS || 15 * 60 * 1000)
+const TELEPHONY_PULSE_TTL_MS = Math.max(1000, Number(process.env.NOC_MONITORING_TELEPHONY_TTL_MS || 3000))
 const HARD_STALE_MS = Number(process.env.NOC_MONITORING_HARD_STALE_MS || 6 * 60 * 60 * 1000)
 const HISTORY_BUCKET_MINUTES = Math.max(5, Number(process.env.NOC_MONITORING_HISTORY_BUCKET_MINUTES || 15))
 const HISTORY_WINDOW_HOURS = Math.max(6, Number(process.env.NOC_MONITORING_HISTORY_WINDOW_HOURS || 72))
 const HISTORY_RETENTION_DAYS = Math.max(7, Number(process.env.NOC_MONITORING_HISTORY_RETENTION_DAYS || 45))
 const MAX_SEARCH_PAGES = Number(process.env.NOC_MONITORING_MAX_SEARCH_PAGES || 8)
 const MAX_SEARCH_RESULTS = Number(process.env.NOC_MONITORING_MAX_SEARCH_RESULTS || 2500)
+const SEARCH_EXPORT_PAGE_SIZE = Math.max(100, Math.min(1000, Number(process.env.NOC_MONITORING_SEARCH_PAGE_SIZE || 1000)))
+const T1_AUDIT_PAGE_SIZE = Math.max(20, Number(process.env.NOC_MONITORING_T1_AUDIT_PAGE_SIZE || 100))
+const T1_AUDIT_MAX_PAGES = Math.max(1, Number(process.env.NOC_MONITORING_T1_AUDIT_MAX_PAGES || 8))
 const OUTAGE_GROUP_ID = String(process.env.OUTAGE_WATCHER_GROUP_ID || '5160847905297').trim()
 const OUTAGE_FORM_NAME = String(process.env.OUTAGE_WATCHER_FORM_NAME || 'Outage Capturing').trim()
 const INITIAL_FORM_NAME = String(process.env.NOC_MONITORING_INITIAL_FORM_NAME || 'Frogfoot Initial Form').trim()
@@ -113,6 +118,8 @@ const T1_ACTION_DEFS = [
   { key: 'P2', label: 'P2 ISP waiting', tone: '#ea580c' },
   { key: 'P3', label: 'P3 FTTB vendor update', tone: '#d97706' },
   { key: 'P4', label: 'P4 FTTH MNT update', tone: '#2563eb' },
+  { key: 'P3 Parked', label: 'P3 parked timer', tone: '#92400e' },
+  { key: 'P4 Parked', label: 'P4 parked timer', tone: '#1d4ed8' },
   { key: 'Change', label: 'Change control', tone: '#8b5cf6' },
   { key: 'Other', label: 'Other / uncategorised', tone: '#475569' }
 ]
@@ -129,6 +136,7 @@ const T1_PLAY_POLICY_CONFIG = {
     key: 'P2',
     policyTitle: 'Play Priority 2',
     metricKey: 'periodic_update_time',
+    metricKeys: ['next_reply_time', 'periodic_update_time'],
     targetMinutes: TIER1_P2_SLA_MINUTES,
     exactClock: false
   },
@@ -136,6 +144,7 @@ const T1_PLAY_POLICY_CONFIG = {
     key: 'P3',
     policyTitle: 'Play Priority 3',
     metricKey: 'periodic_update_time',
+    metricKeys: ['periodic_update_time', 'next_reply_time'],
     targetMinutes: TIER1_P3_SLA_MINUTES,
     exactClock: false
   },
@@ -143,18 +152,60 @@ const T1_PLAY_POLICY_CONFIG = {
     key: 'P4',
     policyTitle: 'Play Priority 4',
     metricKey: 'periodic_update_time',
+    metricKeys: ['periodic_update_time', 'next_reply_time'],
     targetMinutes: TIER1_P4_SLA_MINUTES,
     exactClock: false
   }
 }
-const T1_PLAY_BUCKET_ORDER = ['BREACHED', 'Due <=15m', 'Due <=30m', 'Safe >30m', 'Change control', 'No active timer']
+const T1_PLAY_BUCKET_ORDER = ['BREACHED', 'Due <=15m', 'Due <=30m', 'Safe >30m', 'Parked timer', 'Change control', 'No active timer']
 const T1_PLAY_BUCKET_TONES = {
   BREACHED: '#dc2626',
   'Due <=15m': '#ea580c',
   'Due <=30m': '#d97706',
   'Safe >30m': '#0f766e',
+  'Parked timer': '#475569',
   'Change control': '#8b5cf6',
   'No active timer': '#64748b'
+}
+const T1_PARKED_TIMER_TAGS = {
+  P3: ['p3timer', 'noc_play_p3_start_timer'],
+  P4: ['p4timer', 'noc_play_p4_start_timer']
+}
+const T1_OPERATIONAL_STATE_LABELS = {
+  t1_active_support: 'Active support',
+  t1_active_support_blitz: 'Active support blitz',
+  t1_pending_maintenance: 'Pending maintenance',
+  t1_pending_vendor: 'Pending vendor',
+  t1_pending_information_from_client: 'Pending client info',
+  t1_pending_outage_closure: 'Pending outage closure',
+  t1_pending_tier_2: 'Pending Tier 2',
+  t1_pending_tier_3: 'Pending Tier 3',
+  t1_pending_pmt: 'Pending PMT',
+  t1_pending_365: 'Pending 365',
+  t1_pending_management: 'Pending management',
+  t1_pending_rca: 'Pending RCA',
+  t1_pending_coc: 'Pending COC',
+  t1_pending_cc: 'Pending change control',
+  t1_pending_provisioning: 'Pending provisioning',
+  t1_pending_facilities: 'Pending facilities',
+  t1_deferred: 'Deferred'
+}
+const T1_ESCALATION_PATH_LABELS = {
+  maintenance_escalation: 'Maintenance',
+  'noc_t1-dfa_escalation': 'DFA / vendor',
+  'noc-t1_outage_linked': 'Linked outage',
+  'noc_t1_outage_linked': 'Linked outage'
+}
+const T1_WORKFLOW_OWNER_TONES = {
+  'With Tier 1': '#0f766e',
+  'Waiting on client / ISP': '#ea580c',
+  'With maintenance': '#2563eb',
+  'With vendor / carrier': '#d97706',
+  'Linked outage / closure': '#7c3aed',
+  'Deferred / parked': '#475569',
+  'Change control': '#8b5cf6',
+  'Internal / other': '#64748b',
+  'Needs review': '#94a3b8'
 }
 const AGE_BUCKET_DEFS = [
   { key: '<=2h', label: '<=2h', maxHours: 2, tone: '#22c55e' },
@@ -183,6 +234,8 @@ const T1_AUTOMATION_ROUTE_RULES = [
 ]
 
 let refreshPromise = null
+let telephonyPulseCache = null
+let telephonyPulsePromise = null
 
 function formatYmdInTz(date = new Date(), timeZone = MONITORING_TIMEZONE) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -234,37 +287,51 @@ function isChangeControlTicket(ticket) {
   return hasAnyTag(ticket, [TIER1_CHANGE_CONTROL_TAG])
 }
 
+function hasT1ParkedTimer(ticket, laneKey) {
+  const tags = T1_PARKED_TIMER_TAGS[laneKey] || []
+  return hasAnyTag(ticket, tags)
+}
+
 function classifyT1ActionLevel(ticket) {
   if (hasAnyTag(ticket, ['play_p1'])) return 'P1'
   if (hasAnyTag(ticket, ['play_p2'])) return 'P2'
   if (hasAnyTag(ticket, ['play_p3'])) return 'P3'
   if (hasAnyTag(ticket, ['play_p4', 'isp_frac_auto'])) return 'P4'
+  if (hasT1ParkedTimer(ticket, 'P3')) return 'P3 Parked'
+  if (hasT1ParkedTimer(ticket, 'P4')) return 'P4 Parked'
   if (isChangeControlTicket(ticket)) return 'Change'
   return 'Other'
 }
 
-function classifyT1OperationalState(ticket, pLevel, status) {
-  const normalizedStatus = normalizeStatus(status || ticket?.status)
-  if (pLevel === 'P1') {
-    if (normalizedStatus === 'new') return 'New / unattended'
-    if (normalizedStatus === 'hold') return 'On hold'
-    return 'P1 in progress'
-  }
-  if (pLevel === 'P2') return normalizedStatus === 'hold' ? 'ISP hold / follow-up' : 'ISP follow-up'
-  if (pLevel === 'P3') return normalizedStatus === 'hold' ? 'Vendor hold / update' : 'Vendor update'
-  if (pLevel === 'P4') return normalizedStatus === 'hold' ? 'MNT hold / automation' : 'MNT / automation'
-  if (pLevel === 'Change') return 'Change control'
-  if (normalizedStatus === 'pending') return 'Pending review'
-  if (normalizedStatus === 'hold') return 'On hold'
-  if (normalizedStatus === 'new') return 'New / review'
-  if (normalizedStatus === 'open') return 'In progress'
-  if (normalizedStatus === 'solved') return 'Solved / cleanup'
-  if (normalizedStatus === 'closed') return 'Closed / cleanup'
-  return 'Other / review'
+function formatT1OperationalState(value) {
+  const raw = asText(value).toLowerCase()
+  if (!raw) return ''
+  if (T1_OPERATIONAL_STATE_LABELS[raw]) return T1_OPERATIONAL_STATE_LABELS[raw]
+  return humanizeFieldChoice(raw.replace(/^t1[_-]?/, ''))
 }
 
-function classifyT1EscalationPath(ticket, pLevel) {
-  const explicitValue = humanizeFieldChoice(cf(ticket, FIELD_IDS.tier1EscalationPath))
+function classifyT1OperationalState(ticket, pLevel, status) {
+  const normalizedStatus = normalizeStatus(status || ticket?.status)
+  if (pLevel === 'Change') return 'Change control'
+  if (pLevel === 'P3 Parked' || pLevel === 'P4 Parked') return 'Deferred'
+  if (normalizedStatus === 'new') return 'New / unattended'
+  if (normalizedStatus === 'pending') return 'Pending review'
+  if (normalizedStatus === 'hold') return 'On hold'
+  if (normalizedStatus === 'open') return 'Active support'
+  if (normalizedStatus === 'solved') return 'Solved / cleanup'
+  if (normalizedStatus === 'closed') return 'Closed / cleanup'
+  return 'Needs review'
+}
+
+function formatT1EscalationPath(value) {
+  const raw = asText(value).toLowerCase()
+  if (!raw) return ''
+  if (T1_ESCALATION_PATH_LABELS[raw]) return T1_ESCALATION_PATH_LABELS[raw]
+  return humanizeFieldChoice(raw.replace(/^noc[_-]?t1[_-]?/, ''))
+}
+
+function classifyT1EscalationPath(ticket, pLevel, escalationPathKey = '') {
+  const explicitValue = formatT1EscalationPath(escalationPathKey || cf(ticket, FIELD_IDS.tier1EscalationPath))
   if (explicitValue) return explicitValue
 
   switch (pLevel) {
@@ -281,6 +348,36 @@ function classifyT1EscalationPath(ticket, pLevel) {
     default:
       return 'Tier 1 review'
   }
+}
+
+function classifyT1WorkflowOwner({ operationalStateKey, escalationPathKey, pLevel, status }) {
+  const op = asText(operationalStateKey).toLowerCase()
+  const esc = asText(escalationPathKey).toLowerCase()
+  const normalizedStatus = normalizeStatus(status)
+
+  if (pLevel === 'Change') return 'Change control'
+  if (pLevel === 'P3 Parked' || pLevel === 'P4 Parked' || op === 't1_deferred') return 'Deferred / parked'
+  if (op === 't1_active_support' || op === 't1_active_support_blitz') return 'With Tier 1'
+  if (op === 't1_pending_information_from_client') return 'Waiting on client / ISP'
+  if (op === 't1_pending_maintenance') return 'With maintenance'
+  if (op === 't1_pending_vendor' || esc === 'noc_t1-dfa_escalation') return 'With vendor / carrier'
+  if (op === 't1_pending_outage_closure' || esc === 'noc-t1_outage_linked' || esc === 'noc_t1_outage_linked') return 'Linked outage / closure'
+  if ([
+    't1_pending_tier_2',
+    't1_pending_tier_3',
+    't1_pending_pmt',
+    't1_pending_365',
+    't1_pending_management',
+    't1_pending_rca',
+    't1_pending_coc',
+    't1_pending_cc',
+    't1_pending_provisioning',
+    't1_pending_facilities'
+  ].includes(op)) return 'Internal / other'
+  if (esc === 'maintenance_escalation') return 'With maintenance'
+  if (!op && normalizedStatus === 'new') return 'With Tier 1'
+  if (!op && ['open', 'pending', 'hold'].includes(normalizedStatus)) return 'Needs review'
+  return 'Needs review'
 }
 
 function classifyT1AutomationRoutes(ticket) {
@@ -313,8 +410,9 @@ function classifyOutagePriority(ticket) {
   return ''
 }
 
-function classifyDueBucket(remainingMinutes, pLevel, clockActive) {
+function classifyDueBucket(remainingMinutes, pLevel, clockActive, parkedTimerActive = false) {
   if (pLevel === 'Change') return 'Change control'
+  if (parkedTimerActive) return 'Parked timer'
   if (!clockActive || !Number.isFinite(Number(remainingMinutes))) return 'No active timer'
   if (remainingMinutes <= 0) return 'BREACHED'
   if (remainingMinutes <= 15) return 'Due <=15m'
@@ -331,7 +429,19 @@ function getT1PlayPolicy(pLevel) {
   return T1_PLAY_POLICY_CONFIG[pLevel] || null
 }
 
-function buildT1PlayClock(ticket, pLevel, status, now = dayjs()) {
+function getT1PlayMetricKeys(policyOrLevel) {
+  const policy = typeof policyOrLevel === 'string'
+    ? getT1PlayPolicy(policyOrLevel)
+    : policyOrLevel
+  if (!policy) return []
+  return Array.isArray(policy.metricKeys) && policy.metricKeys.length
+    ? policy.metricKeys
+    : policy.metricKey
+      ? [policy.metricKey]
+      : []
+}
+
+function buildApproxT1PlayClock(ticket, pLevel, status, now = dayjs()) {
   const policy = getT1PlayPolicy(pLevel)
   if (!policy) {
     return {
@@ -397,23 +507,105 @@ function buildT1PlayClock(ticket, pLevel, status, now = dayjs()) {
   }
 }
 
-function buildT1ActionRow(ticket, now = dayjs()) {
+function buildExactCachedT1PlayClock(ticket, pLevel, status, timerCacheRow, now = dayjs()) {
+  const policy = getT1PlayPolicy(pLevel)
+  if (!policy || !timerCacheRow?.timerAnchorAt) return null
+
+  const normalizedStatus = normalizeStatus(status || ticket?.status)
+  if (policy.activeStatusOnly && normalizedStatus !== policy.activeStatusOnly) {
+    return {
+      playPolicyTitle: policy.policyTitle,
+      playMetricKey: timerCacheRow.playMetricKey || policy.metricKey,
+      playTargetMinutes: Number(timerCacheRow.playTargetMinutes || policy.targetMinutes),
+      playClockActive: false,
+      playClockExact: true,
+      playClockSource: 'Zendesk ticket audit cache shows this play clock is not currently active.',
+      timerAnchorAt: timerCacheRow.timerAnchorAt,
+      timerAnchorMode: timerCacheRow.timerAnchorMode || 'audit_change',
+      timerElapsedMinutes: null,
+      remainingMinutes: null,
+      remainingHours: null,
+      dueBucket: classifyDueBucket(null, pLevel, false)
+    }
+  }
+
+  const timerElapsedMinutes = buildAgeMinutes(timerCacheRow.timerAnchorAt, now)
+  const playTargetMinutes = Number(timerCacheRow.playTargetMinutes || policy.targetMinutes)
+  const remainingMinutes = Number.isFinite(Number(timerElapsedMinutes))
+    ? Number((playTargetMinutes - timerElapsedMinutes).toFixed(1))
+    : null
+  const remainingHours = Number.isFinite(Number(remainingMinutes))
+    ? Number((remainingMinutes / 60).toFixed(2))
+    : null
+
+  return {
+    playPolicyTitle: timerCacheRow.playPolicyTitle || policy.policyTitle,
+    playMetricKey: timerCacheRow.playMetricKey || policy.metricKey,
+    playTargetMinutes,
+    playClockActive: true,
+    playClockExact: true,
+    playClockSource: 'Zendesk ticket audits cached on the backend keep this play clock anchored to the latest real timer reset.',
+    timerAnchorAt: timerCacheRow.timerAnchorAt,
+    timerAnchorMode: timerCacheRow.timerAnchorMode || 'audit_change',
+    timerElapsedMinutes,
+    remainingMinutes,
+    remainingHours,
+    dueBucket: classifyDueBucket(remainingMinutes, pLevel, true)
+  }
+}
+
+function buildParkedT1PlayClock(pLevel) {
+  return {
+    playPolicyTitle: '',
+    playMetricKey: '',
+    playTargetMinutes: null,
+    playClockActive: false,
+    playClockExact: true,
+    playClockSource: 'This ticket is parked on the pre-play timer and has not entered the live P3/P4 lane yet.',
+    timerAnchorAt: null,
+    timerAnchorMode: 'parked_timer',
+    timerElapsedMinutes: null,
+    remainingMinutes: null,
+    remainingHours: null,
+    dueBucket: classifyDueBucket(null, pLevel, false, true)
+  }
+}
+
+function buildT1PlayClock(ticket, pLevel, status, now = dayjs(), timerCacheRow = null) {
+  if (pLevel === 'P3 Parked' || pLevel === 'P4 Parked') {
+    return buildParkedT1PlayClock(pLevel)
+  }
+
+  const exactRow = buildExactCachedT1PlayClock(ticket, pLevel, status, timerCacheRow, now)
+  if (exactRow) return exactRow
+
+  return buildApproxT1PlayClock(ticket, pLevel, status, now)
+}
+
+function buildT1ActionRow(ticket, now = dayjs(), timerCacheRow = null) {
   const base = buildTicketBase(ticket, now)
   const product = classifyTicketProduct(ticket)
   const pLevel = classifyT1ActionLevel(ticket)
   const automationRoutes = classifyT1AutomationRoutes(ticket)
   const status = normalizeStatus(ticket.status)
-  const explicitOperationalState = humanizeFieldChoice(cf(ticket, FIELD_IDS.tier1OperationalState))
-  const escalationPath = classifyT1EscalationPath(ticket, pLevel)
-  const playClock = buildT1PlayClock(ticket, pLevel, status, now)
+  const operationalStateKey = asText(cf(ticket, FIELD_IDS.tier1OperationalState)).toLowerCase()
+  const escalationPathKey = asText(cf(ticket, FIELD_IDS.tier1EscalationPath)).toLowerCase()
+  const operationalState = formatT1OperationalState(operationalStateKey) || classifyT1OperationalState(ticket, pLevel, status)
+  const escalationPath = classifyT1EscalationPath(ticket, pLevel, escalationPathKey)
+  const workflowOwner = classifyT1WorkflowOwner({ operationalStateKey, escalationPathKey, pLevel, status })
+  const playClock = buildT1PlayClock(ticket, pLevel, status, now, timerCacheRow)
   const p1ActionBreached = pLevel === 'P1' && playClock.playClockActive && Number(playClock.remainingMinutes) <= 0
 
   return {
     ...base,
     product,
     pLevel,
-    operationalState: explicitOperationalState || classifyT1OperationalState(ticket, pLevel, status),
+    operationalStateKey,
+    operationalState,
+    escalationPathKey,
     escalationPath,
+    workflowOwner,
+    parkedTimerActive: pLevel === 'P3 Parked' || pLevel === 'P4 Parked',
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
     ...playClock,
     automationRoutes: automationRoutes.map((rule) => rule.label),
@@ -689,7 +881,7 @@ async function fetchZendeskExport(query) {
   let nextUrl = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   nextUrl.searchParams.set('query', query)
   nextUrl.searchParams.set('filter[type]', 'ticket')
-  nextUrl.searchParams.set('page[size]', '100')
+  nextUrl.searchParams.set('page[size]', String(SEARCH_EXPORT_PAGE_SIZE))
 
   const headers = makeZendeskHeaders()
   const results = []
@@ -707,6 +899,27 @@ async function fetchZendeskExport(query) {
   }
 
   return results.slice(0, MAX_SEARCH_RESULTS)
+}
+
+async function fetchZendeskTicketAudits(ticketId) {
+  const headers = makeZendeskHeaders()
+  let nextUrl = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/tickets/${ticketId}/audits.json`)
+  nextUrl.searchParams.set('per_page', String(T1_AUDIT_PAGE_SIZE))
+
+  const audits = []
+  let page = 0
+
+  while (nextUrl && page < T1_AUDIT_MAX_PAGES) {
+    const data = await fetchJsonWithTimeout(nextUrl.toString(), { headers, timeoutMs: 30000 })
+    const batch = Array.isArray(data?.audits) ? data.audits : []
+    audits.push(...batch)
+
+    const nextPage = asText(data?.next_page)
+    nextUrl = nextPage ? new URL(nextPage) : null
+    page += 1
+  }
+
+  return audits
 }
 
 async function fetchZendeskSkips() {
@@ -869,6 +1082,63 @@ async function fetchTelephonySnapshot() {
   }
 }
 
+function buildTelephonyQueueWaitingSummary(telephony) {
+  return [...(telephony?.queues || [])]
+    .map((row) => ({
+      key: row.name || 'Unknown queue',
+      label: row.name || 'Unknown queue',
+      tone: '#0891b2',
+      count: asNumber(row.waiting, 0),
+      active: asNumber(row.active, 0),
+      answered: asNumber(row.answered, 0),
+      missed: asNumber(row.missed, 0)
+    }))
+    .sort((left, right) => right.count - left.count)
+}
+
+function buildTelephonyMissedAgentSummary(telephony) {
+  return [...(telephony?.agents || [])]
+    .map((row) => ({
+      key: `${row.name || 'Unknown'}-${row.queue || 'No queue'}`,
+      label: row.name || 'Unknown agent',
+      tone: '#dc2626',
+      count: asNumber(row.missedCalls, 0),
+      queue: row.queue || 'No queue'
+    }))
+    .filter((row) => row.count > 0)
+    .sort((left, right) => right.count - left.count)
+}
+
+function findTier1VoiceQueue(telephony) {
+  return (telephony?.queues || []).find((row) => String(row.name || '').toLowerCase() === TIER1_VOICE_QUEUE_NAME.toLowerCase())
+    || (telephony?.queues || []).find((row) => String(row.name || '').toLowerCase().includes(TIER1_VOICE_QUEUE_NAME.toLowerCase()))
+    || null
+}
+
+function buildTelephonyPulsePayload(telephony) {
+  const tier1VoiceQueue = findTier1VoiceQueue(telephony)
+  return {
+    generatedAt: new Date().toISOString(),
+    available: Boolean(telephony?.available),
+    reason: telephony?.reason || '',
+    summary: telephony?.summary || null,
+    queues: (telephony?.queues || []).slice(0, 100),
+    agents: (telephony?.agents || []).slice(0, 100),
+    hourly: (telephony?.hourly || []).slice(0, 48),
+    queueWaitingSummary: buildTelephonyQueueWaitingSummary(telephony).slice(0, 24),
+    missedAgentSummary: buildTelephonyMissedAgentSummary(telephony).slice(0, 24),
+    tier1: tier1VoiceQueue ? {
+      queueName: tier1VoiceQueue.name || TIER1_VOICE_QUEUE_NAME,
+      waiting: asNumber(tier1VoiceQueue.waiting, 0),
+      answered: asNumber(tier1VoiceQueue.answered, 0),
+      missed: asNumber(tier1VoiceQueue.missed, 0),
+      avgAnswerSeconds: asNumber(tier1VoiceQueue.avgAnswerSeconds, 0),
+      maxQueueSeconds: asNumber(tier1VoiceQueue.maxQueueSeconds, 0),
+      slaBreached: asNumber(tier1VoiceQueue.maxQueueSeconds, 0) > TIER1_VOICE_SLA_SECONDS
+    } : null
+  }
+}
+
 function sumSubscriberImpact(rows) {
   return rows.reduce((total, row) => total + asNumber(row.subscriberImpact, 0), 0)
 }
@@ -1021,6 +1291,7 @@ function buildHistoryPayload(snapshot) {
     t1ActionSummary: Array.isArray(snapshot?.trends?.t1ActionSummary) ? snapshot.trends.t1ActionSummary : [],
     t1DueBucketSummary: Array.isArray(snapshot?.trends?.t1DueBucketSummary) ? snapshot.trends.t1DueBucketSummary : [],
     t1ProductSummary: Array.isArray(snapshot?.trends?.t1ProductSummary) ? snapshot.trends.t1ProductSummary : [],
+    t1WorkflowOwnerSummary: Array.isArray(snapshot?.trends?.t1WorkflowOwnerSummary) ? snapshot.trends.t1WorkflowOwnerSummary : [],
     t1EscalationPathSummary: Array.isArray(snapshot?.trends?.t1EscalationPathSummary) ? snapshot.trends.t1EscalationPathSummary : [],
     t2AgeBucketSummary: Array.isArray(snapshot?.trends?.t2AgeBucketSummary) ? snapshot.trends.t2AgeBucketSummary : [],
     t2PartySummary: Array.isArray(snapshot?.trends?.t2PartySummary) ? snapshot.trends.t2PartySummary.slice(0, 12) : [],
@@ -1033,6 +1304,127 @@ function buildHistoryPayload(snapshot) {
     tier1VoiceQueue: snapshot?.collections?.tier1VoiceQueue || null,
     telephonyMeta: snapshot?.collections?.telephonyMeta || null
   }
+}
+
+async function readJsonAutomationSetting(key) {
+  const row = await prisma.automationSetting.findUnique({ where: { key } })
+  return row?.value && typeof row.value === 'object' ? row.value : null
+}
+
+async function writeJsonAutomationSetting(key, value, updatedBy = 'system') {
+  await prisma.automationSetting.upsert({
+    where: { key },
+    update: {
+      value,
+      updatedBy: asText(updatedBy) || 'system'
+    },
+    create: {
+      key,
+      value,
+      updatedBy: asText(updatedBy) || 'system'
+    }
+  })
+}
+
+function extractLatestAuditPlayClock(ticket, pLevel, audits = []) {
+  const policy = getT1PlayPolicy(pLevel)
+  if (!policy || policy.exactClock) return null
+
+  const metricFields = new Set(getT1PlayMetricKeys(policy))
+  const candidates = []
+
+  for (const audit of audits) {
+    const createdAt = asText(audit?.created_at)
+    if (!createdAt) continue
+
+    for (const event of audit?.events || []) {
+      if (String(event?.type) !== 'Change') continue
+      const fieldName = asText(event?.field_name)
+      if (metricFields.has(fieldName) && event?.value) {
+        const targetMinutes = Number(event?.value?.minutes || policy.targetMinutes)
+        candidates.push({
+          ticketId: String(ticket.id),
+          pLevel,
+          playPolicyTitle: policy.policyTitle,
+          playMetricKey: fieldName || policy.metricKey,
+          playTargetMinutes: targetMinutes,
+          timerAnchorAt: createdAt,
+          timerAnchorMode: `audit_${fieldName}`,
+          playClockExact: true,
+          playClockSource: 'Zendesk ticket audits cached on the backend keep this play clock anchored to the latest real timer reset.',
+          lastTicketUpdatedAt: ticket.updated_at || null,
+          lastAuditCreatedAt: createdAt
+        })
+      } else if (fieldName === 'sla_policy' && asText(event?.value) === policy.policyTitle) {
+        candidates.push({
+          ticketId: String(ticket.id),
+          pLevel,
+          playPolicyTitle: policy.policyTitle,
+          playMetricKey: policy.metricKey,
+          playTargetMinutes: policy.targetMinutes,
+          timerAnchorAt: createdAt,
+          timerAnchorMode: 'audit_sla_policy',
+          playClockExact: true,
+          playClockSource: 'Zendesk ticket audits cached on the backend keep this play clock anchored to the latest real timer reset.',
+          lastTicketUpdatedAt: ticket.updated_at || null,
+          lastAuditCreatedAt: createdAt
+        })
+      }
+    }
+  }
+
+  if (!candidates.length) return null
+  return candidates.sort((left, right) => Date.parse(right.timerAnchorAt) - Date.parse(left.timerAnchorAt))[0]
+}
+
+async function syncTier1TimerCache(rawTier1OpenTickets, requestedBy = 'system') {
+  const existingCache = await readJsonAutomationSetting(T1_TIMER_CACHE_KEY)
+  const existingMap = existingCache?.byTicketId && typeof existingCache.byTicketId === 'object'
+    ? existingCache.byTicketId
+    : {}
+
+  const candidateTickets = rawTier1OpenTickets.filter((ticket) => ['P2', 'P3', 'P4'].includes(classifyT1ActionLevel(ticket)))
+  const nextByTicketId = {}
+
+  for (const ticket of candidateTickets) {
+    const ticketId = String(ticket.id)
+    const pLevel = classifyT1ActionLevel(ticket)
+    const cached = existingMap[ticketId]
+
+    if (
+      cached
+      && cached.pLevel === pLevel
+      && asText(cached.lastTicketUpdatedAt) === asText(ticket.updated_at)
+      && asText(cached.timerAnchorAt)
+    ) {
+      nextByTicketId[ticketId] = cached
+      continue
+    }
+
+    const audits = await fetchZendeskTicketAudits(ticket.id).catch(() => [])
+    const exactClock = extractLatestAuditPlayClock(ticket, pLevel, audits)
+
+    if (exactClock) {
+      nextByTicketId[ticketId] = exactClock
+      continue
+    }
+
+    if (cached?.timerAnchorAt) {
+      nextByTicketId[ticketId] = {
+        ...cached,
+        pLevel,
+        lastTicketUpdatedAt: ticket.updated_at || null
+      }
+    }
+  }
+
+  const nextCache = {
+    syncedAt: new Date().toISOString(),
+    byTicketId: nextByTicketId
+  }
+
+  await writeJsonAutomationSetting(T1_TIMER_CACHE_KEY, nextCache, requestedBy)
+  return nextByTicketId
 }
 
 function buildHistoryRowInput(snapshot, requestedBy = 'system') {
@@ -1265,7 +1657,7 @@ async function readHistoryWindow(hours = HISTORY_WINDOW_HOURS) {
   return buildHistoryResponse(rows, safeHours)
 }
 
-async function collectLiveSnapshot() {
+async function collectLiveSnapshot(requestedBy = 'system') {
   const warnings = []
   const now = dayjs()
   const timelineMeta = buildTicketTimelineMeta(now)
@@ -1379,7 +1771,10 @@ async function collectLiveSnapshot() {
     })
   )
 
-  const tier1Tickets = sortByAgeDesc(rawTier1OpenTickets.map((ticket) => buildT1ActionRow(ticket, now)))
+  const t1TimerCacheByTicketId = await safe('tier1-timer-cache', () => syncTier1TimerCache(rawTier1OpenTickets, requestedBy), {})
+  const tier1Tickets = sortByAgeDesc(
+    rawTier1OpenTickets.map((ticket) => buildT1ActionRow(ticket, now, t1TimerCacheByTicketId[String(ticket.id)] || null))
+  )
   const tier2Tickets = sortByAgeDesc(rawTier2OpenTickets.map((ticket) => buildT2TicketRow(ticket, now)))
   const tier2NewUnassignedRows = sortByAgeDesc(rawTier2UnassignedTickets.map((ticket) => buildT2TicketRow(ticket, now)))
   const tier2NewUnassigned = tier2NewUnassignedRows.length
@@ -1460,31 +1855,42 @@ async function collectLiveSnapshot() {
   const t1ProductSummary = summarizeRowsByKey(tier1Tickets, 'product', { FTTB: '#0f766e', FTTH: '#2563eb', Other: '#64748b' })
   const t1StatusSummary = summarizeRowsByKey(tier1Tickets, 'status', T1_STATUS_TONES)
   const t1OperationalStateSummary = summarizeRowsByKey(tier1Tickets, 'operationalState', {
-    'New / unattended': '#dc2626',
-    'P1 in progress': '#f97316',
-    'ISP follow-up': '#ea580c',
-    'ISP hold / follow-up': '#c2410c',
-    'Vendor update': '#d97706',
-    'Vendor hold / update': '#b45309',
-    'MNT / automation': '#2563eb',
-    'MNT hold / automation': '#1d4ed8',
+    'Active support': '#0f766e',
+    'Active support blitz': '#14b8a6',
+    'Pending maintenance': '#2563eb',
+    'Pending vendor': '#d97706',
+    'Pending client info': '#ea580c',
+    'Pending outage closure': '#7c3aed',
+    Deferred: '#475569',
     'Change control': '#8b5cf6',
+    'Pending Tier 2': '#475569',
+    'Pending Tier 3': '#475569',
+    'Pending PMT': '#475569',
+    'Pending 365': '#475569',
+    'Pending management': '#475569',
+    'Pending RCA': '#475569',
+    'Pending COC': '#475569',
+    'Pending change control': '#475569',
+    'Pending provisioning': '#475569',
+    'Pending facilities': '#475569',
     'Pending review': '#475569',
-    'New / review': '#dc2626',
     'On hold': '#7c3aed',
-    'In progress': '#0ea5e9',
+    'New / unattended': '#dc2626',
     'Solved / cleanup': '#16a34a',
     'Closed / cleanup': '#475569',
-    'Other / review': '#64748b'
+    'Needs review': '#64748b'
   })
   const t1EscalationPathSummary = summarizeRowsByKey(tier1Tickets, 'escalationPath', {
     'Tier 1 desk': '#0f766e',
+    Maintenance: '#2563eb',
+    'DFA / vendor': '#d97706',
+    'Linked outage': '#7c3aed',
     'ISP / customer': '#ea580c',
     'Vendor / carrier': '#d97706',
-    'MNT / automation': '#2563eb',
     'Change control': '#8b5cf6',
     'Tier 1 review': '#475569'
   })
+  const t1WorkflowOwnerSummary = summarizeRowsByKey(tier1Tickets, 'workflowOwner', T1_WORKFLOW_OWNER_TONES)
   const t1DueBucketSummary = T1_PLAY_BUCKET_ORDER.map((bucket) => ({
     key: bucket,
     label: bucket,
@@ -1501,6 +1907,18 @@ async function collectLiveSnapshot() {
   const t1ChangeControlRows = sortByAgeDesc(
     tier1Tickets.filter((row) => row.pLevel === 'Change')
   )
+  const t1DeskRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => row.workflowOwner === 'With Tier 1')
+  )
+  const t1MaintenanceRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => row.workflowOwner === 'With maintenance')
+  )
+  const t1ClientPendingRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => row.workflowOwner === 'Waiting on client / ISP')
+  )
+  const t1ParkedRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => row.parkedTimerActive || row.workflowOwner === 'Deferred / parked')
+  )
   const t1AutomationOpenSummary = summarizeRuleHits(rawTier1OpenTickets, T1_AUTOMATION_ROUTE_RULES)
   const t1AutomationCreatedTodaySummary = summarizeRuleHits(rawTier1CreatedToday, T1_AUTOMATION_ROUTE_RULES)
 
@@ -1512,30 +1930,9 @@ async function collectLiveSnapshot() {
   const outageRegionImpactSummary = summarizeTotalsByKey(outageRows, 'region', 'subscriberImpact')
   const outageServiceTypeSummary = summarizeRowsByKey(outageRows, 'serviceType')
   const backhaulOwnerSummary = summarizeRowsByKey(backhaulRows, 'owner')
-  const telephonyQueueWaitingSummary = [...(telephony.queues || [])]
-    .map((row) => ({
-      key: row.name || 'Unknown queue',
-      label: row.name || 'Unknown queue',
-      tone: '#0891b2',
-      count: asNumber(row.waiting, 0),
-      active: asNumber(row.active, 0),
-      answered: asNumber(row.answered, 0),
-      missed: asNumber(row.missed, 0)
-    }))
-    .sort((left, right) => right.count - left.count)
-  const telephonyMissedAgentSummary = [...(telephony.agents || [])]
-    .map((row) => ({
-      key: `${row.name || 'Unknown'}-${row.queue || 'No queue'}`,
-      label: row.name || 'Unknown agent',
-      tone: '#dc2626',
-      count: asNumber(row.missedCalls, 0),
-      queue: row.queue || 'No queue'
-    }))
-    .filter((row) => row.count > 0)
-    .sort((left, right) => right.count - left.count)
-  const tier1VoiceQueue = (telephony.queues || []).find((row) => String(row.name || '').toLowerCase() === TIER1_VOICE_QUEUE_NAME.toLowerCase())
-    || (telephony.queues || []).find((row) => String(row.name || '').toLowerCase().includes(TIER1_VOICE_QUEUE_NAME.toLowerCase()))
-    || null
+  const telephonyQueueWaitingSummary = buildTelephonyQueueWaitingSummary(telephony)
+  const telephonyMissedAgentSummary = buildTelephonyMissedAgentSummary(telephony)
+  const tier1VoiceQueue = findTier1VoiceQueue(telephony)
 
   const t1ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedToday, 'created_at')
   const t1ReceivedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedLastWeek, 'created_at')
@@ -1627,7 +2024,13 @@ async function collectLiveSnapshot() {
     tier1PlayClockTracked: tier1Tickets.filter((row) => row.playClockActive).length,
     tier1PlayClockBreached: tier1Tickets.filter((row) => row.dueBucket === 'BREACHED').length,
     tier1PlayClockDueSoon: tier1Tickets.filter((row) => ['Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length,
+    tier1ParkedTimers: t1ParkedRows.length,
     tier1ChangeControlOpen: t1ChangeControlRows.length,
+    tier1WithDesk: t1DeskRows.length,
+    tier1WithMaintenance: t1MaintenanceRows.length,
+    tier1WaitingClient: t1ClientPendingRows.length,
+    tier1LinkedOutage: tier1Tickets.filter((row) => row.workflowOwner === 'Linked outage / closure').length,
+    tier1WithVendor: tier1Tickets.filter((row) => row.workflowOwner === 'With vendor / carrier').length,
     tier2Open: tier2Tickets.length,
     tier2NewUnassigned,
     t2HandoverOpen: tier2HandoverRows.length,
@@ -1699,6 +2102,7 @@ async function collectLiveSnapshot() {
       t1ProductSummary,
       t1StatusSummary,
       t1OperationalStateSummary,
+      t1WorkflowOwnerSummary,
       t1EscalationPathSummary,
       t1DueBucketSummary,
       t1AutomationOpenSummary,
@@ -1742,9 +2146,14 @@ async function collectLiveSnapshot() {
       t1ProductSummary,
       t1StatusSummary,
       t1OperationalStateSummary,
+      t1WorkflowOwnerSummary,
       t1EscalationPathSummary,
       t1AutomationOpenSummary,
       t1AutomationCreatedTodaySummary,
+      tier1DeskTickets: t1DeskRows.slice(0, 150),
+      tier1MaintenanceTickets: t1MaintenanceRows.slice(0, 150),
+      tier1ClientPendingTickets: t1ClientPendingRows.slice(0, 150),
+      tier1ParkedTickets: t1ParkedRows.slice(0, 150),
       t2PartySummary: t2PartySummary.slice(0, 24),
       t2ProductSummary,
       t2ServiceTypeSummary: t2ServiceTypeSummary.slice(0, 24),
@@ -1769,8 +2178,7 @@ async function collectLiveSnapshot() {
 }
 
 async function readStoredSnapshot() {
-  const row = await prisma.automationSetting.findUnique({ where: { key: SNAPSHOT_KEY } })
-  return row?.value && typeof row.value === 'object' ? row.value : null
+  return readJsonAutomationSetting(SNAPSHOT_KEY)
 }
 
 function getFreshness(snapshot) {
@@ -1798,19 +2206,8 @@ export async function refreshNocMonitoringSnapshot(requestedBy = 'system', { his
   if (refreshPromise) return refreshPromise
 
   refreshPromise = (async () => {
-    const snapshot = await collectLiveSnapshot()
-    await prisma.automationSetting.upsert({
-      where: { key: SNAPSHOT_KEY },
-      update: {
-        value: snapshot,
-        updatedBy: asText(requestedBy) || 'system'
-      },
-      create: {
-        key: SNAPSHOT_KEY,
-        value: snapshot,
-        updatedBy: asText(requestedBy) || 'system'
-      }
-    })
+    const snapshot = await collectLiveSnapshot(requestedBy)
+    await writeJsonAutomationSetting(SNAPSHOT_KEY, snapshot, requestedBy)
     await persistHistorySnapshot(snapshot, requestedBy)
     const history = await readHistoryWindow(historyHours)
 
@@ -1847,10 +2244,50 @@ export async function getNocMonitoringSnapshot({ autoRefresh = true, historyHour
   }
 }
 
+export async function getNocMonitoringTelephonyPulse({ forceFresh = false } = {}) {
+  const cachedAt = Date.parse(telephonyPulseCache?.generatedAt || '')
+  const cacheFresh = !forceFresh
+    && telephonyPulseCache
+    && Number.isFinite(cachedAt)
+    && (Date.now() - cachedAt) <= TELEPHONY_PULSE_TTL_MS
+
+  if (cacheFresh) {
+    return telephonyPulseCache
+  }
+
+  if (telephonyPulsePromise) return telephonyPulsePromise
+
+  telephonyPulsePromise = (async () => {
+    try {
+      const telephony = await fetchTelephonySnapshot()
+      const pulse = buildTelephonyPulsePayload(telephony)
+      telephonyPulseCache = pulse
+      return pulse
+    } catch (error) {
+      const pulse = buildTelephonyPulsePayload({
+        available: false,
+        reason: error?.message || 'Telephony pulse unavailable.',
+        queues: [],
+        agents: [],
+        hourly: [],
+        summary: null
+      })
+      telephonyPulseCache = pulse
+      return pulse
+    } finally {
+      telephonyPulsePromise = null
+    }
+  })()
+
+  return telephonyPulsePromise
+}
+
 export function getNocMonitoringConfigMeta() {
   return {
     snapshotKey: SNAPSHOT_KEY,
     staleAfterMs: SOFT_TTL_MS,
+    searchExportPageSize: SEARCH_EXPORT_PAGE_SIZE,
+    telephonyPulseTtlMs: TELEPHONY_PULSE_TTL_MS,
     hardStaleMs: HARD_STALE_MS,
     historyBucketMinutes: HISTORY_BUCKET_MINUTES,
     historyWindowHours: HISTORY_WINDOW_HOURS,

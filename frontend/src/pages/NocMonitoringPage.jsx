@@ -43,7 +43,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import { fetchNocMonitoringSnapshot, refreshNocMonitoringSnapshot } from '../api/nocMonitoring'
+import { fetchNocMonitoringSnapshot, fetchNocMonitoringTelephonyPulse, refreshNocMonitoringSnapshot } from '../api/nocMonitoring'
 import { PageShell } from '../components/ui/PageScaffold'
 import { downloadWorkbook } from '../utils/slaExport'
 import {
@@ -62,6 +62,8 @@ const OPS_TEXT = '#e5eef8'
 const OPS_MUTED = 'rgba(203, 213, 225, 0.72)'
 const OPS_GRID = 'rgba(148, 163, 184, 0.16)'
 const DEFAULT_HISTORY_HOURS = 72
+const SNAPSHOT_POLL_MS = 5 * 60 * 1000
+const TELEPHONY_POLL_MS = 5000
 const DASHBOARD_METRIC_ROOT_SX = {
   p: 1.05,
   borderRadius: 3.1,
@@ -121,6 +123,8 @@ const T1_ACTION_TONE_MAP = {
   P2: '#ea580c',
   P3: '#d97706',
   P4: '#2563eb',
+  'P3 Parked': '#92400e',
+  'P4 Parked': '#1d4ed8',
   Change: '#8b5cf6',
   Other: '#64748b'
 }
@@ -129,64 +133,98 @@ const T1_DUE_BUCKET_TONE_MAP = {
   'Due <=15m': '#ea580c',
   'Due <=30m': '#d97706',
   'Safe >30m': '#0f766e',
+  'Parked timer': '#475569',
   'Change control': '#8b5cf6',
   'No active timer': '#64748b'
 }
 const T1_OPERATIONAL_STATE_TONE_MAP = {
-  'New / unattended': '#dc2626',
-  'P1 in progress': '#f97316',
-  'ISP follow-up': '#ea580c',
-  'ISP hold / follow-up': '#c2410c',
-  'Vendor update': '#d97706',
-  'Vendor hold / update': '#b45309',
-  'MNT / automation': '#2563eb',
-  'MNT hold / automation': '#1d4ed8',
+  'Active support': '#0f766e',
+  'Active support blitz': '#14b8a6',
+  'Pending maintenance': '#2563eb',
+  'Pending vendor': '#d97706',
+  'Pending client info': '#ea580c',
+  'Pending outage closure': '#7c3aed',
+  Deferred: '#475569',
   'Change control': '#8b5cf6',
+  'Pending Tier 2': '#475569',
+  'Pending Tier 3': '#475569',
+  'Pending PMT': '#475569',
+  'Pending 365': '#475569',
+  'Pending management': '#475569',
+  'Pending RCA': '#475569',
+  'Pending COC': '#475569',
+  'Pending change control': '#475569',
+  'Pending provisioning': '#475569',
+  'Pending facilities': '#475569',
   'Pending review': '#475569',
-  'New / review': '#dc2626',
   'On hold': '#7c3aed',
-  'In progress': '#0ea5e9',
+  'New / unattended': '#dc2626',
   'Solved / cleanup': '#16a34a',
   'Closed / cleanup': '#475569',
-  'Other / review': '#64748b'
+  'Needs review': '#64748b'
 }
 const T1_ESCALATION_PATH_TONE_MAP = {
   'Tier 1 desk': '#0f766e',
+  Maintenance: '#2563eb',
+  'DFA / vendor': '#d97706',
+  'Linked outage': '#7c3aed',
   'ISP / customer': '#ea580c',
   'Vendor / carrier': '#d97706',
-  'MNT / automation': '#2563eb',
   'Change control': '#8b5cf6',
   'Tier 1 review': '#475569'
+}
+const T1_WORKFLOW_OWNER_TONE_MAP = {
+  'With Tier 1': '#0f766e',
+  'Waiting on client / ISP': '#ea580c',
+  'With maintenance': '#2563eb',
+  'With vendor / carrier': '#d97706',
+  'Linked outage / closure': '#7c3aed',
+  'Deferred / parked': '#475569',
+  'Change control': '#8b5cf6',
+  'Internal / other': '#64748b',
+  'Needs review': '#94a3b8'
 }
 const T1_PRESET_TONE_MAP = {
   all: '#0f766e',
   p1Only: '#dc2626',
   dueNow: '#ea580c',
   changeControl: '#8b5cf6',
-  automationRouted: '#2563eb'
+  automationRouted: '#2563eb',
+  deskOwned: '#0f766e',
+  maintenanceOwned: '#2563eb',
+  parkedTimers: '#475569'
 }
 const T1_SYSTEM_STATE_ORDER = ['new', 'open', 'hold', 'pending', 'solved', 'closed', 'unknown']
 const T1_OPERATIONAL_STATE_ORDER = [
-  'New / unattended',
-  'P1 in progress',
-  'ISP follow-up',
-  'ISP hold / follow-up',
-  'Vendor update',
-  'Vendor hold / update',
-  'MNT / automation',
-  'MNT hold / automation',
+  'Active support',
+  'Active support blitz',
+  'Pending maintenance',
+  'Pending vendor',
+  'Pending client info',
+  'Pending outage closure',
+  'Deferred',
   'Change control',
+  'Pending Tier 2',
+  'Pending Tier 3',
+  'Pending PMT',
+  'Pending 365',
+  'Pending management',
+  'Pending RCA',
+  'Pending COC',
+  'Pending change control',
+  'Pending provisioning',
+  'Pending facilities',
   'Pending review',
-  'New / review',
   'On hold',
-  'In progress',
+  'New / unattended',
   'Solved / cleanup',
   'Closed / cleanup',
-  'Other / review'
+  'Needs review'
 ]
-const T1_ACTION_ORDER = ['P1', 'P2', 'P3', 'P4', 'Change', 'Other']
-const T1_ESCALATION_PATH_ORDER = ['Tier 1 desk', 'ISP / customer', 'Vendor / carrier', 'MNT / automation', 'Change control', 'Tier 1 review']
-const T1_DUE_BUCKET_ORDER_UI = ['BREACHED', 'Due <=15m', 'Due <=30m', 'Safe >30m', 'Change control', 'No active timer']
+const T1_ACTION_ORDER = ['P1', 'P2', 'P3', 'P4', 'P3 Parked', 'P4 Parked', 'Change', 'Other']
+const T1_ESCALATION_PATH_ORDER = ['Tier 1 desk', 'Maintenance', 'DFA / vendor', 'Linked outage', 'ISP / customer', 'Vendor / carrier', 'Change control', 'Tier 1 review']
+const T1_WORKFLOW_OWNER_ORDER = ['With Tier 1', 'With maintenance', 'Waiting on client / ISP', 'With vendor / carrier', 'Linked outage / closure', 'Deferred / parked', 'Change control', 'Internal / other', 'Needs review']
+const T1_DUE_BUCKET_ORDER_UI = ['BREACHED', 'Due <=15m', 'Due <=30m', 'Safe >30m', 'Parked timer', 'Change control', 'No active timer']
 const T1_PLAY_POLICY_TONE_MAP = {
   'Play Priority 1': '#dc2626',
   'Play Priority 2': '#ea580c',
@@ -199,11 +237,15 @@ const T1_PRESETS = [
   { key: 'p1Only', label: 'P1 only' },
   { key: 'dueNow', label: 'Due now' },
   { key: 'changeControl', label: 'Change Control' },
-  { key: 'automationRouted', label: 'Automation-routed' }
+  { key: 'automationRouted', label: 'Automation-routed' },
+  { key: 'deskOwned', label: 'With Tier 1' },
+  { key: 'maintenanceOwned', label: 'With Maintenance' },
+  { key: 'parkedTimers', label: 'Parked timers' }
 ]
 const DEFAULT_T1_ACTION_FILTERS = {
   systemState: 'all',
   operationalState: 'all',
+  workflowOwner: 'all',
   escalationPath: 'all',
   pLevel: 'all',
   dueBucket: 'all',
@@ -847,11 +889,17 @@ export default function NocMonitoringPage() {
   const [exportingT1Action, setExportingT1Action] = useState(false)
   const [error, setError] = useState('')
   const [payload, setPayload] = useState(null)
+  const [telephonyPulse, setTelephonyPulse] = useState(null)
   const [tab, setTab] = useState('overview')
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
+  const [t1DeskLimit, setT1DeskLimit] = useState(10)
+  const [t1MaintenanceLimit, setT1MaintenanceLimit] = useState(10)
+  const [t1ClientPendingLimit, setT1ClientPendingLimit] = useState(10)
+  const [t1ParkedLimit, setT1ParkedLimit] = useState(10)
   const [t1QuickPreset, setT1QuickPreset] = useState('all')
   const [t1ActionFilters, setT1ActionFilters] = useState(DEFAULT_T1_ACTION_FILTERS)
+  const meta = payload?.meta
 
   const loadSnapshot = useCallback(async () => {
     setError('')
@@ -866,9 +914,100 @@ export default function NocMonitoringPage() {
     }
   }, [])
 
+  const loadSnapshotSilently = useCallback(async () => {
+    try {
+      const next = await fetchNocMonitoringSnapshot({ historyHours: DEFAULT_HISTORY_HOURS })
+      setPayload(next)
+    } catch {
+      // Keep the last good snapshot on screen during silent poll failures.
+    }
+  }, [])
+
+  const loadTelephonyPulse = useCallback(async () => {
+    try {
+      const next = await fetchNocMonitoringTelephonyPulse()
+      setTelephonyPulse(next?.pulse || null)
+    } catch {
+      // Keep the last good telephony pulse on screen during fast poll failures.
+    }
+  }, [])
+
   useEffect(() => {
     void loadSnapshot()
   }, [loadSnapshot])
+
+  useEffect(() => {
+    let cancelled = false
+    let timerId = null
+
+    const run = async () => {
+      if (cancelled || typeof document !== 'undefined' && document.hidden) return
+      await loadSnapshotSilently()
+    }
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void run()
+      }
+    }
+
+    timerId = window.setInterval(() => {
+      void run()
+    }, SNAPSHOT_POLL_MS)
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
+
+    return () => {
+      cancelled = true
+      if (timerId) window.clearInterval(timerId)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
+    }
+  }, [loadSnapshotSilently])
+
+  useEffect(() => {
+    if (meta?.telephonyConfigured === false) return undefined
+
+    let cancelled = false
+    let inFlight = false
+    let timerId = null
+
+    const run = async () => {
+      if (cancelled || inFlight || typeof document !== 'undefined' && document.hidden) return
+      inFlight = true
+      try {
+        await loadTelephonyPulse()
+      } finally {
+        inFlight = false
+      }
+    }
+
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void run()
+      }
+    }
+
+    void run()
+    timerId = window.setInterval(() => {
+      void run()
+    }, TELEPHONY_POLL_MS)
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
+
+    return () => {
+      cancelled = true
+      if (timerId) window.clearInterval(timerId)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
+    }
+  }, [loadTelephonyPulse, meta?.telephonyConfigured])
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -876,24 +1015,62 @@ export default function NocMonitoringPage() {
     try {
       const next = await refreshNocMonitoringSnapshot({ historyHours: DEFAULT_HISTORY_HOURS })
       setPayload(next)
+      void loadTelephonyPulse()
     } catch (err) {
       setError(err?.response?.data?.error || err?.message || 'Unable to refresh the monitoring snapshot.')
     } finally {
       setRefreshing(false)
     }
-  }, [])
+  }, [loadTelephonyPulse])
 
   const snapshot = payload?.snapshot
   const freshness = payload?.freshness
   const history = payload?.history || { series: {} }
-  const meta = payload?.meta
-  const summary = snapshot?.summary || {}
+  const snapshotSummary = snapshot?.summary || {}
   const lanes = snapshot?.lanes || []
   const spotlights = snapshot?.spotlights || []
   const warnings = snapshot?.warnings || []
   const trends = snapshot?.trends || {}
   const collections = snapshot?.collections || {}
-  const telephonySummary = collections?.telephonyMeta?.summary || null
+  const telephonySummary = telephonyPulse?.summary || collections?.telephonyMeta?.summary || null
+  const telephonyQueues = telephonyPulse?.queues || collections?.telephonyQueues || []
+  const telephonyAgents = telephonyPulse?.agents || collections?.telephonyAgents || []
+  const telephonyHourly = telephonyPulse?.hourly || collections?.telephonyHourly || []
+  const telephonyMeta = telephonyPulse
+    ? {
+        available: telephonyPulse.available,
+        reason: telephonyPulse.reason || '',
+        summary: telephonySummary
+      }
+    : (collections?.telephonyMeta || null)
+  const telephonyQueueWaitingSummary = telephonyPulse?.queueWaitingSummary || trends.telephonyQueueWaitingSummary || []
+  const telephonyMissedAgentSummary = telephonyPulse?.missedAgentSummary || trends.telephonyMissedAgentSummary || []
+  const tier1VoiceQueue = telephonyPulse?.tier1
+    ? {
+        name: telephonyPulse.tier1.queueName,
+        waiting: telephonyPulse.tier1.waiting,
+        answered: telephonyPulse.tier1.answered,
+        missed: telephonyPulse.tier1.missed,
+        avgAnswerSeconds: telephonyPulse.tier1.avgAnswerSeconds,
+        maxQueueSeconds: telephonyPulse.tier1.maxQueueSeconds
+      }
+    : (collections?.tier1VoiceQueue || null)
+  const summary = useMemo(() => ({
+    ...snapshotSummary,
+    telephonyQueues: telephonyPulse ? telephonyQueues.length : snapshotSummary.telephonyQueues,
+    telephonyWaiting: telephonySummary?.callsWaiting ?? snapshotSummary.telephonyWaiting,
+    telephonyAnswered: telephonySummary?.callsAnswered ?? snapshotSummary.telephonyAnswered,
+    telephonyMissed: telephonySummary?.callsMissed ?? snapshotSummary.telephonyMissed,
+    telephonyAbandonRate: telephonySummary?.abandonRate ?? snapshotSummary.telephonyAbandonRate,
+    telephonyAvgAnswerSeconds: telephonySummary?.avgAnswerSeconds ?? snapshotSummary.telephonyAvgAnswerSeconds,
+    telephonyTier1QueueName: telephonyPulse?.tier1?.queueName || snapshotSummary.telephonyTier1QueueName,
+    telephonyTier1Waiting: telephonyPulse?.tier1?.waiting ?? snapshotSummary.telephonyTier1Waiting,
+    telephonyTier1Answered: telephonyPulse?.tier1?.answered ?? snapshotSummary.telephonyTier1Answered,
+    telephonyTier1Missed: telephonyPulse?.tier1?.missed ?? snapshotSummary.telephonyTier1Missed,
+    telephonyTier1AvgAnswerSeconds: telephonyPulse?.tier1?.avgAnswerSeconds ?? snapshotSummary.telephonyTier1AvgAnswerSeconds,
+    telephonyTier1MaxQueueSeconds: telephonyPulse?.tier1?.maxQueueSeconds ?? snapshotSummary.telephonyTier1MaxQueueSeconds,
+    telephonyTier1SlaBreached: telephonyPulse?.tier1?.slaBreached ?? snapshotSummary.telephonyTier1SlaBreached
+  }), [snapshotSummary, telephonyPulse, telephonyQueues.length, telephonySummary])
 
   const stats = useMemo(() => [
     {
@@ -943,6 +1120,7 @@ export default function NocMonitoringPage() {
   const t1ProductSummary = trends.t1ProductSummary || []
   const t1StatusSummary = trends.t1StatusSummary || []
   const t1OperationalStateSummary = trends.t1OperationalStateSummary || []
+  const t1WorkflowOwnerSummary = trends.t1WorkflowOwnerSummary || []
   const t1EscalationPathSummary = trends.t1EscalationPathSummary || []
   const t1DueBucketSummary = trends.t1DueBucketSummary || []
   const t1AutomationOpenSummary = trends.t1AutomationOpenSummary || []
@@ -955,8 +1133,6 @@ export default function NocMonitoringPage() {
   const t2PartySummary = trends.t2PartySummary || []
   const t2ProductSummary = trends.t2ProductSummary || []
   const t2ServiceTypeSummary = trends.t2ServiceTypeSummary || []
-  const telephonyQueueWaitingSummary = trends.telephonyQueueWaitingSummary || []
-  const telephonyMissedAgentSummary = trends.telephonyMissedAgentSummary || []
   const partialRouteSummary = trends.partialRouteSummary || []
   const hourlySeries = trends.hourlySeries || []
   const historyLanePressure = history?.series?.lanePressure || []
@@ -968,7 +1144,10 @@ export default function NocMonitoringPage() {
   const historyTelephony = history?.series?.telephony || []
   const historyTier1VoiceQueue = history?.series?.tier1VoiceQueue || []
   const historyWindowLabel = `${history?.windowHours || meta?.historyWindowHours || DEFAULT_HISTORY_HOURS}h`
-  const tier1VoiceQueue = collections?.tier1VoiceQueue || null
+  const tier1DeskTickets = collections?.tier1DeskTickets || []
+  const tier1MaintenanceTickets = collections?.tier1MaintenanceTickets || []
+  const tier1ClientPendingTickets = collections?.tier1ClientPendingTickets || []
+  const tier1ParkedTickets = collections?.tier1ParkedTickets || []
 
   const overviewMetrics = useMemo(() => ([
     {
@@ -1189,6 +1368,11 @@ export default function NocMonitoringPage() {
     [t1ActionSummary]
   )
 
+  const t1WorkflowOwnerRows = useMemo(
+    () => (t1WorkflowOwnerSummary || []).filter((row) => Number(row.count || 0) > 0),
+    [t1WorkflowOwnerSummary]
+  )
+
   const t1EscalationRows = useMemo(
     () => (t1EscalationPathSummary || []).filter((row) => Number(row.count || 0) > 0),
     [t1EscalationPathSummary]
@@ -1224,6 +1408,20 @@ export default function NocMonitoringPage() {
       detail: 'Rows carrying the noc_change_checks tag'
     },
     {
+      key: 'maintenance',
+      label: 'With maintenance',
+      count: Number(summary.tier1WithMaintenance || 0),
+      tone: '#2563eb',
+      detail: 'Largest external holding lane in the live Tier 1 queue'
+    },
+    {
+      key: 'client',
+      label: 'Waiting on client',
+      count: Number(summary.tier1WaitingClient || 0),
+      tone: '#ea580c',
+      detail: 'Rows pending ISP or client feedback'
+    },
+    {
       key: 'voice-risk',
       label: 'Voice queue at risk',
       count: summary.telephonyTier1SlaBreached ? Number(summary.telephonyTier1Waiting || 0) : 0,
@@ -1253,7 +1451,7 @@ export default function NocMonitoringPage() {
       : Number.POSITIVE_INFINITY
     if (aRemaining !== bRemaining) return aRemaining - bRemaining
 
-    const actionRank = { P1: 0, P2: 1, P3: 2, P4: 3, Change: 4, Other: 5 }
+    const actionRank = { P1: 0, P2: 1, P3: 2, P4: 3, 'P3 Parked': 4, 'P4 Parked': 5, Change: 6, Other: 7 }
     const aAction = actionRank[a?.pLevel] ?? 99
     const bAction = actionRank[b?.pLevel] ?? 99
     if (aAction !== bAction) return aAction - bAction
@@ -1276,6 +1474,26 @@ export default function NocMonitoringPage() {
     [collections, sortTier1Rows]
   )
 
+  const t1DeskRows = useMemo(
+    () => sortTier1Rows(tier1DeskTickets),
+    [sortTier1Rows, tier1DeskTickets]
+  )
+
+  const t1MaintenanceRows = useMemo(
+    () => sortTier1Rows(tier1MaintenanceTickets),
+    [sortTier1Rows, tier1MaintenanceTickets]
+  )
+
+  const t1ClientPendingRows = useMemo(
+    () => sortTier1Rows(tier1ClientPendingTickets),
+    [sortTier1Rows, tier1ClientPendingTickets]
+  )
+
+  const t1ParkedRows = useMemo(
+    () => sortTier1Rows(tier1ParkedTickets),
+    [sortTier1Rows, tier1ParkedTickets]
+  )
+
   const t1SystemStateOptions = useMemo(
     () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.status).filter(Boolean))], T1_SYSTEM_STATE_ORDER),
     [t1ActionViewRows]
@@ -1283,6 +1501,11 @@ export default function NocMonitoringPage() {
 
   const t1OperationalStateOptions = useMemo(
     () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.operationalState).filter(Boolean))], T1_OPERATIONAL_STATE_ORDER),
+    [t1ActionViewRows]
+  )
+
+  const t1WorkflowOwnerOptions = useMemo(
+    () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.workflowOwner).filter(Boolean))], T1_WORKFLOW_OWNER_ORDER),
     [t1ActionViewRows]
   )
 
@@ -1316,6 +1539,12 @@ export default function NocMonitoringPage() {
         return row.pLevel === 'Change' || row.operationalState === 'Change control'
       case 'automationRouted':
         return Array.isArray(row.automationRoutes) && row.automationRoutes.length > 0
+      case 'deskOwned':
+        return row.workflowOwner === 'With Tier 1'
+      case 'maintenanceOwned':
+        return row.workflowOwner === 'With maintenance'
+      case 'parkedTimers':
+        return row.parkedTimerActive || row.dueBucket === 'Parked timer'
       case 'all':
       default:
         return true
@@ -1325,6 +1554,7 @@ export default function NocMonitoringPage() {
   const matchesT1ActionFilters = useCallback((row, filters, ignoreField = null) => {
     if (ignoreField !== 'systemState' && filters.systemState !== 'all' && row.status !== filters.systemState) return false
     if (ignoreField !== 'operationalState' && filters.operationalState !== 'all' && row.operationalState !== filters.operationalState) return false
+    if (ignoreField !== 'workflowOwner' && filters.workflowOwner !== 'all' && row.workflowOwner !== filters.workflowOwner) return false
     if (ignoreField !== 'escalationPath' && filters.escalationPath !== 'all' && row.escalationPath !== filters.escalationPath) return false
     if (ignoreField !== 'pLevel' && filters.pLevel !== 'all' && row.pLevel !== filters.pLevel) return false
     if (ignoreField !== 'dueBucket' && filters.dueBucket !== 'all' && row.dueBucket !== filters.dueBucket) return false
@@ -1359,6 +1589,7 @@ export default function NocMonitoringPage() {
   const t1FilterAnyCounts = useMemo(() => ({
     systemState: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'systemState')).length,
     operationalState: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'operationalState')).length,
+    workflowOwner: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'workflowOwner')).length,
     escalationPath: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'escalationPath')).length,
     pLevel: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'pLevel')).length,
     dueBucket: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'dueBucket')).length,
@@ -1367,6 +1598,7 @@ export default function NocMonitoringPage() {
 
   const t1SystemStateCountMap = useMemo(() => buildT1FieldCountMap('systemState', t1SystemStateOptions), [buildT1FieldCountMap, t1SystemStateOptions])
   const t1OperationalStateCountMap = useMemo(() => buildT1FieldCountMap('operationalState', t1OperationalStateOptions), [buildT1FieldCountMap, t1OperationalStateOptions])
+  const t1WorkflowOwnerCountMap = useMemo(() => buildT1FieldCountMap('workflowOwner', t1WorkflowOwnerOptions), [buildT1FieldCountMap, t1WorkflowOwnerOptions])
   const t1EscalationPathCountMap = useMemo(() => buildT1FieldCountMap('escalationPath', t1EscalationPathOptions), [buildT1FieldCountMap, t1EscalationPathOptions])
   const t1PLevelCountMap = useMemo(() => buildT1FieldCountMap('pLevel', t1PLevelOptions), [buildT1FieldCountMap, t1PLevelOptions])
   const t1DueBucketCountMap = useMemo(() => buildT1FieldCountMap('dueBucket', t1DueBucketOptions), [buildT1FieldCountMap, t1DueBucketOptions])
@@ -1385,6 +1617,26 @@ export default function NocMonitoringPage() {
   const t1ActionViewVisibleRows = useMemo(
     () => t1ActionViewLimit === 'all' ? t1FilteredActionViewRows : t1FilteredActionViewRows.slice(0, Number(t1ActionViewLimit || 20)),
     [t1ActionViewLimit, t1FilteredActionViewRows]
+  )
+
+  const t1DeskVisibleRows = useMemo(
+    () => t1DeskLimit === 'all' ? t1DeskRows : t1DeskRows.slice(0, Number(t1DeskLimit || 10)),
+    [t1DeskLimit, t1DeskRows]
+  )
+
+  const t1MaintenanceVisibleRows = useMemo(
+    () => t1MaintenanceLimit === 'all' ? t1MaintenanceRows : t1MaintenanceRows.slice(0, Number(t1MaintenanceLimit || 10)),
+    [t1MaintenanceLimit, t1MaintenanceRows]
+  )
+
+  const t1ClientPendingVisibleRows = useMemo(
+    () => t1ClientPendingLimit === 'all' ? t1ClientPendingRows : t1ClientPendingRows.slice(0, Number(t1ClientPendingLimit || 10)),
+    [t1ClientPendingLimit, t1ClientPendingRows]
+  )
+
+  const t1ParkedVisibleRows = useMemo(
+    () => t1ParkedLimit === 'all' ? t1ParkedRows : t1ParkedRows.slice(0, Number(t1ParkedLimit || 10)),
+    [t1ParkedLimit, t1ParkedRows]
   )
 
   const resetT1ActionFilters = useCallback(() => {
@@ -1422,6 +1674,7 @@ export default function NocMonitoringPage() {
               QuickPreset: quickPresetLabel,
               SystemState: t1ActionFilters.systemState,
               OperationalState: t1ActionFilters.operationalState,
+              WorkflowOwner: t1ActionFilters.workflowOwner,
               EscalationPath: t1ActionFilters.escalationPath,
               ActionLane: t1ActionFilters.pLevel,
               DueBucket: t1ActionFilters.dueBucket,
@@ -1450,6 +1703,7 @@ export default function NocMonitoringPage() {
               Priority: formatExportValue(row.priority),
               Product: formatExportValue(row.product),
               ServiceType: formatExportValue(row.serviceType),
+              WorkflowOwner: formatExportValue(row.workflowOwner),
               OperationalState: formatExportValue(row.operationalState),
               EscalationPath: formatExportValue(row.escalationPath),
               AutomationRoutes: formatExportValue(row.automationRoutes),
@@ -1484,6 +1738,46 @@ export default function NocMonitoringPage() {
   const t1P1BreachedRowCount = useMemo(
     () => t1P1AttentionRows.filter((row) => row.dueBucket === 'BREACHED' || Number(row.remainingMinutes) <= 0).length,
     [t1P1AttentionRows]
+  )
+
+  const t1DeskUrgentCount = useMemo(
+    () => t1DeskRows.filter((row) => ['BREACHED', 'Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length,
+    [t1DeskRows]
+  )
+
+  const t1DeskP1Count = useMemo(
+    () => t1DeskRows.filter((row) => row.pLevel === 'P1').length,
+    [t1DeskRows]
+  )
+
+  const t1MaintenanceBreachedCount = useMemo(
+    () => t1MaintenanceRows.filter((row) => row.dueBucket === 'BREACHED' || Number(row.remainingMinutes) <= 0).length,
+    [t1MaintenanceRows]
+  )
+
+  const t1MaintenanceTrackedCount = useMemo(
+    () => t1MaintenanceRows.filter((row) => row.playClockActive).length,
+    [t1MaintenanceRows]
+  )
+
+  const t1ClientPendingUrgentCount = useMemo(
+    () => t1ClientPendingRows.filter((row) => ['BREACHED', 'Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length,
+    [t1ClientPendingRows]
+  )
+
+  const t1ClientPendingOnHoldCount = useMemo(
+    () => t1ClientPendingRows.filter((row) => row.status === 'hold').length,
+    [t1ClientPendingRows]
+  )
+
+  const t1ParkedP3Count = useMemo(
+    () => t1ParkedRows.filter((row) => row.pLevel === 'P3 Parked').length,
+    [t1ParkedRows]
+  )
+
+  const t1ParkedP4Count = useMemo(
+    () => t1ParkedRows.filter((row) => row.pLevel === 'P4 Parked').length,
+    [t1ParkedRows]
   )
 
   const getTier1UrgencyRowSx = useCallback((row) => {
@@ -1615,6 +1909,7 @@ export default function NocMonitoringPage() {
     status: { key: 'status', label: 'System State', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
     product: { key: 'product', label: 'Product' },
     service: { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
+    workflowOwner: { key: 'workflowOwner', label: 'Workflow Owner', render: (row) => <SignalChip label={row.workflowOwner || 'Needs review'} tone={T1_WORKFLOW_OWNER_TONE_MAP[row.workflowOwner] || '#64748b'} /> },
     operationalState: { key: 'operationalState', label: 'Operational State', render: (row) => <SignalChip label={row.operationalState} tone={T1_OPERATIONAL_STATE_TONE_MAP[row.operationalState] || '#64748b'} /> },
     escalationPath: { key: 'escalationPath', label: 'Escalation Path', render: (row) => <SignalChip label={row.escalationPath || 'Tier 1 review'} tone={T1_ESCALATION_PATH_TONE_MAP[row.escalationPath] || '#475569'} /> },
     automation: {
@@ -1639,8 +1934,10 @@ export default function NocMonitoringPage() {
     t1ActionColumnParts.playPolicy,
     t1ActionColumnParts.dueBucket,
     t1ActionColumnParts.remaining,
-    t1ActionColumnParts.status,
     t1ActionColumnParts.operationalState,
+    t1ActionColumnParts.workflowOwner,
+    t1ActionColumnParts.escalationPath,
+    t1ActionColumnParts.status,
     t1ActionColumnParts.updated,
     t1ActionColumnParts.subject
   ], [t1ActionColumnParts])
@@ -1651,11 +1948,12 @@ export default function NocMonitoringPage() {
     t1ActionColumnParts.playPolicy,
     t1ActionColumnParts.dueBucket,
     t1ActionColumnParts.remaining,
+    t1ActionColumnParts.operationalState,
+    t1ActionColumnParts.workflowOwner,
+    t1ActionColumnParts.escalationPath,
     t1ActionColumnParts.status,
     t1ActionColumnParts.product,
     t1ActionColumnParts.service,
-    t1ActionColumnParts.operationalState,
-    t1ActionColumnParts.escalationPath,
     t1ActionColumnParts.automation,
     t1ActionColumnParts.updated,
     t1ActionColumnParts.age,
@@ -2054,7 +2352,7 @@ export default function NocMonitoringPage() {
       {tab === 'tier1' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
           <OpsAlert severity="info">
-            Tier 1 play clocks now follow the confirmed Zendesk policy model: P1 uses the 30-minute first-touch reply clock, P2 uses the 60-minute Play Priority 2 update clock, and P3/P4 use the 90-minute periodic-update clocks. P2/P3/P4 are currently shown from the last live ticket update on the cached snapshot path until the audit-anchored timer feed is wired in.
+            Tier 1 play clocks now stay bounded to the live NOC queue only: P1 uses the 30-minute first-touch reply clock, P2 uses the 60-minute Play Priority 2 update clock, and P3/P4 use the 90-minute play-update clocks. Live P2/P3/P4 rows now prefer backend-cached Zendesk audit anchors, while parked pre-play timers stay outside the active lane until the live play tags land.
           </OpsAlert>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.1fr 1fr 1.1fr' }, gap: 1.05 }}>
@@ -2104,27 +2402,65 @@ export default function NocMonitoringPage() {
               <CompactBreakdownList rows={t1ActionMixRows} total={summary.tier1Open || 0} emptyMessage="No Tier 1 action-lane mix is available right now." />
             </OpsSection>
 
-            <OpsSection title="Queue Ownership & Flow" subtitle="Where the work is sitting now, and how the unresolved queue is moving operationally." tone="#8b5cf6" minHeight={0}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.9 }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: OPS_MUTED, display: 'block', mb: 0.55 }}>
-                    Escalation path
-                  </Typography>
-                  <CompactBreakdownList rows={t1EscalationRows.slice(0, 6)} total={summary.tier1Open || 0} emptyMessage="No escalation-path mix is available right now." />
+            <OpsSection title="Workflow Ownership" subtitle="Read the live Tier 1 queue by who owns the next action first, then trace the operational state and escalation path behind that ownership." tone="#8b5cf6" minHeight={0}>
+              <Stack spacing={0.9}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'With Tier 1',
+                      value: formatCount(summary.tier1WithDesk || 0),
+                      tone: '#0f766e',
+                      helper: `${formatCount(t1DeskUrgentCount)} urgent | ${formatCount(t1DeskP1Count)} P1`
+                    },
+                    {
+                      label: 'With maintenance',
+                      value: formatCount(summary.tier1WithMaintenance || 0),
+                      tone: '#2563eb',
+                      helper: `${formatCount(t1MaintenanceBreachedCount)} breached | ${formatCount(t1MaintenanceTrackedCount)} tracked`
+                    },
+                    {
+                      label: 'Waiting client',
+                      value: formatCount(summary.tier1WaitingClient || 0),
+                      tone: '#ea580c',
+                      helper: `${formatCount(t1ClientPendingOnHoldCount)} on hold | ${formatCount(t1ClientPendingUrgentCount)} urgent`
+                    },
+                    {
+                      label: 'Parked timers',
+                      value: formatCount(summary.tier1ParkedTimers || 0),
+                      tone: '#475569',
+                      helper: `${formatCount(t1ParkedP3Count)} P3 parked | ${formatCount(t1ParkedP4Count)} P4 parked`
+                    }
+                  ]}
+                />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.9 }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: OPS_MUTED, display: 'block', mb: 0.55 }}>
+                      Workflow owner
+                    </Typography>
+                    <CompactBreakdownList rows={t1WorkflowOwnerRows.slice(0, 6)} total={summary.tier1Open || 0} emptyMessage="No workflow-owner mix is available right now." />
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: OPS_MUTED, display: 'block', mb: 0.55 }}>
+                      Operational state
+                    </Typography>
+                    <CompactBreakdownList
+                      rows={t1OperationalShapeRows.map((row) => ({
+                        ...row,
+                        detail: `${formatCount(row.count || 0)} live rows`
+                      }))}
+                      total={summary.tier1Open || 0}
+                      emptyMessage="No operational-state shape is available right now."
+                    />
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: OPS_MUTED, display: 'block', mb: 0.55 }}>
+                      Escalation path
+                    </Typography>
+                    <CompactBreakdownList rows={t1EscalationRows.slice(0, 6)} total={summary.tier1Open || 0} emptyMessage="No escalation-path mix is available right now." />
+                  </Box>
                 </Box>
-                <Box>
-                  <Typography variant="caption" sx={{ color: OPS_MUTED, display: 'block', mb: 0.55 }}>
-                    Operational flow
-                  </Typography>
-                  <CompactBreakdownList
-                    rows={t1OperationalShapeRows.map((row) => ({
-                      ...row,
-                      detail: `${formatCount(row.count || 0)} live rows`
-                    }))}
-                    emptyMessage="No operational-state shape is available right now."
-                  />
-                </Box>
-              </Box>
+              </Stack>
             </OpsSection>
           </Box>
 
@@ -2244,6 +2580,113 @@ export default function NocMonitoringPage() {
           </Box>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr 1fr' }, gap: 1.05 }}>
+            <OpsSection title="Tier 1 Desk Workbench" subtitle="Rows still owned by NOC Tier 1, led by active support and the live action lanes the desk must move." tone="#0f766e" minHeight={0}>
+              <Stack spacing={0.8}>
+                <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                  <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="jump to action view" tone="#0f766e" onClick={() => applyT1ActionLens('deskOwned')} />
+                  <DrillCounterButton label="Urgent desk" count={t1DeskUrgentCount} helper="due <=30m desk rows" tone="#ea580c" onClick={() => applyT1ActionLens('dueNow', { workflowOwner: 'With Tier 1' })} />
+                </Stack>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Desk-owned',
+                      value: formatCount(t1DeskRows.length),
+                      tone: '#0f766e',
+                      helper: 'active Tier 1 workbench'
+                    },
+                    {
+                      label: 'Urgent',
+                      value: formatCount(t1DeskUrgentCount),
+                      tone: '#ea580c',
+                      helper: 'breached or due <=30m'
+                    },
+                    {
+                      label: 'P1 rows',
+                      value: formatCount(t1DeskP1Count),
+                      tone: '#dc2626',
+                      helper: 'live desk P1 pressure'
+                    }
+                  ]}
+                />
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                    Showing {formatCount(t1DeskVisibleRows.length)} of {formatCount(t1DeskRows.length)} desk-owned Tier 1 rows.
+                  </Typography>
+                  <RowWindowSelector value={t1DeskLimit} onChange={setT1DeskLimit} options={[5, 10, 20, 'all']} />
+                </Stack>
+                <MonitoringTable rows={t1DeskVisibleRows} columns={t1FocusColumns} emptyMessage="No Tier 1 desk-owned rows are open right now." getRowSx={getTier1UrgencyRowSx} />
+              </Stack>
+            </OpsSection>
+
+            <OpsSection title="Maintenance Holding Lane" subtitle="Rows operationally sitting with maintenance so the desk can separate true follow-up work from external holding time." tone="#2563eb" minHeight={0}>
+              <Stack spacing={0.8}>
+                <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                  <DrillCounterButton label="With maintenance" count={t1MaintenanceRows.length} helper="jump to action view" tone="#2563eb" onClick={() => applyT1ActionLens('maintenanceOwned')} />
+                  <DrillCounterButton label="Breached clocks" count={t1MaintenanceBreachedCount} helper="only breached maintenance rows" tone="#dc2626" onClick={() => applyT1ActionLens('maintenanceOwned', { dueBucket: 'BREACHED' })} />
+                </Stack>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'With maintenance',
+                      value: formatCount(t1MaintenanceRows.length),
+                      tone: '#2563eb',
+                      helper: 'largest external holding lane'
+                    },
+                    {
+                      label: 'Tracked clocks',
+                      value: formatCount(t1MaintenanceTrackedCount),
+                      tone: '#1d4ed8',
+                      helper: `${formatCount(t1MaintenanceBreachedCount)} already breached`
+                    }
+                  ]}
+                />
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                    Showing {formatCount(t1MaintenanceVisibleRows.length)} of {formatCount(t1MaintenanceRows.length)} maintenance-held Tier 1 rows.
+                  </Typography>
+                  <RowWindowSelector value={t1MaintenanceLimit} onChange={setT1MaintenanceLimit} options={[5, 10, 20, 'all']} />
+                </Stack>
+                <MonitoringTable rows={t1MaintenanceVisibleRows} columns={t1FocusColumns} emptyMessage="No Tier 1 rows are currently sitting with maintenance." getRowSx={getTier1UrgencyRowSx} />
+              </Stack>
+            </OpsSection>
+
+            <OpsSection title="Client Waiting Lane" subtitle="Rows paused on ISP or client feedback so the desk can see the queue that is operationally blocked outside of internal action." tone="#ea580c" minHeight={0}>
+              <Stack spacing={0.8}>
+                <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
+                  <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="jump to action view" tone="#ea580c" onClick={() => applyT1ActionLens('all', { workflowOwner: 'Waiting on client / ISP' })} />
+                  <DrillCounterButton label="Urgent client rows" count={t1ClientPendingUrgentCount} helper="due <=30m while waiting" tone="#d97706" onClick={() => applyT1ActionLens('dueNow', { workflowOwner: 'Waiting on client / ISP' })} />
+                </Stack>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Waiting client',
+                      value: formatCount(t1ClientPendingRows.length),
+                      tone: '#ea580c',
+                      helper: `${formatCount(t1ClientPendingOnHoldCount)} on hold right now`
+                    },
+                    {
+                      label: 'Urgent',
+                      value: formatCount(t1ClientPendingUrgentCount),
+                      tone: '#d97706',
+                      helper: 'breached or due <=30m'
+                    }
+                  ]}
+                />
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                    Showing {formatCount(t1ClientPendingVisibleRows.length)} of {formatCount(t1ClientPendingRows.length)} client-waiting Tier 1 rows.
+                  </Typography>
+                  <RowWindowSelector value={t1ClientPendingLimit} onChange={setT1ClientPendingLimit} options={[5, 10, 20, 'all']} />
+                </Stack>
+                <MonitoringTable rows={t1ClientPendingVisibleRows} columns={t1FocusColumns} emptyMessage="No Tier 1 rows are currently waiting on the client or ISP." getRowSx={getTier1UrgencyRowSx} />
+              </Stack>
+            </OpsSection>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr 1fr' }, gap: 1.05 }}>
             <OpsSection
               title="Tier 1 P1 Attention"
               subtitle="New unattended Tier 1 P1 tickets against the confirmed 30-minute first-touch clock."
@@ -2322,12 +2765,41 @@ export default function NocMonitoringPage() {
               </Stack>
             </OpsSection>
 
-            <OpsSection title="Change Control Queue" subtitle="Tier 1 change-related work kept separate so it does not hide inside the operational action lanes." tone="#8b5cf6" minHeight={0}>
+            <OpsSection title="Parked Timer Lane" subtitle="Pre-play tickets still on the P3 or P4 start timers so they do not get mistaken for live action-lane work." tone="#475569" minHeight={0}>
               <Stack spacing={0.8}>
                 <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
-                  <DrillCounterButton label="Change queue" count={(collections.tier1ChangeControlTickets || []).length} helper="jump to action view" tone="#8b5cf6" onClick={() => applyT1ActionLens('changeControl')} />
+                  <DrillCounterButton label="Parked timers" count={t1ParkedRows.length} helper="jump to action view" tone="#475569" onClick={() => applyT1ActionLens('parkedTimers')} />
                 </Stack>
-                <MonitoringTable rows={collections.tier1ChangeControlTickets || []} columns={t1FocusColumns} emptyMessage="No Tier 1 change-control tickets are open right now." />
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Total parked',
+                      value: formatCount(t1ParkedRows.length),
+                      tone: '#475569',
+                      helper: 'outside the live play lane'
+                    },
+                    {
+                      label: 'P3 parked',
+                      value: formatCount(t1ParkedP3Count),
+                      tone: '#92400e',
+                      helper: 'pre-play start timer'
+                    },
+                    {
+                      label: 'P4 parked',
+                      value: formatCount(t1ParkedP4Count),
+                      tone: '#1d4ed8',
+                      helper: 'pre-play start timer'
+                    }
+                  ]}
+                />
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                    Showing {formatCount(t1ParkedVisibleRows.length)} of {formatCount(t1ParkedRows.length)} parked pre-play Tier 1 rows.
+                  </Typography>
+                  <RowWindowSelector value={t1ParkedLimit} onChange={setT1ParkedLimit} options={[5, 10, 20, 'all']} />
+                </Stack>
+                <MonitoringTable rows={t1ParkedVisibleRows} columns={t1FocusColumns} emptyMessage="No parked pre-play Tier 1 timers are open right now." />
               </Stack>
             </OpsSection>
           </Box>
@@ -2346,7 +2818,7 @@ export default function NocMonitoringPage() {
                   <Stack spacing={0.85}>
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                       <Typography variant="caption" sx={{ color: OPS_MUTED }}>
-                        Quick presets plus live chip filters for lane, clock state, system state, operational state, escalation path, and automation route. P2/P3/P4 timer pressure is shown from the last live ticket update until audit-anchored clocks land.
+                        Quick presets plus live chip filters for lane, workflow owner, system state, operational state, escalation path, and automation route. Tier 1 timers now prefer backend-cached audit anchors, with last-update fallback only where a live audit anchor has not yet been cached.
                       </Typography>
                       <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
                         <Button
@@ -2395,7 +2867,7 @@ export default function NocMonitoringPage() {
                     <Box
                       sx={{
                         display: 'grid',
-                        gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' },
+                        gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' },
                         gap: 0.9
                       }}
                     >
@@ -2416,6 +2888,15 @@ export default function NocMonitoringPage() {
                         tone="#8b5cf6"
                         countMap={t1EscalationPathCountMap}
                         anyCount={t1FilterAnyCounts.escalationPath}
+                      />
+                      <FilterChipGroup
+                        label="Workflow Owner"
+                        value={t1ActionFilters.workflowOwner}
+                        onChange={(next) => setT1ActionFilters((current) => ({ ...current, workflowOwner: next }))}
+                        options={t1WorkflowOwnerOptions}
+                        tone="#0f766e"
+                        countMap={t1WorkflowOwnerCountMap}
+                        anyCount={t1FilterAnyCounts.workflowOwner}
                       />
                       <FilterChipGroup
                         label="Clock State"
@@ -2677,7 +3158,7 @@ export default function NocMonitoringPage() {
 
           <OpsSection title="Voice Hourly Flow" subtitle="Hourly voice intake, abandon volume, and talk-time pattern from the Illation dashboard stats feed." tone="#0891b2" minHeight={0}>
             <MultiLineChartPanel
-              rows={(collections.telephonyHourly || []).map((row) => ({ ...row, label: `${row.hour}:00` }))}
+              rows={telephonyHourly.map((row) => ({ ...row, label: `${row.hour}:00` }))}
               lines={[
                 { key: 'received', label: 'Received', color: '#0891b2' },
                 { key: 'abandoned', label: 'Abandoned', color: '#dc2626' },
@@ -2699,11 +3180,11 @@ export default function NocMonitoringPage() {
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
             <OpsSection title="Telephony Queues" subtitle="Queue pressure from the Illation stats feed." tone="#0891b2" minHeight={0}>
-              <MonitoringTable rows={collections.telephonyQueues || []} columns={queueColumns} emptyMessage="No telephony queue rows are available right now." />
+              <MonitoringTable rows={telephonyQueues} columns={queueColumns} emptyMessage="No telephony queue rows are available right now." />
             </OpsSection>
 
             <OpsSection title="Telephony Agents" subtitle="Agent state, login, and missed-call context from the same live voice feed." tone="#0f172a" minHeight={0}>
-              <MonitoringTable rows={collections.telephonyAgents || []} columns={agentColumns} emptyMessage="No telephony agent rows are available right now." />
+              <MonitoringTable rows={telephonyAgents} columns={agentColumns} emptyMessage="No telephony agent rows are available right now." />
             </OpsSection>
           </Box>
         </Box>
@@ -2720,10 +3201,10 @@ export default function NocMonitoringPage() {
               )) : (
                 <OpsAlert severity="success">No source warnings were raised in the latest snapshot.</OpsAlert>
               )}
-              <OpsAlert severity={collections.telephonyMeta?.available ? 'info' : 'warning'}>
-                {collections.telephonyMeta?.available
+              <OpsAlert severity={telephonyMeta?.available ? 'info' : 'warning'}>
+                {telephonyMeta?.available
                   ? 'Telephony data was included in the current snapshot.'
-                  : collections.telephonyMeta?.reason || 'Telephony data is not configured yet.'}
+                  : telephonyMeta?.reason || 'Telephony data is not configured yet.'}
               </OpsAlert>
             </Stack>
           </OpsSection>

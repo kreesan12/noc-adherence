@@ -4,6 +4,18 @@
 
 ### NOC Monitoring Hub
 
+- Tightened the Tier 1 timer engine again so the live NOC queue now prefers backend-cached Zendesk audit anchors for P2/P3/P4 clocks, while still falling back safely if a live audit anchor has not been cached yet.
+- Reworked the Tier 1 supervisor view around workflow ownership instead of generic queue slices:
+  - With Tier 1
+  - With maintenance
+  - Waiting on client / ISP
+  - Parked pre-play timers
+- Added dedicated Tier 1 workflow-lane tables for:
+  - desk-owned workbench
+  - maintenance holding lane
+  - client waiting lane
+  - parked timer lane
+- Added workflow-owner filtering into the Tier 1 action view so supervisors can pivot from operational state into the true next-action owner more directly.
 - Expanded the native `NOC Monitoring Hub` so it carries much more of the former Grafana operational surface inside one backend-cached snapshot.
 - Added persistent NOC monitoring history buckets in the database so the dashboard can trend queue pressure and outage movement beyond a single cached live snapshot.
 - Added new native trend views across:
@@ -82,6 +94,10 @@
 - Clarified the live Tier 1 timer model in the UI:
   - P1 is shown on the exact first-touch clock
   - P2 / P3 / P4 are shown from the last live ticket update on the cached snapshot path until audit-anchored timers are added
+- Changed the monitoring browser path so `/noc-monitoring` reads the stored backend snapshot instead of triggering fresh Zendesk pulls on every page load.
+- Added a dedicated telephony pulse endpoint with a short server TTL so the dashboard can refresh voice pressure every 5 seconds without hitting Zendesk.
+- Increased Zendesk `search/export` pagination on the monitoring refresh path to `1000` rows per page to reduce upstream call count.
+- Added a server-side `noc-monitoring-warm-cache.timer` on the API host so the shared monitoring snapshot refreshes centrally every 5 minutes.
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 

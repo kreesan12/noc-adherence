@@ -23,6 +23,8 @@ Use this checklist for every frontend or full-stack production release to xneelo
 4. If the release touches WhatsApp watchers, Gmail imports, or any timer-driven automation, also run the automation deploy helper:
    `ssh -i <pem> ubuntu@154.65.102.21 "bash /home/ubuntu/bin/update-noc-automation.sh"`
 5. If the release touches the native `NOC Monitoring Hub`, make sure the API host has the optional telephony env vars if you expect queue data to light up.
+6. If the release touches monitoring cache behavior, confirm the warm-cache timer is active on `noc-api-01`:
+   `ssh -i <pem> ubuntu@154.65.108.106 "systemctl status noc-monitoring-warm-cache.timer --no-pager"`
 
 ## Post-Deploy Verification
 
@@ -46,6 +48,7 @@ Use this checklist for every frontend or full-stack production release to xneelo
    - login screen
    - authenticated landing page
    - `/noc-monitoring` and a manual snapshot refresh
+   - confirm `/noc-monitoring` keeps updating voice data without forcing a full Zendesk refresh
    - one heavy reporting page like `SLA Reporting` or `Stock Management`
    - `/settings/whatsapp-watchers` if watcher routing or template changes were included
 6. If the smoke report or the browser console shows a new runtime error, treat the deploy as unhealthy even if nginx and the API are up.
