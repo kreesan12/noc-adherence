@@ -41,6 +41,12 @@
   - more console-style received, solved, and voice pace comparisons
   - stronger breach emphasis in the P1 and due-now tables
   - row-window controls on the noisy Tier 1 due-now and action-view tables
+- Added Tier 1 drill filters above the action view for:
+  - action lane
+  - due bucket
+  - system state
+  - operational state
+  - automation route
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 

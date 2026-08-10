@@ -301,6 +301,56 @@ function RowWindowSelector({ value, onChange, options = [10, 20, 50, 'all'] }) {
   )
 }
 
+function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT }) {
+  return (
+    <Stack spacing={0.45}>
+      <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.55 }}>
+        {label}
+      </Typography>
+      <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+        <Chip
+          size="small"
+          label="Any"
+          clickable
+          onClick={() => onChange('all')}
+          sx={{
+            height: 22,
+            fontWeight: 700,
+            color: value === 'all' ? '#f8fafc' : OPS_MUTED,
+            bgcolor: value === 'all' ? alpha(tone, 0.24) : 'rgba(15, 23, 42, 0.64)',
+            border: `1px solid ${value === 'all' ? alpha(tone, 0.44) : 'rgba(148, 163, 184, 0.18)'}`,
+            '& .MuiChip-label': {
+              px: 0.95
+            }
+          }}
+        />
+        {options.map((option) => {
+          const selected = value === option
+          return (
+            <Chip
+              key={option}
+              size="small"
+              label={option}
+              clickable
+              onClick={() => onChange(option)}
+              sx={{
+                height: 22,
+                fontWeight: 700,
+                color: selected ? '#f8fafc' : OPS_MUTED,
+                bgcolor: selected ? alpha(tone, 0.24) : 'rgba(15, 23, 42, 0.64)',
+                border: `1px solid ${selected ? alpha(tone, 0.44) : 'rgba(148, 163, 184, 0.18)'}`,
+                '& .MuiChip-label': {
+                  px: 0.95
+                }
+              }}
+            />
+          )
+        })}
+      </Stack>
+    </Stack>
+  )
+}
+
 function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: columns, gap: 0.75 }}>
@@ -650,6 +700,13 @@ export default function NocMonitoringPage() {
   const [tab, setTab] = useState('overview')
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
+  const [t1ActionFilters, setT1ActionFilters] = useState({
+    systemState: 'all',
+    operationalState: 'all',
+    pLevel: 'all',
+    dueBucket: 'all',
+    automationRoute: 'all'
+  })
 
   const loadSnapshot = useCallback(async () => {
     setError('')
@@ -1055,14 +1112,51 @@ export default function NocMonitoringPage() {
     [collections, sortTier1Rows]
   )
 
+  const t1SystemStateOptions = useMemo(
+    () => [...new Set(t1ActionViewRows.map((row) => row.status).filter(Boolean))],
+    [t1ActionViewRows]
+  )
+
+  const t1OperationalStateOptions = useMemo(
+    () => [...new Set(t1ActionViewRows.map((row) => row.operationalState).filter(Boolean))],
+    [t1ActionViewRows]
+  )
+
+  const t1PLevelOptions = useMemo(
+    () => [...new Set(t1ActionViewRows.map((row) => row.pLevel).filter(Boolean))],
+    [t1ActionViewRows]
+  )
+
+  const t1DueBucketOptions = useMemo(
+    () => [...new Set(t1ActionViewRows.map((row) => row.dueBucket).filter(Boolean))],
+    [t1ActionViewRows]
+  )
+
+  const t1AutomationRouteOptions = useMemo(
+    () => [...new Set(t1ActionViewRows.flatMap((row) => row.automationRoutes || []).filter(Boolean))],
+    [t1ActionViewRows]
+  )
+
+  const t1FilteredActionViewRows = useMemo(
+    () => t1ActionViewRows.filter((row) => {
+      if (t1ActionFilters.systemState !== 'all' && row.status !== t1ActionFilters.systemState) return false
+      if (t1ActionFilters.operationalState !== 'all' && row.operationalState !== t1ActionFilters.operationalState) return false
+      if (t1ActionFilters.pLevel !== 'all' && row.pLevel !== t1ActionFilters.pLevel) return false
+      if (t1ActionFilters.dueBucket !== 'all' && row.dueBucket !== t1ActionFilters.dueBucket) return false
+      if (t1ActionFilters.automationRoute !== 'all' && !(row.automationRoutes || []).includes(t1ActionFilters.automationRoute)) return false
+      return true
+    }),
+    [t1ActionFilters, t1ActionViewRows]
+  )
+
   const t1DueNowVisibleRows = useMemo(
     () => t1DueNowLimit === 'all' ? t1DueNowRows : t1DueNowRows.slice(0, Number(t1DueNowLimit || 15)),
     [t1DueNowLimit, t1DueNowRows]
   )
 
   const t1ActionViewVisibleRows = useMemo(
-    () => t1ActionViewLimit === 'all' ? t1ActionViewRows : t1ActionViewRows.slice(0, Number(t1ActionViewLimit || 20)),
-    [t1ActionViewLimit, t1ActionViewRows]
+    () => t1ActionViewLimit === 'all' ? t1FilteredActionViewRows : t1FilteredActionViewRows.slice(0, Number(t1ActionViewLimit || 20)),
+    [t1ActionViewLimit, t1FilteredActionViewRows]
   )
 
   const t1DueNowBreachedCount = useMemo(
@@ -1195,7 +1289,7 @@ export default function NocMonitoringPage() {
 
   const t1ActionColumnParts = useMemo(() => ({
     ticket: { key: 'id', label: 'Ticket', render: (row) => <ExternalTicketLink href={row.url} label={`#${row.id}`} /> },
-    action: { key: 'pLevel', label: 'Action', render: (row) => <SignalChip label={row.pLevel} tone={T1_ACTION_TONE_MAP[row.pLevel] || '#64748b'} /> },
+    action: { key: 'pLevel', label: 'Action Lane', render: (row) => <SignalChip label={row.pLevel} tone={T1_ACTION_TONE_MAP[row.pLevel] || '#64748b'} /> },
     dueBucket: { key: 'dueBucket', label: 'Due Bucket', render: (row) => <SignalChip label={row.dueBucket} tone={T1_DUE_BUCKET_TONE_MAP[row.dueBucket] || '#64748b'} /> },
     remaining: {
       key: 'remainingHours',
@@ -1204,7 +1298,7 @@ export default function NocMonitoringPage() {
         ? '--'
         : <Typography variant="body2" sx={{ fontWeight: 800, color: row.remainingHours <= 0 ? '#fca5a5' : row.remainingHours <= 4 ? '#fdba74' : OPS_TEXT }}>{`${row.remainingHours.toFixed(1)}h`}</Typography>
     },
-    status: { key: 'status', label: 'Status', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
+    status: { key: 'status', label: 'System State', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
     priority: { key: 'priority', label: 'Priority', render: (row) => <Chip size="small" label={row.priority} color={priorityColor(row.priority)} /> },
     product: { key: 'product', label: 'Product' },
     service: { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
@@ -1253,9 +1347,9 @@ export default function NocMonitoringPage() {
 
   const t1Columns = useMemo(() => [
     { key: 'id', label: 'Ticket', render: (row) => <ExternalTicketLink href={row.url} label={`#${row.id}`} /> },
-    { key: 'status', label: 'Status', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
+    { key: 'status', label: 'System State', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
     { key: 'priority', label: 'Priority', render: (row) => <Chip size="small" label={row.priority} color={priorityColor(row.priority)} /> },
-    { key: 'pLevel', label: 'Action', render: (row) => <SignalChip label={row.pLevel} tone={T1_ACTION_TONE_MAP[row.pLevel] || '#64748b'} /> },
+    { key: 'pLevel', label: 'Action Lane', render: (row) => <SignalChip label={row.pLevel} tone={T1_ACTION_TONE_MAP[row.pLevel] || '#64748b'} /> },
     { key: 'product', label: 'Product' },
     { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
     { key: 'operationalState', label: 'Operational State', render: (row) => <SignalChip label={row.operationalState} tone={T1_OPERATIONAL_STATE_TONE_MAP[row.operationalState] || '#64748b'} /> },
@@ -1964,11 +2058,62 @@ export default function NocMonitoringPage() {
             </OpsSection>
           </Box>
 
-          <OpsSection title="Tier 1 Action View" subtitle="This is the working queue view with action lane, due bucket, and queue context arranged in the order operators normally scan it." tone="#0f766e" minHeight={0}>
+          <OpsSection title="Tier 1 Action View" subtitle="This is the working queue view with action lane, system state, operational state, and due-bucket context arranged in the order operators normally scan it." tone="#0f766e" minHeight={0}>
             <Stack spacing={0.8}>
+              <Box
+                sx={{
+                  p: 0.9,
+                  borderRadius: 2.4,
+                  border: `1px solid ${alpha('#0f766e', 0.2)}`,
+                  bgcolor: 'rgba(6, 12, 24, 0.72)'
+                }}
+              >
+                <Stack spacing={0.85}>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                    <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                      Drill the live Tier 1 queue by action lane, system state, operational state, due bucket, and automation route.
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setT1ActionFilters({
+                        systemState: 'all',
+                        operationalState: 'all',
+                        pLevel: 'all',
+                        dueBucket: 'all',
+                        automationRoute: 'all'
+                      })}
+                      sx={{
+                        minWidth: 0,
+                        px: 1.1,
+                        py: 0.2,
+                        color: '#cbd5e1',
+                        borderColor: 'rgba(148, 163, 184, 0.24)'
+                      }}
+                    >
+                      Reset filters
+                    </Button>
+                  </Stack>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' },
+                      gap: 0.9
+                    }}
+                  >
+                    <FilterChipGroup label="Action Lane" value={t1ActionFilters.pLevel} onChange={(next) => setT1ActionFilters((current) => ({ ...current, pLevel: next }))} options={t1PLevelOptions} tone="#0f766e" />
+                    <FilterChipGroup label="Due Bucket" value={t1ActionFilters.dueBucket} onChange={(next) => setT1ActionFilters((current) => ({ ...current, dueBucket: next }))} options={t1DueBucketOptions} tone="#ea580c" />
+                    <FilterChipGroup label="System State" value={t1ActionFilters.systemState} onChange={(next) => setT1ActionFilters((current) => ({ ...current, systemState: next }))} options={t1SystemStateOptions} tone="#1d4ed8" />
+                    <FilterChipGroup label="Operational State" value={t1ActionFilters.operationalState} onChange={(next) => setT1ActionFilters((current) => ({ ...current, operationalState: next }))} options={t1OperationalStateOptions} tone="#7c3aed" />
+                    <Box sx={{ gridColumn: { xs: 'auto', xl: '1 / -1' } }}>
+                      <FilterChipGroup label="Automation Route" value={t1ActionFilters.automationRoute} onChange={(next) => setT1ActionFilters((current) => ({ ...current, automationRoute: next }))} options={t1AutomationRouteOptions} tone="#8b5cf6" />
+                    </Box>
+                  </Box>
+                </Stack>
+              </Box>
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                 <Typography variant="caption" sx={{ color: OPS_MUTED }}>
-                  Showing {formatCount(t1ActionViewVisibleRows.length)} of {formatCount(t1ActionViewRows.length)} live Tier 1 queue rows, sorted by SLA pressure first.
+                  Showing {formatCount(t1ActionViewVisibleRows.length)} of {formatCount(t1FilteredActionViewRows.length)} filtered rows from {formatCount(t1ActionViewRows.length)} live Tier 1 queue rows, sorted by SLA pressure first.
                 </Typography>
                 <RowWindowSelector value={t1ActionViewLimit} onChange={setT1ActionViewLimit} options={[20, 50, 100, 'all']} />
               </Stack>
