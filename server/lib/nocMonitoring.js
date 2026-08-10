@@ -25,6 +25,9 @@ const TIER1_GROUP_NAME = String(process.env.NOC_MONITORING_T1_GROUP || 'NOC Tier
 const TIER2_GROUP_NAME = String(process.env.NOC_MONITORING_T2_GROUP || 'NOC Tier2 Support').trim()
 const TIER1_VOICE_QUEUE_NAME = String(process.env.NOC_MONITORING_T1_VOICE_QUEUE || 'NOCTier1_Queue').trim()
 const TIER1_P1_SLA_MINUTES = Math.max(5, Number(process.env.NOC_MONITORING_T1_P1_SLA_MINUTES || 30))
+const TIER1_P2_SLA_MINUTES = Math.max(15, Number(process.env.NOC_MONITORING_T1_P2_SLA_MINUTES || 60))
+const TIER1_P3_SLA_MINUTES = Math.max(15, Number(process.env.NOC_MONITORING_T1_P3_SLA_MINUTES || 90))
+const TIER1_P4_SLA_MINUTES = Math.max(15, Number(process.env.NOC_MONITORING_T1_P4_SLA_MINUTES || 90))
 const TIER1_VOICE_SLA_SECONDS = Math.max(5, Number(process.env.NOC_MONITORING_T1_VOICE_SLA_SECONDS || 20))
 const TIER1_CHANGE_CONTROL_TAG = String(process.env.NOC_MONITORING_T1_CHANGE_CONTROL_TAG || 'noc_change_checks').trim().toLowerCase()
 const ILLATION_STATS_URL = String(process.env.ILLATION_DASHBOARD_STATS_URL || '').trim()
@@ -113,16 +116,45 @@ const T1_ACTION_DEFS = [
   { key: 'Change', label: 'Change control', tone: '#8b5cf6' },
   { key: 'Other', label: 'Other / uncategorised', tone: '#475569' }
 ]
-const T1_DUE_BUCKET_ORDER = ['BREACHED', 'Due <=2h', 'Due <=4h', 'Due 4-8h', 'Due 8-24h', 'Safe >24h', 'Change control', 'Other/No SLA']
-const T1_DUE_BUCKET_TONES = {
+const T1_PLAY_POLICY_CONFIG = {
+  P1: {
+    key: 'P1',
+    policyTitle: 'Play Priority 1',
+    metricKey: 'reply_time',
+    targetMinutes: TIER1_P1_SLA_MINUTES,
+    activeStatusOnly: 'new',
+    exactClock: true
+  },
+  P2: {
+    key: 'P2',
+    policyTitle: 'Play Priority 2',
+    metricKey: 'periodic_update_time',
+    targetMinutes: TIER1_P2_SLA_MINUTES,
+    exactClock: false
+  },
+  P3: {
+    key: 'P3',
+    policyTitle: 'Play Priority 3',
+    metricKey: 'periodic_update_time',
+    targetMinutes: TIER1_P3_SLA_MINUTES,
+    exactClock: false
+  },
+  P4: {
+    key: 'P4',
+    policyTitle: 'Play Priority 4',
+    metricKey: 'periodic_update_time',
+    targetMinutes: TIER1_P4_SLA_MINUTES,
+    exactClock: false
+  }
+}
+const T1_PLAY_BUCKET_ORDER = ['BREACHED', 'Due <=15m', 'Due <=30m', 'Safe >30m', 'Change control', 'No active timer']
+const T1_PLAY_BUCKET_TONES = {
   BREACHED: '#dc2626',
-  'Due <=2h': '#ea580c',
-  'Due <=4h': '#f97316',
-  'Due 4-8h': '#d97706',
-  'Due 8-24h': '#0284c7',
-  'Safe >24h': '#0f766e',
+  'Due <=15m': '#ea580c',
+  'Due <=30m': '#d97706',
+  'Safe >30m': '#0f766e',
   'Change control': '#8b5cf6',
-  'Other/No SLA': '#64748b'
+  'No active timer': '#64748b'
 }
 const AGE_BUCKET_DEFS = [
   { key: '<=2h', label: '<=2h', maxHours: 2, tone: '#22c55e' },
@@ -281,34 +313,100 @@ function classifyOutagePriority(ticket) {
   return ''
 }
 
-function t1SlaHoursForProduct(product) {
-  if (product === 'FTTB') return 24
-  if (product === 'FTTH') return 48
-  return 0
+function classifyDueBucket(remainingMinutes, pLevel, clockActive) {
+  if (pLevel === 'Change') return 'Change control'
+  if (!clockActive || !Number.isFinite(Number(remainingMinutes))) return 'No active timer'
+  if (remainingMinutes <= 0) return 'BREACHED'
+  if (remainingMinutes <= 15) return 'Due <=15m'
+  if (remainingMinutes <= 30) return 'Due <=30m'
+  return 'Safe >30m'
 }
 
-function classifyDueBucket(remainingHours, slaHours, pLevel) {
-  if (pLevel === 'Change') return 'Change control'
-  if (!slaHours) return 'Other/No SLA'
-  if (remainingHours <= 0) return 'BREACHED'
-  if (remainingHours <= 2) return 'Due <=2h'
-  if (remainingHours <= 4) return 'Due <=4h'
-  if (remainingHours <= 8) return 'Due 4-8h'
-  if (remainingHours <= 24) return 'Due 8-24h'
-  return 'Safe >24h'
+function buildAgeMinutes(stamp, now = dayjs()) {
+  const value = dayjs(stamp)
+  return value.isValid() ? now.diff(value, 'minute', true) : null
+}
+
+function getT1PlayPolicy(pLevel) {
+  return T1_PLAY_POLICY_CONFIG[pLevel] || null
+}
+
+function buildT1PlayClock(ticket, pLevel, status, now = dayjs()) {
+  const policy = getT1PlayPolicy(pLevel)
+  if (!policy) {
+    return {
+      playPolicyTitle: '',
+      playMetricKey: '',
+      playTargetMinutes: null,
+      playClockActive: false,
+      playClockExact: false,
+      playClockSource: '',
+      timerAnchorAt: null,
+      timerAnchorMode: '',
+      timerElapsedMinutes: null,
+      remainingMinutes: null,
+      remainingHours: null,
+      dueBucket: classifyDueBucket(null, pLevel, false)
+    }
+  }
+
+  const normalizedStatus = normalizeStatus(status || ticket?.status)
+  if (policy.activeStatusOnly && normalizedStatus !== policy.activeStatusOnly) {
+    return {
+      playPolicyTitle: policy.policyTitle,
+      playMetricKey: policy.metricKey,
+      playTargetMinutes: policy.targetMinutes,
+      playClockActive: false,
+      playClockExact: policy.exactClock,
+      playClockSource: 'P1 reply-time clock only applies while the ticket is still untouched in the new state.',
+      timerAnchorAt: ticket.updated_at || ticket.created_at || null,
+      timerAnchorMode: 'first-touch-cleared',
+      timerElapsedMinutes: null,
+      remainingMinutes: null,
+      remainingHours: null,
+      dueBucket: classifyDueBucket(null, pLevel, false)
+    }
+  }
+
+  const timerAnchorAt = pLevel === 'P1'
+    ? (ticket.created_at || null)
+    : firstText(ticket.updated_at, ticket.created_at)
+  const timerElapsedMinutes = buildAgeMinutes(timerAnchorAt, now)
+  const remainingMinutes = Number.isFinite(Number(timerElapsedMinutes))
+    ? Number((policy.targetMinutes - timerElapsedMinutes).toFixed(1))
+    : null
+  const remainingHours = Number.isFinite(Number(remainingMinutes))
+    ? Number((remainingMinutes / 60).toFixed(2))
+    : null
+
+  return {
+    playPolicyTitle: policy.policyTitle,
+    playMetricKey: policy.metricKey,
+    playTargetMinutes: policy.targetMinutes,
+    playClockActive: Number.isFinite(Number(timerElapsedMinutes)),
+    playClockExact: policy.exactClock,
+    playClockSource: policy.exactClock
+      ? 'Zendesk first-response play clock anchored to ticket creation until the first desk touch.'
+      : 'Zendesk periodic-update play clock approximated from the last ticket update on the cached live snapshot path.',
+    timerAnchorAt,
+    timerAnchorMode: policy.exactClock ? 'created_at' : 'updated_at',
+    timerElapsedMinutes,
+    remainingMinutes,
+    remainingHours,
+    dueBucket: classifyDueBucket(remainingMinutes, pLevel, Number.isFinite(Number(timerElapsedMinutes)))
+  }
 }
 
 function buildT1ActionRow(ticket, now = dayjs()) {
   const base = buildTicketBase(ticket, now)
   const product = classifyTicketProduct(ticket)
   const pLevel = classifyT1ActionLevel(ticket)
-  const slaHours = t1SlaHoursForProduct(product)
-  const remainingHours = slaHours ? Number((slaHours - base.ageHours).toFixed(1)) : null
   const automationRoutes = classifyT1AutomationRoutes(ticket)
   const status = normalizeStatus(ticket.status)
   const explicitOperationalState = humanizeFieldChoice(cf(ticket, FIELD_IDS.tier1OperationalState))
   const escalationPath = classifyT1EscalationPath(ticket, pLevel)
-  const p1ActionBreached = pLevel === 'P1' && status === 'new' && base.ageHours >= (TIER1_P1_SLA_MINUTES / 60)
+  const playClock = buildT1PlayClock(ticket, pLevel, status, now)
+  const p1ActionBreached = pLevel === 'P1' && playClock.playClockActive && Number(playClock.remainingMinutes) <= 0
 
   return {
     ...base,
@@ -317,9 +415,7 @@ function buildT1ActionRow(ticket, now = dayjs()) {
     operationalState: explicitOperationalState || classifyT1OperationalState(ticket, pLevel, status),
     escalationPath,
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
-    slaHours,
-    remainingHours,
-    dueBucket: classifyDueBucket(remainingHours ?? null, slaHours, pLevel),
+    ...playClock,
     automationRoutes: automationRoutes.map((rule) => rule.label),
     automationRouteCount: automationRoutes.length,
     p1ActionBreached,
@@ -1343,11 +1439,18 @@ async function collectLiveSnapshot() {
 
   const t1ActionSummary = T1_ACTION_DEFS.map((definition) => {
     const rows = tier1Tickets.filter((row) => row.pLevel === definition.key)
+    const trackedRows = rows.filter((row) => row.playClockActive)
     return {
       key: definition.key,
       label: definition.label,
       tone: definition.tone,
       count: rows.length,
+      breached: trackedRows.filter((row) => row.dueBucket === 'BREACHED').length,
+      dueSoon: trackedRows.filter((row) => ['Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length,
+      tracked: trackedRows.length,
+      noActiveTimer: rows.filter((row) => !row.playClockActive).length,
+      playPolicyTitle: rows.find((row) => row.playPolicyTitle)?.playPolicyTitle || '',
+      playTargetMinutes: rows.find((row) => Number.isFinite(Number(row.playTargetMinutes)))?.playTargetMinutes || null,
       fttb: rows.filter((row) => row.product === 'FTTB').length,
       ftth: rows.filter((row) => row.product === 'FTTH').length,
       other: rows.filter((row) => row.product === 'Other').length
@@ -1382,14 +1485,14 @@ async function collectLiveSnapshot() {
     'Change control': '#8b5cf6',
     'Tier 1 review': '#475569'
   })
-  const t1DueBucketSummary = T1_DUE_BUCKET_ORDER.map((bucket) => ({
+  const t1DueBucketSummary = T1_PLAY_BUCKET_ORDER.map((bucket) => ({
     key: bucket,
     label: bucket,
-    tone: T1_DUE_BUCKET_TONES[bucket] || '#64748b',
+    tone: T1_PLAY_BUCKET_TONES[bucket] || '#64748b',
     count: tier1Tickets.filter((row) => row.dueBucket === bucket).length
   }))
   const t1UrgentRows = sortByAgeDesc(
-    tier1Tickets.filter((row) => ['BREACHED', 'Due <=2h', 'Due <=4h'].includes(row.dueBucket))
+    tier1Tickets.filter((row) => ['BREACHED', 'Due <=15m', 'Due <=30m'].includes(row.dueBucket))
   )
   const t1P1UnattendedRows = sortByAgeDesc(
     tier1Tickets.filter((row) => row.pLevel === 'P1' && normalizeStatus(row.status) === 'new')
@@ -1521,6 +1624,9 @@ async function collectLiveSnapshot() {
     tier1Open: tier1Tickets.length,
     tier1P1Unattended: t1P1UnattendedRows.length,
     tier1P1Breached: t1P1BreachedRows.length,
+    tier1PlayClockTracked: tier1Tickets.filter((row) => row.playClockActive).length,
+    tier1PlayClockBreached: tier1Tickets.filter((row) => row.dueBucket === 'BREACHED').length,
+    tier1PlayClockDueSoon: tier1Tickets.filter((row) => ['Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length,
     tier1ChangeControlOpen: t1ChangeControlRows.length,
     tier2Open: tier2Tickets.length,
     tier2NewUnassigned,

@@ -68,6 +68,20 @@
   into the filtered Action View.
 - Added export of the currently filtered Tier 1 Action View so supervisors can lift the exact live queue slice they are looking at.
 - Added Tier 1 escalation-path filtering and summary visuals to support a more holistic unresolved-queue view without losing the action-lane lens.
+- Replaced the old Tier 1 product-age SLA assumption with confirmed Zendesk Play policy timing:
+  - `Play Priority 1` = 30-minute first-touch clock
+  - `Play Priority 2` = 60-minute update clock
+  - `Play Priority 3` = 90-minute update clock
+  - `Play Priority 4` = 90-minute update clock
+- Reworked the Tier 1 dashboard again so it now reads more like an operational desk:
+  - red-flag board
+  - lane timer board
+  - ownership / flow snapshot
+  - tighter daily pace and pressure sections
+  - simpler table-first supervision layout
+- Clarified the live Tier 1 timer model in the UI:
+  - P1 is shown on the exact first-touch clock
+  - P2 / P3 / P4 are shown from the last live ticket update on the cached snapshot path until audit-anchored timers are added
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 
