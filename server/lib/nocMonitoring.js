@@ -211,14 +211,22 @@ function classifyT1ActionLevel(ticket) {
 
 function classifyT1OperationalState(ticket, pLevel, status) {
   const normalizedStatus = normalizeStatus(status || ticket?.status)
-  if (pLevel === 'P1') return normalizedStatus === 'new' ? 'New / unattended' : 'P1 in progress'
-  if (pLevel === 'P2') return 'ISP follow-up'
-  if (pLevel === 'P3') return 'Vendor update'
-  if (pLevel === 'P4') return 'MNT / automation'
+  if (pLevel === 'P1') {
+    if (normalizedStatus === 'new') return 'New / unattended'
+    if (normalizedStatus === 'hold') return 'On hold'
+    return 'P1 in progress'
+  }
+  if (pLevel === 'P2') return normalizedStatus === 'hold' ? 'ISP hold / follow-up' : 'ISP follow-up'
+  if (pLevel === 'P3') return normalizedStatus === 'hold' ? 'Vendor hold / update' : 'Vendor update'
+  if (pLevel === 'P4') return normalizedStatus === 'hold' ? 'MNT hold / automation' : 'MNT / automation'
   if (pLevel === 'Change') return 'Change control'
-  if (normalizedStatus === 'pending') return 'Pending'
+  if (normalizedStatus === 'pending') return 'Pending review'
+  if (normalizedStatus === 'hold') return 'On hold'
+  if (normalizedStatus === 'new') return 'New / review'
   if (normalizedStatus === 'open') return 'In progress'
-  return 'Other'
+  if (normalizedStatus === 'solved') return 'Solved / cleanup'
+  if (normalizedStatus === 'closed') return 'Closed / cleanup'
+  return 'Other / review'
 }
 
 function classifyT1AutomationRoutes(ticket) {
@@ -1306,12 +1314,19 @@ async function collectLiveSnapshot() {
     'New / unattended': '#dc2626',
     'P1 in progress': '#f97316',
     'ISP follow-up': '#ea580c',
+    'ISP hold / follow-up': '#c2410c',
     'Vendor update': '#d97706',
+    'Vendor hold / update': '#b45309',
     'MNT / automation': '#2563eb',
+    'MNT hold / automation': '#1d4ed8',
     'Change control': '#8b5cf6',
-    Pending: '#475569',
+    'Pending review': '#475569',
+    'New / review': '#dc2626',
+    'On hold': '#7c3aed',
     'In progress': '#0ea5e9',
-    Other: '#64748b'
+    'Solved / cleanup': '#16a34a',
+    'Closed / cleanup': '#475569',
+    'Other / review': '#64748b'
   })
   const t1DueBucketSummary = T1_DUE_BUCKET_ORDER.map((bucket) => ({
     key: bucket,

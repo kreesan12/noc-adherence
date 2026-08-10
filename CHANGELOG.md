@@ -47,6 +47,12 @@
   - system state
   - operational state
   - automation route
+- Added Tier 1 quick queue presets with live counts for:
+  - P1 only
+  - Due now
+  - Change Control
+  - Automation-routed
+- Tightened Tier 1 operational-state normalization so hold, review, cleanup, and lane-specific follow-up states are cleaner and more consistent in the dashboard.
 - Added monitoring rebuild notes so Grafana parity work stays documented in-repo:
   - `docs/GRAFANA_NOC_MONITORING_NOTES.md`
 

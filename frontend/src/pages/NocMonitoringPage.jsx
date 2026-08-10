@@ -136,13 +136,56 @@ const T1_OPERATIONAL_STATE_TONE_MAP = {
   'New / unattended': '#dc2626',
   'P1 in progress': '#f97316',
   'ISP follow-up': '#ea580c',
+  'ISP hold / follow-up': '#c2410c',
   'Vendor update': '#d97706',
+  'Vendor hold / update': '#b45309',
   'MNT / automation': '#2563eb',
+  'MNT hold / automation': '#1d4ed8',
   'Change control': '#8b5cf6',
-  Pending: '#475569',
+  'Pending review': '#475569',
+  'New / review': '#dc2626',
+  'On hold': '#7c3aed',
   'In progress': '#0ea5e9',
-  Other: '#64748b'
+  'Solved / cleanup': '#16a34a',
+  'Closed / cleanup': '#475569',
+  'Other / review': '#64748b'
 }
+const T1_PRESET_TONE_MAP = {
+  all: '#0f766e',
+  p1Only: '#dc2626',
+  dueNow: '#ea580c',
+  changeControl: '#8b5cf6',
+  automationRouted: '#2563eb'
+}
+const T1_SYSTEM_STATE_ORDER = ['new', 'open', 'hold', 'pending', 'solved', 'closed', 'unknown']
+const T1_OPERATIONAL_STATE_ORDER = [
+  'New / unattended',
+  'P1 in progress',
+  'ISP follow-up',
+  'ISP hold / follow-up',
+  'Vendor update',
+  'Vendor hold / update',
+  'MNT / automation',
+  'MNT hold / automation',
+  'Change control',
+  'Pending review',
+  'New / review',
+  'On hold',
+  'In progress',
+  'Solved / cleanup',
+  'Closed / cleanup',
+  'Other / review'
+]
+const T1_ACTION_ORDER = ['P1', 'P2', 'P3', 'P4', 'Change', 'Other']
+const T1_DUE_BUCKET_ORDER_UI = ['BREACHED', 'Due <=2h', 'Due <=4h', 'Due 4-8h', 'Due 8-24h', 'Safe >24h', 'Change control', 'Other/No SLA']
+
+const T1_PRESETS = [
+  { key: 'all', label: 'All queue' },
+  { key: 'p1Only', label: 'P1 only' },
+  { key: 'dueNow', label: 'Due now' },
+  { key: 'changeControl', label: 'Change Control' },
+  { key: 'automationRouted', label: 'Automation-routed' }
+]
 
 function formatCount(value) {
   return new Intl.NumberFormat('en-ZA').format(Number(value || 0))
@@ -189,6 +232,24 @@ function formatSignedDelta(value, suffix = '') {
   const rounded = Math.round(numeric)
   const sign = rounded > 0 ? '+' : ''
   return `${sign}${rounded}${suffix}`
+}
+
+function titleCaseWords(value) {
+  return String(value || '')
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function sortByPresetOrder(values, order = []) {
+  const rank = new Map(order.map((item, index) => [item, index]))
+  return [...values].sort((left, right) => {
+    const leftRank = rank.has(left) ? rank.get(left) : Number.MAX_SAFE_INTEGER
+    const rightRank = rank.has(right) ? rank.get(right) : Number.MAX_SAFE_INTEGER
+    if (leftRank !== rightRank) return leftRank - rightRank
+    return String(left).localeCompare(String(right))
+  })
 }
 
 function findHistoryPointNear(rows, targetTs, toleranceMinutes = 20) {
@@ -301,7 +362,7 @@ function RowWindowSelector({ value, onChange, options = [10, 20, 50, 'all'] }) {
   )
 }
 
-function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT }) {
+function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT, countMap = {}, anyCount = null, labelFormatter, anyLabel = 'Any' }) {
   return (
     <Stack spacing={0.45}>
       <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.55 }}>
@@ -310,7 +371,7 @@ function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT }
       <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
         <Chip
           size="small"
-          label="Any"
+          label={`${anyLabel} ${formatCount(anyCount ?? 0)}`}
           clickable
           onClick={() => onChange('all')}
           sx={{
@@ -326,11 +387,12 @@ function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT }
         />
         {options.map((option) => {
           const selected = value === option
+          const label = labelFormatter ? labelFormatter(option) : option
           return (
             <Chip
               key={option}
               size="small"
-              label={option}
+              label={`${label} ${formatCount(countMap[option] ?? 0)}`}
               clickable
               onClick={() => onChange(option)}
               sx={{
@@ -700,6 +762,7 @@ export default function NocMonitoringPage() {
   const [tab, setTab] = useState('overview')
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
+  const [t1QuickPreset, setT1QuickPreset] = useState('all')
   const [t1ActionFilters, setT1ActionFilters] = useState({
     systemState: 'all',
     operationalState: 'all',
@@ -1113,40 +1176,96 @@ export default function NocMonitoringPage() {
   )
 
   const t1SystemStateOptions = useMemo(
-    () => [...new Set(t1ActionViewRows.map((row) => row.status).filter(Boolean))],
+    () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.status).filter(Boolean))], T1_SYSTEM_STATE_ORDER),
     [t1ActionViewRows]
   )
 
   const t1OperationalStateOptions = useMemo(
-    () => [...new Set(t1ActionViewRows.map((row) => row.operationalState).filter(Boolean))],
+    () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.operationalState).filter(Boolean))], T1_OPERATIONAL_STATE_ORDER),
     [t1ActionViewRows]
   )
 
   const t1PLevelOptions = useMemo(
-    () => [...new Set(t1ActionViewRows.map((row) => row.pLevel).filter(Boolean))],
+    () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.pLevel).filter(Boolean))], T1_ACTION_ORDER),
     [t1ActionViewRows]
   )
 
   const t1DueBucketOptions = useMemo(
-    () => [...new Set(t1ActionViewRows.map((row) => row.dueBucket).filter(Boolean))],
+    () => sortByPresetOrder([...new Set(t1ActionViewRows.map((row) => row.dueBucket).filter(Boolean))], T1_DUE_BUCKET_ORDER_UI),
     [t1ActionViewRows]
   )
 
   const t1AutomationRouteOptions = useMemo(
-    () => [...new Set(t1ActionViewRows.flatMap((row) => row.automationRoutes || []).filter(Boolean))],
+    () => [...new Set(t1ActionViewRows.flatMap((row) => row.automationRoutes || []).filter(Boolean))].sort((left, right) => String(left).localeCompare(String(right))),
     [t1ActionViewRows]
   )
 
+  const matchesT1QuickPreset = useCallback((row, preset = t1QuickPreset) => {
+    switch (preset) {
+      case 'p1Only':
+        return row.pLevel === 'P1'
+      case 'dueNow':
+        return ['BREACHED', 'Due <=2h', 'Due <=4h'].includes(row.dueBucket)
+      case 'changeControl':
+        return row.pLevel === 'Change' || row.operationalState === 'Change control'
+      case 'automationRouted':
+        return Array.isArray(row.automationRoutes) && row.automationRoutes.length > 0
+      case 'all':
+      default:
+        return true
+    }
+  }, [t1QuickPreset])
+
+  const matchesT1ActionFilters = useCallback((row, filters, ignoreField = null) => {
+    if (ignoreField !== 'systemState' && filters.systemState !== 'all' && row.status !== filters.systemState) return false
+    if (ignoreField !== 'operationalState' && filters.operationalState !== 'all' && row.operationalState !== filters.operationalState) return false
+    if (ignoreField !== 'pLevel' && filters.pLevel !== 'all' && row.pLevel !== filters.pLevel) return false
+    if (ignoreField !== 'dueBucket' && filters.dueBucket !== 'all' && row.dueBucket !== filters.dueBucket) return false
+    if (ignoreField !== 'automationRoute' && filters.automationRoute !== 'all' && !(row.automationRoutes || []).includes(filters.automationRoute)) return false
+    return true
+  }, [])
+
+  const t1QuickPresetCounts = useMemo(
+    () => Object.fromEntries(T1_PRESETS.map((preset) => [preset.key, t1ActionViewRows.filter((row) => matchesT1QuickPreset(row, preset.key)).length])),
+    [matchesT1QuickPreset, t1ActionViewRows]
+  )
+
+  const buildT1FieldCountMap = useCallback((fieldName, options) => (
+    Object.fromEntries(
+      options.map((option) => [
+        option,
+        t1ActionViewRows.filter((row) => (
+          matchesT1QuickPreset(row) &&
+          matchesT1ActionFilters(
+            row,
+            {
+              ...t1ActionFilters,
+              [fieldName]: option
+            },
+            fieldName
+          )
+        )).length
+      ])
+    )
+  ), [matchesT1ActionFilters, matchesT1QuickPreset, t1ActionFilters, t1ActionViewRows])
+
+  const t1FilterAnyCounts = useMemo(() => ({
+    systemState: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'systemState')).length,
+    operationalState: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'operationalState')).length,
+    pLevel: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'pLevel')).length,
+    dueBucket: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'dueBucket')).length,
+    automationRoute: t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters, 'automationRoute')).length
+  }), [matchesT1ActionFilters, matchesT1QuickPreset, t1ActionFilters, t1ActionViewRows])
+
+  const t1SystemStateCountMap = useMemo(() => buildT1FieldCountMap('systemState', t1SystemStateOptions), [buildT1FieldCountMap, t1SystemStateOptions])
+  const t1OperationalStateCountMap = useMemo(() => buildT1FieldCountMap('operationalState', t1OperationalStateOptions), [buildT1FieldCountMap, t1OperationalStateOptions])
+  const t1PLevelCountMap = useMemo(() => buildT1FieldCountMap('pLevel', t1PLevelOptions), [buildT1FieldCountMap, t1PLevelOptions])
+  const t1DueBucketCountMap = useMemo(() => buildT1FieldCountMap('dueBucket', t1DueBucketOptions), [buildT1FieldCountMap, t1DueBucketOptions])
+  const t1AutomationRouteCountMap = useMemo(() => buildT1FieldCountMap('automationRoute', t1AutomationRouteOptions), [buildT1FieldCountMap, t1AutomationRouteOptions])
+
   const t1FilteredActionViewRows = useMemo(
-    () => t1ActionViewRows.filter((row) => {
-      if (t1ActionFilters.systemState !== 'all' && row.status !== t1ActionFilters.systemState) return false
-      if (t1ActionFilters.operationalState !== 'all' && row.operationalState !== t1ActionFilters.operationalState) return false
-      if (t1ActionFilters.pLevel !== 'all' && row.pLevel !== t1ActionFilters.pLevel) return false
-      if (t1ActionFilters.dueBucket !== 'all' && row.dueBucket !== t1ActionFilters.dueBucket) return false
-      if (t1ActionFilters.automationRoute !== 'all' && !(row.automationRoutes || []).includes(t1ActionFilters.automationRoute)) return false
-      return true
-    }),
-    [t1ActionFilters, t1ActionViewRows]
+    () => t1ActionViewRows.filter((row) => matchesT1QuickPreset(row) && matchesT1ActionFilters(row, t1ActionFilters)),
+    [matchesT1ActionFilters, matchesT1QuickPreset, t1ActionFilters, t1ActionViewRows]
   )
 
   const t1DueNowVisibleRows = useMemo(
@@ -2071,18 +2190,21 @@ export default function NocMonitoringPage() {
                 <Stack spacing={0.85}>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                     <Typography variant="caption" sx={{ color: OPS_MUTED }}>
-                      Drill the live Tier 1 queue by action lane, system state, operational state, due bucket, and automation route.
+                      Saved queue lenses plus drill filters for action lane, system state, operational state, due bucket, and automation route.
                     </Typography>
                     <Button
                       size="small"
                       variant="outlined"
-                      onClick={() => setT1ActionFilters({
-                        systemState: 'all',
-                        operationalState: 'all',
-                        pLevel: 'all',
-                        dueBucket: 'all',
-                        automationRoute: 'all'
-                      })}
+                      onClick={() => {
+                        setT1QuickPreset('all')
+                        setT1ActionFilters({
+                          systemState: 'all',
+                          operationalState: 'all',
+                          pLevel: 'all',
+                          dueBucket: 'all',
+                          automationRoute: 'all'
+                        })
+                      }}
                       sx={{
                         minWidth: 0,
                         px: 1.1,
@@ -2094,6 +2216,17 @@ export default function NocMonitoringPage() {
                       Reset filters
                     </Button>
                   </Stack>
+                  <FilterChipGroup
+                    label="Quick presets"
+                    value={t1QuickPreset}
+                    onChange={setT1QuickPreset}
+                    options={T1_PRESETS.filter((preset) => preset.key !== 'all').map((preset) => preset.key)}
+                    tone={T1_PRESET_TONE_MAP[t1QuickPreset] || '#0f766e'}
+                    anyCount={t1QuickPresetCounts.all}
+                    countMap={t1QuickPresetCounts}
+                    labelFormatter={(presetKey) => T1_PRESETS.find((preset) => preset.key === presetKey)?.label || presetKey}
+                    anyLabel="All queue"
+                  />
                   <Box
                     sx={{
                       display: 'grid',
@@ -2101,12 +2234,53 @@ export default function NocMonitoringPage() {
                       gap: 0.9
                     }}
                   >
-                    <FilterChipGroup label="Action Lane" value={t1ActionFilters.pLevel} onChange={(next) => setT1ActionFilters((current) => ({ ...current, pLevel: next }))} options={t1PLevelOptions} tone="#0f766e" />
-                    <FilterChipGroup label="Due Bucket" value={t1ActionFilters.dueBucket} onChange={(next) => setT1ActionFilters((current) => ({ ...current, dueBucket: next }))} options={t1DueBucketOptions} tone="#ea580c" />
-                    <FilterChipGroup label="System State" value={t1ActionFilters.systemState} onChange={(next) => setT1ActionFilters((current) => ({ ...current, systemState: next }))} options={t1SystemStateOptions} tone="#1d4ed8" />
-                    <FilterChipGroup label="Operational State" value={t1ActionFilters.operationalState} onChange={(next) => setT1ActionFilters((current) => ({ ...current, operationalState: next }))} options={t1OperationalStateOptions} tone="#7c3aed" />
+                    <FilterChipGroup
+                      label="Action Lane"
+                      value={t1ActionFilters.pLevel}
+                      onChange={(next) => setT1ActionFilters((current) => ({ ...current, pLevel: next }))}
+                      options={t1PLevelOptions}
+                      tone="#0f766e"
+                      countMap={t1PLevelCountMap}
+                      anyCount={t1FilterAnyCounts.pLevel}
+                    />
+                    <FilterChipGroup
+                      label="Due Bucket"
+                      value={t1ActionFilters.dueBucket}
+                      onChange={(next) => setT1ActionFilters((current) => ({ ...current, dueBucket: next }))}
+                      options={t1DueBucketOptions}
+                      tone="#ea580c"
+                      countMap={t1DueBucketCountMap}
+                      anyCount={t1FilterAnyCounts.dueBucket}
+                    />
+                    <FilterChipGroup
+                      label="System State"
+                      value={t1ActionFilters.systemState}
+                      onChange={(next) => setT1ActionFilters((current) => ({ ...current, systemState: next }))}
+                      options={t1SystemStateOptions}
+                      tone="#1d4ed8"
+                      countMap={t1SystemStateCountMap}
+                      anyCount={t1FilterAnyCounts.systemState}
+                      labelFormatter={titleCaseWords}
+                    />
+                    <FilterChipGroup
+                      label="Operational State"
+                      value={t1ActionFilters.operationalState}
+                      onChange={(next) => setT1ActionFilters((current) => ({ ...current, operationalState: next }))}
+                      options={t1OperationalStateOptions}
+                      tone="#7c3aed"
+                      countMap={t1OperationalStateCountMap}
+                      anyCount={t1FilterAnyCounts.operationalState}
+                    />
                     <Box sx={{ gridColumn: { xs: 'auto', xl: '1 / -1' } }}>
-                      <FilterChipGroup label="Automation Route" value={t1ActionFilters.automationRoute} onChange={(next) => setT1ActionFilters((current) => ({ ...current, automationRoute: next }))} options={t1AutomationRouteOptions} tone="#8b5cf6" />
+                      <FilterChipGroup
+                        label="Automation Route"
+                        value={t1ActionFilters.automationRoute}
+                        onChange={(next) => setT1ActionFilters((current) => ({ ...current, automationRoute: next }))}
+                        options={t1AutomationRouteOptions}
+                        tone="#8b5cf6"
+                        countMap={t1AutomationRouteCountMap}
+                        anyCount={t1FilterAnyCounts.automationRoute}
+                      />
                     </Box>
                   </Box>
                 </Stack>
