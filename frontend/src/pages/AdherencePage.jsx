@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DataGrid, GridActionsCellItem, GridToolbar } from '@mui/x-data-grid'
-import { Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
 import CancelIcon from '@mui/icons-material/Close'
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import dayjs from 'dayjs'
 import api from '../api'
 import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
@@ -43,27 +44,40 @@ function fmtCount(value) {
   return new Intl.NumberFormat().format(Number(value || 0))
 }
 
+function extractError(error, fallback) {
+  return error?.response?.data?.error || error?.message || fallback
+}
+
 export default function AdherencePage() {
   const [rows, setRows] = useState([])
   const [date, setDate] = useState(dayjs())
   const [team, setTeam] = useState('')
   const [teams, setTeams] = useState([])
   const [rowModesModel, setRowModesModel] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    api.get('/agents').then((res) => {
-      setTeams([...new Set(res.data.map((agent) => agent.role))].sort())
-    })
-  }, [])
+  async function loadTeams() {
+    try {
+      const res = await api.get('/agents')
+      setTeams([...new Set(res.data.map((agent) => agent.role).filter(Boolean))].sort())
+    } catch (err) {
+      setError(extractError(err, 'Failed to load adherence teams'))
+    }
+  }
 
-  useEffect(() => {
-    api.get('/shifts', {
-      params: {
-        team: team || undefined,
-        startDate: date.format('YYYY-MM-DD'),
-        endDate: date.format('YYYY-MM-DD')
-      }
-    }).then((res) => {
+  async function loadShifts() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await api.get('/shifts', {
+        params: {
+          team: team || undefined,
+          startDate: date.format('YYYY-MM-DD'),
+          endDate: date.format('YYYY-MM-DD')
+        }
+      })
+
       setRows(res.data.map((shift) => ({
         id: shift.id,
         agentName: shift.agent?.fullName ?? shift.agentName ?? '-',
@@ -79,7 +93,19 @@ export default function AdherencePage() {
         start: dayjs(shift.startAt).format('HH:mm'),
         end: dayjs(shift.endAt).format('HH:mm')
       })))
-    })
+    } catch (err) {
+      setError(extractError(err, 'Failed to load adherence shifts'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadTeams()
+  }, [])
+
+  useEffect(() => {
+    loadShifts()
   }, [date, team])
 
   const processRowUpdate = async (newRow) => {
@@ -90,19 +116,25 @@ export default function AdherencePage() {
       ? dayjs(`${date.format('YYYY-MM-DD')}T${newRow.lunchEnd}`).toISOString()
       : null
 
-    await api.patch(`/attendance/${newRow.id}`, {
-      status: newRow.status,
-      dutyName: newRow.duty,
-      lunchStart: ls,
-      lunchEnd: le
-    })
-    return newRow
+    try {
+      await api.patch(`/attendance/${newRow.id}`, {
+        status: newRow.status,
+        dutyName: newRow.duty,
+        lunchStart: ls,
+        lunchEnd: le
+      })
+      return newRow
+    } catch (err) {
+      setError(extractError(err, 'Failed to save attendance row'))
+      throw err
+    }
   }
 
   const stats = useMemo(() => {
     const present = rows.filter((row) => row.status === 'present').length
     const late = rows.filter((row) => row.status === 'late').length
     const pending = rows.filter((row) => row.status === 'pending').length
+
     return [
       { label: 'Shifts in View', value: fmtCount(rows.length), helper: team || 'All teams' },
       { label: 'On Time', value: fmtCount(present), helper: 'Captured as present', accent: '#16a34a' },
@@ -254,16 +286,21 @@ export default function AdherencePage() {
       <PageShell
         eyebrow="Daily Operations"
         title="Daily Adherence Monitor"
-        description="Track the live attendance view for scheduled shifts, update late and leave outcomes quickly, and keep lunch windows aligned against the day’s roster."
+        description="Track the live attendance view for scheduled shifts, update late and leave outcomes quickly, and keep lunch windows aligned against the day's roster."
         accent="#2563eb"
         stats={stats}
         actions={
           <Stack direction="row" spacing={0.7} flexWrap="wrap">
+            <Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={loadShifts} disabled={loading}>
+              Refresh
+            </Button>
             <Button variant="outlined" onClick={() => setDate(dayjs())}>Today</Button>
             <Chip label={date.format('dddd, DD MMM YYYY')} color="primary" />
           </Stack>
         }
       >
+        {error ? <Alert severity="error">{error}</Alert> : null}
+
         <SectionCard
           title="Attendance Register"
           subtitle="Use the filters to narrow the shift view, then edit a row to save lunch windows, duty, or attendance outcome."
@@ -304,6 +341,7 @@ export default function AdherencePage() {
               <DataGrid
                 rows={rows}
                 columns={columns}
+                loading={loading}
                 disableRowSelectionOnClick
                 editMode="row"
                 processRowUpdate={processRowUpdate}

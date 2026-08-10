@@ -31,6 +31,7 @@ import nldsRoutes from './routes/nlds.js'
 import nldServices from './routes/nldServices.js'
 import nldMonitoringRoutes from './routes/nldMonitoring.js'
 import nodes from './routes/nodes.js'
+import nocMonitoringRoutes from './routes/nocMonitoring.js'
 import slaReportingRoutes from './routes/slaReporting.js'
 import stockManagementRoutes from './routes/stockManagement.js'
 
@@ -217,6 +218,7 @@ app.use(
 app.use('/api', nldServices)
 app.use('/api', nldMonitoringRoutes)
 app.use('/api', nodes)
+app.use('/api/noc-monitoring', nocMonitoringRoutes())
 app.use('/api/engineering', engineeringRoutes)
 app.use('/api/sla-reporting', slaReportingRoutes)
 app.use('/api/stock-management', stockManagementRoutes)

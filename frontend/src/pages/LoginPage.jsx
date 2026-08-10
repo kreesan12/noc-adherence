@@ -19,9 +19,6 @@ import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import LanRoundedIcon from '@mui/icons-material/LanRounded'
-import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
-import StorageRoundedIcon from '@mui/icons-material/StorageRounded'
-import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded'
 import { useAuth } from '../context/AuthContext'
 import { BRAND } from '../config/brand'
 
@@ -63,24 +60,6 @@ const statTiles = [
     value: 'Live',
     label: 'Data posture',
     helper: 'Hosted on xneelo with one production API surface'
-  }
-]
-
-const loginSideNotes = [
-  {
-    icon: <ManageAccountsRoundedIcon fontSize="small" />,
-    title: 'Managed access',
-    body: 'Accounts, password resets, and role updates stay under the admin workflow.'
-  },
-  {
-    icon: <StorageRoundedIcon fontSize="small" />,
-    title: 'Shared data layer',
-    body: 'Engineering, SLA, and stock screens all read from the same live platform datasets.'
-  },
-  {
-    icon: <QueryStatsRoundedIcon fontSize="small" />,
-    title: 'Operational visibility',
-    body: 'Daily ingestion, watcher jobs, and reporting views sit behind one sign-in.'
   }
 ]
 
@@ -144,7 +123,7 @@ export default function LoginPage() {
         sx={{
           width: '100%',
           maxWidth: 1240,
-          minHeight: { xs: 'auto', lg: 670 },
+          minHeight: { xs: 'auto', lg: 640 },
           position: 'relative',
           zIndex: 1,
           overflow: 'hidden',
@@ -175,219 +154,220 @@ export default function LoginPage() {
             }}
           />
 
-          <Stack spacing={1.5} sx={{ position: 'relative', color: '#f8fafc' }}>
+          <Box
+            sx={{
+              position: 'relative',
+              color: '#f8fafc',
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.35fr) 380px' },
+              gap: { xs: 1.25, lg: 1.8 },
+              alignItems: 'stretch'
+            }}
+          >
             <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={0.8}
-              alignItems={{ xs: 'flex-start', md: 'center' }}
-              justifyContent="space-between"
-            >
-              <Stack direction="row" spacing={0.7} sx={{ flexWrap: 'wrap' }}>
-                <Chip size="small" label={BRAND.loginBadge} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#ecfeff' }} />
-                <Chip size="small" label={BRAND.loginBadgeSecondary} sx={{ bgcolor: 'rgba(191,219,254,0.16)', color: '#dbeafe' }} />
-                <Chip size="small" label="xneelo live" sx={{ bgcolor: 'rgba(45,212,191,0.16)', color: '#ccfbf1' }} />
-              </Stack>
-
-              <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(226,232,240,0.76)' }}>
-                Shared operational workspace
-              </Typography>
-            </Stack>
-
-            <Box
+              spacing={1.1}
               sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', lg: '430px minmax(0, 1fr)' },
-                gap: { xs: 1.2, lg: 1.8 },
-                alignItems: 'stretch'
+                order: { xs: 2, lg: 1 },
+                minWidth: 0,
+                pr: { lg: 0.4 }
               }}
             >
-              <Paper
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={0.8}
+                alignItems={{ xs: 'flex-start', md: 'center' }}
+                justifyContent="space-between"
+              >
+                <Stack direction="row" spacing={0.7} sx={{ flexWrap: 'wrap' }}>
+                  <Chip size="small" label={BRAND.loginBadge} sx={{ bgcolor: 'rgba(255,255,255,0.14)', color: '#ecfeff' }} />
+                  <Chip size="small" label={BRAND.loginBadgeSecondary} sx={{ bgcolor: 'rgba(191,219,254,0.16)', color: '#dbeafe' }} />
+                  <Chip size="small" label="xneelo live" sx={{ bgcolor: 'rgba(45,212,191,0.16)', color: '#ccfbf1' }} />
+                </Stack>
+
+                <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(226,232,240,0.76)' }}>
+                  Shared operational workspace
+                </Typography>
+              </Stack>
+
+              <Box>
+                <Typography
+                  variant="h4"
+                  sx={{
+                    color: '#ffffff',
+                    maxWidth: 760,
+                    fontSize: { xs: '1.92rem', md: '2.45rem', lg: '2.82rem' },
+                    lineHeight: 0.98,
+                    letterSpacing: -1.08
+                  }}
+                >
+                  {BRAND.loginHeadline}
+                </Typography>
+                <Typography
+                  sx={{
+                    mt: 0.9,
+                    fontSize: { xs: 12.5, md: 13.2 },
+                    lineHeight: 1.68,
+                    color: 'rgba(226,232,240,0.86)',
+                    maxWidth: 700
+                  }}
+                >
+                  {BRAND.loginBody}
+                </Typography>
+              </Box>
+
+              <Box
                 sx={{
-                  p: { xs: 1.2, md: 1.35, lg: 1.45 },
-                  borderRadius: 3.1,
-                  minHeight: { xs: 'auto', lg: 520 },
-                  background: 'linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.94) 100%)',
-                  boxShadow: '0 26px 58px rgba(15, 23, 42, 0.18)',
-                  backdropFilter: 'blur(18px)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  position: 'relative'
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+                  gap: 0.85
                 }}
               >
-                <Stack spacing={1.05} component="form" onSubmit={handleSubmit}>
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ color: 'primary.main', mb: 0.4 }}>
-                      {BRAND.loginEyebrow}
-                    </Typography>
-                    <Typography variant="h5" sx={{ mb: 0.35 }}>
-                      {BRAND.loginWelcome}
-                    </Typography>
-                    <Typography variant="body1" sx={{ color: 'text.secondary', maxWidth: 320 }}>
-                      {BRAND.loginHelp}
-                    </Typography>
-                  </Box>
-
-                  {err ? <Alert severity="error">{err}</Alert> : null}
-
-                  <Stack spacing={0.9}>
-                    <TextField
-                      label="Email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      autoComplete="username"
-                      fullWidth
-                    />
-
-                    <TextField
-                      label="Password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      type={showPw ? 'text' : 'password'}
-                      autoComplete="current-password"
-                      fullWidth
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              aria-label="toggle password visibility"
-                              onClick={() => setShowPw((value) => !value)}
-                              edge="end"
-                            >
-                              {showPw ? <VisibilityOffRoundedIcon /> : <VisibilityRoundedIcon />}
-                            </IconButton>
-                          </InputAdornment>
-                        )
-                      }}
-                    />
-                  </Stack>
-
-                  <Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 39 }}>
-                    {busy ? 'Signing in...' : 'Login'}
-                  </Button>
-
-                  <Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap">
-                    <Chip size="small" label="Admin-issued accounts" sx={{ fontWeight: 700 }} />
-                    <Chip size="small" label="xneelo hosted" sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
-                    <Chip size="small" label="Shared access model" sx={{ fontWeight: 700, bgcolor: '#ecfeff', color: '#0f766e' }} />
-                  </Stack>
-                </Stack>
-
-                <Stack spacing={0.8} sx={{ mt: 1.2 }}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.35, color: 'text.secondary' }}>
-                    Support lane
-                  </Typography>
+                {statTiles.map((item) => (
                   <Box
+                    key={item.label}
                     sx={{
-                      p: 0.9,
-                      borderRadius: 2.2,
-                      background: 'linear-gradient(180deg, rgba(15,118,110,0.06) 0%, rgba(37,99,235,0.03) 100%)',
-                      border: '1px solid rgba(15,23,42,0.07)'
+                      p: 1.05,
+                      borderRadius: 2.4,
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      background: 'linear-gradient(180deg, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.05) 100%)',
+                      backdropFilter: 'blur(10px)',
+                      minHeight: 92
                     }}
                   >
-                    <Typography sx={{ fontSize: 11.1, lineHeight: 1.55, color: 'text.secondary' }}>
-                      Need access or a password reset? Contact a platform admin through the user management workflow.
+                    <Typography sx={{ fontSize: 20, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
+                      {item.value}
+                    </Typography>
+                    <Typography sx={{ mt: 0.45, fontSize: 11.7, fontWeight: 800, color: '#ffffff' }}>
+                      {item.label}
+                    </Typography>
+                    <Typography sx={{ mt: 0.35, fontSize: 10.8, lineHeight: 1.5, color: 'rgba(226,232,240,0.76)' }}>
+                      {item.helper}
                     </Typography>
                   </Box>
-                </Stack>
-              </Paper>
+                ))}
+              </Box>
 
-              <Stack spacing={1.15} sx={{ justifyContent: 'space-between' }}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  gap: 0.85
+                }}
+              >
+                {highlights.map((item) => (
+                  <HighlightCard key={item.title} {...item} />
+                ))}
+              </Box>
+
+              <Stack spacing={0.75}>
+                <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.35, color: 'rgba(226,232,240,0.68)' }}>
+                  Platform coverage
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} useFlexGap flexWrap="wrap">
+                  <FeatureChip icon={<ShieldRoundedIcon fontSize="small" />} label="Secure sign-in" />
+                  <FeatureChip icon={<LanRoundedIcon fontSize="small" />} label="Shared workspace data" />
+                  <FeatureChip icon={<InsightsRoundedIcon fontSize="small" />} label="Live operational visibility" />
+                </Stack>
+              </Stack>
+            </Stack>
+
+            <Paper
+              sx={{
+                order: { xs: 1, lg: 2 },
+                p: { xs: 1.2, md: 1.35, lg: 1.45 },
+                borderRadius: 3.1,
+                minHeight: { xs: 'auto', lg: 548 },
+                maxWidth: { xs: '100%', lg: 380 },
+                width: '100%',
+                justifySelf: { lg: 'end' },
+                alignSelf: { lg: 'start' },
+                mt: { lg: 1.35 },
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(248,250,252,0.95) 100%)',
+                boxShadow: '0 26px 58px rgba(15, 23, 42, 0.18)',
+                backdropFilter: 'blur(18px)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                position: 'relative'
+              }}
+            >
+              <Stack spacing={1.05} component="form" onSubmit={handleSubmit}>
                 <Box>
-                  <Typography
-                    variant="h4"
-                    sx={{
-                      color: '#ffffff',
-                      maxWidth: 720,
-                      fontSize: { xs: '1.92rem', md: '2.4rem', lg: '2.7rem' },
-                      lineHeight: 0.98,
-                      letterSpacing: -1.05
+                  <Typography variant="subtitle2" sx={{ color: 'primary.main', mb: 0.4 }}>
+                    {BRAND.loginEyebrow}
+                  </Typography>
+                  <Typography variant="h5" sx={{ mb: 0.35 }}>
+                    {BRAND.loginWelcome}
+                  </Typography>
+                  <Typography variant="body1" sx={{ color: 'text.secondary', maxWidth: 320 }}>
+                    {BRAND.loginHelp}
+                  </Typography>
+                </Box>
+
+                {err ? <Alert severity="error">{err}</Alert> : null}
+
+                <Stack spacing={0.9}>
+                  <TextField
+                    label="Email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoComplete="username"
+                    fullWidth
+                  />
+
+                  <TextField
+                    label="Password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    type={showPw ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    fullWidth
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            aria-label="toggle password visibility"
+                            onClick={() => setShowPw((value) => !value)}
+                            edge="end"
+                          >
+                            {showPw ? <VisibilityOffRoundedIcon /> : <VisibilityRoundedIcon />}
+                          </IconButton>
+                        </InputAdornment>
+                      )
                     }}
-                  >
-                    {BRAND.loginHeadline}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      mt: 0.9,
-                      fontSize: { xs: 12.5, md: 13.2 },
-                      lineHeight: 1.68,
-                      color: 'rgba(226,232,240,0.86)',
-                      maxWidth: 680
-                    }}
-                  >
-                    {BRAND.loginBody}
-                  </Typography>
-                </Box>
-
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-                    gap: 0.85
-                  }}
-                >
-                  {statTiles.map((item) => (
-                    <Box
-                      key={item.label}
-                      sx={{
-                        p: 1.05,
-                        borderRadius: 2.4,
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        background: 'linear-gradient(180deg, rgba(255,255,255,0.11) 0%, rgba(255,255,255,0.05) 100%)',
-                        backdropFilter: 'blur(10px)',
-                        minHeight: 92
-                      }}
-                    >
-                      <Typography sx={{ fontSize: 20, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
-                        {item.value}
-                      </Typography>
-                      <Typography sx={{ mt: 0.45, fontSize: 11.7, fontWeight: 800, color: '#ffffff' }}>
-                        {item.label}
-                      </Typography>
-                      <Typography sx={{ mt: 0.35, fontSize: 10.8, lineHeight: 1.5, color: 'rgba(226,232,240,0.76)' }}>
-                        {item.helper}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-                    gap: 0.85
-                  }}
-                >
-                  {highlights.map((item) => (
-                    <HighlightCard key={item.title} {...item} />
-                  ))}
-                </Box>
-
-                <Stack spacing={0.85}>
-                  <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.35, color: 'rgba(226,232,240,0.68)' }}>
-                    Platform coverage
-                  </Typography>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} useFlexGap flexWrap="wrap">
-                    <FeatureChip icon={<ShieldRoundedIcon fontSize="small" />} label="Secure sign-in" />
-                    <FeatureChip icon={<LanRoundedIcon fontSize="small" />} label="Shared workspace data" />
-                    <FeatureChip icon={<InsightsRoundedIcon fontSize="small" />} label="Live operational visibility" />
-                  </Stack>
+                  />
                 </Stack>
 
+                <Button type="submit" variant="contained" disabled={busy} sx={{ minHeight: 39 }}>
+                  {busy ? 'Signing in...' : 'Login'}
+                </Button>
+
+                <Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap">
+                  <Chip size="small" label="Admin-issued accounts" sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label="xneelo hosted" sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                  <Chip size="small" label="Shared access model" sx={{ fontWeight: 700, bgcolor: '#ecfeff', color: '#0f766e' }} />
+                </Stack>
+              </Stack>
+
+              <Stack spacing={0.8} sx={{ mt: 1.2 }}>
+                <Typography sx={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.35, color: 'text.secondary' }}>
+                  Support lane
+                </Typography>
                 <Box
                   sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-                    gap: 0.85
+                    p: 0.9,
+                    borderRadius: 2.2,
+                    background: 'linear-gradient(180deg, rgba(15,118,110,0.06) 0%, rgba(37,99,235,0.03) 100%)',
+                    border: '1px solid rgba(15,23,42,0.07)'
                   }}
                 >
-                  {loginSideNotes.map((item) => (
-                    <SurfaceNote key={item.title} {...item} />
-                  ))}
+                  <Typography sx={{ fontSize: 11.1, lineHeight: 1.55, color: 'text.secondary' }}>
+                    Need access or a password reset? Contact a platform admin through the user management workflow.
+                  </Typography>
                 </Box>
               </Stack>
-            </Box>
-          </Stack>
+            </Paper>
+          </Box>
         </Box>
       </Paper>
     </Box>
@@ -452,44 +432,4 @@ function HighlightCard({ icon, title, body }) {
   )
 }
 
-function SurfaceNote({ icon, title, body }) {
-  return (
-    <Box
-      sx={{
-        p: 0.95,
-        borderRadius: 2.35,
-        border: '1px solid rgba(255,255,255,0.1)',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
-        backdropFilter: 'blur(12px)',
-        minHeight: 96
-      }}
-    >
-      <Stack direction="row" spacing={0.85} alignItems="flex-start">
-        <Box
-          sx={{
-            mt: 0.1,
-            width: 26,
-            height: 26,
-            borderRadius: 1.6,
-            display: 'grid',
-            placeItems: 'center',
-            bgcolor: 'rgba(255,255,255,0.12)',
-            color: '#ccfbf1',
-            flexShrink: 0
-          }}
-        >
-          {icon}
-        </Box>
-        <Box>
-          <Typography sx={{ fontSize: 11.4, fontWeight: 800, color: '#ffffff' }}>
-            {title}
-          </Typography>
-          <Typography sx={{ mt: 0.2, fontSize: 10.8, lineHeight: 1.5, color: 'rgba(226,232,240,0.78)' }}>
-            {body}
-          </Typography>
-        </Box>
-      </Stack>
-    </Box>
-  )
-}
 

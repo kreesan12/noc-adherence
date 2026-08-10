@@ -36,6 +36,7 @@ const LandingDashboardPage = lazy(() => import('./pages/LandingDashboardPage'))
 const AdherencePage = lazy(() => import('./pages/AdherencePage'))
 const SchedulePage = lazy(() => import('./pages/SchedulePage'))
 const VolumePage = lazy(() => import('./pages/VolumePage'))
+const NocMonitoringPage = lazy(() => import('./pages/NocMonitoringPage'))
 const AgentsPage = lazy(() => import('./pages/AgentsPage'))
 const StaffingPage = lazy(() => import('./pages/StaffingPage'))
 const ShiftManager = lazy(() => import('./pages/ShiftManager'))
@@ -327,6 +328,7 @@ function ShellLayout() {
             <Route path="/adherence" element={loadable(<AdherencePage />)} />
             <Route path="/schedule" element={loadable(<SchedulePage />)} />
             <Route path="/volume" element={loadable(<VolumePage />)} />
+            <Route path="/noc-monitoring" element={loadable(<NocMonitoringPage />)} />
             <Route path="/roster" element={loadable(<RosterUpload />)} />
             <Route path="/agents" element={loadable(<AgentsPage />)} />
             <Route path="/staffing" element={loadable(<StaffingPage />)} />

@@ -18,7 +18,7 @@ export default function LandingDashboardPage({ vacancyCount = 0 }) {
   const sections = useMemo(() => buildNavigationSections(user, vacancyCount), [user, vacancyCount])
   const items = useMemo(() => flattenNavigationItems(sections), [sections])
   const primaryItems = useMemo(
-    () => items.filter((item) => ['ENGINEERING', 'SLA REPORTING', 'STOCK MANAGEMENT'].includes(item.section)).slice(0, 4),
+    () => items.filter((item) => ['NOC MONITORING', 'ENGINEERING', 'SLA REPORTING', 'STOCK MANAGEMENT'].includes(item.section)).slice(0, 4),
     [items]
   )
 
@@ -148,7 +148,15 @@ export default function LandingDashboardPage({ vacancyCount = 0 }) {
             key={section.title}
             title={section.title}
             subtitle={`${section.items.length} available view${section.items.length === 1 ? '' : 's'}`}
-            accent={section.title === 'ENGINEERING' ? '#0f766e' : section.title === 'SLA REPORTING' ? '#2563eb' : '#1f2937'}
+            accent={
+              section.title === 'NOC MONITORING'
+                ? '#dc2626'
+                : section.title === 'ENGINEERING'
+                  ? '#0f766e'
+                  : section.title === 'SLA REPORTING'
+                    ? '#2563eb'
+                    : '#1f2937'
+            }
           >
             <Stack spacing={0.75}>
               {section.items.map((item) => (

@@ -16,6 +16,7 @@ import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import GroupWorkRoundedIcon from '@mui/icons-material/GroupWorkRounded'
 import SettingsSuggestRoundedIcon from '@mui/icons-material/SettingsSuggestRounded'
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded'
+import MonitorHeartRoundedIcon from '@mui/icons-material/MonitorHeartRounded'
 import { canManageUsers } from '../utils/access'
 
 export function isActivePath(pathname, itemPath) {
@@ -66,6 +67,18 @@ export function buildNavigationSections(user, vacancyCount = 0) {
           path: '/leave-planner',
           summary: 'Track leave windows and planning conflicts.',
           icon: <EventBusyRoundedIcon fontSize="small" />
+        }
+      ]
+    },
+    {
+      title: 'NOC MONITORING',
+      icon: <MonitorHeartRoundedIcon fontSize="small" />,
+      items: [
+        {
+          label: 'NOC Monitoring Hub',
+          path: '/noc-monitoring',
+          summary: 'Review live outage, queue, VIP, and hygiene watchlists from one cached snapshot.',
+          icon: <MonitorHeartRoundedIcon fontSize="small" />
         }
       ]
     },
