@@ -42,6 +42,18 @@
     - `noc_monitoring_snapshot_v1`
   - cache storage table:
     - `automation_settings`
+  - historical monitoring buckets:
+    - `noc_monitoring_snapshot_history`
+  - default monitoring history behavior:
+    - bucket size `15 minutes`
+    - default dashboard window `72 hours`
+    - default retention `45 days`
+  - Tier 1 monitoring tuning envs:
+    - `NOC_MONITORING_T1_VOICE_QUEUE`
+    - `NOC_MONITORING_T1_P1_SLA_MINUTES`
+    - `NOC_MONITORING_T1_VOICE_SLA_SECONDS`
+  - release helper:
+    - `scripts/release-refresh-and-smoke.mjs` can issue a short-lived token over SSH, refresh the live monitoring snapshot, and run the authenticated browser smoke in one pass
   - optional telephony snapshot envs:
     - `ILLATION_DASHBOARD_STATS_URL`
     - `ILLATION_DASHBOARD_AUTH_HEADER`
@@ -321,6 +333,10 @@ Expected variables include at least:
 - `JWT_SECRET`
 - `ENABLE_WEB_WHATSAPP=0`
 - `DISABLE_BACKGROUND_WATCHERS=1`
+- optional monitoring history tuning:
+  - `NOC_MONITORING_HISTORY_BUCKET_MINUTES`
+  - `NOC_MONITORING_HISTORY_WINDOW_HOURS`
+  - `NOC_MONITORING_HISTORY_RETENTION_DAYS`
 
 ### Automation env on `noc-automation-01`
 

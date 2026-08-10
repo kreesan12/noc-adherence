@@ -5,11 +5,22 @@
 ### NOC Monitoring Hub
 
 - Expanded the native `NOC Monitoring Hub` so it carries much more of the former Grafana operational surface inside one backend-cached snapshot.
+- Added persistent NOC monitoring history buckets in the database so the dashboard can trend queue pressure and outage movement beyond a single cached live snapshot.
+- Added new native trend views across:
+  - Overview
+  - Outage Desk
+  - Tier 1
+  - Tier 2
+  - NLD Events
+  - Voice & Queues
+- Added a one-command release helper for monitoring refresh plus authenticated smoke checks:
+  - `npm run release:refresh-and-smoke -- --pem <pem-path>`
 - Added backend snapshot coverage for:
   - outage priority lanes
   - outage region impact and service-type summaries
   - backhaul owner load summaries
-  - Tier 1 product split and due-now queue focus
+  - Tier 1 day-over-day comparisons for received and solved work
+  - Tier 1 product split, operational-state, automation-route, and due-now queue focus
   - Tier 2 service-type and age-profile summaries
   - telephony queue waiting and missed-call agent summaries from the Illation stats feed
 - Refactored partial-NLD event normalization into a shared helper module:

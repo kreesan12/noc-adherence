@@ -59,6 +59,7 @@ const OPS_BORDER = 'rgba(148, 163, 184, 0.18)'
 const OPS_TEXT = '#e5eef8'
 const OPS_MUTED = 'rgba(203, 213, 225, 0.72)'
 const OPS_GRID = 'rgba(148, 163, 184, 0.16)'
+const DEFAULT_HISTORY_HOURS = 72
 const DASHBOARD_METRIC_ROOT_SX = {
   p: 1.05,
   borderRadius: 3.1,
@@ -142,6 +143,35 @@ function formatPercent(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return '--'
   return `${numeric.toFixed(1)}%`
+}
+
+function formatSignedDelta(value, suffix = '') {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return '--'
+  const rounded = Math.round(numeric)
+  const sign = rounded > 0 ? '+' : ''
+  return `${sign}${rounded}${suffix}`
+}
+
+function findHistoryPointNear(rows, targetTs, toleranceMinutes = 20) {
+  if (!Array.isArray(rows) || !rows.length || !targetTs) return null
+  const target = dayjs(targetTs)
+  if (!target.isValid()) return null
+
+  let best = null
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const row of rows) {
+    const stamp = dayjs(row.bucketStart)
+    if (!stamp.isValid()) continue
+    const distance = Math.abs(stamp.diff(target, 'minute'))
+    if (distance <= toleranceMinutes && distance < bestDistance) {
+      best = row
+      bestDistance = distance
+    }
+  }
+
+  return best
 }
 
 function severityColor(status) {
@@ -434,7 +464,7 @@ export default function NocMonitoringPage() {
     setError('')
     setLoading(true)
     try {
-      const next = await fetchNocMonitoringSnapshot()
+      const next = await fetchNocMonitoringSnapshot({ historyHours: DEFAULT_HISTORY_HOURS })
       setPayload(next)
     } catch (err) {
       setError(err?.response?.data?.error || err?.message || 'Unable to load the monitoring snapshot.')
@@ -451,7 +481,7 @@ export default function NocMonitoringPage() {
     setRefreshing(true)
     setError('')
     try {
-      const next = await refreshNocMonitoringSnapshot()
+      const next = await refreshNocMonitoringSnapshot({ historyHours: DEFAULT_HISTORY_HOURS })
       setPayload(next)
     } catch (err) {
       setError(err?.response?.data?.error || err?.message || 'Unable to refresh the monitoring snapshot.')
@@ -462,6 +492,7 @@ export default function NocMonitoringPage() {
 
   const snapshot = payload?.snapshot
   const freshness = payload?.freshness
+  const history = payload?.history || { series: {} }
   const meta = payload?.meta
   const summary = snapshot?.summary || {}
   const lanes = snapshot?.lanes || []
@@ -517,7 +548,13 @@ export default function NocMonitoringPage() {
   const backhaulOwnerSummary = trends.backhaulOwnerSummary || []
   const t1ActionSummary = trends.t1ActionSummary || []
   const t1ProductSummary = trends.t1ProductSummary || []
+  const t1StatusSummary = trends.t1StatusSummary || []
+  const t1OperationalStateSummary = trends.t1OperationalStateSummary || []
   const t1DueBucketSummary = trends.t1DueBucketSummary || []
+  const t1AutomationOpenSummary = trends.t1AutomationOpenSummary || []
+  const t1AutomationCreatedTodaySummary = trends.t1AutomationCreatedTodaySummary || []
+  const t1ReceivedComparisonSeries = trends.t1ReceivedComparisonSeries || []
+  const t1SolvedComparisonSeries = trends.t1SolvedComparisonSeries || []
   const t2AgeBucketSummary = trends.t2AgeBucketSummary || []
   const t2PartySummary = trends.t2PartySummary || []
   const t2ProductSummary = trends.t2ProductSummary || []
@@ -526,6 +563,16 @@ export default function NocMonitoringPage() {
   const telephonyMissedAgentSummary = trends.telephonyMissedAgentSummary || []
   const partialRouteSummary = trends.partialRouteSummary || []
   const hourlySeries = trends.hourlySeries || []
+  const historyLanePressure = history?.series?.lanePressure || []
+  const historySubscriberImpact = history?.series?.subscriberImpact || []
+  const historyOutagePriority = history?.series?.outagePriority || []
+  const historyTier1 = history?.series?.tier1 || []
+  const historyTier2 = history?.series?.tier2 || []
+  const historyNldPartials = history?.series?.nldPartials || []
+  const historyTelephony = history?.series?.telephony || []
+  const historyTier1VoiceQueue = history?.series?.tier1VoiceQueue || []
+  const historyWindowLabel = `${history?.windowHours || meta?.historyWindowHours || DEFAULT_HISTORY_HOURS}h`
+  const tier1VoiceQueue = collections?.tier1VoiceQueue || null
 
   const overviewMetrics = useMemo(() => ([
     {
@@ -585,6 +632,81 @@ export default function NocMonitoringPage() {
       icon: <WarningAmberRoundedIcon fontSize="small" />
     }
   ]), [summary, telephonySummary])
+
+  const tier1ComparisonMetrics = useMemo(() => ([
+    {
+      label: 'Tickets received',
+      value: formatCount(summary.t1ReceivedToday || 0),
+      subtext: `7d ${formatCount(summary.t1ReceivedLastWeek || 0)} | 14d ${formatCount(summary.t1ReceivedPreviousWeek || 0)}`,
+      tone: '#0f766e',
+      icon: <InsightsRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Tickets solved',
+      value: formatCount(summary.t1SolvedToday || 0),
+      subtext: `7d ${formatCount(summary.t1SolvedLastWeek || 0)} | 14d ${formatCount(summary.t1SolvedPreviousWeek || 0)}`,
+      tone: '#22c55e',
+      icon: <SupportAgentRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Voice answered',
+      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Answered || 0) : '--',
+      subtext: tier1VoiceQueue
+        ? `${summary.telephonyTier1QueueName || 'Tier1 queue'} | 7d ${tier1VoiceWeekCompare.lastWeek ? formatCount(tier1VoiceWeekCompare.lastWeek.answered || 0) : '--'} | 14d ${tier1VoiceWeekCompare.previousWeek ? formatCount(tier1VoiceWeekCompare.previousWeek.answered || 0) : '--'}`
+        : 'Tier 1 voice queue history is building from current snapshots',
+      tone: '#0891b2',
+      icon: <CallRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Automation touched',
+      value: formatCount((t1AutomationCreatedTodaySummary || []).reduce((total, row) => total + Number(row.count || 0), 0)),
+      subtext: 'Today routes into outage, MNT, DFA, and other automation lanes',
+      tone: '#8b5cf6',
+      icon: <MonitorHeartRoundedIcon fontSize="small" />
+    }
+  ]), [summary, t1AutomationCreatedTodaySummary, tier1VoiceQueue, tier1VoiceWeekCompare])
+
+  const tier1VoiceWeekCompare = useMemo(() => {
+    const latest = historyTier1VoiceQueue?.[historyTier1VoiceQueue.length - 1]
+    if (!latest?.bucketStart) return { lastWeek: null, previousWeek: null }
+    return {
+      lastWeek: findHistoryPointNear(historyTier1VoiceQueue, dayjs(latest.bucketStart).subtract(7, 'day').toISOString()),
+      previousWeek: findHistoryPointNear(historyTier1VoiceQueue, dayjs(latest.bucketStart).subtract(14, 'day').toISOString())
+    }
+  }, [historyTier1VoiceQueue])
+
+  const tier1RedFlagMetrics = useMemo(() => ([
+    {
+      label: 'P1 unattended',
+      value: formatCount(summary.tier1P1Unattended || 0),
+      subtext: `${formatCount(summary.tier1P1Breached || 0)} above 30m action SLA`,
+      tone: (summary.tier1P1Breached || 0) > 0 ? '#dc2626' : '#0f766e',
+      icon: <WarningAmberRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Tier1 voice waiting',
+      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
+      subtext: tier1VoiceQueue
+        ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue | ${summary.telephonyTier1SlaBreached ? 'breached 20s' : 'within 20s SLA'}`
+        : 'Tier 1 voice queue not present in current telephony snapshot',
+      tone: summary.telephonyTier1SlaBreached ? '#dc2626' : '#0891b2',
+      icon: <CallRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Open Tier 1',
+      value: formatCount(summary.tier1Open || 0),
+      subtext: `${formatCount((collections.tier1UrgentTickets || []).length)} urgent by current due buckets`,
+      tone: '#1d4ed8',
+      icon: <SupportAgentRoundedIcon fontSize="small" />
+    },
+    {
+      label: 'Queue trend',
+      value: historyTier1.length ? formatSignedDelta((historyTier1[historyTier1.length - 1]?.open || 0) - (historyTier1[0]?.open || 0)) : '--',
+      subtext: `movement across stored ${historyWindowLabel} monitoring window`,
+      tone: '#475569',
+      icon: <InsightsRoundedIcon fontSize="small" />
+    }
+  ]), [collections, historyTier1, historyWindowLabel, summary, tier1VoiceQueue])
 
   const priorityRows = useMemo(() => {
     const groups = collections.outagePriorityTickets || {}
@@ -646,6 +768,8 @@ export default function NocMonitoringPage() {
     { key: 'priority', label: 'Priority', render: (row) => <Chip size="small" label={row.priority} color={priorityColor(row.priority)} /> },
     { key: 'pLevel', label: 'Action' },
     { key: 'product', label: 'Product' },
+    { key: 'operationalState', label: 'Operational State' },
+    { key: 'automationRoutes', label: 'Automation', render: (row) => row.automationRoutes?.length ? row.automationRoutes.join(', ') : '--' },
     { key: 'dueBucket', label: 'Due Bucket' },
     { key: 'remainingHours', label: 'Remaining', render: (row) => row.remainingHours === null ? '--' : `${row.remainingHours.toFixed(1)}h` },
     { key: 'ageHours', label: 'Age', render: (row) => formatAgeHours(row.ageHours) },
@@ -914,6 +1038,33 @@ export default function NocMonitoringPage() {
             </OpsSection>
           </Box>
 
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05 }}>
+            <OpsSection title="Historical Queue Pressure" subtitle={`Backend snapshot trend across the last ${historyWindowLabel} so the desk can see whether backlog is rising or cooling.`} tone="#1d4ed8" minHeight={0}>
+              <MultiLineChartPanel
+                rows={historyLanePressure}
+                lines={[
+                  { key: 'tier1Open', label: 'Tier 1', color: '#0f766e' },
+                  { key: 'tier2Open', label: 'Tier 2', color: '#1d4ed8' },
+                  { key: 'majorOutageOpen', label: 'Major outages', color: '#dc2626' },
+                  { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
+                ]}
+                emptyMessage="Historical queue pressure is still building and will appear after a few refresh buckets land."
+              />
+            </OpsSection>
+
+            <OpsSection title="Historical Subscriber Impact" subtitle={`Open outage impact over the last ${historyWindowLabel} from persisted monitoring buckets.`} tone="#dc2626" minHeight={0}>
+              <MultiLineChartPanel
+                rows={historySubscriberImpact}
+                lines={[
+                  { key: 'majorOutageSubscribers', label: 'Major outage subs', color: '#dc2626' },
+                  { key: 'nldOutageSubscribers', label: 'NLD subs', color: '#f97316' },
+                  { key: 'totalSubscribers', label: 'Total impacted', color: '#facc15' }
+                ]}
+                emptyMessage="Historical subscriber impact will light up once more monitoring buckets have been stored."
+              />
+            </OpsSection>
+          </Box>
+
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.95fr 1.05fr' }, gap: 1.05 }}>
             <OpsSection title="Outage Priority Lanes" subtitle="This is the missing Grafana-style alert bucket view pulled into the native snapshot." tone="#dc2626" minHeight={0}>
               <VerticalBarChart rows={outagePrioritySummary} dataKey="count" emptyMessage="No outage priority lanes are active in this snapshot." colorMap={Object.fromEntries(outagePrioritySummary.map((row) => [row.key, row.tone]))} />
@@ -975,6 +1126,35 @@ export default function NocMonitoringPage() {
             }))}
           />
 
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+            <OpsSection title="Outage Desk Pressure Trend" subtitle={`Major outage, NLD, and backhaul load captured over the last ${historyWindowLabel}.`} tone="#dc2626" minHeight={0}>
+              <MultiLineChartPanel
+                rows={historyLanePressure}
+                lines={[
+                  { key: 'majorOutageOpen', label: 'Major outages', color: '#dc2626' },
+                  { key: 'nldOutageOpen', label: 'NLD outages', color: '#f97316' },
+                  { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
+                ]}
+                emptyMessage="Historical outage desk pressure will appear as more backend buckets are stored."
+              />
+            </OpsSection>
+
+            <OpsSection title="Outage Priority Trend" subtitle={`Priority-lane movement over the last ${historyWindowLabel} from the persisted monitoring cache.`} tone="#ea580c" minHeight={0}>
+              <MultiLineChartPanel
+                rows={historyOutagePriority}
+                lines={[
+                  { key: 'newUnassigned', label: 'New / unattended', color: '#94a3b8' },
+                  { key: 'p1', label: 'P1', color: '#dc2626' },
+                  { key: 'p2', label: 'P2', color: '#f97316' },
+                  { key: 'p3', label: 'P3', color: '#d97706' },
+                  { key: 'p4', label: 'P4', color: '#2563eb' },
+                  { key: 'power', label: 'Power', color: '#7c3aed' }
+                ]}
+                emptyMessage="Historical outage-priority movement will appear after a few stored refresh buckets."
+              />
+            </OpsSection>
+          </Box>
+
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
             <OpsSection title="Impact By Region" subtitle="Subscriber impact rolled up by outage region." tone="#dc2626" minHeight={0}>
               <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage-region impact data is available right now." />
@@ -1009,39 +1189,94 @@ export default function NocMonitoringPage() {
 
       {tab === 'tier1' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <MetricStrip
-            items={t1ActionSummary.map((row) => ({
-              label: row.label,
-              value: formatCount(row.count),
-              subtext: `FTTB ${formatCount(row.fttb)} | FTTH ${formatCount(row.ftth)} | Other ${formatCount(row.other)}`,
-              tone: row.tone,
-              icon: <InsightsRoundedIcon fontSize="small" />
-            }))}
-          />
+          <MetricStrip items={tier1ComparisonMetrics} />
+          <MetricStrip items={tier1RedFlagMetrics} />
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.9fr 1.1fr' }, gap: 1.05 }}>
-            <OpsSection title="Tier 1 SLA Buckets" subtitle="Open Tier 1 work bucketed by remaining SLA time using the Grafana action-view rules." tone="#0f766e" minHeight={0}>
-              <VerticalBarChart rows={t1DueBucketSummary} dataKey="count" emptyMessage="No Tier 1 SLA bucket data is available right now." colorMap={Object.fromEntries(t1DueBucketSummary.map((row) => [row.key, row.tone]))} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
+            <OpsSection title="Tier 1 Queue Trend" subtitle={`Persisted queue pressure across the last ${historyWindowLabel}, focused on total open work and urgent SLA rows.`} tone="#0f766e" minHeight={0}>
+              <MultiLineChartPanel
+                rows={historyTier1}
+                lines={[
+                  { key: 'open', label: 'Open queue', color: '#0f766e' },
+                  { key: 'urgent', label: 'Urgent / due now', color: '#dc2626' }
+                ]}
+                emptyMessage="Tier 1 historical pressure will appear after a few stored monitoring buckets."
+              />
             </OpsSection>
 
-            <OpsSection title="Tier 1 Daily Flow" subtitle={`Hourly received versus solved flow for ${summary.dayKey || 'today'}.`} tone="#0f172a" minHeight={0}>
+            <OpsSection title="Tier 1 Voice Queue Trend" subtitle={`Live ${summary.telephonyTier1QueueName || 'Tier 1 voice'} queue pressure over the stored ${historyWindowLabel} monitoring window.`} tone="#0891b2" minHeight={0}>
               <MultiLineChartPanel
-                rows={hourlySeries}
+                rows={historyTier1VoiceQueue}
                 lines={[
-                  { key: 't1Received', label: 'T1 received', color: '#0f766e' },
-                  { key: 't1Solved', label: 'T1 solved', color: '#22c55e' }
+                  { key: 'waiting', label: 'Waiting', color: '#dc2626' },
+                  { key: 'answered', label: 'Answered', color: '#0891b2' },
+                  { key: 'missed', label: 'Missed', color: '#7c3aed' }
                 ]}
-                emptyMessage="No Tier 1 flow data is available for the current ops day."
+                emptyMessage="Tier 1 voice queue history will appear as more telephony snapshots are stored."
               />
             </OpsSection>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.72fr 1.28fr' }, gap: 1.05 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+            <OpsSection title="Ticket Intake Compare" subtitle={`Today versus the same weekday on ${summary.dayKey ? 'the last two weeks' : 'prior periods'} for Tier 1 received tickets.`} tone="#0f766e" minHeight={0}>
+              <MultiLineChartPanel
+                rows={t1ReceivedComparisonSeries}
+                lines={[
+                  { key: 'today', label: 'Today', color: '#0f766e' },
+                  { key: 'lastWeek', label: '7 days ago', color: '#22c55e' },
+                  { key: 'previousWeek', label: '14 days ago', color: '#86efac' }
+                ]}
+                emptyMessage="No Tier 1 received comparison data is available right now."
+              />
+            </OpsSection>
+
+            <OpsSection title="Ticket Solved Compare" subtitle="Today versus the same weekday on the last two weeks for Tier 1 solved tickets." tone="#16a34a" minHeight={0}>
+              <MultiLineChartPanel
+                rows={t1SolvedComparisonSeries}
+                lines={[
+                  { key: 'today', label: 'Today', color: '#16a34a' },
+                  { key: 'lastWeek', label: '7 days ago', color: '#4ade80' },
+                  { key: 'previousWeek', label: '14 days ago', color: '#bbf7d0' }
+                ]}
+                emptyMessage="No Tier 1 solved comparison data is available right now."
+              />
+            </OpsSection>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.9fr 1.1fr 1fr' }, gap: 1.05 }}>
+            <OpsSection title="Tier 1 Status Shape" subtitle="How the live unsolved Tier 1 queue is sitting by current ticket status." tone="#0f172a" minHeight={0}>
+              <SummaryStatBlock rows={t1StatusSummary} emptyMessage="No Tier 1 status split is available right now." />
+            </OpsSection>
+
+            <OpsSection title="Operational State Shape" subtitle="Queue flow state by action type, pending work, change-control, and in-progress ownership." tone="#1d4ed8" minHeight={0}>
+              <VerticalBarChart rows={t1OperationalStateSummary} dataKey="count" emptyMessage="No Tier 1 operational-state split is available right now." />
+            </OpsSection>
+
+            <OpsSection title="Automation Touches Today" subtitle="Tier 1 tickets carrying routing tags into outage, MNT, DFA, Liquid, or other automated downstream lanes." tone="#8b5cf6" minHeight={0}>
+              <SummaryStatBlock rows={t1AutomationCreatedTodaySummary.filter((row) => row.count > 0)} emptyMessage="No Tier 1 automation-tagged tickets were detected in today's intake yet." />
+            </OpsSection>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.82fr 0.88fr 1.3fr' }, gap: 1.05 }}>
+            <OpsSection title="Tier 1 SLA Buckets" subtitle="Open Tier 1 work bucketed by remaining SLA time using the Grafana action-view rules." tone="#0f766e" minHeight={0}>
+              <VerticalBarChart rows={t1DueBucketSummary} dataKey="count" emptyMessage="No Tier 1 SLA bucket data is available right now." colorMap={Object.fromEntries(t1DueBucketSummary.map((row) => [row.key, row.tone]))} />
+            </OpsSection>
+
             <OpsSection title="Tier 1 Product Split" subtitle="Current open Tier 1 work grouped by product family." tone="#0f766e" minHeight={0}>
               <SummaryStatBlock rows={t1ProductSummary} emptyMessage="No Tier 1 product split is available right now." />
             </OpsSection>
 
-            <OpsSection title="Tier 1 Due Now" subtitle="Breached and due-soon Tier 1 rows that need close operational attention." tone="#dc2626" minHeight={0}>
+            <OpsSection title="Automation Touches Open Queue" subtitle="Live unsolved Tier 1 rows already carrying automation routing tags." tone="#7c3aed" minHeight={0}>
+              <SummaryStatBlock rows={t1AutomationOpenSummary.filter((row) => row.count > 0)} emptyMessage="No open Tier 1 queue rows currently show the tracked automation tags." />
+            </OpsSection>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+            <OpsSection title="Tier 1 P1 Attention" subtitle="New unattended Tier 1 P1 tickets, with the 30-minute action SLA in mind." tone="#dc2626" minHeight={0}>
+              <MonitoringTable rows={collections.tier1P1UnattendedTickets || []} columns={t1Columns} emptyMessage="No unattended Tier 1 P1 tickets are open right now." />
+            </OpsSection>
+
+            <OpsSection title="Tier 1 Due Now" subtitle="Breached and due-soon Tier 1 rows that need close operational attention." tone="#ea580c" minHeight={0}>
               <MonitoringTable rows={collections.tier1UrgentTickets || []} columns={t1Columns} emptyMessage="No breached or due-soon Tier 1 rows are open right now." />
             </OpsSection>
           </Box>
@@ -1087,7 +1322,32 @@ export default function NocMonitoringPage() {
             ]}
           />
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.9fr 1.1fr' }, gap: 1.05 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
+            <OpsSection title="Tier 2 Queue Trend" subtitle={`Open queue, unattended rows, and handover drift over the last ${historyWindowLabel}.`} tone="#1d4ed8" minHeight={0}>
+              <MultiLineChartPanel
+                rows={historyTier2}
+                lines={[
+                  { key: 'open', label: 'Open queue', color: '#1d4ed8' },
+                  { key: 'unattended', label: 'New / unattended', color: '#dc2626' },
+                  { key: 'handover', label: 'Handover', color: '#ea580c' }
+                ]}
+                emptyMessage="Tier 2 historical queue pressure will appear after more monitoring buckets land."
+              />
+            </OpsSection>
+
+            <OpsSection title="Tier 2 Daily Flow" subtitle={`Hourly received versus solved flow for ${summary.dayKey || 'today'}.`} tone="#0f172a" minHeight={0}>
+              <MultiLineChartPanel
+                rows={hourlySeries}
+                lines={[
+                  { key: 't2Received', label: 'T2 received', color: '#1d4ed8' },
+                  { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
+                ]}
+                emptyMessage="No Tier 2 flow data is available for the current ops day."
+              />
+            </OpsSection>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.86fr 0.86fr 1.28fr' }, gap: 1.05 }}>
             <OpsSection title="Tier 2 Active By Party" subtitle="The Grafana-style party split for active Tier 2 work excluding pending and new." tone="#1d4ed8" minHeight={0}>
               <VerticalBarChart rows={t2PartySummary} dataKey="count" emptyMessage="No active Tier 2 party breakdown is available right now." />
             </OpsSection>
@@ -1095,27 +1355,14 @@ export default function NocMonitoringPage() {
             <OpsSection title="Tier 2 Product Split" subtitle="Open Tier 2 work split by the same product-tag logic used in the Grafana action transforms." tone="#0f172a" minHeight={0}>
               <SummaryStatBlock rows={t2ProductSummary} emptyMessage="No Tier 2 product split is available right now." />
             </OpsSection>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Tier 2 Service Type" subtitle="Live Tier 2 queue grouped by service type from Zendesk fields." tone="#0891b2" minHeight={0}>
-              <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type summary is available right now." />
-            </OpsSection>
 
             <OpsSection title="Tier 2 Age Profile" subtitle="Open Tier 2 work bucketed by queue age for a quicker backlog shape view." tone="#0f172a" minHeight={0}>
               <VerticalBarChart rows={t2AgeBucketSummary} dataKey="count" emptyMessage="No Tier 2 age profile is available right now." colorMap={Object.fromEntries(t2AgeBucketSummary.map((row) => [row.key, row.tone]))} />
             </OpsSection>
           </Box>
 
-          <OpsSection title="Tier 2 Daily Flow" subtitle={`Hourly received versus solved flow for ${summary.dayKey || 'today'}.`} tone="#0f172a" minHeight={0}>
-            <MultiLineChartPanel
-              rows={hourlySeries}
-              lines={[
-                { key: 't2Received', label: 'T2 received', color: '#1d4ed8' },
-                { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
-              ]}
-              emptyMessage="No Tier 2 flow data is available for the current ops day."
-            />
+          <OpsSection title="Tier 2 Service Type" subtitle="Live Tier 2 queue grouped by service type from Zendesk fields." tone="#0891b2" minHeight={0}>
+            <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type summary is available right now." />
           </OpsSection>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
@@ -1168,6 +1415,18 @@ export default function NocMonitoringPage() {
               }
             ]}
           />
+
+          <OpsSection title="Partial NLD Trend" subtitle={`Events, clusters, and not-logged pressure over the last ${historyWindowLabel}.`} tone="#f97316" minHeight={0}>
+            <MultiLineChartPanel
+              rows={historyNldPartials}
+              lines={[
+                { key: 'events', label: 'Partial events', color: '#f97316' },
+                { key: 'clusters', label: 'Route clusters', color: '#dc2626' },
+                { key: 'notLogged', label: 'Not logged', color: '#eab308' }
+              ]}
+              emptyMessage="Historical partial-NLD pressure will appear after more stored monitoring buckets are created."
+            />
+          </OpsSection>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
             <OpsSection title="Partial Route Pressure" subtitle="Top partial-NLD route concentrations from the current event lookback." tone="#f97316" minHeight={0}>
@@ -1223,6 +1482,18 @@ export default function NocMonitoringPage() {
               }
             ]}
           />
+
+          <OpsSection title="Voice Queue Trend" subtitle={`Waiting, answered, and missed call movement across the last ${historyWindowLabel}.`} tone="#0891b2" minHeight={0}>
+            <MultiLineChartPanel
+              rows={historyTelephony}
+              lines={[
+                { key: 'waiting', label: 'Waiting', color: '#7c3aed' },
+                { key: 'answered', label: 'Answered', color: '#0891b2' },
+                { key: 'missed', label: 'Missed', color: '#dc2626' }
+              ]}
+              emptyMessage="Historical telephony queue movement will appear once more backend voice snapshots are stored."
+            />
+          </OpsSection>
 
           <OpsSection title="Voice Hourly Flow" subtitle="Hourly voice intake, abandon volume, and talk-time pattern from the Illation dashboard stats feed." tone="#0891b2" minHeight={0}>
             <MultiLineChartPanel

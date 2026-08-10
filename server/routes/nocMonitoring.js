@@ -16,24 +16,34 @@ function actorFromUser(user) {
   ).trim()
 }
 
+function parseHistoryHours(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return undefined
+  return Math.min(24 * 14, Math.max(6, Math.round(parsed)))
+}
+
 export default function nocMonitoringRoutes() {
   const r = Router()
 
-  r.get('/current', verifyToken, async (_req, res) => {
-    const { snapshot, freshness } = await getNocMonitoringSnapshot()
+  r.get('/current', verifyToken, async (req, res) => {
+    const historyHours = parseHistoryHours(req.query.historyHours)
+    const { snapshot, freshness, history } = await getNocMonitoringSnapshot({ historyHours })
     res.json({
       snapshot,
       freshness,
+      history,
       meta: getNocMonitoringConfigMeta()
     })
   })
 
   r.post('/refresh', verifyToken, async (req, res) => {
     const actor = actorFromUser(req.user)
-    const { snapshot, freshness } = await refreshNocMonitoringSnapshot(actor)
+    const historyHours = parseHistoryHours(req.query.historyHours)
+    const { snapshot, freshness, history } = await refreshNocMonitoringSnapshot(actor, { historyHours })
     res.json({
       snapshot,
       freshness,
+      history,
       meta: getNocMonitoringConfigMeta()
     })
   })

@@ -33,14 +33,22 @@ Use this checklist for every frontend or full-stack production release to xneelo
      `ssh -i <pem> ubuntu@154.65.108.106 "cd /home/ubuntu/apps/noc-adherence/server && node scripts/issueSmokeToken.js --role admin --name 'Release Smoke'"`
    - then use that token locally:
      `npm --prefix frontend run smoke -- --url https://154-65-108-106.sslip.io/ --route /noc-monitoring --authToken <token> --expectText "NOC Monitoring Hub" --waitMs 4000`
-3. Confirm the smoke result is a pass.
-4. Spot-check:
+3. Or run the one-click helper for the same flow:
+   `npm run release:refresh-and-smoke -- --pem <pem-path>`
+   - optional overrides:
+     - `--host 154.65.108.106`
+     - `--baseUrl https://154-65-108-106.sslip.io`
+     - `--route /noc-monitoring`
+     - `--historyHours 72`
+     - `--expectText "NOC Monitoring Hub"`
+4. Confirm the smoke result is a pass.
+5. Spot-check:
    - login screen
    - authenticated landing page
    - `/noc-monitoring` and a manual snapshot refresh
    - one heavy reporting page like `SLA Reporting` or `Stock Management`
    - `/settings/whatsapp-watchers` if watcher routing or template changes were included
-5. If the smoke report or the browser console shows a new runtime error, treat the deploy as unhealthy even if nginx and the API are up.
+6. If the smoke report or the browser console shows a new runtime error, treat the deploy as unhealthy even if nginx and the API are up.
 
 ## Notes
 

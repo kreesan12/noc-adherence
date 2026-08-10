@@ -13,6 +13,9 @@ import {
 const SNAPSHOT_KEY = 'noc_monitoring_snapshot_v1'
 const SOFT_TTL_MS = Number(process.env.NOC_MONITORING_SNAPSHOT_TTL_MS || 15 * 60 * 1000)
 const HARD_STALE_MS = Number(process.env.NOC_MONITORING_HARD_STALE_MS || 6 * 60 * 60 * 1000)
+const HISTORY_BUCKET_MINUTES = Math.max(5, Number(process.env.NOC_MONITORING_HISTORY_BUCKET_MINUTES || 15))
+const HISTORY_WINDOW_HOURS = Math.max(6, Number(process.env.NOC_MONITORING_HISTORY_WINDOW_HOURS || 72))
+const HISTORY_RETENTION_DAYS = Math.max(7, Number(process.env.NOC_MONITORING_HISTORY_RETENTION_DAYS || 45))
 const MAX_SEARCH_PAGES = Number(process.env.NOC_MONITORING_MAX_SEARCH_PAGES || 8)
 const MAX_SEARCH_RESULTS = Number(process.env.NOC_MONITORING_MAX_SEARCH_RESULTS || 2500)
 const OUTAGE_GROUP_ID = String(process.env.OUTAGE_WATCHER_GROUP_ID || '5160847905297').trim()
@@ -20,6 +23,9 @@ const OUTAGE_FORM_NAME = String(process.env.OUTAGE_WATCHER_FORM_NAME || 'Outage 
 const INITIAL_FORM_NAME = String(process.env.NOC_MONITORING_INITIAL_FORM_NAME || 'Frogfoot Initial Form').trim()
 const TIER1_GROUP_NAME = String(process.env.NOC_MONITORING_T1_GROUP || 'NOC Tier1 Support').trim()
 const TIER2_GROUP_NAME = String(process.env.NOC_MONITORING_T2_GROUP || 'NOC Tier2 Support').trim()
+const TIER1_VOICE_QUEUE_NAME = String(process.env.NOC_MONITORING_T1_VOICE_QUEUE || 'NOCTier1_Queue').trim()
+const TIER1_P1_SLA_MINUTES = Math.max(5, Number(process.env.NOC_MONITORING_T1_P1_SLA_MINUTES || 30))
+const TIER1_VOICE_SLA_SECONDS = Math.max(5, Number(process.env.NOC_MONITORING_T1_VOICE_SLA_SECONDS || 20))
 const ILLATION_STATS_URL = String(process.env.ILLATION_DASHBOARD_STATS_URL || '').trim()
 const ILLATION_AUTH_HEADER = String(process.env.ILLATION_DASHBOARD_AUTH_HEADER || '').trim()
 const ILLATION_BEARER_TOKEN = String(process.env.ILLATION_DASHBOARD_BEARER_TOKEN || '').trim()
@@ -101,9 +107,10 @@ const T1_ACTION_DEFS = [
   { key: 'P2', label: 'P2 ISP waiting', tone: '#ea580c' },
   { key: 'P3', label: 'P3 FTTB vendor update', tone: '#d97706' },
   { key: 'P4', label: 'P4 FTTH MNT update', tone: '#2563eb' },
+  { key: 'Change', label: 'Change control', tone: '#8b5cf6' },
   { key: 'Other', label: 'Other / uncategorised', tone: '#475569' }
 ]
-const T1_DUE_BUCKET_ORDER = ['BREACHED', 'Due <=2h', 'Due <=4h', 'Due 4-8h', 'Due 8-24h', 'Safe >24h', 'Other/No SLA']
+const T1_DUE_BUCKET_ORDER = ['BREACHED', 'Due <=2h', 'Due <=4h', 'Due 4-8h', 'Due 8-24h', 'Safe >24h', 'Change control', 'Other/No SLA']
 const T1_DUE_BUCKET_TONES = {
   BREACHED: '#dc2626',
   'Due <=2h': '#ea580c',
@@ -111,6 +118,7 @@ const T1_DUE_BUCKET_TONES = {
   'Due 4-8h': '#d97706',
   'Due 8-24h': '#0284c7',
   'Safe >24h': '#0f766e',
+  'Change control': '#8b5cf6',
   'Other/No SLA': '#64748b'
 }
 const AGE_BUCKET_DEFS = [
@@ -120,6 +128,23 @@ const AGE_BUCKET_DEFS = [
   { key: '8-24h', label: '8-24h', minHours: 8, maxHours: 24, tone: '#f97316' },
   { key: '24-48h', label: '24-48h', minHours: 24, maxHours: 48, tone: '#ef4444' },
   { key: '>48h', label: '>48h', minHours: 48, tone: '#991b1b' }
+]
+const T1_STATUS_TONES = {
+  new: '#dc2626',
+  open: '#0ea5e9',
+  pending: '#f97316',
+  hold: '#8b5cf6',
+  solved: '#16a34a',
+  closed: '#475569',
+  unknown: '#64748b'
+}
+const T1_AUTOMATION_ROUTE_RULES = [
+  { key: 'outageLinked', label: 'Outage linked', tags: ['noc_outages_escalation_clone', 'noc_t2-outage_linked'], tone: '#f97316' },
+  { key: 'mnt', label: 'MNT', tags: ['maintenance_escalation_clone'], tone: '#2563eb' },
+  { key: 'dfa', label: 'DFA', tags: ['noc_t2-dfa_escalation'], tone: '#14b8a6' },
+  { key: 'liquid', label: 'Liquid', tags: ['noc_t2-liquid_escalation'], tone: '#7c3aed' },
+  { key: 'tier3', label: 'Tier 3', tags: ['noc_t3_escalation'], tone: '#334155' },
+  { key: 'pmt', label: 'PMT', tags: ['noc_t2-pmt_escalation'], tone: '#0891b2' }
 ]
 
 let refreshPromise = null
@@ -158,10 +183,22 @@ function hasAnyTag(ticket, tags) {
   return tags.some((tag) => present.has(String(tag).toLowerCase()))
 }
 
+function tagMatches(ticket, fragment) {
+  const needle = String(fragment || '').trim().toLowerCase()
+  if (!needle) return false
+  return Array.from(tagSet(ticket)).some((tag) => tag.includes(needle))
+}
+
 function classifyTicketProduct(ticket) {
   if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTB)) return 'FTTB'
   if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTH)) return 'FTTH'
   return 'Other'
+}
+
+function isChangeControlTicket(ticket) {
+  const subject = asText(ticket?.subject || ticket?.title).toLowerCase()
+  if (subject.includes('change')) return true
+  return tagMatches(ticket, 'change')
 }
 
 function classifyT1ActionLevel(ticket) {
@@ -169,7 +206,33 @@ function classifyT1ActionLevel(ticket) {
   if (hasAnyTag(ticket, ['play_p2'])) return 'P2'
   if (hasAnyTag(ticket, ['play_p3'])) return 'P3'
   if (hasAnyTag(ticket, ['play_p4', 'isp_frac_auto'])) return 'P4'
+  if (isChangeControlTicket(ticket)) return 'Change'
   return 'Other'
+}
+
+function classifyT1OperationalState(ticket, pLevel, status) {
+  const normalizedStatus = normalizeStatus(status || ticket?.status)
+  if (pLevel === 'P1') return normalizedStatus === 'new' ? 'New / unattended' : 'P1 in progress'
+  if (pLevel === 'P2') return 'ISP follow-up'
+  if (pLevel === 'P3') return 'Vendor update'
+  if (pLevel === 'P4') return 'MNT / automation'
+  if (pLevel === 'Change') return 'Change control'
+  if (normalizedStatus === 'pending') return 'Pending'
+  if (normalizedStatus === 'open') return 'In progress'
+  return 'Other'
+}
+
+function classifyT1AutomationRoutes(ticket) {
+  return T1_AUTOMATION_ROUTE_RULES.filter((rule) => hasAnyTag(ticket, rule.tags))
+}
+
+function summarizeRuleHits(rows, rules, accessor = (row) => row) {
+  return rules.map((rule) => ({
+    key: rule.key,
+    label: rule.label,
+    tone: rule.tone,
+    count: rows.filter((row) => hasAnyTag(accessor(row), rule.tags)).length
+  }))
 }
 
 function classifyT2Party(ticket) {
@@ -195,7 +258,8 @@ function t1SlaHoursForProduct(product) {
   return 0
 }
 
-function classifyDueBucket(remainingHours, slaHours) {
+function classifyDueBucket(remainingHours, slaHours, pLevel) {
+  if (pLevel === 'Change') return 'Change control'
   if (!slaHours) return 'Other/No SLA'
   if (remainingHours <= 0) return 'BREACHED'
   if (remainingHours <= 2) return 'Due <=2h'
@@ -211,15 +275,23 @@ function buildT1ActionRow(ticket, now = dayjs()) {
   const pLevel = classifyT1ActionLevel(ticket)
   const slaHours = t1SlaHoursForProduct(product)
   const remainingHours = slaHours ? Number((slaHours - base.ageHours).toFixed(1)) : null
+  const automationRoutes = classifyT1AutomationRoutes(ticket)
+  const status = normalizeStatus(ticket.status)
+  const p1ActionBreached = pLevel === 'P1' && status === 'new' && base.ageHours >= (TIER1_P1_SLA_MINUTES / 60)
 
   return {
     ...base,
     product,
     pLevel,
+    operationalState: classifyT1OperationalState(ticket, pLevel, status),
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
     slaHours,
     remainingHours,
-    dueBucket: classifyDueBucket(remainingHours ?? null, slaHours),
+    dueBucket: classifyDueBucket(remainingHours ?? null, slaHours, pLevel),
+    automationRoutes: automationRoutes.map((rule) => rule.label),
+    automationRouteCount: automationRoutes.length,
+    p1ActionBreached,
+    p1ActionTargetMinutes: TIER1_P1_SLA_MINUTES,
     subject: compactText(ticket.subject || '', 160)
   }
 }
@@ -253,6 +325,21 @@ function buildHourlyTicketSeries(rows, stampField, labelPrefix = '') {
       count,
       cumulative
     }
+  })
+}
+
+function mergeHourlySeriesByKey(seriesConfig, valueField = 'cumulative') {
+  if (!Array.isArray(seriesConfig) || !seriesConfig.length) return []
+  const template = seriesConfig[0]?.rows || []
+  return template.map((row, index) => {
+    const merged = {
+      hour: row.hour,
+      label: row.label
+    }
+    for (const config of seriesConfig) {
+      merged[config.key] = asNumber(config.rows?.[index]?.[valueField], 0)
+    }
+    return merged
   })
 }
 
@@ -315,6 +402,10 @@ function buildTicketTimelineMeta(now = dayjs()) {
     timezone: MONITORING_TIMEZONE,
     dayKey
   }
+}
+
+function buildDayWindowQuery(field, dayKey) {
+  return `${field}>=${dayKey}T00:00:00Z ${field}<=${dayKey}T23:59:59Z`
 }
 
 function makeZendeskHeaders() {
@@ -582,6 +673,7 @@ async function fetchTelephonySnapshot() {
     missed: asNumber(row.missed ?? row.calls_missed ?? row.missed_calls, 0),
     avgAnswerSeconds: asNumber(row.avg_answer_seconds ?? row.average_answer_time ?? row.avg_answer_time, 0),
     avgTalkSeconds: asNumber(row.avg_talk_time, 0),
+    maxQueueSeconds: asNumber(row.max_queue_seconds ?? row.max_time_caller_in_queue ?? row.longest_wait_seconds, 0),
     sla: asNumber(row.sla, 0),
     totalCalls: asNumber(row.total_calls, 0),
     registeredAgents: asNumber(row.registered_agents, 0),
@@ -744,10 +836,292 @@ function buildSpotlights({ majorOutages, nldOutages, backhauls, vipTickets, tier
   return cards.slice(0, 6)
 }
 
+function clampHistoryHours(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return HISTORY_WINDOW_HOURS
+  return Math.min(24 * 14, Math.max(6, Math.round(parsed)))
+}
+
+function floorToHistoryBucket(dateValue) {
+  const date = new Date(dateValue || Date.now())
+  if (Number.isNaN(date.getTime())) return new Date()
+  const bucketMs = HISTORY_BUCKET_MINUTES * 60 * 1000
+  return new Date(Math.floor(date.getTime() / bucketMs) * bucketMs)
+}
+
+function formatHistoryLabel(dateValue) {
+  const stamp = dayjs(dateValue)
+  return stamp.isValid() ? stamp.format('DD MMM HH:mm') : '--'
+}
+
+function buildHistoryPayload(snapshot) {
+  return {
+    generatedAt: snapshot?.generatedAt || new Date().toISOString(),
+    summary: snapshot?.summary || {},
+    lanes: Array.isArray(snapshot?.lanes)
+      ? snapshot.lanes.map((row) => ({
+          key: row.key,
+          label: row.label,
+          openCount: asNumber(row.openCount, 0),
+          agedCount: asNumber(row.agedCount, 0),
+          impactCount: asNumber(row.impactCount, 0),
+          highestAgeHours: asNumber(row.highestAgeHours, 0),
+          tone: row.tone || ''
+        }))
+      : [],
+    outagePrioritySummary: Array.isArray(snapshot?.trends?.outagePrioritySummary) ? snapshot.trends.outagePrioritySummary : [],
+    t1ActionSummary: Array.isArray(snapshot?.trends?.t1ActionSummary) ? snapshot.trends.t1ActionSummary : [],
+    t1DueBucketSummary: Array.isArray(snapshot?.trends?.t1DueBucketSummary) ? snapshot.trends.t1DueBucketSummary : [],
+    t1ProductSummary: Array.isArray(snapshot?.trends?.t1ProductSummary) ? snapshot.trends.t1ProductSummary : [],
+    t2AgeBucketSummary: Array.isArray(snapshot?.trends?.t2AgeBucketSummary) ? snapshot.trends.t2AgeBucketSummary : [],
+    t2PartySummary: Array.isArray(snapshot?.trends?.t2PartySummary) ? snapshot.trends.t2PartySummary.slice(0, 12) : [],
+    t2ProductSummary: Array.isArray(snapshot?.trends?.t2ProductSummary) ? snapshot.trends.t2ProductSummary : [],
+    t2ServiceTypeSummary: Array.isArray(snapshot?.trends?.t2ServiceTypeSummary) ? snapshot.trends.t2ServiceTypeSummary.slice(0, 12) : [],
+    outageRegionImpactSummary: Array.isArray(snapshot?.trends?.outageRegionImpactSummary) ? snapshot.trends.outageRegionImpactSummary.slice(0, 12) : [],
+    outageServiceTypeSummary: Array.isArray(snapshot?.trends?.outageServiceTypeSummary) ? snapshot.trends.outageServiceTypeSummary.slice(0, 12) : [],
+    backhaulOwnerSummary: Array.isArray(snapshot?.trends?.backhaulOwnerSummary) ? snapshot.trends.backhaulOwnerSummary.slice(0, 12) : [],
+    partialRouteSummary: Array.isArray(snapshot?.trends?.partialRouteSummary) ? snapshot.trends.partialRouteSummary.slice(0, 12) : [],
+    tier1VoiceQueue: snapshot?.collections?.tier1VoiceQueue || null,
+    telephonyMeta: snapshot?.collections?.telephonyMeta || null
+  }
+}
+
+function buildHistoryRowInput(snapshot, requestedBy = 'system') {
+  const capturedAt = new Date(snapshot?.generatedAt || Date.now())
+  const bucketStart = floorToHistoryBucket(capturedAt)
+  const summary = snapshot?.summary || {}
+
+  return {
+    bucketKey: bucketStart.toISOString(),
+    bucketStart,
+    capturedAt,
+    requestedBy: asText(requestedBy) || 'system',
+    totalLiveTickets: asNumber(summary.majorOutageOpen, 0) + asNumber(summary.nldOutageOpen, 0) + asNumber(summary.backhaulOpen, 0) + asNumber(summary.vipOpen, 0) + asNumber(summary.tier1Open, 0) + asNumber(summary.tier2Open, 0),
+    majorOutageOpen: asNumber(summary.majorOutageOpen, 0),
+    majorOutageSubscribers: asNumber(summary.majorOutageSubscribers, 0),
+    nldOutageOpen: asNumber(summary.nldOutageOpen, 0),
+    nldOutageSubscribers: asNumber(summary.nldOutageSubscribers, 0),
+    backhaulOpen: asNumber(summary.backhaulOpen, 0),
+    vipOpen: asNumber(summary.vipOpen, 0),
+    tier1Open: asNumber(summary.tier1Open, 0),
+    tier1UrgentOpen: Array.isArray(snapshot?.collections?.tier1UrgentTickets) ? snapshot.collections.tier1UrgentTickets.length : 0,
+    tier2Open: asNumber(summary.tier2Open, 0),
+    tier2NewUnassigned: asNumber(summary.tier2NewUnassigned, 0),
+    tier2HandoverOpen: asNumber(summary.t2HandoverOpen, 0),
+    outageNewUnassigned: asNumber(summary.outageNewUnassigned, 0),
+    outageP1: asNumber(summary.outageP1, 0),
+    outageP2: asNumber(summary.outageP2, 0),
+    outageP3: asNumber(summary.outageP3, 0),
+    outageP4: asNumber(summary.outageP4, 0),
+    outagePower: asNumber(summary.outagePower, 0),
+    nldPartialEventCount: asNumber(summary.nldPartialEventCount, 0),
+    nldPartialClusterCount: asNumber(summary.nldPartialClusterCount, 0),
+    nldPartialNotLoggedCount: asNumber(summary.nldPartialNotLoggedCount, 0),
+    skippedCount: asNumber(summary.skippedCount, 0),
+    telephonyQueues: asNumber(summary.telephonyQueues, 0),
+    telephonyWaiting: summary.telephonyWaiting === null || summary.telephonyWaiting === undefined ? null : asNumber(summary.telephonyWaiting, 0),
+    telephonyAnswered: summary.telephonyAnswered === null || summary.telephonyAnswered === undefined ? null : asNumber(summary.telephonyAnswered, 0),
+    telephonyMissed: summary.telephonyMissed === null || summary.telephonyMissed === undefined ? null : asNumber(summary.telephonyMissed, 0),
+    telephonyAbandonRate: summary.telephonyAbandonRate === null || summary.telephonyAbandonRate === undefined ? null : asNumber(summary.telephonyAbandonRate, 0),
+    telephonyAvgAnswerSeconds: summary.telephonyAvgAnswerSeconds === null || summary.telephonyAvgAnswerSeconds === undefined ? null : asNumber(summary.telephonyAvgAnswerSeconds, 0),
+    payload: buildHistoryPayload(snapshot)
+  }
+}
+
+async function persistHistorySnapshot(snapshot, requestedBy = 'system') {
+  const historyRow = buildHistoryRowInput(snapshot, requestedBy)
+  const retentionCutoff = dayjs().subtract(HISTORY_RETENTION_DAYS, 'day').toDate()
+
+  await prisma.nocMonitoringSnapshotHistory.upsert({
+    where: { bucketKey: historyRow.bucketKey },
+    update: {
+      bucketStart: historyRow.bucketStart,
+      capturedAt: historyRow.capturedAt,
+      requestedBy: historyRow.requestedBy,
+      totalLiveTickets: historyRow.totalLiveTickets,
+      majorOutageOpen: historyRow.majorOutageOpen,
+      majorOutageSubscribers: historyRow.majorOutageSubscribers,
+      nldOutageOpen: historyRow.nldOutageOpen,
+      nldOutageSubscribers: historyRow.nldOutageSubscribers,
+      backhaulOpen: historyRow.backhaulOpen,
+      vipOpen: historyRow.vipOpen,
+      tier1Open: historyRow.tier1Open,
+      tier1UrgentOpen: historyRow.tier1UrgentOpen,
+      tier2Open: historyRow.tier2Open,
+      tier2NewUnassigned: historyRow.tier2NewUnassigned,
+      tier2HandoverOpen: historyRow.tier2HandoverOpen,
+      outageNewUnassigned: historyRow.outageNewUnassigned,
+      outageP1: historyRow.outageP1,
+      outageP2: historyRow.outageP2,
+      outageP3: historyRow.outageP3,
+      outageP4: historyRow.outageP4,
+      outagePower: historyRow.outagePower,
+      nldPartialEventCount: historyRow.nldPartialEventCount,
+      nldPartialClusterCount: historyRow.nldPartialClusterCount,
+      nldPartialNotLoggedCount: historyRow.nldPartialNotLoggedCount,
+      skippedCount: historyRow.skippedCount,
+      telephonyQueues: historyRow.telephonyQueues,
+      telephonyWaiting: historyRow.telephonyWaiting,
+      telephonyAnswered: historyRow.telephonyAnswered,
+      telephonyMissed: historyRow.telephonyMissed,
+      telephonyAbandonRate: historyRow.telephonyAbandonRate,
+      telephonyAvgAnswerSeconds: historyRow.telephonyAvgAnswerSeconds,
+      payload: historyRow.payload
+    },
+    create: historyRow
+  })
+
+  await prisma.nocMonitoringSnapshotHistory.deleteMany({
+    where: {
+      bucketStart: {
+        lt: retentionCutoff
+      }
+    }
+  })
+}
+
+function normalizeHistoryRows(rows) {
+  return rows.map((row) => ({
+    bucketStart: row.bucketStart,
+    bucketStartIso: row.bucketStart.toISOString(),
+    label: formatHistoryLabel(row.bucketStart),
+    totalLiveTickets: row.totalLiveTickets,
+    majorOutageOpen: row.majorOutageOpen,
+    majorOutageSubscribers: row.majorOutageSubscribers,
+    nldOutageOpen: row.nldOutageOpen,
+    nldOutageSubscribers: row.nldOutageSubscribers,
+    totalOutageSubscribers: row.majorOutageSubscribers + row.nldOutageSubscribers,
+    backhaulOpen: row.backhaulOpen,
+    vipOpen: row.vipOpen,
+    tier1Open: row.tier1Open,
+    tier1UrgentOpen: row.tier1UrgentOpen,
+    tier2Open: row.tier2Open,
+    tier2NewUnassigned: row.tier2NewUnassigned,
+    tier2HandoverOpen: row.tier2HandoverOpen,
+    outageNewUnassigned: row.outageNewUnassigned,
+    outageP1: row.outageP1,
+    outageP2: row.outageP2,
+    outageP3: row.outageP3,
+    outageP4: row.outageP4,
+    outagePower: row.outagePower,
+    nldPartialEventCount: row.nldPartialEventCount,
+    nldPartialClusterCount: row.nldPartialClusterCount,
+    nldPartialNotLoggedCount: row.nldPartialNotLoggedCount,
+    skippedCount: row.skippedCount,
+    telephonyQueues: row.telephonyQueues,
+    telephonyWaiting: row.telephonyWaiting ?? 0,
+    telephonyAnswered: row.telephonyAnswered ?? 0,
+    telephonyMissed: row.telephonyMissed ?? 0,
+    telephonyAbandonRate: row.telephonyAbandonRate ?? null,
+    telephonyAvgAnswerSeconds: row.telephonyAvgAnswerSeconds ?? null
+  }))
+}
+
+function buildHistoryResponse(rows, requestedHours = HISTORY_WINDOW_HOURS) {
+  const points = normalizeHistoryRows(rows)
+  return {
+    windowHours: clampHistoryHours(requestedHours),
+    bucketMinutes: HISTORY_BUCKET_MINUTES,
+    retentionDays: HISTORY_RETENTION_DAYS,
+    pointCount: points.length,
+    latestBucketStart: points.length ? points[points.length - 1].bucketStartIso : null,
+    series: {
+      lanePressure: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        totalLiveTickets: row.totalLiveTickets,
+        majorOutageOpen: row.majorOutageOpen,
+        nldOutageOpen: row.nldOutageOpen,
+        backhaulOpen: row.backhaulOpen,
+        vipOpen: row.vipOpen,
+        tier1Open: row.tier1Open,
+        tier2Open: row.tier2Open
+      })),
+      subscriberImpact: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        majorOutageSubscribers: row.majorOutageSubscribers,
+        nldOutageSubscribers: row.nldOutageSubscribers,
+        totalSubscribers: row.totalOutageSubscribers
+      })),
+      outagePriority: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        newUnassigned: row.outageNewUnassigned,
+        p1: row.outageP1,
+        p2: row.outageP2,
+        p3: row.outageP3,
+        p4: row.outageP4,
+        power: row.outagePower
+      })),
+      tier1: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        open: row.tier1Open,
+        urgent: row.tier1UrgentOpen
+      })),
+      tier2: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        open: row.tier2Open,
+        unattended: row.tier2NewUnassigned,
+        handover: row.tier2HandoverOpen
+      })),
+      nldPartials: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        events: row.nldPartialEventCount,
+        clusters: row.nldPartialClusterCount,
+        notLogged: row.nldPartialNotLoggedCount
+      })),
+      telephony: points.map((row) => ({
+        bucketStart: row.bucketStartIso,
+        label: row.label,
+        waiting: row.telephonyWaiting,
+        answered: row.telephonyAnswered,
+        missed: row.telephonyMissed,
+        abandonRate: row.telephonyAbandonRate,
+        avgAnswerSeconds: row.telephonyAvgAnswerSeconds
+      })),
+      tier1VoiceQueue: points.map((row, index) => {
+        const source = rows[index]?.payload?.tier1VoiceQueue || {}
+        return {
+          bucketStart: row.bucketStartIso,
+          label: row.label,
+          waiting: asNumber(source.waiting, 0),
+          answered: asNumber(source.answered, 0),
+          missed: asNumber(source.missed, 0),
+          avgAnswerSeconds: source.avgAnswerSeconds === null || source.avgAnswerSeconds === undefined ? null : asNumber(source.avgAnswerSeconds, 0),
+          maxQueueSeconds: source.maxQueueSeconds === null || source.maxQueueSeconds === undefined ? null : asNumber(source.maxQueueSeconds, 0)
+        }
+      })
+    }
+  }
+}
+
+async function readHistoryWindow(hours = HISTORY_WINDOW_HOURS) {
+  const safeHours = clampHistoryHours(hours)
+  const windowStart = dayjs().subtract(safeHours, 'hour').toDate()
+  const rows = await prisma.nocMonitoringSnapshotHistory.findMany({
+    where: {
+      bucketStart: {
+        gte: windowStart
+      }
+    },
+    orderBy: {
+      bucketStart: 'asc'
+    }
+  })
+
+  return buildHistoryResponse(rows, safeHours)
+}
+
 async function collectLiveSnapshot() {
   const warnings = []
   const now = dayjs()
   const timelineMeta = buildTicketTimelineMeta(now)
+  const lastWeekDayKey = formatYmdInTz(now.subtract(7, 'day').toDate())
+  const previousWeekDayKey = formatYmdInTz(now.subtract(14, 'day').toDate())
   const watcherConfig = await getWhatsappWatcherConfig({ forceFresh: true }).catch(() => null)
   const backhaulTag = watcherConfig?.backhaul?.tag || process.env.BACKHAUL_TAG || 'iris_backhaul_down'
   const vipOrgId = watcherConfig?.vip?.orgId || process.env.VIP_ORG_ID || '42757142385041'
@@ -774,7 +1148,11 @@ async function collectLiveSnapshot() {
     rawTier2OpenTickets,
     rawTier2UnassignedTickets,
     rawTier1CreatedToday,
+    rawTier1CreatedLastWeek,
+    rawTier1CreatedPreviousWeek,
     rawTier1SolvedToday,
+    rawTier1SolvedLastWeek,
+    rawTier1SolvedPreviousWeek,
     rawTier2CreatedToday,
     rawTier2SolvedToday,
     rawPartialNldTickets,
@@ -787,8 +1165,12 @@ async function collectLiveSnapshot() {
     safe('tier1', () => fetchZendeskExport(`group:"${TIER1_GROUP_NAME}" form:"${INITIAL_FORM_NAME}" status<solved`), []),
     safe('tier2', () => fetchZendeskExport(`group:"${TIER2_GROUP_NAME}" form:"${INITIAL_FORM_NAME}" status<solved`), []),
     safe('tier2-unassigned', () => fetchZendeskExport(`assignee:none status:new tags:request_type_noc_tier_2 form:"${INITIAL_FORM_NAME}"`), []),
-    safe('tier1-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 created>=${timelineMeta.dayKey} created<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
-    safe('tier1-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 solved>=${timelineMeta.dayKey} solved<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
+    safe('tier1-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('created', timelineMeta.dayKey)}`), []),
+    safe('tier1-created-last-week', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('created', lastWeekDayKey)}`), []),
+    safe('tier1-created-previous-week', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('created', previousWeekDayKey)}`), []),
+    safe('tier1-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', timelineMeta.dayKey)}`), []),
+    safe('tier1-solved-last-week', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', lastWeekDayKey)}`), []),
+    safe('tier1-solved-previous-week', () => fetchZendeskExport(`tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" ${buildDayWindowQuery('solved', previousWeekDayKey)}`), []),
     safe('tier2-created-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 created>=${timelineMeta.dayKey} created<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}" status<closed`), []),
     safe('tier2-solved-today', () => fetchZendeskExport(`tags:request_type_noc_tier_2 solved>=${timelineMeta.dayKey} solved<=${timelineMeta.dayKey} form:"${INITIAL_FORM_NAME}"`), []),
     safe('nld-partials', () => fetchPartialNldAlertsRaw(), []),
@@ -912,6 +1294,18 @@ async function collectLiveSnapshot() {
   })
 
   const t1ProductSummary = summarizeRowsByKey(tier1Tickets, 'product', { FTTB: '#0f766e', FTTH: '#2563eb', Other: '#64748b' })
+  const t1StatusSummary = summarizeRowsByKey(tier1Tickets, 'status', T1_STATUS_TONES)
+  const t1OperationalStateSummary = summarizeRowsByKey(tier1Tickets, 'operationalState', {
+    'New / unattended': '#dc2626',
+    'P1 in progress': '#f97316',
+    'ISP follow-up': '#ea580c',
+    'Vendor update': '#d97706',
+    'MNT / automation': '#2563eb',
+    'Change control': '#8b5cf6',
+    Pending: '#475569',
+    'In progress': '#0ea5e9',
+    Other: '#64748b'
+  })
   const t1DueBucketSummary = T1_DUE_BUCKET_ORDER.map((bucket) => ({
     key: bucket,
     label: bucket,
@@ -921,6 +1315,12 @@ async function collectLiveSnapshot() {
   const t1UrgentRows = sortByAgeDesc(
     tier1Tickets.filter((row) => ['BREACHED', 'Due <=2h', 'Due <=4h'].includes(row.dueBucket))
   )
+  const t1P1UnattendedRows = sortByAgeDesc(
+    tier1Tickets.filter((row) => row.pLevel === 'P1' && normalizeStatus(row.status) === 'new')
+  )
+  const t1P1BreachedRows = t1P1UnattendedRows.filter((row) => row.p1ActionBreached)
+  const t1AutomationOpenSummary = summarizeRuleHits(rawTier1OpenTickets, T1_AUTOMATION_ROUTE_RULES)
+  const t1AutomationCreatedTodaySummary = summarizeRuleHits(rawTier1CreatedToday, T1_AUTOMATION_ROUTE_RULES)
 
   const t2ActiveRows = tier2Tickets.filter((row) => !['pending', 'new'].includes(normalizeStatus(row.status)))
   const t2PartySummary = summarizeRowsByKey(t2ActiveRows, 'party')
@@ -951,9 +1351,16 @@ async function collectLiveSnapshot() {
     }))
     .filter((row) => row.count > 0)
     .sort((left, right) => right.count - left.count)
+  const tier1VoiceQueue = (telephony.queues || []).find((row) => String(row.name || '').toLowerCase() === TIER1_VOICE_QUEUE_NAME.toLowerCase())
+    || (telephony.queues || []).find((row) => String(row.name || '').toLowerCase().includes(TIER1_VOICE_QUEUE_NAME.toLowerCase()))
+    || null
 
   const t1ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedToday, 'created_at')
+  const t1ReceivedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedLastWeek, 'created_at')
+  const t1ReceivedPreviousWeekHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedPreviousWeek, 'created_at')
   const t1SolvedHourlyRaw = buildHourlyTicketSeries(rawTier1SolvedToday.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
+  const t1SolvedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier1SolvedLastWeek.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
+  const t1SolvedPreviousWeekHourlyRaw = buildHourlyTicketSeries(rawTier1SolvedPreviousWeek.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
   const t2ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier2CreatedToday, 'created_at')
   const t2SolvedHourlyRaw = buildHourlyTicketSeries(rawTier2SolvedToday.map((row) => ({ ...row, solvedStamp: row.solved_at || row.updated_at })), 'solvedStamp')
   const hourlySeries = t1ReceivedHourlyRaw.map((row, index) => ({
@@ -964,6 +1371,16 @@ async function collectLiveSnapshot() {
     t2Received: t2ReceivedHourlyRaw[index]?.count || 0,
     t2Solved: t2SolvedHourlyRaw[index]?.count || 0
   }))
+  const t1ReceivedComparisonSeries = mergeHourlySeriesByKey([
+    { key: 'today', rows: t1ReceivedHourlyRaw },
+    { key: 'lastWeek', rows: t1ReceivedLastWeekHourlyRaw },
+    { key: 'previousWeek', rows: t1ReceivedPreviousWeekHourlyRaw }
+  ])
+  const t1SolvedComparisonSeries = mergeHourlySeriesByKey([
+    { key: 'today', rows: t1SolvedHourlyRaw },
+    { key: 'lastWeek', rows: t1SolvedLastWeekHourlyRaw },
+    { key: 'previousWeek', rows: t1SolvedPreviousWeekHourlyRaw }
+  ])
 
   const partialEvents = transformPartialNldAlerts(rawPartialNldTickets, {
     partialLookbackHours: nldPartialLookbackHours,
@@ -1009,11 +1426,17 @@ async function collectLiveSnapshot() {
     backhaulOpen: backhaulRows.length,
     vipOpen: vipTickets.length,
     tier1Open: tier1Tickets.length,
+    tier1P1Unattended: t1P1UnattendedRows.length,
+    tier1P1Breached: t1P1BreachedRows.length,
     tier2Open: tier2Tickets.length,
     tier2NewUnassigned,
     t2HandoverOpen: tier2HandoverRows.length,
     t1ReceivedToday: rawTier1CreatedToday.length,
+    t1ReceivedLastWeek: rawTier1CreatedLastWeek.length,
+    t1ReceivedPreviousWeek: rawTier1CreatedPreviousWeek.length,
     t1SolvedToday: rawTier1SolvedToday.length,
+    t1SolvedLastWeek: rawTier1SolvedLastWeek.length,
+    t1SolvedPreviousWeek: rawTier1SolvedPreviousWeek.length,
     t2ReceivedToday: rawTier2CreatedToday.length,
     t2SolvedToday: rawTier2SolvedToday.length,
     outageNewUnassigned: outagePriorityCollections.new_unassigned.length,
@@ -1033,7 +1456,17 @@ async function collectLiveSnapshot() {
     telephonyAbandonRate: telephony.summary?.abandonRate ?? null,
     telephonyAvgAnswerSeconds: telephony.summary?.avgAnswerSeconds ?? null,
     telephonyWaiting: telephony.available ? telephony.queues.reduce((total, row) => total + asNumber(row.waiting, 0), 0) : null,
-    telephonyQueues: telephony.available ? telephony.queues.length : 0
+    telephonyQueues: telephony.available ? telephony.queues.length : 0,
+    telephonyTier1QueueName: tier1VoiceQueue?.name || TIER1_VOICE_QUEUE_NAME,
+    telephonyTier1Waiting: tier1VoiceQueue ? asNumber(tier1VoiceQueue.waiting, 0) : null,
+    telephonyTier1Answered: tier1VoiceQueue ? asNumber(tier1VoiceQueue.answered, 0) : null,
+    telephonyTier1Missed: tier1VoiceQueue ? asNumber(tier1VoiceQueue.missed, 0) : null,
+    telephonyTier1AvgAnswerSeconds: tier1VoiceQueue ? asNumber(tier1VoiceQueue.avgAnswerSeconds, 0) : null,
+    telephonyTier1MaxQueueSeconds: tier1VoiceQueue ? asNumber(tier1VoiceQueue.maxQueueSeconds, 0) : null,
+    telephonyTier1SlaBreached: tier1VoiceQueue
+      ? asNumber(tier1VoiceQueue.maxQueueSeconds, 0) > TIER1_VOICE_SLA_SECONDS
+        || asNumber(tier1VoiceQueue.avgAnswerSeconds, 0) > TIER1_VOICE_SLA_SECONDS
+      : null
   }
 
   return {
@@ -1060,7 +1493,13 @@ async function collectLiveSnapshot() {
       backhaulOwnerSummary: backhaulOwnerSummary.slice(0, 12),
       t1ActionSummary,
       t1ProductSummary,
+      t1StatusSummary,
+      t1OperationalStateSummary,
       t1DueBucketSummary,
+      t1AutomationOpenSummary,
+      t1AutomationCreatedTodaySummary,
+      t1ReceivedComparisonSeries: t1ReceivedComparisonSeries.slice(0, 24),
+      t1SolvedComparisonSeries: t1SolvedComparisonSeries.slice(0, 24),
       t2AgeBucketSummary,
       t2PartySummary: t2PartySummary.slice(0, 16),
       t2ProductSummary,
@@ -1076,6 +1515,8 @@ async function collectLiveSnapshot() {
       vipTickets: vipTickets.slice(0, 200),
       tier1Tickets: tier1Tickets.slice(0, 300),
       tier1UrgentTickets: t1UrgentRows.slice(0, 150),
+      tier1P1UnattendedTickets: t1P1UnattendedRows.slice(0, 150),
+      tier1P1BreachedTickets: t1P1BreachedRows.slice(0, 150),
       tier2Tickets: tier2Tickets.slice(0, 300),
       tier2NewUnassignedTickets: tier2NewUnassignedRows.slice(0, 150),
       tier2HandoverTickets: tier2HandoverRows.slice(0, 150),
@@ -1091,6 +1532,10 @@ async function collectLiveSnapshot() {
       outageServiceTypeSummary: outageServiceTypeSummary.slice(0, 24),
       backhaulOwnerSummary: backhaulOwnerSummary.slice(0, 24),
       t1ProductSummary,
+      t1StatusSummary,
+      t1OperationalStateSummary,
+      t1AutomationOpenSummary,
+      t1AutomationCreatedTodaySummary,
       t2PartySummary: t2PartySummary.slice(0, 24),
       t2ProductSummary,
       t2ServiceTypeSummary: t2ServiceTypeSummary.slice(0, 24),
@@ -1102,6 +1547,7 @@ async function collectLiveSnapshot() {
       telephonyQueues: (telephony.queues || []).slice(0, 100),
       telephonyAgents: (telephony.agents || []).slice(0, 100),
       telephonyHourly: (telephony.hourly || []).slice(0, 48),
+      tier1VoiceQueue,
       telephonyQueueWaitingSummary: telephonyQueueWaitingSummary.slice(0, 24),
       telephonyMissedAgentSummary: telephonyMissedAgentSummary.slice(0, 24),
       telephonyMeta: {
@@ -1139,7 +1585,7 @@ function getFreshness(snapshot) {
   }
 }
 
-export async function refreshNocMonitoringSnapshot(requestedBy = 'system') {
+export async function refreshNocMonitoringSnapshot(requestedBy = 'system', { historyHours = HISTORY_WINDOW_HOURS } = {}) {
   if (refreshPromise) return refreshPromise
 
   refreshPromise = (async () => {
@@ -1156,10 +1602,13 @@ export async function refreshNocMonitoringSnapshot(requestedBy = 'system') {
         updatedBy: asText(requestedBy) || 'system'
       }
     })
+    await persistHistorySnapshot(snapshot, requestedBy)
+    const history = await readHistoryWindow(historyHours)
 
     return {
       snapshot,
-      freshness: getFreshness(snapshot)
+      freshness: getFreshness(snapshot),
+      history
     }
   })().finally(() => {
     refreshPromise = null
@@ -1168,21 +1617,24 @@ export async function refreshNocMonitoringSnapshot(requestedBy = 'system') {
   return refreshPromise
 }
 
-export async function getNocMonitoringSnapshot({ autoRefresh = true } = {}) {
+export async function getNocMonitoringSnapshot({ autoRefresh = true, historyHours = HISTORY_WINDOW_HOURS } = {}) {
   const snapshot = await readStoredSnapshot()
   const freshness = getFreshness(snapshot)
 
   if (!snapshot) {
-    return refreshNocMonitoringSnapshot('bootstrap')
+    return refreshNocMonitoringSnapshot('bootstrap', { historyHours })
   }
 
   if (autoRefresh && freshness.stale && !refreshPromise) {
-    void refreshNocMonitoringSnapshot('background-refresh').catch(() => {})
+    void refreshNocMonitoringSnapshot('background-refresh', { historyHours }).catch(() => {})
   }
+
+  const history = await readHistoryWindow(historyHours)
 
   return {
     snapshot,
-    freshness
+    freshness,
+    history
   }
 }
 
@@ -1191,6 +1643,9 @@ export function getNocMonitoringConfigMeta() {
     snapshotKey: SNAPSHOT_KEY,
     staleAfterMs: SOFT_TTL_MS,
     hardStaleMs: HARD_STALE_MS,
+    historyBucketMinutes: HISTORY_BUCKET_MINUTES,
+    historyWindowHours: HISTORY_WINDOW_HOURS,
+    historyRetentionDays: HISTORY_RETENTION_DAYS,
     dashboardNote: 'This dashboard reads from a cached backend snapshot so the browser stays light and Zendesk does not get hammered by repeated live panel queries.',
     telephonyConfigured: Boolean(ILLATION_STATS_URL),
     telephonyAuthConfigured: Boolean(ILLATION_AUTH_HEADER || ILLATION_BEARER_TOKEN || ILLATION_API_KEY || ILLATION_ALLOW_ANON)

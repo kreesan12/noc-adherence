@@ -167,6 +167,7 @@ Notes for the rebuild:
 Implementation status as of August 10, 2026:
 - A first native `NOC Monitoring Hub` route now exists in the frontend.
 - The first backend version stores a cached snapshot in `automation_settings` under `noc_monitoring_snapshot_v1`.
+- Monitoring history now also persists into `noc_monitoring_snapshot_history` so queue and outage movement can trend over time without returning to panel-per-query Grafana behavior.
 - The browser no longer needs to fan out into many live panel-style calls for the initial monitoring view.
 - Telephony data is intentionally optional and should remain backend-polled or snapshot-driven rather than browser-live.
 - Current native coverage now includes:
@@ -177,6 +178,7 @@ Implementation status as of August 10, 2026:
   - partial NLD events, route clusters, and not-logged views
   - skipped tickets on a dedicated hygiene tab
   - Illation telephony queue, agent, and hourly call-flow views through the backend snapshot
+  - persisted history trend panels for overview, outage, Tier 1, Tier 2, NLD, and voice tabs
 - Current native design direction is intentionally diverging from the rest of the site:
   - denser command-strip layout
   - snapshot-first operations cards
