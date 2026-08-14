@@ -3230,8 +3230,13 @@ export default function NocMonitoringPage() {
 
           <Box ref={t1InboundAnomalyRef}>
             <OpsSection
-              title="Watch Radar"
-              subtitle="Supervisor watch condensed into one command strip."
+              title={(
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <CrisisAlertRoundedIcon sx={{ fontSize: 18, color: '#f97316' }} />
+                  <Box component="span">Watch Radar</Box>
+                </Stack>
+              )}
+              subtitle="Supervisor watch condensed into one strip."
               tone="#ef4444"
               minHeight={0}
               action={(
@@ -3339,8 +3344,13 @@ export default function NocMonitoringPage() {
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.06fr 0.94fr' }, gap: 1.05, alignItems: 'start' }}>
             <OpsSection
-              title="Action Floor"
-              subtitle="Primary live lanes first, with parked pressure kept separate."
+              title={(
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <RouteRoundedIcon sx={{ fontSize: 18, color: '#f97316' }} />
+                  <Box component="span">Action Floor</Box>
+                </Stack>
+              )}
+              subtitle="Primary lanes first. Parked pressure kept separate."
               tone="#ef4444"
               minHeight={0}
               action={(
@@ -3433,8 +3443,13 @@ export default function NocMonitoringPage() {
             </OpsSection>
 
             <OpsSection
-              title="Queue Posture"
-              subtitle="Who owns the next move across the live queue."
+              title={(
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <SupportAgentRoundedIcon sx={{ fontSize: 18, color: '#3b82f6' }} />
+                  <Box component="span">Queue Posture</Box>
+                </Stack>
+              )}
+              subtitle="Who owns the next move across the queue."
               tone="#2563eb"
               minHeight={0}
               action={(
@@ -3503,8 +3518,13 @@ export default function NocMonitoringPage() {
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05, alignItems: 'start' }}>
             <OpsSection
-              title="Ops Drift"
-              subtitle="Historic pressure and same-weekday compare for the live desk."
+              title={(
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <InsightsRoundedIcon sx={{ fontSize: 18, color: '#14b8a6' }} />
+                  <Box component="span">Ops Drift</Box>
+                </Stack>
+              )}
+              subtitle="Historic pressure and same-weekday compare."
               tone="#14b8a6"
               minHeight={0}
               action={(
@@ -3541,7 +3561,17 @@ export default function NocMonitoringPage() {
               </Stack>
             </OpsSection>
 
-            <OpsSection title="Drill Surface" subtitle="Exceptions and one-click workbench routes." tone="#8b5cf6" minHeight={0}>
+            <OpsSection
+              title={(
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <LanRoundedIcon sx={{ fontSize: 18, color: '#8b5cf6' }} />
+                  <Box component="span">Drill Surface</Box>
+                </Stack>
+              )}
+              subtitle="Exceptions and one-click workbench routes."
+              tone="#8b5cf6"
+              minHeight={0}
+            >
               <Stack spacing={0.82}>
                 <OpsValueTiles
                   columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
