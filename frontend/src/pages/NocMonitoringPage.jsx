@@ -2954,30 +2954,15 @@ export default function NocMonitoringPage() {
           </OpsAlert>
         ) : null}
 
-        {meta?.dashboardNote ? (
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.75,
-              px: 0.95,
-              py: 0.62,
-              borderRadius: 2.6,
-              border: `1px solid ${alpha('#38bdf8', 0.18)}`,
-              bgcolor: 'rgba(8, 15, 29, 0.72)'
-            }}
-          >
-            <MonitorHeartRoundedIcon sx={{ fontSize: 17, color: '#7dd3fc', flexShrink: 0 }} />
-            <Typography variant="caption" sx={{ color: OPS_TEXT, lineHeight: 1.3 }}>
-              {meta.dashboardNote}
-            </Typography>
-          </Box>
-        ) : null}
-
         <Box
           sx={{
-            px: { xs: 0.05, md: 0.12 },
-            py: 0.18,
+            display: 'flex',
+            flexDirection: { xs: 'column', xl: 'row' },
+            alignItems: { xs: 'stretch', xl: 'center' },
+            justifyContent: 'space-between',
+            gap: 0.7,
+            px: { xs: 0.55, md: 0.7 },
+            py: 0.32,
             borderRadius: 2.8,
             border: `1px solid ${alpha('#93c5fd', 0.12)}`,
             bgcolor: 'rgba(8, 15, 29, 0.58)'
@@ -2989,6 +2974,7 @@ export default function NocMonitoringPage() {
             variant="scrollable"
             scrollButtons="auto"
             sx={{
+              flex: 1,
               minHeight: 34,
               '& .MuiTab-root': {
                 minHeight: 34,
@@ -3019,6 +3005,40 @@ export default function NocMonitoringPage() {
             <Tab value="voice" label="Voice & Queues" />
             <Tab value="skipped" label="Skipped" />
           </Tabs>
+
+          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap" sx={{ alignSelf: { xs: 'flex-start', xl: 'center' } }}>
+            <Chip
+              size="small"
+              icon={<MonitorHeartRoundedIcon sx={{ fontSize: 15 }} />}
+              label={meta?.dashboardNote ? 'Cached snapshot mode' : 'Snapshot mode'}
+              sx={{
+                height: 24,
+                color: '#dbeafe',
+                bgcolor: 'rgba(8, 15, 29, 0.78)',
+                border: `1px solid ${alpha('#38bdf8', 0.18)}`,
+                '& .MuiChip-label': {
+                  px: 0.85,
+                  fontWeight: 700
+                }
+              }}
+            />
+            {warnings.length ? (
+              <Chip
+                size="small"
+                label={`${warnings.length} partial source${warnings.length === 1 ? '' : 's'}`}
+                sx={{
+                  height: 24,
+                  color: '#fde68a',
+                  bgcolor: 'rgba(120, 53, 15, 0.3)',
+                  border: `1px solid ${alpha('#f59e0b', 0.22)}`,
+                  '& .MuiChip-label': {
+                    px: 0.85,
+                    fontWeight: 700
+                  }
+                }}
+              />
+            ) : null}
+          </Stack>
         </Box>
 
       {tab === 'overview' ? (
