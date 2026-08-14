@@ -1176,6 +1176,15 @@ export default function NocMonitoringPage() {
       icon: <SupportAgentRoundedIcon fontSize="small" />
     },
     {
+      label: 'T1 anomaly watch',
+      value: formatCount(summary.t1InboundAnomalyCount || 0),
+      subtext: (summary.t1InboundAnomalyCount || 0) > 0
+        ? `${summary.t1InboundFocusLabel || 'Inbound product'} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
+        : 'No abnormal inbound product spike detected',
+      tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : ((summary.t1InboundAnomalyCount || 0) > 0 ? '#d97706' : '#475569'),
+      icon: <WarningAmberRoundedIcon fontSize="small" />
+    },
+    {
       label: 'Tier 2',
       value: formatCount(summary.tier2Open),
       subtext: `${formatCount(summary.t2ReceivedToday || 0)} received today | ${formatCount(summary.t2SolvedToday || 0)} solved today`,
@@ -1431,7 +1440,7 @@ export default function NocMonitoringPage() {
       count: Number(summary.t1InboundAnomalyCount || 0),
       tone: Number(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706',
       detail: summary.t1InboundFocusLabel
-        ? `${summary.t1InboundFocusLabel} on ${summary.t1InboundFocusDayLabel || summary.t1InboundFocusDayKey} hit ${formatCount(summary.t1InboundFocusCount || 0)}`
+        ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'} | ${summary.t1InboundFocusStatusDetail || `${summary.t1InboundFocusDayLabel || summary.t1InboundFocusDayKey} hit ${formatCount(summary.t1InboundFocusCount || 0)}`}`
         : 'No abnormal recent completed-day product spike detected'
     },
     {
@@ -2003,6 +2012,8 @@ export default function NocMonitoringPage() {
       )
     },
     { key: 'dayLabel', label: 'Day' },
+    { key: 'mode', label: 'Mode', render: (row) => <SignalChip label={row.mode === 'sustained' ? 'Sustained' : 'Breakout'} tone={row.mode === 'sustained' ? '#8b5cf6' : '#dc2626'} /> },
+    { key: 'statusLabel', label: 'State', render: (row) => <SignalChip label={row.statusLabel || 'Flagged'} tone={row.statusTone || row.tone || '#d97706'} /> },
     { key: 'count', label: 'Count', render: (row) => formatCount(row.count || 0) },
     { key: 'baselineAvg', label: 'Baseline Avg', render: (row) => Number(row.baselineAvg || 0).toFixed(1) },
     { key: 'baselineMax', label: 'Prev Max', render: (row) => formatCount(row.baselineMax || 0) },
@@ -2211,6 +2222,11 @@ export default function NocMonitoringPage() {
 
       {tab === 'overview' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
+          {(summary.t1InboundAnomalyCount || 0) > 0 ? (
+            <OpsAlert severity="warning">
+              Tier 1 inbound anomaly watch is active: {summary.t1InboundFocusLabel || 'lead product'} is flagged with {formatCount(summary.t1InboundAnomalyCount || 0)} recent anomaly day{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'}. {summary.t1InboundFocusStatusDetail || 'The spike is still under watch.'}
+            </OpsAlert>
+          ) : null}
           <MetricStrip items={overviewMetrics} />
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.2fr 0.8fr' }, gap: 1.05 }}>
@@ -2407,7 +2423,7 @@ export default function NocMonitoringPage() {
           </OpsAlert>
           {(summary.t1InboundAnomalyCount || 0) > 0 ? (
             <OpsAlert severity="warning">
-              Tier 1 inbound anomaly watch has flagged {formatCount(summary.t1InboundAnomalyCount || 0)} recent product spike{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'} across the last two completed days, led by {summary.t1InboundFocusLabel || 'the current lead product'}{summary.t1InboundFocusDayLabel ? ` on ${summary.t1InboundFocusDayLabel}` : ''}.
+              Tier 1 inbound anomaly watch has flagged {formatCount(summary.t1InboundAnomalyCount || 0)} recent product spike day{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'} across the last two completed days. {summary.t1InboundFocusLabel || 'The lead product'} is currently marked as {summary.t1InboundFocusStatusLabel || 'Flagged'}. {summary.t1InboundFocusStatusDetail || ''}
             </OpsAlert>
           ) : null}
 
@@ -2667,18 +2683,22 @@ export default function NocMonitoringPage() {
                       helper: 'Large jump versus the prior baseline'
                     },
                     {
+                      label: 'Sustained days',
+                      value: formatCount(summary.t1InboundSustainedCount || 0),
+                      tone: '#8b5cf6',
+                      helper: 'Flagged follow-on days that stayed high'
+                    },
+                    {
                       label: 'Affected products',
                       value: formatCount(t1InboundAffectedServiceCount),
                       tone: '#f97316',
                       helper: 'Distinct inbound product types currently flagged'
                     },
                     {
-                      label: 'Lead spike count',
-                      value: formatCount(summary.t1InboundFocusCount || 0),
-                      tone: '#0f766e',
-                      helper: summary.t1InboundFocusLabel
-                        ? `${summary.t1InboundFocusLabel}${summary.t1InboundFocusDayLabel ? ` | ${summary.t1InboundFocusDayLabel}` : ''}`
-                        : 'No lead product spike right now'
+                      label: 'Current state',
+                      value: summary.t1InboundFocusStatusLabel || 'Stable',
+                      tone: summary.t1InboundFocusStatusTone || '#0f766e',
+                      helper: summary.t1InboundFocusStatusDetail || 'No lead product spike right now'
                     }
                   ]}
                 />

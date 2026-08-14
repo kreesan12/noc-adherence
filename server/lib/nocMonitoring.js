@@ -755,6 +755,146 @@ function detectInboundSpike(currentCount, baselineCounts = []) {
   }
 }
 
+function buildInboundAnomalyThresholds(reference = {}) {
+  const baselineAvg = asNumber(reference.baselineAvg, 0)
+  const baselineMax = asNumber(reference.baselineMax, 0)
+  const count = asNumber(reference.count, 0)
+
+  return {
+    sustainThreshold: Math.max(
+      Math.ceil(baselineAvg * 1.75),
+      baselineMax + 2,
+      Math.ceil(count * 0.6),
+      12
+    ),
+    elevatedThreshold: Math.max(
+      Math.ceil(baselineAvg * 1.3),
+      baselineMax + 1,
+      8
+    ),
+    settledThreshold: Math.max(
+      Math.ceil(baselineAvg * 1.1),
+      baselineMax,
+      4
+    ),
+    highThreshold: Math.max(
+      Math.ceil(baselineAvg * 2.5),
+      baselineMax + 6,
+      Math.ceil(count * 0.8),
+      18
+    )
+  }
+}
+
+function detectSustainedInboundSpike(currentCount, priorSpike = null) {
+  if (!priorSpike) {
+    return {
+      flagged: false,
+      severity: 'warning',
+      baselineAvg: 0,
+      baselineMax: 0,
+      ratio: 0,
+      deltaCount: 0
+    }
+  }
+
+  const thresholds = buildInboundAnomalyThresholds(priorSpike)
+  const baselineAvg = asNumber(priorSpike.baselineAvg, 0)
+  const baselineMax = asNumber(priorSpike.baselineMax, 0)
+  const deltaCount = currentCount - baselineAvg
+  const ratio = baselineAvg > 0 ? currentCount / baselineAvg : Number.POSITIVE_INFINITY
+  const flagged = currentCount >= thresholds.sustainThreshold
+  const severity = currentCount >= thresholds.highThreshold ? 'high' : 'warning'
+
+  return {
+    flagged,
+    severity,
+    baselineAvg,
+    baselineMax,
+    ratio,
+    deltaCount,
+    ...thresholds
+  }
+}
+
+function classifyInboundAnomalyLifecycle(anomaly, countsByDay = {}, dayKeys = [], completedDayKeys = []) {
+  const countText = (value) => String(asNumber(value, 0))
+  const thresholds = buildInboundAnomalyThresholds(anomaly)
+  const latestCompletedDayKey = completedDayKeys[completedDayKeys.length - 1] || anomaly.dayKey
+  const latestCompletedCount = asNumber(countsByDay?.[latestCompletedDayKey], 0)
+  const currentDayKey = dayKeys[dayKeys.length - 1] || latestCompletedDayKey
+  const currentDayCount = currentDayKey !== latestCompletedDayKey ? asNumber(countsByDay?.[currentDayKey], 0) : null
+  const currentDayLabel = currentDayKey && currentDayKey !== latestCompletedDayKey
+    ? `${formatDayKeyLabel(currentDayKey)} so far`
+    : ''
+
+  let statusKey = anomaly.mode === 'sustained' ? 'sustained' : 'fresh'
+  let statusLabel = anomaly.mode === 'sustained' ? 'Sustained high' : 'Fresh breakout'
+  let statusTone = anomaly.severity === 'high' ? '#dc2626' : '#d97706'
+  let statusDetail = anomaly.mode === 'sustained'
+    ? `${anomaly.productType} stayed elevated into ${anomaly.dayLabel}.`
+    : `${anomaly.productType} broke out on ${anomaly.dayLabel}.`
+
+  if (latestCompletedDayKey > anomaly.dayKey) {
+    if (latestCompletedCount >= thresholds.sustainThreshold) {
+      statusKey = 'ongoing'
+      statusLabel = 'Still high'
+      statusTone = '#dc2626'
+      statusDetail = `${formatDayKeyLabel(latestCompletedDayKey)} remained elevated at ${countText(latestCompletedCount)} against a pre-spike max of ${countText(anomaly.baselineMax)}.`
+    } else if (latestCompletedCount >= thresholds.elevatedThreshold) {
+      statusKey = 'cooling'
+      statusLabel = 'Cooling'
+      statusTone = '#f97316'
+      statusDetail = `${formatDayKeyLabel(latestCompletedDayKey)} dropped below the peak but remained elevated at ${countText(latestCompletedCount)}.`
+    } else {
+      statusKey = 'died_off'
+      statusLabel = 'Died off'
+      statusTone = '#64748b'
+      statusDetail = `${formatDayKeyLabel(latestCompletedDayKey)} settled back toward baseline at ${countText(latestCompletedCount)}.`
+    }
+  } else if (currentDayCount !== null) {
+    if (currentDayCount >= thresholds.sustainThreshold) {
+      statusKey = 'ongoing'
+      statusLabel = 'Still high today'
+      statusTone = '#dc2626'
+      statusDetail = `${currentDayLabel} remains elevated at ${countText(currentDayCount)}.`
+    } else if (currentDayCount >= thresholds.elevatedThreshold) {
+      statusKey = 'cooling'
+      statusLabel = 'Cooling today'
+      statusTone = '#f97316'
+      statusDetail = `${currentDayLabel} is lower than the spike but still elevated at ${countText(currentDayCount)}.`
+    } else if (currentDayCount > 0 && currentDayCount <= thresholds.settledThreshold) {
+      statusKey = 'died_off'
+      statusLabel = 'Dropped off today'
+      statusTone = '#64748b'
+      statusDetail = `${currentDayLabel} has dropped back near baseline at ${countText(currentDayCount)}.`
+    }
+  }
+
+  if (currentDayCount !== null && latestCompletedDayKey > anomaly.dayKey) {
+    if (currentDayCount >= thresholds.sustainThreshold) {
+      statusDetail += ` ${currentDayLabel} is still high at ${countText(currentDayCount)}.`
+    } else if (currentDayCount >= thresholds.elevatedThreshold) {
+      statusDetail += ` ${currentDayLabel} is cooling at ${countText(currentDayCount)}.`
+    } else if (currentDayCount > 0) {
+      statusDetail += ` ${currentDayLabel} is now back down at ${countText(currentDayCount)}.`
+    }
+  }
+
+  return {
+    statusKey,
+    statusLabel,
+    statusTone,
+    statusDetail,
+    latestCompletedDayKey,
+    latestCompletedDayLabel: formatDayKeyLabel(latestCompletedDayKey),
+    latestCompletedCount,
+    currentDayKey: currentDayCount !== null ? currentDayKey : '',
+    currentDayLabel,
+    currentDayCount
+  }
+}
+
 function anomalyTone(severity) {
   return severity === 'high' ? '#dc2626' : '#d97706'
 }
@@ -827,6 +967,7 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
   const anomalies = []
 
   for (const row of serviceRows) {
+    let priorFlaggedSpike = null
     for (const focusDayKey of focusDayKeys) {
       const focusIndex = completedDayKeys.indexOf(focusDayKey)
       if (focusIndex < 0) continue
@@ -840,42 +981,94 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
       if (!currentCount) continue
 
       const spike = detectInboundSpike(currentCount, baselineCounts)
-      if (!spike.flagged) continue
+      let anomaly = null
 
-      const ratioText = Number.isFinite(spike.ratio) ? `${spike.ratio.toFixed(1)}x` : 'new spike'
-      anomalies.push({
-        key: `${row.productType}:${focusDayKey}`,
-        label: row.productType,
-        productType: row.productType,
-        signalLabel: row.productType,
-        serviceType: row.productType,
-        productGroup: row.productGroup,
-        dayKey: focusDayKey,
-        dayLabel: formatDayKeyLabel(focusDayKey),
-        count: currentCount,
-        baselineAvg: Number(spike.baselineAvg.toFixed(1)),
-        baselineMax: spike.baselineMax,
-        deltaCount: Math.round(spike.deltaCount),
-        ratio: Number.isFinite(spike.ratio) ? Number(spike.ratio.toFixed(2)) : null,
-        severity: spike.severity,
-        tone: anomalyTone(spike.severity),
-        detail: `${formatDayKeyLabel(focusDayKey)}: ${currentCount} tickets vs avg ${spike.baselineAvg.toFixed(1)} across the prior ${baselineCounts.length} days (prev max ${spike.baselineMax}, ${ratioText}).`
-      })
+      if (spike.flagged) {
+        const ratioText = Number.isFinite(spike.ratio) ? `${spike.ratio.toFixed(1)}x` : 'new spike'
+        anomaly = {
+          key: `${row.productType}:${focusDayKey}`,
+          label: row.productType,
+          productType: row.productType,
+          signalLabel: row.productType,
+          serviceType: row.productType,
+          productGroup: row.productGroup,
+          dayKey: focusDayKey,
+          dayLabel: formatDayKeyLabel(focusDayKey),
+          count: currentCount,
+          baselineAvg: Number(spike.baselineAvg.toFixed(1)),
+          baselineMax: spike.baselineMax,
+          deltaCount: Math.round(spike.deltaCount),
+          ratio: Number.isFinite(spike.ratio) ? Number(spike.ratio.toFixed(2)) : null,
+          severity: spike.severity,
+          tone: anomalyTone(spike.severity),
+          mode: 'breakout',
+          detail: `${formatDayKeyLabel(focusDayKey)}: ${currentCount} tickets vs avg ${spike.baselineAvg.toFixed(1)} across the prior ${baselineCounts.length} days (prev max ${spike.baselineMax}, ${ratioText}).`
+        }
+      } else {
+        const sustained = detectSustainedInboundSpike(currentCount, priorFlaggedSpike)
+        if (sustained.flagged) {
+          const ratioText = Number.isFinite(sustained.ratio) ? `${sustained.ratio.toFixed(1)}x` : 'new spike'
+          anomaly = {
+            key: `${row.productType}:${focusDayKey}:sustained`,
+            label: row.productType,
+            productType: row.productType,
+            signalLabel: row.productType,
+            serviceType: row.productType,
+            productGroup: row.productGroup,
+            dayKey: focusDayKey,
+            dayLabel: formatDayKeyLabel(focusDayKey),
+            count: currentCount,
+            baselineAvg: Number(sustained.baselineAvg.toFixed(1)),
+            baselineMax: sustained.baselineMax,
+            deltaCount: Math.round(sustained.deltaCount),
+            ratio: Number.isFinite(sustained.ratio) ? Number(sustained.ratio.toFixed(2)) : null,
+            severity: sustained.severity,
+            tone: anomalyTone(sustained.severity),
+            mode: 'sustained',
+            referenceDayKey: priorFlaggedSpike?.dayKey || '',
+            referenceDayLabel: priorFlaggedSpike?.dayLabel || '',
+            referenceCount: asNumber(priorFlaggedSpike?.count, 0),
+            detail: `${formatDayKeyLabel(focusDayKey)}: ${currentCount} tickets stayed high after the ${priorFlaggedSpike?.dayLabel || 'prior'} breakout (${priorFlaggedSpike?.count || 0}), still vs baseline avg ${sustained.baselineAvg.toFixed(1)} and prior max ${sustained.baselineMax} (${ratioText}).`
+          }
+        }
+      }
+
+      if (anomaly) {
+        anomalies.push(anomaly)
+        priorFlaggedSpike = anomaly
+      }
     }
   }
 
-  anomalies.sort((left, right) => {
+  const serviceRowByProductType = new Map(serviceRows.map((row) => [row.productType, row]))
+
+  const anomalyRows = anomalies.map((anomaly) => ({
+    ...anomaly,
+    ...classifyInboundAnomalyLifecycle(
+      anomaly,
+      serviceRowByProductType.get(anomaly.productType)?.countsByDay || {},
+      dayKeys,
+      completedDayKeys
+    )
+  }))
+
+  anomalyRows.sort((left, right) => {
     const severityRank = { high: 0, warning: 1 }
+    const statusRank = { ongoing: 0, sustained: 1, fresh: 2, cooling: 3, died_off: 4 }
     const leftRank = severityRank[left.severity] ?? 9
     const rightRank = severityRank[right.severity] ?? 9
     if (leftRank !== rightRank) return leftRank - rightRank
+    const leftStatusRank = statusRank[left.statusKey] ?? 9
+    const rightStatusRank = statusRank[right.statusKey] ?? 9
+    if (leftStatusRank !== rightStatusRank) return leftStatusRank - rightStatusRank
+    if (String(right.dayKey) !== String(left.dayKey)) return String(right.dayKey).localeCompare(String(left.dayKey))
     if (right.deltaCount !== left.deltaCount) return right.deltaCount - left.deltaCount
     if ((right.ratio || 0) !== (left.ratio || 0)) return (right.ratio || 0) - (left.ratio || 0)
     return right.count - left.count
   })
 
   const focusServices = Array.from(new Set([
-    ...anomalies.map((row) => row.productType),
+    ...anomalyRows.map((row) => row.productType),
     ...serviceRows.map((row) => row.productType)
   ])).slice(0, T1_INBOUND_ACTIVITY_MAX_SERIES)
 
@@ -893,7 +1086,7 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
   })
 
   const trendServices = focusServices.map((serviceType, index) => {
-    const matchingAnomaly = anomalies.find((row) => row.productType === serviceType)
+    const matchingAnomaly = anomalyRows.find((row) => row.productType === serviceType)
     const palette = ['#dc2626', '#f97316', '#22c55e', '#38bdf8', '#8b5cf6']
     return {
       key: `series_${index + 1}`,
@@ -913,7 +1106,7 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
       count: asNumber(dailyTotals.get(dayKey), 0)
     })),
     serviceRows: serviceRows.slice(0, 18),
-    anomalies: anomalies.slice(0, 18),
+    anomalies: anomalyRows.slice(0, 18),
     trendRows,
     trendServices
   }
@@ -2220,6 +2413,7 @@ async function collectLiveSnapshot(requestedBy = 'system') {
   const t1AutomationCreatedTodaySummary = summarizeRuleHits(rawTier1CreatedToday, T1_AUTOMATION_ROUTE_RULES)
   const t1InboundAnomalies = Array.isArray(t1InboundActivity?.anomalies) ? t1InboundActivity.anomalies : []
   const t1InboundFocus = t1InboundAnomalies[0] || null
+  const t1InboundLatest = [...t1InboundAnomalies].sort((left, right) => String(right.dayKey || '').localeCompare(String(left.dayKey || '')))[0] || null
 
   const t2ActiveRows = tier2Tickets.filter((row) => !['pending', 'new'].includes(normalizeStatus(row.status)))
   const t2PartySummary = summarizeRowsByKey(t2ActiveRows, 'party')
@@ -2375,10 +2569,19 @@ async function collectLiveSnapshot(requestedBy = 'system') {
       : null,
     t1InboundAnomalyCount: t1InboundAnomalies.length,
     t1InboundHighAnomalyCount: t1InboundAnomalies.filter((row) => row.severity === 'high').length,
+    t1InboundSustainedCount: t1InboundAnomalies.filter((row) => row.mode === 'sustained').length,
     t1InboundFocusLabel: t1InboundFocus?.serviceType || '',
     t1InboundFocusDayKey: t1InboundFocus?.dayKey || '',
     t1InboundFocusDayLabel: t1InboundFocus?.dayLabel || '',
-    t1InboundFocusCount: asNumber(t1InboundFocus?.count, 0)
+    t1InboundFocusCount: asNumber(t1InboundFocus?.count, 0),
+    t1InboundFocusMode: t1InboundFocus?.mode || '',
+    t1InboundFocusStatusKey: t1InboundFocus?.statusKey || '',
+    t1InboundFocusStatusLabel: t1InboundFocus?.statusLabel || '',
+    t1InboundFocusStatusTone: t1InboundFocus?.statusTone || '',
+    t1InboundFocusStatusDetail: t1InboundFocus?.statusDetail || '',
+    t1InboundLatestDayKey: t1InboundLatest?.dayKey || '',
+    t1InboundLatestDayLabel: t1InboundLatest?.dayLabel || '',
+    t1InboundLatestCount: asNumber(t1InboundLatest?.count, 0)
   }
 
   return {
