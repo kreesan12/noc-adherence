@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Link,
   LinearProgress,
   Stack,
@@ -615,22 +616,35 @@ function OpsStatusPill({ label, value, tone = ACCENT }) {
     <Box
       sx={{
         minWidth: 0,
-        px: 1,
-        py: 0.78,
-        borderRadius: 2.7,
-        border: `1px solid ${alpha(tone, 0.34)}`,
-        bgcolor: 'rgba(12, 21, 38, 0.92)',
-        background: `linear-gradient(180deg, rgba(20, 32, 54, 0.98) 0%, ${alpha(tone, 0.18)} 100%)`,
+        px: 1.05,
+        py: 0.82,
+        borderRadius: 2.8,
+        border: `1px solid ${alpha(tone, 0.3)}`,
+        bgcolor: 'rgba(12, 21, 38, 0.96)',
+        background: `linear-gradient(180deg, rgba(22, 34, 56, 0.98) 0%, ${alpha(tone, 0.14)} 100%)`,
         boxShadow: `inset 0 0 0 1px ${alpha('#ffffff', 0.04)}, 0 12px 24px ${alpha('#020617', 0.18)}`
       }}
     >
-      <Stack spacing={0.1} sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: '#93c5fd', textTransform: 'uppercase', letterSpacing: 0.6, lineHeight: 1, fontWeight: 700 }}>
+      <Stack spacing={0.28} sx={{ minWidth: 0 }}>
+        <Typography variant="caption" sx={{ color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: 0.64, lineHeight: 1, fontWeight: 700 }}>
           {label}
         </Typography>
-        <Typography variant="subtitle1" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.08, letterSpacing: 0.1 }}>
-          {value}
-        </Typography>
+        <Stack direction="row" spacing={0.65} alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: '#ffffff',
+              fontWeight: 900,
+              lineHeight: 1.1,
+              fontSize: '0.9rem',
+              letterSpacing: 0.08
+            }}
+            noWrap
+          >
+            {value}
+          </Typography>
+          <Box sx={{ width: 8, height: 8, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 14px ${alpha(tone, 0.55)}`, flexShrink: 0 }} />
+        </Stack>
       </Stack>
     </Box>
   )
@@ -692,6 +706,97 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
             {meta}
           </Typography>
         ) : null}
+      </Stack>
+    </Box>
+  )
+}
+
+function ConsoleToggleStrip({ value, onChange, options, tone = ACCENT }) {
+  return (
+    <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+      {options.map((option) => {
+        const selected = value === option.value
+        return (
+          <Chip
+            key={option.value}
+            size="small"
+            label={option.label}
+            clickable
+            onClick={() => onChange(option.value)}
+            sx={{
+              height: 24,
+              fontWeight: 800,
+              color: selected ? '#f8fafc' : OPS_MUTED,
+              bgcolor: selected ? alpha(option.tone || tone, 0.24) : 'rgba(15, 23, 42, 0.68)',
+              border: `1px solid ${selected ? alpha(option.tone || tone, 0.46) : 'rgba(148, 163, 184, 0.18)'}`,
+              '& .MuiChip-label': {
+                px: 1
+              }
+            }}
+          />
+        )
+      })}
+    </Stack>
+  )
+}
+
+function ConsoleLaneRail({ label, count, tone = ACCENT, percent = 0, detail, helper, onClick, active = false }) {
+  return (
+    <Box
+      component={onClick ? 'button' : 'div'}
+      onClick={onClick}
+      sx={{
+        width: '100%',
+        p: 0.9,
+        textAlign: 'left',
+        borderRadius: 2.6,
+        color: OPS_TEXT,
+        border: `1px solid ${alpha(tone, active ? 0.48 : 0.22)}`,
+        bgcolor: 'rgba(12, 21, 38, 0.9)',
+        background: `linear-gradient(180deg, rgba(19, 31, 53, 0.96) 0%, ${alpha(tone, active ? 0.16 : 0.1)} 100%)`,
+        boxShadow: active
+          ? `0 0 0 1px ${alpha(tone, 0.12)}, 0 18px 28px ${alpha(tone, 0.12)}`
+          : 'inset 0 1px 0 rgba(255,255,255,0.03)',
+        cursor: onClick ? 'pointer' : 'default',
+        appearance: 'none',
+        outline: 'none',
+        transition: 'transform 120ms ease, border-color 120ms ease',
+        '&:hover': onClick ? {
+          transform: 'translateY(-1px)',
+          borderColor: alpha(tone, 0.44)
+        } : undefined
+      }}
+    >
+      <Stack spacing={0.52}>
+        <Stack direction="row" spacing={0.8} alignItems="center" justifyContent="space-between">
+          <Stack direction="row" spacing={0.62} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 16px ${alpha(tone, 0.55)}` }} />
+            <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 800 }} noWrap>
+              {label}
+            </Typography>
+          </Stack>
+          <SignalChip label={formatCount(count)} tone={tone} />
+        </Stack>
+        <Box sx={{ height: 8, borderRadius: 999, bgcolor: 'rgba(148, 163, 184, 0.12)', overflow: 'hidden' }}>
+          <Box
+            sx={{
+              width: `${Math.max(4, Math.min(100, percent))}%`,
+              height: '100%',
+              borderRadius: 999,
+              background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.58)} 100%)`
+            }}
+          />
+        </Box>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.55} justifyContent="space-between">
+          <Typography variant="caption" sx={{ color: '#f8fafc', fontWeight: 700 }}>
+            {detail}
+          </Typography>
+          {helper ? (
+            <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+              {helper}
+            </Typography>
+          ) : null}
+        </Stack>
       </Stack>
     </Box>
   )
@@ -1057,6 +1162,9 @@ export default function NocMonitoringPage() {
   const [t1QuickPreset, setT1QuickPreset] = useState('all')
   const [t1ActionFilters, setT1ActionFilters] = useState(DEFAULT_T1_ACTION_FILTERS)
   const [t1WorkbenchDrawer, setT1WorkbenchDrawer] = useState('none')
+  const [t1WorkbenchExpanded, setT1WorkbenchExpanded] = useState(false)
+  const [t1PostureLens, setT1PostureLens] = useState('workflowOwner')
+  const [t1TrendLens, setT1TrendLens] = useState('queue')
   const [t1ShowAdvancedFilters, setT1ShowAdvancedFilters] = useState(false)
   const meta = payload?.meta
 
@@ -1493,6 +1601,21 @@ export default function NocMonitoringPage() {
     [t1ActionSummary]
   )
 
+  const t1ActionMixMap = useMemo(
+    () => Object.fromEntries(t1ActionMixRows.map((row) => [row.key || row.label, row])),
+    [t1ActionMixRows]
+  )
+
+  const t1PrimaryActionRows = useMemo(
+    () => ['P1', 'P2', 'P3', 'P4'].map((key) => t1ActionMixMap[key]).filter(Boolean),
+    [t1ActionMixMap]
+  )
+
+  const t1SupportActionRows = useMemo(
+    () => ['P3 Parked', 'P4 Parked', 'Change', 'Other'].map((key) => t1ActionMixMap[key]).filter(Boolean),
+    [t1ActionMixMap]
+  )
+
   const t1WorkflowOwnerRows = useMemo(
     () => (t1WorkflowOwnerSummary || []).filter((row) => Number(row.count || 0) > 0),
     [t1WorkflowOwnerSummary]
@@ -1532,6 +1655,17 @@ export default function NocMonitoringPage() {
   const t1AutomationTodayRows = useMemo(
     () => (t1AutomationCreatedTodaySummary || []).filter((row) => Number(row.count || 0) > 0),
     [t1AutomationCreatedTodaySummary]
+  )
+
+  const t1AnomalyListRows = useMemo(
+    () => (t1InboundAnomalyRows || []).slice(0, 4).map((row) => ({
+      key: `${row.productType || row.serviceType}-${row.dayKey}-${row.mode}`,
+      label: `${row.productType || row.serviceType || '--'} | ${row.dayLabel || row.dayKey}`,
+      count: row.count || 0,
+      tone: row.statusTone || row.tone || '#f59e0b',
+      detail: `${row.statusLabel || 'Flagged'} | prev max ${formatCount(row.baselineMax || 0)} | ${formatSignedDelta(row.deltaCount || 0)}`
+    })),
+    [t1InboundAnomalyRows]
   )
 
   const sortTier1Rows = useCallback((rows) => [...(rows || [])].sort((a, b) => {
@@ -1748,12 +1882,13 @@ export default function NocMonitoringPage() {
     if (typeof window !== 'undefined') {
       window.setTimeout(() => {
         t1ActionViewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 90)
+      }, 160)
     }
   }, [])
 
   const openT1WorkbenchDrawer = useCallback((drawerKey, preset = 'all', nextFilters = {}) => {
-    setT1WorkbenchDrawer((current) => current === drawerKey ? 'none' : drawerKey)
+    setT1WorkbenchExpanded(true)
+    setT1WorkbenchDrawer(drawerKey)
     applyT1ActionLens(preset, nextFilters)
   }, [applyT1ActionLens])
 
@@ -1876,6 +2011,118 @@ export default function NocMonitoringPage() {
     () => t1ParkedRows.filter((row) => row.pLevel === 'P4 Parked').length,
     [t1ParkedRows]
   )
+
+  const t1PostureLensConfig = useMemo(() => ({
+    workflowOwner: {
+      label: 'Workflow owner',
+      tone: '#14b8a6',
+      rows: t1WorkflowOwnerRows,
+      total: summary.tier1Open || 0,
+      secondaryText: (row) => `${formatCount(row.count || 0)} live rows`
+    },
+    operationalState: {
+      label: 'Operational state',
+      tone: '#3b82f6',
+      rows: t1OperationalShapeRows,
+      total: summary.tier1Open || 0,
+      secondaryText: (row) => `${formatCount(row.count || 0)} live rows`
+    },
+    escalationPath: {
+      label: 'Escalation path',
+      tone: '#8b5cf6',
+      rows: t1EscalationRows,
+      total: summary.tier1Open || 0,
+      secondaryText: (row) => `${formatCount(row.count || 0)} routed rows`
+    },
+    automation: {
+      label: 'Automation routes',
+      tone: '#7c3aed',
+      rows: t1AutomationOpenRows,
+      total: (t1AutomationOpenRows || []).reduce((total, row) => total + Number(row.count || 0), 0),
+      secondaryText: (row) => `${formatCount(row.count || 0)} open automation-touched rows`
+    }
+  }), [summary.tier1Open, t1AutomationOpenRows, t1EscalationRows, t1OperationalShapeRows, t1WorkflowOwnerRows])
+
+  const t1ActivePostureLens = t1PostureLensConfig[t1PostureLens] || t1PostureLensConfig.workflowOwner
+
+  const t1TrendLensConfig = useMemo(() => ({
+    queue: {
+      label: 'Queue pressure',
+      tone: '#14b8a6',
+      summaryItems: [
+        { label: 'Open now', value: formatCount(summary.tier1Open || 0), tone: '#14b8a6', helper: 'live Tier 1 queue' },
+        { label: 'Urgent', value: formatCount((collections.tier1UrgentTickets || []).length), tone: '#ef4444', helper: 'breached or <=30m' },
+        { label: 'P1 unattended', value: formatCount(summary.tier1P1Unattended || 0), tone: '#dc2626', helper: 'first-touch queue' },
+        { label: 'Change', value: formatCount(summary.tier1ChangeControlOpen || 0), tone: '#8b5cf6', helper: 'separate workflow' }
+      ],
+      rows: historyTier1,
+      lines: [
+        { key: 'open', label: 'Open queue', color: '#14b8a6' },
+        { key: 'urgent', label: 'Urgent / due <=30m', color: '#ef4444' }
+      ],
+      emptyMessage: 'Tier 1 historical queue pressure will appear after more monitoring buckets are stored.'
+    },
+    received: {
+      label: 'Received compare',
+      tone: '#0f766e',
+      summaryItems: [
+        { label: 'Today', value: formatCount(summary.t1ReceivedToday || 0), tone: '#0f766e', helper: `7d ${formatCount(summary.t1ReceivedLastWeek || 0)}` },
+        { label: 'Prev 14d', value: formatCount(summary.t1ReceivedPreviousWeek || 0), tone: '#0ea5e9', helper: 'same weekday prior' },
+        { label: 'Automation', value: formatCount((t1AutomationTodayRows || []).reduce((total, row) => total + Number(row.count || 0), 0)), tone: '#8b5cf6', helper: 'today routed' }
+      ],
+      rows: t1ReceivedComparisonSeries,
+      lines: [
+        { key: 'today', label: 'Today', color: '#14b8a6' },
+        { key: 'lastWeek', label: '7 days ago', color: '#2dd4bf', strokeDasharray: '5 4', opacity: 0.92 },
+        { key: 'previousWeek', label: '14 days ago', color: '#93c5fd', strokeDasharray: '2 5', opacity: 0.82 }
+      ],
+      emptyMessage: 'No Tier 1 received comparison data is available right now.'
+    },
+    solved: {
+      label: 'Solved compare',
+      tone: '#22c55e',
+      summaryItems: [
+        { label: 'Today', value: formatCount(summary.t1SolvedToday || 0), tone: '#22c55e', helper: `7d ${formatCount(summary.t1SolvedLastWeek || 0)}` },
+        { label: 'Prev 14d', value: formatCount(summary.t1SolvedPreviousWeek || 0), tone: '#4ade80', helper: 'same weekday prior' },
+        { label: 'Voice answered', value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Answered || 0) : '--', tone: '#06b6d4', helper: tier1VoiceWeekCompare.lastWeek ? `7d ${formatCount(tier1VoiceWeekCompare.lastWeek.answered || 0)}` : 'history building' }
+      ],
+      rows: t1SolvedComparisonSeries,
+      lines: [
+        { key: 'today', label: 'Today', color: '#22c55e' },
+        { key: 'lastWeek', label: '7 days ago', color: '#4ade80', strokeDasharray: '5 4', opacity: 0.92 },
+        { key: 'previousWeek', label: '14 days ago', color: '#bbf7d0', strokeDasharray: '2 5', opacity: 0.82 }
+      ],
+      emptyMessage: 'No Tier 1 solved comparison data is available right now.'
+    },
+    voice: {
+      label: 'Voice pulse',
+      tone: '#06b6d4',
+      summaryItems: [
+        { label: 'Waiting', value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--', tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4', helper: tier1VoiceQueue ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue` : 'queue unavailable' },
+        { label: 'Answered', value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Answered || 0) : '--', tone: '#06b6d4', helper: summary.telephonyTier1QueueName || 'Tier 1 queue' },
+        { label: 'Missed', value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Missed || 0) : '--', tone: '#8b5cf6', helper: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within target' }
+      ],
+      rows: historyTier1VoiceQueue,
+      lines: [
+        { key: 'waiting', label: 'Waiting', color: '#ef4444' },
+        { key: 'answered', label: 'Answered', color: '#06b6d4' },
+        { key: 'missed', label: 'Missed', color: '#8b5cf6', strokeDasharray: '5 4', opacity: 0.9 }
+      ],
+      emptyMessage: 'Tier 1 voice queue history will appear as more telephony snapshots are stored.'
+    }
+  }), [
+    collections.tier1UrgentTickets,
+    historyTier1,
+    historyTier1VoiceQueue,
+    summary,
+    t1AutomationTodayRows,
+    t1ReceivedComparisonSeries,
+    t1SolvedComparisonSeries,
+    tier1VoiceQueue,
+    tier1VoiceWeekCompare
+  ])
+
+  const t1ActiveTrendLens = t1TrendLensConfig[t1TrendLens] || t1TrendLensConfig.queue
 
   const getTier1UrgencyRowSx = useCallback((row) => {
     const remaining = Number(row?.remainingMinutes)
@@ -2629,14 +2876,20 @@ export default function NocMonitoringPage() {
         </Box>
       ) : null}
 
-      {tab === 'tier1' ? (
-        <Box sx={{ display: 'grid', gap: 1.1 }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' }, gap: 0.9 }}>
+            {tab === 'tier1' ? (
+        <Box sx={{ display: 'grid', gap: 1.05 }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
+              gap: 0.85
+            }}
+          >
             <OpsPriorityCard
               label="First-touch risk"
               value={formatCount(summary.tier1P1Unattended || 0)}
               detail={`${formatCount(summary.tier1P1Breached || 0)} breached first-touch SLA`}
-              meta="P1 new / unattended lane"
+              meta="P1 unattended"
               tone="#ef4444"
               active={(summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0}
               onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })}
@@ -2681,12 +2934,12 @@ export default function NocMonitoringPage() {
           {((summary.t1InboundAnomalyCount || 0) > 0 || summary.telephonyTier1SlaBreached) ? (
             <Box
               sx={{
-                px: 1.08,
-                py: 0.92,
-                borderRadius: 2.9,
+                px: 1.15,
+                py: 0.95,
+                borderRadius: 3,
                 border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#06b6d4', 0.3)}`,
                 bgcolor: 'rgba(15, 23, 42, 0.82)',
-                background: `linear-gradient(90deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#06b6d4', 0.18)} 0%, rgba(15, 23, 42, 0.92) 34%, rgba(15, 23, 42, 0.96) 100%)`
+                background: `linear-gradient(90deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#06b6d4', 0.18)} 0%, rgba(15, 23, 42, 0.94) 34%, rgba(15, 23, 42, 0.98) 100%)`
               }}
             >
               <Stack direction={{ xs: 'column', xl: 'row' }} spacing={0.85} justifyContent="space-between" alignItems={{ xs: 'flex-start', xl: 'center' }}>
@@ -2710,10 +2963,10 @@ export default function NocMonitoringPage() {
             </Box>
           ) : null}
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.14fr 0.86fr' }, gap: 1.05, alignItems: 'start' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.12fr 0.88fr' }, gap: 1.05, alignItems: 'start' }}>
             <OpsSection
-              title="Tier 1 Command Board"
-              subtitle="Immediate action lanes with the fastest drill targets."
+              title="Action Lanes"
+              subtitle="Live play lanes first, with parked and side pressure separated out."
               tone="#ef4444"
               minHeight={0}
               action={(
@@ -2725,233 +2978,199 @@ export default function NocMonitoringPage() {
               )}
             >
               <Stack spacing={0.9}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' }, gap: 0.72 }}>
-                  <DrillCounterButton label="P1 first touch" count={summary.tier1P1Unattended || 0} helper="open unattended P1 queue" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
-                  <DrillCounterButton label="Breached clocks" count={summary.tier1PlayClockBreached || 0} helper="work overdue actions now" tone="#f97316" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow', { dueBucket: 'BREACHED' })} />
-                  <DrillCounterButton label="Due <=30m" count={summary.tier1PlayClockDueSoon || 0} helper="timers closing soon" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
-                  <DrillCounterButton label="Parked timers" count={summary.tier1ParkedTimers || 0} helper="pre-play waiting buckets" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
-                  <DrillCounterButton label="Change control" count={summary.tier1ChangeControlOpen || 0} helper="separate workflow lane" tone="#8b5cf6" onClick={() => applyT1ActionLens('changeControl')} />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.22fr 0.78fr' }, gap: 0.85 }}>
+                  <Stack spacing={0.72}>
+                    {t1PrimaryActionRows.map((row) => {
+                      const count = Number(row.count || 0)
+                      const total = Math.max(1, Number(summary.tier1Open || 0))
+                      return (
+                        <ConsoleLaneRail
+                          key={row.key || row.label}
+                          label={row.label}
+                          count={count}
+                          tone={row.tone || ACCENT}
+                          percent={(count / total) * 100}
+                          detail={row.playTargetMinutes
+                            ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
+                            : `${formatCount(row.count || 0)} open`}
+                          helper={row.playTargetMinutes ? `${row.playPolicyTitle || row.label}` : `${formatCount(row.noActiveTimer || 0)} no active clock`}
+                          onClick={() => {
+                            const drawerKey = row.key === 'P1' ? 'p1' : 'urgent'
+                            const preset = row.key === 'P1' ? 'p1Only' : 'dueNow'
+                            const nextFilters = row.key === 'P1'
+                              ? { pLevel: 'P1' }
+                              : { pLevel: row.key }
+                            openT1WorkbenchDrawer(drawerKey, preset, nextFilters)
+                          }}
+                          active={row.key === 'P1' ? (summary.tier1P1Breached || 0) > 0 : Number(row.breached || 0) > 0}
+                        />
+                      )
+                    })}
+                  </Stack>
+
+                  <Stack spacing={0.72}>
+                    <OpsValueTiles
+                      columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                      items={[
+                        {
+                          label: 'Clocks breached',
+                          value: formatCount(summary.tier1PlayClockBreached || 0),
+                          tone: '#f97316',
+                          helper: 'active work already late'
+                        },
+                        {
+                          label: 'Due <=30m',
+                          value: formatCount(summary.tier1PlayClockDueSoon || 0),
+                          tone: '#f59e0b',
+                          helper: 'next risk window'
+                        },
+                        {
+                          label: 'Voice SLA',
+                          value: tier1VoiceQueue ? formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0) : '--',
+                          tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
+                          helper: summary.telephonyTier1SlaBreached ? 'outside 20s' : 'within target'
+                        },
+                        {
+                          label: 'Anomaly days',
+                          value: formatCount(summary.t1InboundAnomalyCount || 0),
+                          tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6',
+                          helper: summary.t1InboundFocusLabel || 'no current focus'
+                        }
+                      ]}
+                    />
+                    <OpsSubPanel title="Parked and side lanes" subtitle="Visible, but not competing with the live play lanes." tone="#475569">
+                      <CompactBreakdownList
+                        rows={t1SupportActionRows}
+                        total={summary.tier1Open || 0}
+                        maxRows={4}
+                        secondaryText={(row) => row.playTargetMinutes
+                          ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
+                          : `${formatCount(row.noActiveTimer || 0)} no active play clock`}
+                        emptyMessage="No parked or side-lane pressure is visible right now."
+                      />
+                    </OpsSubPanel>
+                  </Stack>
                 </Box>
+              </Stack>
+            </OpsSection>
+
+            <OpsSection
+              title="Queue Posture"
+              subtitle="One lens at a time so ownership and state stay readable."
+              tone="#2563eb"
+              minHeight={0}
+              action={(
+                <ConsoleToggleStrip
+                  value={t1PostureLens}
+                  onChange={setT1PostureLens}
+                  options={[
+                    { value: 'workflowOwner', label: 'Owner', tone: '#14b8a6' },
+                    { value: 'operationalState', label: 'State', tone: '#3b82f6' },
+                    { value: 'escalationPath', label: 'Path', tone: '#8b5cf6' },
+                    { value: 'automation', label: 'Automation', tone: '#7c3aed' }
+                  ]}
+                />
+              )}
+            >
+              <Stack spacing={0.85}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Desk-owned',
+                      value: formatCount(summary.tier1WithDesk || 0),
+                      tone: '#14b8a6',
+                      helper: `${formatCount(t1DeskUrgentCount)} urgent | ${formatCount(t1DeskP1Count)} P1`
+                    },
+                    {
+                      label: 'Maintenance',
+                      value: formatCount(summary.tier1WithMaintenance || 0),
+                      tone: '#3b82f6',
+                      helper: `${formatCount(t1MaintenanceBreachedCount)} breached | ${formatCount(t1MaintenanceTrackedCount)} tracked`
+                    },
+                    {
+                      label: 'Waiting client',
+                      value: formatCount(summary.tier1WaitingClient || 0),
+                      tone: '#f97316',
+                      helper: `${formatCount(t1ClientPendingOnHoldCount)} on hold | ${formatCount(t1ClientPendingUrgentCount)} urgent`
+                    },
+                    {
+                      label: 'Parked timers',
+                      value: formatCount(summary.tier1ParkedTimers || 0),
+                      tone: '#64748b',
+                      helper: `${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`
+                    }
+                  ]}
+                />
+
+                <OpsSubPanel
+                  title={t1ActivePostureLens.label}
+                  subtitle="Top live queue distribution for the selected lens."
+                  tone={t1ActivePostureLens.tone}
+                  action={<SignalChip label={formatCount(t1ActivePostureLens.rows.length)} tone={t1ActivePostureLens.tone} />}
+                >
+                  <CompactBreakdownList
+                    rows={t1ActivePostureLens.rows.slice(0, 6)}
+                    maxRows={6}
+                    total={t1ActivePostureLens.total}
+                    secondaryText={t1ActivePostureLens.secondaryText}
+                    emptyMessage={`No ${t1ActivePostureLens.label.toLowerCase()} shape is available right now.`}
+                  />
+                </OpsSubPanel>
 
                 <Box
                   sx={{
-                    display: 'grid',
-                    gap: 0.72,
-                    p: 0.72,
-                    borderRadius: 2.7,
-                    border: `1px solid ${alpha('#ef4444', 0.12)}`,
+                    px: 0.95,
+                    py: 0.8,
+                    borderRadius: 2.5,
+                    border: `1px solid ${alpha('#64748b', 0.18)}`,
                     bgcolor: 'rgba(8, 15, 29, 0.46)'
                   }}
                 >
-                  {t1ActionMixRows.map((row) => {
-                    const total = Math.max(1, Number(summary.tier1Open || 0))
-                    const count = Number(row.count || 0)
-                    const width = Math.max(6, Math.min(100, (count / total) * 100))
-                    return (
-                      <Box
-                        key={row.key || row.label}
-                        sx={{
-                          p: 0.8,
-                          borderRadius: 2.5,
-                          border: `1px solid ${alpha(row.tone || ACCENT, 0.2)}`,
-                          bgcolor: 'rgba(12, 21, 38, 0.84)',
-                          background: `linear-gradient(180deg, rgba(18, 30, 52, 0.94) 0%, ${alpha(row.tone || ACCENT, 0.1)} 100%)`
-                        }}
-                      >
-                        <Stack spacing={0.5}>
-                          <Stack direction="row" spacing={0.8} justifyContent="space-between" alignItems="center">
-                            <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0 }}>
-                              <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: row.tone || ACCENT, flexShrink: 0 }} />
-                              <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 800 }} noWrap>
-                                {row.label}
-                              </Typography>
-                            </Stack>
-                            <SignalChip label={formatCount(count)} tone={row.tone || ACCENT} />
-                          </Stack>
-                          <Box sx={{ height: 9, borderRadius: 999, bgcolor: 'rgba(148, 163, 184, 0.12)', overflow: 'hidden' }}>
-                            <Box
-                              sx={{
-                                width: `${width}%`,
-                                height: '100%',
-                                borderRadius: 999,
-                                background: `linear-gradient(90deg, ${row.tone || ACCENT} 0%, ${alpha(row.tone || ACCENT, 0.58)} 100%)`
-                              }}
-                            />
-                          </Box>
-                          <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.22 }}>
-                            {row.detail}
-                          </Typography>
-                        </Stack>
-                      </Box>
-                    )
-                  })}
+                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                    Largest live ownership remains {t1WorkflowOwnerRows[0]?.label || 'unavailable'} with {formatCount(t1WorkflowOwnerRows[0]?.count || 0)} rows. The selected lens keeps the page compact while still letting supervisors step through owner, state, path, and automation posture.
+                  </Typography>
                 </Box>
               </Stack>
             </OpsSection>
-
-            <Box sx={{ display: 'grid', gap: 1.05 }}>
-              <OpsSection title="Supervisor Radar" subtitle="Ownership, state, and escalation hotspots." tone="#2563eb" minHeight={0}>
-                <Stack spacing={0.85}>
-                  <OpsValueTiles
-                    columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                    items={[
-                      {
-                        label: 'Desk-owned',
-                        value: formatCount(summary.tier1WithDesk || 0),
-                        tone: '#14b8a6',
-                        helper: `${formatCount(t1DeskUrgentCount)} urgent | ${formatCount(t1DeskP1Count)} P1`
-                      },
-                      {
-                        label: 'Maintenance',
-                        value: formatCount(summary.tier1WithMaintenance || 0),
-                        tone: '#3b82f6',
-                        helper: `${formatCount(t1MaintenanceBreachedCount)} breached | ${formatCount(t1MaintenanceTrackedCount)} tracked`
-                      },
-                      {
-                        label: 'Waiting client',
-                        value: formatCount(summary.tier1WaitingClient || 0),
-                        tone: '#f97316',
-                        helper: `${formatCount(t1ClientPendingOnHoldCount)} on hold | ${formatCount(t1ClientPendingUrgentCount)} urgent`
-                      },
-                      {
-                        label: 'Parked timers',
-                        value: formatCount(summary.tier1ParkedTimers || 0),
-                        tone: '#64748b',
-                        helper: `${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`
-                      }
-                    ]}
-                  />
-
-                  <OpsSubPanel
-                    title="Workflow owner"
-                    subtitle="Who owns the next move right now."
-                    tone="#14b8a6"
-                    action={<SignalChip label={formatCount(summary.tier1Open || 0)} tone="#14b8a6" />}
-                  >
-                    <CompactBreakdownList
-                      rows={t1WorkflowOwnerRows.slice(0, 5)}
-                      maxRows={5}
-                      total={summary.tier1Open || 0}
-                      secondaryText={(row) => `${formatCount(row.count || 0)} live rows`}
-                      emptyMessage="No workflow-owner shape is available right now."
-                    />
-                  </OpsSubPanel>
-
-                  <OpsSubPanel
-                    title="Operational state"
-                    subtitle="Where the live queue is actually sitting."
-                    tone="#3b82f6"
-                    action={<SignalChip label={formatCount(t1OperationalShapeRows.length)} tone="#3b82f6" />}
-                  >
-                    <CompactBreakdownList
-                      rows={t1OperationalShapeRows.slice(0, 5)}
-                      maxRows={5}
-                      total={summary.tier1Open || 0}
-                      secondaryText={(row) => `${formatCount(row.count || 0)} live rows`}
-                      emptyMessage="No operational-state shape is available right now."
-                    />
-                  </OpsSubPanel>
-
-                  <OpsSubPanel
-                    title="Escalation path"
-                    subtitle="Who the work is routed through underneath the state."
-                    tone="#8b5cf6"
-                    action={<SignalChip label={formatCount(t1EscalationRows.length)} tone="#8b5cf6" />}
-                  >
-                    <CompactBreakdownList
-                      rows={t1EscalationRows.slice(0, 5)}
-                      maxRows={5}
-                      total={summary.tier1Open || 0}
-                      secondaryText={(row) => `${formatCount(row.count || 0)} routed rows`}
-                      emptyMessage="No escalation-path shape is available right now."
-                    />
-                  </OpsSubPanel>
-                </Stack>
-              </OpsSection>
-            </Box>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05, alignItems: 'start' }}>
-            <OpsSection title="Received vs Baseline" subtitle="Today against the last two matching weekdays." tone="#14b8a6" minHeight={0}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.85fr 0.78fr' }, gap: 1.05, alignItems: 'start' }}>
+            <OpsSection
+              title="Desk Pace"
+              subtitle="Flip between queue, intake, solve rhythm, and voice pulse without adding another panel."
+              tone="#14b8a6"
+              minHeight={0}
+              action={(
+                <ConsoleToggleStrip
+                  value={t1TrendLens}
+                  onChange={setT1TrendLens}
+                  options={[
+                    { value: 'queue', label: 'Queue', tone: '#14b8a6' },
+                    { value: 'received', label: 'Received', tone: '#0f766e' },
+                    { value: 'solved', label: 'Solved', tone: '#22c55e' },
+                    { value: 'voice', label: 'Voice', tone: '#06b6d4' }
+                  ]}
+                />
+              )}
+            >
               <Stack spacing={0.8}>
                 <OpsValueTiles
-                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
-                  items={[
-                    {
-                      label: 'Today',
-                      value: formatCount(summary.t1ReceivedToday || 0),
-                      tone: '#14b8a6',
-                      helper: `7d ${formatCount(summary.t1ReceivedLastWeek || 0)}`
-                    },
-                    {
-                      label: 'Prev 14d',
-                      value: formatCount(summary.t1ReceivedPreviousWeek || 0),
-                      tone: '#0ea5e9',
-                      helper: 'same weekday prior'
-                    },
-                    {
-                      label: 'Automation',
-                      value: formatCount((t1AutomationTodayRows || []).reduce((total, row) => total + Number(row.count || 0), 0)),
-                      tone: '#8b5cf6',
-                      helper: 'today routed by automation'
-                    }
-                  ]}
+                  columns={{ xs: `repeat(${Math.min(Math.max(t1ActiveTrendLens.summaryItems.length, 2), 4)}, minmax(0, 1fr))` }}
+                  items={t1ActiveTrendLens.summaryItems}
                 />
                 <MultiLineChartPanel
-                  rows={t1ReceivedComparisonSeries}
-                  lines={[
-                    { key: 'today', label: 'Today', color: '#14b8a6' },
-                    { key: 'lastWeek', label: '7 days ago', color: '#2dd4bf', strokeDasharray: '5 4', opacity: 0.92 },
-                    { key: 'previousWeek', label: '14 days ago', color: '#93c5fd', strokeDasharray: '2 5', opacity: 0.82 }
-                  ]}
-                  emptyMessage="No Tier 1 received comparison data is available right now."
+                  rows={t1ActiveTrendLens.rows}
+                  lines={t1ActiveTrendLens.lines}
+                  emptyMessage={t1ActiveTrendLens.emptyMessage}
                   showLegend={false}
-                  height={188}
-                />
-              </Stack>
-            </OpsSection>
-
-            <OpsSection title="Solved vs Baseline" subtitle="Solve rhythm against the same recent weekdays." tone="#22c55e" minHeight={0}>
-              <Stack spacing={0.8}>
-                <OpsValueTiles
-                  columns={{ xs: 'repeat(3, minmax(0, 1fr))' }}
-                  items={[
-                    {
-                      label: 'Today',
-                      value: formatCount(summary.t1SolvedToday || 0),
-                      tone: '#22c55e',
-                      helper: `7d ${formatCount(summary.t1SolvedLastWeek || 0)}`
-                    },
-                    {
-                      label: 'Prev 14d',
-                      value: formatCount(summary.t1SolvedPreviousWeek || 0),
-                      tone: '#4ade80',
-                      helper: 'same weekday prior'
-                    },
-                    {
-                      label: 'Voice answered',
-                      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Answered || 0) : '--',
-                      tone: '#06b6d4',
-                      helper: tier1VoiceWeekCompare.lastWeek ? `7d ${formatCount(tier1VoiceWeekCompare.lastWeek.answered || 0)}` : 'voice history building'
-                    }
-                  ]}
-                />
-                <MultiLineChartPanel
-                  rows={t1SolvedComparisonSeries}
-                  lines={[
-                    { key: 'today', label: 'Today', color: '#22c55e' },
-                    { key: 'lastWeek', label: '7 days ago', color: '#4ade80', strokeDasharray: '5 4', opacity: 0.92 },
-                    { key: 'previousWeek', label: '14 days ago', color: '#bbf7d0', strokeDasharray: '2 5', opacity: 0.82 }
-                  ]}
-                  emptyMessage="No Tier 1 solved comparison data is available right now."
-                  showLegend={false}
-                  height={188}
+                  height={240}
                 />
               </Stack>
             </OpsSection>
 
             <Box ref={t1InboundAnomalyRef}>
-              <OpsSection title="Signal & Pressure" subtitle="Queue drift, voice movement, and inbound spike follow-through." tone="#8b5cf6" minHeight={0}>
+              <OpsSection title="Signal Watch" subtitle="Inbound spike watch and follow-through in one place." tone="#8b5cf6" minHeight={0}>
                 <Stack spacing={0.8}>
                   <OpsValueTiles
                     columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
@@ -2960,177 +3179,201 @@ export default function NocMonitoringPage() {
                         label: 'Flagged spikes',
                         value: formatCount(summary.t1InboundAnomalyCount || 0),
                         tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6',
-                        helper: 'recent completed-day anomalies'
+                        helper: summary.t1InboundFocusStatusLabel || 'completed-day watch'
                       },
                       {
                         label: 'High severity',
                         value: formatCount(summary.t1InboundHighAnomalyCount || 0),
                         tone: '#ef4444',
-                        helper: 'large jumps vs prior baseline'
+                        helper: 'large jumps vs baseline'
                       },
                       {
-                        label: 'Affected products',
+                        label: 'Products hit',
                         value: formatCount(t1InboundAffectedServiceCount),
                         tone: '#f59e0b',
-                        helper: 'distinct product groups flagged'
+                        helper: 'distinct product groups'
                       },
                       {
-                        label: 'Voice waiting',
-                        value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
-                        tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
-                        helper: tier1VoiceQueue ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue` : 'queue unavailable'
+                        label: 'Still high',
+                        value: summary.t1InboundFocusStatusLabel || 'No',
+                        tone: summary.t1InboundFocusStatusTone || '#64748b',
+                        helper: summary.t1InboundFocusLabel || 'no active focus'
                       }
                     ]}
                   />
                   <MultiLineChartPanel
-                    rows={historyTier1}
-                    lines={[
-                      { key: 'open', label: 'Open queue', color: '#14b8a6' },
-                      { key: 'urgent', label: 'Urgent / due <=30m', color: '#ef4444' }
-                    ]}
-                    emptyMessage="Tier 1 historical pressure will appear after a few stored monitoring buckets."
+                    rows={t1InboundAnomalyTrendRows}
+                    lines={t1InboundAnomalyTrendLines.slice(0, 3)}
+                    emptyMessage="No Tier 1 inbound anomaly trend is available right now."
                     showLegend={false}
-                    height={156}
-                  />
-                  <MultiLineChartPanel
-                    rows={historyTier1VoiceQueue}
-                    lines={[
-                      { key: 'waiting', label: 'Waiting', color: '#ef4444' },
-                      { key: 'answered', label: 'Answered', color: '#06b6d4' },
-                      { key: 'missed', label: 'Missed', color: '#8b5cf6', strokeDasharray: '5 4', opacity: 0.9 }
-                    ]}
-                    emptyMessage="Tier 1 voice queue history will appear as more telephony snapshots are stored."
-                    showLegend={false}
-                    height={156}
+                    height={178}
                   />
                   <CompactBreakdownList
-                    rows={(t1InboundAnomalyRows || []).slice(0, 4).map((row) => ({
-                      key: `${row.productType}-${row.dayKey}-${row.mode}`,
-                      label: `${row.productType || row.serviceType || '--'} | ${row.dayLabel || row.dayKey}`,
-                      count: row.count || 0,
-                      tone: row.statusTone || row.tone || '#f59e0b',
-                      detail: `${row.statusLabel || 'Flagged'} | prev max ${formatCount(row.baselineMax || 0)} | ${formatSignedDelta(row.deltaCount || 0)}`
-                    }))}
+                    rows={t1AnomalyListRows}
                     maxRows={4}
                     emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
                   />
                 </Stack>
               </OpsSection>
             </Box>
+
+            <OpsSection title="Workbench Launch" subtitle="Keep the heavy table closed until the desk needs to operate." tone="#14b8a6" minHeight={0}>
+              <Stack spacing={0.8}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Live queue',
+                      value: formatCount(summary.tier1Open || 0),
+                      tone: '#14b8a6',
+                      helper: 'all open Tier 1 rows'
+                    },
+                    {
+                      label: 'Filtered',
+                      value: formatCount(t1FilteredActionViewRows.length),
+                      tone: '#3b82f6',
+                      helper: 'current filter result'
+                    },
+                    {
+                      label: 'Desk-owned',
+                      value: formatCount(t1DeskRows.length),
+                      tone: '#14b8a6',
+                      helper: 'with Tier 1 now'
+                    },
+                    {
+                      label: 'Urgent',
+                      value: formatCount(t1DueNowRows.length),
+                      tone: '#f59e0b',
+                      helper: 'breached or <=30m'
+                    }
+                  ]}
+                />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))' }, gap: 0.65 }}>
+                  <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
+                  <DrillCounterButton label="Urgent" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
+                  <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
+                  <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
+                  <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
+                  <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
+                </Box>
+                <Button
+                  variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
+                  onClick={() => {
+                    const next = !t1WorkbenchExpanded
+                    setT1WorkbenchExpanded(next)
+                    if (!next) {
+                      setT1WorkbenchDrawer('none')
+                    }
+                  }}
+                  sx={{
+                    borderRadius: 2.3,
+                    textTransform: 'none',
+                    fontWeight: 800
+                  }}
+                >
+                  {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
+                </Button>
+                <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                  The default screen stays on command view. The full queue table opens only when the desk wants to drill into filtered live rows.
+                </Typography>
+              </Stack>
+            </OpsSection>
           </Box>
 
-          <Box ref={t1ActionViewRef}>
-            <OpsSection title="Tier 1 Workbench" subtitle="One drill surface for the live queue once the command board points to the lane." tone="#14b8a6" minHeight={0}>
-              <Stack spacing={0.9}>
-                <OpsSubPanel
-                  title="Workbench controls"
-                  subtitle="Pick the lane first, then narrow the queue with filters."
-                  tone="#14b8a6"
-                  action={(
-                    <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignSelf={{ xs: 'stretch', md: 'flex-start' }}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => setT1ShowAdvancedFilters((current) => !current)}
-                        sx={{
-                          minWidth: 0,
-                          px: 1.1,
-                          py: 0.25,
-                          color: '#cbd5e1',
-                          borderColor: 'rgba(148, 163, 184, 0.24)'
-                        }}
-                      >
-                        {t1ShowAdvancedFilters ? 'Hide advanced' : 'Advanced filters'}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<DownloadRoundedIcon />}
-                        onClick={handleExportT1ActionView}
-                        disabled={exportingT1Action || !t1FilteredActionViewRows.length}
-                        sx={{
-                          minWidth: 0,
-                          px: 1.1,
-                          py: 0.25,
-                          color: '#cbd5e1',
-                          borderColor: 'rgba(148, 163, 184, 0.24)'
-                        }}
-                      >
-                        {exportingT1Action ? 'Exporting...' : 'Export filtered'}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={resetT1ActionFilters}
-                        sx={{
-                          minWidth: 0,
-                          px: 1.1,
-                          py: 0.25,
-                          color: '#cbd5e1',
-                          borderColor: 'rgba(148, 163, 184, 0.24)'
-                        }}
-                      >
-                        Reset filters
-                      </Button>
-                    </Stack>
-                  )}
-                >
-                  <Stack spacing={0.85}>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 0.7 }}>
-                      <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
-                      <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
-                      <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
-                      <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
-                      <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
-                      <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
-                    </Box>
-                    <FilterChipGroup
-                      label="Quick presets"
-                      value={t1QuickPreset}
-                      onChange={setT1QuickPreset}
-                      options={T1_PRESETS.filter((preset) => preset.key !== 'all').map((preset) => preset.key)}
-                      tone={T1_PRESET_TONE_MAP[t1QuickPreset] || '#14b8a6'}
-                      anyCount={t1QuickPresetCounts.all}
-                      countMap={t1QuickPresetCounts}
-                      labelFormatter={(presetKey) => T1_PRESETS.find((preset) => preset.key === presetKey)?.label || presetKey}
-                      anyLabel="All queue"
-                    />
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' },
-                        gap: 0.9
-                      }}
-                    >
+          <Collapse in={t1WorkbenchExpanded} timeout={220} unmountOnExit={false}>
+            <Box ref={t1ActionViewRef}>
+              <OpsSection title="Tier 1 Workbench" subtitle="Filtered live queue once the command view points you to a lane." tone="#14b8a6" minHeight={0}>
+                <Stack spacing={0.9}>
+                  <OpsSubPanel
+                    title="Workbench controls"
+                    subtitle="Pick the lane first, then narrow the queue with filters."
+                    tone="#14b8a6"
+                    action={(
+                      <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignSelf={{ xs: 'stretch', md: 'flex-start' }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => setT1ShowAdvancedFilters((current) => !current)}
+                          sx={{
+                            minWidth: 0,
+                            px: 1.1,
+                            py: 0.25,
+                            color: '#cbd5e1',
+                            borderColor: 'rgba(148, 163, 184, 0.24)'
+                          }}
+                        >
+                          {t1ShowAdvancedFilters ? 'Hide advanced' : 'Advanced filters'}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<DownloadRoundedIcon />}
+                          onClick={handleExportT1ActionView}
+                          disabled={exportingT1Action || !t1FilteredActionViewRows.length}
+                          sx={{
+                            minWidth: 0,
+                            px: 1.1,
+                            py: 0.25,
+                            color: '#cbd5e1',
+                            borderColor: 'rgba(148, 163, 184, 0.24)'
+                          }}
+                        >
+                          {exportingT1Action ? 'Exporting...' : 'Export filtered'}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={resetT1ActionFilters}
+                          sx={{
+                            minWidth: 0,
+                            px: 1.1,
+                            py: 0.25,
+                            color: '#cbd5e1',
+                            borderColor: 'rgba(148, 163, 184, 0.24)'
+                          }}
+                        >
+                          Reset filters
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            setT1WorkbenchExpanded(false)
+                            setT1WorkbenchDrawer('none')
+                          }}
+                          sx={{
+                            minWidth: 0,
+                            px: 1.1,
+                            py: 0.25,
+                            color: '#cbd5e1',
+                            borderColor: 'rgba(148, 163, 184, 0.24)'
+                          }}
+                        >
+                          Hide workbench
+                        </Button>
+                      </Stack>
+                    )}
+                  >
+                    <Stack spacing={0.85}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 0.7 }}>
+                        <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
+                        <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
+                        <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
+                        <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
+                        <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
+                        <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
+                      </Box>
                       <FilterChipGroup
-                        label="Action lane"
-                        value={t1ActionFilters.pLevel}
-                        onChange={(next) => setT1ActionFilters((current) => ({ ...current, pLevel: next }))}
-                        options={t1PLevelOptions}
-                        tone="#14b8a6"
-                        countMap={t1PLevelCountMap}
-                        anyCount={t1FilterAnyCounts.pLevel}
+                        label="Quick presets"
+                        value={t1QuickPreset}
+                        onChange={setT1QuickPreset}
+                        options={T1_PRESETS.filter((preset) => preset.key !== 'all').map((preset) => preset.key)}
+                        tone={T1_PRESET_TONE_MAP[t1QuickPreset] || '#14b8a6'}
+                        anyCount={t1QuickPresetCounts.all}
+                        countMap={t1QuickPresetCounts}
+                        labelFormatter={(presetKey) => T1_PRESETS.find((preset) => preset.key === presetKey)?.label || presetKey}
+                        anyLabel="All queue"
                       />
-                      <FilterChipGroup
-                        label="Clock state"
-                        value={t1ActionFilters.dueBucket}
-                        onChange={(next) => setT1ActionFilters((current) => ({ ...current, dueBucket: next }))}
-                        options={t1DueBucketOptions}
-                        tone="#f97316"
-                        countMap={t1DueBucketCountMap}
-                        anyCount={t1FilterAnyCounts.dueBucket}
-                      />
-                      <FilterChipGroup
-                        label="Workflow owner"
-                        value={t1ActionFilters.workflowOwner}
-                        onChange={(next) => setT1ActionFilters((current) => ({ ...current, workflowOwner: next }))}
-                        options={t1WorkflowOwnerOptions}
-                        tone="#14b8a6"
-                        countMap={t1WorkflowOwnerCountMap}
-                        anyCount={t1FilterAnyCounts.workflowOwner}
-                      />
-                    </Box>
-                    {t1ShowAdvancedFilters ? (
                       <Box
                         sx={{
                           display: 'grid',
@@ -3139,89 +3382,127 @@ export default function NocMonitoringPage() {
                         }}
                       >
                         <FilterChipGroup
-                          label="Escalation path"
-                          value={t1ActionFilters.escalationPath}
-                          onChange={(next) => setT1ActionFilters((current) => ({ ...current, escalationPath: next }))}
-                          options={t1EscalationPathOptions}
-                          tone="#8b5cf6"
-                          countMap={t1EscalationPathCountMap}
-                          anyCount={t1FilterAnyCounts.escalationPath}
+                          label="Action lane"
+                          value={t1ActionFilters.pLevel}
+                          onChange={(next) => setT1ActionFilters((current) => ({ ...current, pLevel: next }))}
+                          options={t1PLevelOptions}
+                          tone="#14b8a6"
+                          countMap={t1PLevelCountMap}
+                          anyCount={t1FilterAnyCounts.pLevel}
                         />
                         <FilterChipGroup
-                          label="System state"
-                          value={t1ActionFilters.systemState}
-                          onChange={(next) => setT1ActionFilters((current) => ({ ...current, systemState: next }))}
-                          options={t1SystemStateOptions}
-                          tone="#3b82f6"
-                          countMap={t1SystemStateCountMap}
-                          anyCount={t1FilterAnyCounts.systemState}
-                          labelFormatter={titleCaseWords}
+                          label="Clock state"
+                          value={t1ActionFilters.dueBucket}
+                          onChange={(next) => setT1ActionFilters((current) => ({ ...current, dueBucket: next }))}
+                          options={t1DueBucketOptions}
+                          tone="#f97316"
+                          countMap={t1DueBucketCountMap}
+                          anyCount={t1FilterAnyCounts.dueBucket}
                         />
                         <FilterChipGroup
-                          label="Operational state"
-                          value={t1ActionFilters.operationalState}
-                          onChange={(next) => setT1ActionFilters((current) => ({ ...current, operationalState: next }))}
-                          options={t1OperationalStateOptions}
-                          tone="#8b5cf6"
-                          countMap={t1OperationalStateCountMap}
-                          anyCount={t1FilterAnyCounts.operationalState}
+                          label="Workflow owner"
+                          value={t1ActionFilters.workflowOwner}
+                          onChange={(next) => setT1ActionFilters((current) => ({ ...current, workflowOwner: next }))}
+                          options={t1WorkflowOwnerOptions}
+                          tone="#14b8a6"
+                          countMap={t1WorkflowOwnerCountMap}
+                          anyCount={t1FilterAnyCounts.workflowOwner}
                         />
-                        <Box sx={{ gridColumn: { xs: 'auto', xl: '1 / -1' } }}>
-                          <FilterChipGroup
-                            label="Automation route"
-                            value={t1ActionFilters.automationRoute}
-                            onChange={(next) => setT1ActionFilters((current) => ({ ...current, automationRoute: next }))}
-                            options={t1AutomationRouteOptions}
-                            tone="#8b5cf6"
-                            countMap={t1AutomationRouteCountMap}
-                            anyCount={t1FilterAnyCounts.automationRoute}
-                          />
-                        </Box>
                       </Box>
-                    ) : null}
-                  </Stack>
-                </OpsSubPanel>
-
-                {t1ActiveWorkbenchDrawer ? (
-                  <OpsSubPanel
-                    title={t1ActiveWorkbenchDrawer.label}
-                    subtitle="Focused queue drawer opened from the command board."
-                    tone={t1ActiveWorkbenchDrawer.tone}
-                    action={t1ActiveWorkbenchDrawer.setLimit ? (
-                      <RowWindowSelector
-                        value={t1ActiveWorkbenchDrawer.limit}
-                        onChange={t1ActiveWorkbenchDrawer.setLimit}
-                        options={t1ActiveWorkbenchDrawer.key === 'urgent' ? [10, 20, 50, 'all'] : [5, 10, 20, 'all']}
-                      />
-                    ) : null}
-                  >
-                    <Stack spacing={0.75}>
-                      <OpsValueTiles
-                        columns={{ xs: `repeat(${Math.min(Math.max(t1ActiveWorkbenchDrawer.summaryItems.length, 2), 3)}, minmax(0, 1fr))`, xl: `repeat(${Math.min(Math.max(t1ActiveWorkbenchDrawer.summaryItems.length, 2), 3)}, minmax(0, 1fr))` }}
-                        items={t1ActiveWorkbenchDrawer.summaryItems}
-                      />
-                      <MonitoringTable
-                        rows={t1ActiveWorkbenchDrawer.visibleRows}
-                        columns={t1FocusColumns}
-                        emptyMessage={t1ActiveWorkbenchDrawer.emptyMessage}
-                        getRowSx={getTier1UrgencyRowSx}
-                      />
+                      {t1ShowAdvancedFilters ? (
+                        <Box
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' },
+                            gap: 0.9
+                          }}
+                        >
+                          <FilterChipGroup
+                            label="Escalation path"
+                            value={t1ActionFilters.escalationPath}
+                            onChange={(next) => setT1ActionFilters((current) => ({ ...current, escalationPath: next }))}
+                            options={t1EscalationPathOptions}
+                            tone="#8b5cf6"
+                            countMap={t1EscalationPathCountMap}
+                            anyCount={t1FilterAnyCounts.escalationPath}
+                          />
+                          <FilterChipGroup
+                            label="System state"
+                            value={t1ActionFilters.systemState}
+                            onChange={(next) => setT1ActionFilters((current) => ({ ...current, systemState: next }))}
+                            options={t1SystemStateOptions}
+                            tone="#3b82f6"
+                            countMap={t1SystemStateCountMap}
+                            anyCount={t1FilterAnyCounts.systemState}
+                            labelFormatter={titleCaseWords}
+                          />
+                          <FilterChipGroup
+                            label="Operational state"
+                            value={t1ActionFilters.operationalState}
+                            onChange={(next) => setT1ActionFilters((current) => ({ ...current, operationalState: next }))}
+                            options={t1OperationalStateOptions}
+                            tone="#8b5cf6"
+                            countMap={t1OperationalStateCountMap}
+                            anyCount={t1FilterAnyCounts.operationalState}
+                          />
+                          <Box sx={{ gridColumn: { xs: 'auto', xl: '1 / -1' } }}>
+                            <FilterChipGroup
+                              label="Automation route"
+                              value={t1ActionFilters.automationRoute}
+                              onChange={(next) => setT1ActionFilters((current) => ({ ...current, automationRoute: next }))}
+                              options={t1AutomationRouteOptions}
+                              tone="#8b5cf6"
+                              countMap={t1AutomationRouteCountMap}
+                              anyCount={t1FilterAnyCounts.automationRoute}
+                            />
+                          </Box>
+                        </Box>
+                      ) : null}
                     </Stack>
                   </OpsSubPanel>
-                ) : null}
 
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
-                  <Typography variant="caption" sx={{ color: OPS_MUTED }}>
-                    Showing {formatCount(t1ActionViewVisibleRows.length)} of {formatCount(t1FilteredActionViewRows.length)} filtered rows from {formatCount(t1ActionViewRows.length)} live Tier 1 queue rows, sorted by play-clock pressure first.
-                  </Typography>
-                  <RowWindowSelector value={t1ActionViewLimit} onChange={setT1ActionViewLimit} options={[20, 50, 100, 'all']} />
+                  {t1ActiveWorkbenchDrawer ? (
+                    <OpsSubPanel
+                      title={t1ActiveWorkbenchDrawer.label}
+                      subtitle="Focused queue drawer opened from the command view."
+                      tone={t1ActiveWorkbenchDrawer.tone}
+                      action={t1ActiveWorkbenchDrawer.setLimit ? (
+                        <RowWindowSelector
+                          value={t1ActiveWorkbenchDrawer.limit}
+                          onChange={t1ActiveWorkbenchDrawer.setLimit}
+                          options={t1ActiveWorkbenchDrawer.key === 'urgent' ? [10, 20, 50, 'all'] : [5, 10, 20, 'all']}
+                        />
+                      ) : null}
+                    >
+                      <Stack spacing={0.75}>
+                        <OpsValueTiles
+                          columns={{ xs: `repeat(${Math.min(Math.max(t1ActiveWorkbenchDrawer.summaryItems.length, 2), 3)}, minmax(0, 1fr))`, xl: `repeat(${Math.min(Math.max(t1ActiveWorkbenchDrawer.summaryItems.length, 2), 3)}, minmax(0, 1fr))` }}
+                          items={t1ActiveWorkbenchDrawer.summaryItems}
+                        />
+                        <MonitoringTable
+                          rows={t1ActiveWorkbenchDrawer.visibleRows}
+                          columns={t1FocusColumns}
+                          emptyMessage={t1ActiveWorkbenchDrawer.emptyMessage}
+                          getRowSx={getTier1UrgencyRowSx}
+                        />
+                      </Stack>
+                    </OpsSubPanel>
+                  ) : null}
+
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                    <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+                      Showing {formatCount(t1ActionViewVisibleRows.length)} of {formatCount(t1FilteredActionViewRows.length)} filtered rows from {formatCount(t1ActionViewRows.length)} live Tier 1 queue rows, sorted by play-clock pressure first.
+                    </Typography>
+                    <RowWindowSelector value={t1ActionViewLimit} onChange={setT1ActionViewLimit} options={[20, 50, 100, 'all']} />
+                  </Stack>
+                  <MonitoringTable rows={t1ActionViewVisibleRows} columns={t1ActionColumns} emptyMessage="No Tier 1 tickets are open right now." getRowSx={getTier1UrgencyRowSx} />
                 </Stack>
-                <MonitoringTable rows={t1ActionViewVisibleRows} columns={t1ActionColumns} emptyMessage="No Tier 1 tickets are open right now." getRowSx={getTier1UrgencyRowSx} />
-              </Stack>
-            </OpsSection>
-          </Box>
+              </OpsSection>
+            </Box>
+          </Collapse>
         </Box>
       ) : null}
+
 
       {tab === 'tier2' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
@@ -3488,4 +3769,5 @@ export default function NocMonitoringPage() {
     </PageShell>
   )
 }
+
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-08-14
+
+### NOC Monitoring Hub
+
+- Rebuilt the Tier 1 dashboard again around a clearer command-surface layout instead of one long stacked supervisor page.
+- Split the live Tier 1 view into:
+  - command cards for immediate risk
+  - active action lanes
+  - parked / side-lane pressure
+  - a single queue-posture lens that can switch between owner, state, path, and automation
+  - a compact trend area for queue, received, solved, and voice pace
+- Moved the heavy Tier 1 workbench behind an explicit open / hide control so the default page stays operational instead of table-first.
+- Tightened the Tier 1 visual hierarchy with:
+  - more readable header status pills
+  - shorter supporting text
+  - denser queue bars
+  - stronger separation between live action work and secondary pressure buckets
+
 ## 2026-08-10
 
 ### NOC Monitoring Hub
