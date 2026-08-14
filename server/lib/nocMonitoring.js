@@ -299,6 +299,7 @@ function tagSet(ticket) {
 
 function hasAnyTag(ticket, tags) {
   const present = tagSet(ticket)
+  if (!Array.isArray(tags) || !tags.length) return false
   return tags.some((tag) => present.has(String(tag).toLowerCase()))
 }
 
@@ -458,7 +459,11 @@ function summarizeRuleHits(rows, rules, accessor = (row) => row) {
     key: rule.key,
     label: rule.label,
     tone: rule.tone,
-    count: rows.filter((row) => hasAnyTag(accessor(row), rule.tags)).length
+    count: rows.filter((row) => {
+      const value = accessor(row)
+      if (typeof rule.predicate === 'function') return rule.predicate(value)
+      return hasAnyTag(value, rule.tags)
+    }).length
   }))
 }
 
