@@ -652,7 +652,7 @@ function OpsStatusPill({ label, value, tone = ACCENT }) {
   )
 }
 
-function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, active = false }) {
+function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, active = false, icon = null }) {
   return (
     <Box
       component={onClick ? 'button' : 'div'}
@@ -692,9 +692,27 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
     >
         <Stack spacing={0.42}>
           <Stack direction="row" spacing={0.7} justifyContent="space-between" alignItems="flex-start">
-            <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.58, fontWeight: 800 }}>
-              {label}
-            </Typography>
+            <Stack direction="row" spacing={0.65} alignItems="center" sx={{ minWidth: 0 }}>
+              {icon ? (
+                <Box
+                  sx={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 1.8,
+                    display: 'grid',
+                    placeItems: 'center',
+                    color: tone,
+                    bgcolor: alpha(tone, active ? 0.18 : 0.1),
+                    border: `1px solid ${alpha(tone, active ? 0.34 : 0.18)}`
+                  }}
+                >
+                  {icon}
+                </Box>
+              ) : null}
+              <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.58, fontWeight: 800 }}>
+                {label}
+              </Typography>
+            </Stack>
             <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 16px ${alpha(tone, 0.55)}` }} />
           </Stack>
           <Stack direction="row" spacing={0.9} alignItems="flex-end" justifyContent="space-between">
@@ -1259,14 +1277,46 @@ function MetricStrip({ items }) {
   )
 }
 
-function OpsSection(props) {
+function OpsSection({ tone = ACCENT, rootSx, headerSx, bodySx, ...props }) {
   return (
     <SectionCard
-      rootSx={DASHBOARD_SECTION_ROOT_SX}
-      headerSx={DASHBOARD_SECTION_HEADER_SX}
-      bodySx={DASHBOARD_SECTION_BODY_SX}
+      rootSx={{
+        ...DASHBOARD_SECTION_ROOT_SX,
+        position: 'relative',
+        overflow: 'hidden',
+        border: `1px solid ${alpha(tone, 0.18)}`,
+        boxShadow: `0 24px 48px rgba(2, 6, 23, 0.3), 0 0 0 1px ${alpha(tone, 0.06)}, inset 0 1px 0 rgba(255,255,255,0.03)`,
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          inset: '0 0 auto 0',
+          height: 2,
+          background: `linear-gradient(90deg, ${alpha(tone, 0.92)} 0%, ${alpha(tone, 0.18)} 45%, transparent 100%)`
+        },
+        '&::after': {
+          content: '""',
+          position: 'absolute',
+          inset: '0 auto auto 0',
+          width: '42%',
+          height: 140,
+          background: `radial-gradient(circle at top left, ${alpha(tone, 0.12)} 0%, transparent 68%)`,
+          pointerEvents: 'none'
+        },
+        ...rootSx
+      }}
+      headerSx={{
+        ...DASHBOARD_SECTION_HEADER_SX,
+        background: `linear-gradient(180deg, ${alpha(tone, 0.14)} 0%, rgba(12, 21, 38, 0.92) 72%)`,
+        ...headerSx
+      }}
+      bodySx={{
+        ...DASHBOARD_SECTION_BODY_SX,
+        position: 'relative',
+        ...bodySx
+      }}
       titleSx={DASHBOARD_SECTION_TITLE_SX}
       subtitleSx={DASHBOARD_SECTION_SUBTITLE_SX}
+      tone={tone}
       {...props}
     />
   )
@@ -1278,10 +1328,10 @@ function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children }
       sx={{
         p: 0.9,
         borderRadius: 2.7,
-        border: `1px solid ${alpha(tone, 0.22)}`,
+        border: `1px solid ${alpha(tone, 0.18)}`,
         bgcolor: 'rgba(10, 18, 33, 0.72)',
-        background: `linear-gradient(180deg, rgba(18, 30, 52, 0.92) 0%, ${alpha(tone, 0.08)} 100%)`,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)'
+        background: `linear-gradient(180deg, rgba(18, 30, 52, 0.92) 0%, ${alpha(tone, 0.06)} 100%)`,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 24px ${alpha(tone, 0.05)}`
       }}
     >
       <Stack spacing={0.75}>
@@ -2450,6 +2500,7 @@ export default function NocMonitoringPage() {
       value: formatCount(summary.tier1P1Unattended || 0),
       detail: `${formatCount(summary.tier1P1Breached || 0)} breached first-touch SLA`,
       meta: 'P1 unattended',
+      icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
       tone: '#ef4444',
       active: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0,
       onClick: () => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })
@@ -2459,6 +2510,7 @@ export default function NocMonitoringPage() {
       value: formatCount(summary.tier1PlayClockBreached || 0),
       detail: `${formatCount(summary.tier1PlayClockDueSoon || 0)} more due inside 30m`,
       meta: 'P2 / P3 / P4 active clocks',
+      icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
       tone: '#f97316',
       active: (summary.tier1PlayClockBreached || 0) > 0,
       onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow', { dueBucket: 'BREACHED' })
@@ -2468,6 +2520,7 @@ export default function NocMonitoringPage() {
       value: formatCount(summary.tier1PlayClockDueSoon || 0),
       detail: `${formatCount((collections.tier1UrgentTickets || []).length)} rows under live timer watch`,
       meta: 'next action window',
+      icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
       tone: '#f59e0b',
       active: (summary.tier1PlayClockDueSoon || 0) > 0,
       onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow')
@@ -2477,6 +2530,7 @@ export default function NocMonitoringPage() {
       value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
       detail: tier1VoiceQueue ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue right now` : 'Tier 1 voice queue unavailable',
       meta: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within 20s target',
+      icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
       tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
       active: !!summary.telephonyTier1SlaBreached
     },
@@ -2487,6 +2541,7 @@ export default function NocMonitoringPage() {
         ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
         : 'No abnormal inbound surge right now',
       meta: summary.t1InboundFocusStatusDetail || 'completed-day watch',
+      icon: <CrisisAlertRoundedIcon sx={{ fontSize: 16 }} />,
       tone: summary.t1InboundFocusStatusTone || '#8b5cf6',
       active: (summary.t1InboundAnomalyCount || 0) > 0,
       onClick: () => t1InboundAnomalyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -3454,7 +3509,7 @@ export default function NocMonitoringPage() {
                   showLegend={false}
                   height={248}
                 />
-                <OpsSubPanel title="Daily compare" subtitle="Same weekday against the prior two weeks and today’s automation touch count." tone="#14b8a6">
+                <OpsSubPanel title="Daily compare" subtitle="Same weekday against the prior two weeks and todayï¿½s automation touch count." tone="#14b8a6">
                   <OpsValueTiles
                     columns={{ xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }}
                     items={t1DeskCompareTiles}
