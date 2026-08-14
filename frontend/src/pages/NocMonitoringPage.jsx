@@ -3314,7 +3314,7 @@ export default function NocMonitoringPage() {
             </OpsSection>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.98fr 0.62fr 0.9fr' }, gap: 1.05, alignItems: 'start' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05, alignItems: 'start' }}>
             <OpsSection
               title="Desk Pace"
               subtitle="Queue drift, intake, solve rhythm, and voice pulse in one trend lens."
@@ -3348,69 +3348,71 @@ export default function NocMonitoringPage() {
               </Stack>
             </OpsSection>
 
-            <OpsSection title="Exceptions" subtitle="Shortlist of active spike signals and follow-through items." tone="#8b5cf6" minHeight={0}>
-              <Stack spacing={0.8}>
-                <CompactBreakdownList
-                  rows={t1AnomalyListRows}
-                  maxRows={4}
-                  emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
-                />
-              </Stack>
-            </OpsSection>
+            <Stack spacing={1.05}>
+              <OpsSection title="Exceptions" subtitle="Shortlist of active spike signals and follow-through items." tone="#8b5cf6" minHeight={0}>
+                <Stack spacing={0.8}>
+                  <CompactBreakdownList
+                    rows={t1AnomalyListRows}
+                    maxRows={4}
+                    emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
+                  />
+                </Stack>
+              </OpsSection>
 
-            <OpsSection title="Operate" subtitle="Keep the heavy workbench closed until the desk needs the full live queue." tone="#14b8a6" minHeight={0}>
-              <Stack spacing={0.82}>
-                <OpsValueTiles
-                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                  items={[
-                    {
-                      label: 'Live queue',
-                      value: formatCount(summary.tier1Open || 0),
-                      tone: '#14b8a6',
-                      helper: 'all open Tier 1 rows'
-                    },
-                    {
-                      label: 'Filtered',
-                      value: formatCount(t1FilteredActionViewRows.length),
-                      tone: '#3b82f6',
-                      helper: 'current filter result'
-                    },
-                    {
-                      label: 'Desk-owned',
-                      value: formatCount(t1DeskRows.length),
-                      tone: '#14b8a6',
-                      helper: 'with Tier 1 now'
-                    },
-                    {
-                      label: 'Urgent',
-                      value: formatCount(t1DueNowRows.length),
-                      tone: '#f59e0b',
-                      helper: 'breached or <=30m'
-                    }
-                  ]}
-                />
-                <Button
-                  variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
-                  onClick={() => {
-                    const next = !t1WorkbenchExpanded
-                    setT1WorkbenchExpanded(next)
-                    if (!next) {
-                      setT1WorkbenchDrawer('none')
-                    }
-                  }}
-                  sx={{
-                    borderRadius: 2.3,
-                    textTransform: 'none',
-                    fontWeight: 800
-                  }}
-                >
-                  {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
-                </Button>
-                <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.3 }}>
-                  Stay in the command view by default. Open the workbench only when you want the fully filtered queue and exports.
-                </Typography>
-              </Stack>
-            </OpsSection>
+              <OpsSection title="Operate" subtitle="Keep the heavy workbench closed until the desk needs the full live queue." tone="#14b8a6" minHeight={0}>
+                <Stack spacing={0.82}>
+                  <OpsValueTiles
+                    columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                    items={[
+                      {
+                        label: 'Live queue',
+                        value: formatCount(summary.tier1Open || 0),
+                        tone: '#14b8a6',
+                        helper: 'all open Tier 1 rows'
+                      },
+                      {
+                        label: 'Filtered',
+                        value: formatCount(t1FilteredActionViewRows.length),
+                        tone: '#3b82f6',
+                        helper: 'current filter result'
+                      },
+                      {
+                        label: 'Desk-owned',
+                        value: formatCount(t1DeskRows.length),
+                        tone: '#14b8a6',
+                        helper: 'with Tier 1 now'
+                      },
+                      {
+                        label: 'Urgent',
+                        value: formatCount(t1DueNowRows.length),
+                        tone: '#f59e0b',
+                        helper: 'breached or <=30m'
+                      }
+                    ]}
+                  />
+                  <Button
+                    variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
+                    onClick={() => {
+                      const next = !t1WorkbenchExpanded
+                      setT1WorkbenchExpanded(next)
+                      if (!next) {
+                        setT1WorkbenchDrawer('none')
+                      }
+                    }}
+                    sx={{
+                      borderRadius: 2.3,
+                      textTransform: 'none',
+                      fontWeight: 800
+                    }}
+                  >
+                    {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
+                  </Button>
+                  <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.3 }}>
+                    Stay in the command view by default. Open the workbench only when you want the fully filtered queue and exports.
+                  </Typography>
+                </Stack>
+              </OpsSection>
+            </Stack>
           </Box>
 
           <Collapse in={t1WorkbenchExpanded} timeout={220} unmountOnExit={false}>
