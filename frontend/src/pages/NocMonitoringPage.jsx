@@ -1366,6 +1366,7 @@ export default function NocMonitoringPage() {
   const [payload, setPayload] = useState(null)
   const [telephonyPulse, setTelephonyPulse] = useState(null)
   const [tab, setTab] = useState('overview')
+  const [t1WatchExpanded, setT1WatchExpanded] = useState(false)
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
   const [t1DeskLimit, setT1DeskLimit] = useState(10)
@@ -3278,88 +3279,190 @@ export default function NocMonitoringPage() {
                   {(summary.t1InboundAnomalyCount || 0) > 0 ? <SignalChip label={`${formatCount(summary.t1InboundAnomalyCount || 0)} anomaly days`} tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6'} /> : null}
                   {(summary.t1InboundAnomalyCount || 0) > 0 ? <SignalChip label={summary.t1InboundFocusStatusLabel || 'Flagged'} tone={summary.t1InboundFocusStatusTone || '#ef4444'} /> : null}
                   {summary.telephonyTier1SlaBreached ? <SignalChip label="Voice SLA risk" tone="#ef4444" /> : null}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setT1WatchExpanded((current) => !current)}
+                    sx={{
+                      minWidth: 0,
+                      px: 1,
+                      py: 0.42,
+                      borderRadius: 2.2,
+                      textTransform: 'none',
+                      color: '#f8fafc',
+                      borderColor: 'rgba(148, 163, 184, 0.18)',
+                      bgcolor: 'rgba(15, 23, 42, 0.56)',
+                      fontWeight: 800,
+                      fontSize: '0.76rem'
+                    }}
+                  >
+                    {t1WatchExpanded ? 'Collapse' : 'Expand'}
+                  </Button>
                 </Stack>
               )}
             >
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.1fr 0.82fr 1fr' }, gap: 0.85, alignItems: 'stretch' }}>
-                <Box
-                  sx={{
-                    p: 1,
-                    borderRadius: 2.9,
-                    border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.28)}`,
-                    bgcolor: 'rgba(8, 15, 29, 0.82)',
-                    background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.18)} 0%, rgba(8, 15, 29, 0.96) 58%)`,
-                    boxShadow: `0 18px 32px ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.12)}`
-                  }}
-                >
-                  <Stack spacing={0.62} sx={{ height: '100%' }}>
-                    <Typography variant="caption" sx={{ color: '#cbd5f5', textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
-                      Current watch
-                    </Typography>
-                    <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
-                      {summary.t1InboundFocusLabel
-                        ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
-                        : 'No major inbound anomaly right now'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: OPS_MUTED, lineHeight: 1.3 }}>
-                      {summary.t1InboundFocusStatusDetail || 'Completed-day inbound spikes are clear right now.'}
-                      {summary.telephonyTier1SlaBreached
-                        ? ` Voice queue remains outside the 20-second target at ${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)}.`
-                        : ''}
-                    </Typography>
-                    <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" sx={{ pt: 0.15 }}>
-                      <SignalChip label={summary.t1InboundFocusStatusLabel || 'Clear'} tone={summary.t1InboundFocusStatusTone || '#14b8a6'} />
-                      <SignalChip label={summary.telephonyTier1SlaBreached ? 'Voice outside SLA' : 'Voice within SLA'} tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'} />
+              {t1WatchExpanded ? (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.1fr 0.82fr 1fr' }, gap: 0.85, alignItems: 'stretch' }}>
+                  <Box
+                    sx={{
+                      p: 1,
+                      borderRadius: 2.9,
+                      border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.28)}`,
+                      bgcolor: 'rgba(8, 15, 29, 0.82)',
+                      background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.18)} 0%, rgba(8, 15, 29, 0.96) 58%)`,
+                      boxShadow: `0 18px 32px ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.12)}`
+                    }}
+                  >
+                    <Stack spacing={0.62} sx={{ height: '100%' }}>
+                      <Typography variant="caption" sx={{ color: '#cbd5f5', textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
+                        Current watch
+                      </Typography>
+                      <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
+                        {summary.t1InboundFocusLabel
+                          ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
+                          : 'No major inbound anomaly right now'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: OPS_MUTED, lineHeight: 1.3 }}>
+                        {summary.t1InboundFocusStatusDetail || 'Completed-day inbound spikes are clear right now.'}
+                        {summary.telephonyTier1SlaBreached
+                          ? ` Voice queue remains outside the 20-second target at ${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)}.`
+                          : ''}
+                      </Typography>
+                      <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" sx={{ pt: 0.15 }}>
+                        <SignalChip label={summary.t1InboundFocusStatusLabel || 'Clear'} tone={summary.t1InboundFocusStatusTone || '#14b8a6'} />
+                        <SignalChip label={summary.telephonyTier1SlaBreached ? 'Voice outside SLA' : 'Voice within SLA'} tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'} />
+                      </Stack>
+                      <Box sx={{ pt: 0.2 }}>
+                        <CompactBreakdownList
+                          rows={t1AnomalyListRows}
+                          maxRows={2}
+                          emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
+                        />
+                      </Box>
                     </Stack>
-                    <Box sx={{ pt: 0.2 }}>
-                      <CompactBreakdownList
-                        rows={t1AnomalyListRows}
-                        maxRows={2}
-                        emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
-                      />
-                    </Box>
-                  </Stack>
-                </Box>
+                  </Box>
 
-                <OpsValueTiles
-                  columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                  items={[
-                    {
-                      label: 'Flagged days',
-                      value: formatCount(summary.t1InboundAnomalyCount || 0),
-                      tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6',
-                      helper: summary.t1InboundFocusStatusLabel || 'completed-day watch'
-                    },
-                    {
-                      label: 'Still high',
-                      value: summary.t1InboundFocusStatusLabel || 'No',
-                      tone: summary.t1InboundFocusStatusTone || '#64748b',
-                      helper: summary.t1InboundFocusLabel || 'no active focus'
-                    },
-                    {
-                      label: 'Products hit',
-                      value: formatCount(t1InboundAffectedServiceCount),
-                      tone: '#f59e0b',
-                      helper: 'distinct product groups'
-                    },
-                    {
-                      label: 'Voice queue',
-                      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
-                      tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
-                      helper: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within target'
-                    }
-                  ]}
-                />
-
-                <OpsSubPanel title="Inbound pattern" subtitle="Recent completed-day spike profile." tone="#8b5cf6">
-                  <ConsoleSparklinePanel
-                    rows={t1InboundAnomalyTrendRows}
-                    lines={t1InboundAnomalyTrendLines.slice(0, 3)}
-                    emptyMessage="No Tier 1 inbound anomaly trend is available right now."
-                    height={168}
+                  <OpsValueTiles
+                    columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                    items={[
+                      {
+                        label: 'Flagged days',
+                        value: formatCount(summary.t1InboundAnomalyCount || 0),
+                        tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6',
+                        helper: summary.t1InboundFocusStatusLabel || 'completed-day watch'
+                      },
+                      {
+                        label: 'Still high',
+                        value: summary.t1InboundFocusStatusLabel || 'No',
+                        tone: summary.t1InboundFocusStatusTone || '#64748b',
+                        helper: summary.t1InboundFocusLabel || 'no active focus'
+                      },
+                      {
+                        label: 'Products hit',
+                        value: formatCount(t1InboundAffectedServiceCount),
+                        tone: '#f59e0b',
+                        helper: 'distinct product groups'
+                      },
+                      {
+                        label: 'Voice queue',
+                        value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
+                        tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
+                        helper: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within target'
+                      }
+                    ]}
                   />
-                </OpsSubPanel>
-              </Box>
+
+                  <OpsSubPanel title="Inbound pattern" subtitle="Recent completed-day spike profile." tone="#8b5cf6">
+                    <ConsoleSparklinePanel
+                      rows={t1InboundAnomalyTrendRows}
+                      lines={t1InboundAnomalyTrendLines.slice(0, 3)}
+                      emptyMessage="No Tier 1 inbound anomaly trend is available right now."
+                      height={168}
+                    />
+                  </OpsSubPanel>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 0.85, alignItems: 'stretch' }}>
+                  <Box
+                    sx={{
+                      p: 0.95,
+                      borderRadius: 2.8,
+                      border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.24)}`,
+                      bgcolor: 'rgba(8, 15, 29, 0.84)',
+                      background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.16)} 0%, rgba(8, 15, 29, 0.96) 62%)`
+                    }}
+                  >
+                    <Stack spacing={0.72}>
+                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between">
+                        <Stack spacing={0.18}>
+                          <Typography variant="caption" sx={{ color: '#cbd5f5', textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
+                            Current watch
+                          </Typography>
+                          <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
+                            {summary.t1InboundFocusLabel
+                              ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
+                              : 'No major inbound anomaly right now'}
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: OPS_MUTED, lineHeight: 1.28, maxWidth: 620 }}>
+                            {summary.t1InboundFocusStatusDetail || 'Completed-day inbound spikes are clear right now.'}
+                          </Typography>
+                        </Stack>
+                        <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" alignItems="flex-start">
+                          <SignalChip label={summary.t1InboundFocusStatusLabel || 'Clear'} tone={summary.t1InboundFocusStatusTone || '#14b8a6'} />
+                          <SignalChip label={summary.telephonyTier1SlaBreached ? 'Voice outside SLA' : 'Voice within SLA'} tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'} />
+                        </Stack>
+                      </Stack>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 0.68 }}>
+                        <ConsoleLaneTile
+                          label="Flagged days"
+                          count={summary.t1InboundAnomalyCount || 0}
+                          tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6'}
+                          detail={summary.t1InboundFocusStatusLabel || 'completed-day watch'}
+                          helper="recent anomaly days"
+                          percent={Math.min(100, Number(summary.t1InboundAnomalyCount || 0) * 25)}
+                          active={(summary.t1InboundAnomalyCount || 0) > 0}
+                        />
+                        <ConsoleLaneTile
+                          label="Still high"
+                          count={summary.t1InboundHighAnomalyCount || 0}
+                          tone={summary.t1InboundFocusStatusTone || '#64748b'}
+                          detail={summary.t1InboundFocusLabel || 'no active focus'}
+                          helper="lingering elevated days"
+                          percent={Math.min(100, Number(summary.t1InboundHighAnomalyCount || 0) * 50)}
+                          active={(summary.t1InboundHighAnomalyCount || 0) > 0}
+                        />
+                        <ConsoleLaneTile
+                          label="Products hit"
+                          count={t1InboundAffectedServiceCount}
+                          tone="#f59e0b"
+                          detail="distinct product groups"
+                          helper="spread of anomaly pattern"
+                          percent={Math.min(100, Number(t1InboundAffectedServiceCount || 0) * 25)}
+                          active={t1InboundAffectedServiceCount > 1}
+                        />
+                        <ConsoleLaneTile
+                          label="Voice queue"
+                          count={tier1VoiceQueue ? (summary.telephonyTier1Waiting || 0) : 0}
+                          tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'}
+                          detail={tier1VoiceQueue ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue` : 'queue unavailable'}
+                          helper={summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within target'}
+                          percent={summary.telephonyTier1SlaBreached ? 100 : Math.min(100, Number(summary.telephonyTier1MaxQueueSeconds || 0) / 20 * 100)}
+                          active={!!summary.telephonyTier1SlaBreached}
+                        />
+                      </Box>
+                    </Stack>
+                  </Box>
+
+                  <OpsSubPanel title="Inbound pattern" subtitle="Recent completed-day spike profile." tone="#8b5cf6">
+                    <ConsoleSparklinePanel
+                      rows={t1InboundAnomalyTrendRows}
+                      lines={t1InboundAnomalyTrendLines.slice(0, 3)}
+                      emptyMessage="No Tier 1 inbound anomaly trend is available right now."
+                      height={148}
+                    />
+                  </OpsSubPanel>
+                </Box>
+              )}
             </OpsSection>
           </Box>
 
