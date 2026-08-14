@@ -1779,11 +1779,6 @@ export default function NocMonitoringPage() {
     [t1OwnershipLens, t1OwnershipLensConfig]
   )
 
-  const openT1WorkbenchDrawer = useCallback((drawerKey, preset = 'all', nextFilters = {}) => {
-    setT1WorkbenchDrawer((current) => current === drawerKey ? 'none' : drawerKey)
-    applyT1ActionLens(preset, nextFilters)
-  }, [applyT1ActionLens])
-
   const resetT1ActionFilters = useCallback(() => {
     setT1QuickPreset('all')
     setT1ActionFilters(DEFAULT_T1_ACTION_FILTERS)
@@ -1804,6 +1799,11 @@ export default function NocMonitoringPage() {
       }, 90)
     }
   }, [])
+
+  const openT1WorkbenchDrawer = useCallback((drawerKey, preset = 'all', nextFilters = {}) => {
+    setT1WorkbenchDrawer((current) => current === drawerKey ? 'none' : drawerKey)
+    applyT1ActionLens(preset, nextFilters)
+  }, [applyT1ActionLens])
 
   const handleExportT1ActionView = useCallback(async () => {
     setExportingT1Action(true)
