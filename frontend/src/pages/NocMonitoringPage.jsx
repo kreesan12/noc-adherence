@@ -3466,328 +3466,324 @@ export default function NocMonitoringPage() {
             </OpsSection>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.1fr 0.9fr' }, gap: 1.05, alignItems: 'start' }}>
-            <OpsSection
-              title={(
-                <Stack direction="row" spacing={0.7} alignItems="center">
-                  <RouteRoundedIcon sx={{ fontSize: 18, color: '#f97316' }} />
-                  <Box component="span">Action Floor</Box>
-                </Stack>
-              )}
-              subtitle="Primary lanes first. Side pressure is folded underneath."
-              tone="#334155"
-              minHeight={0}
-              action={(
-                <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
-                  <SignalChip label="P1 30m" tone="#ef4444" />
-                  <SignalChip label="P2 60m" tone="#f97316" />
-                  <SignalChip label="P3 / P4 90m" tone="#2563eb" />
-                </Stack>
-              )}
-            >
-              <Stack spacing={0.85}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.78 }}>
-                  {t1PrimaryLaneTileRows.map((row) => {
-                    const drawerKey = row.key === 'P1' ? 'p1' : 'urgent'
-                    const preset = row.key === 'P1' ? 'p1Only' : 'dueNow'
-                    const nextFilters = row.key === 'P1' ? { pLevel: 'P1' } : { pLevel: row.key }
-                    return (
-                      <ConsoleLaneTile
-                        key={row.key || row.label}
-                        label={row.label}
-                        count={row.count}
-                        tone={row.tone || ACCENT}
-                        detail={`${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`}
-                        helper={`${row.playPolicyTitle || row.label} | ${row.playTargetMinutes || '--'}m target`}
-                        percent={row.percent}
-                        active={row.key === 'P1' ? (summary.tier1P1Breached || 0) > 0 : Number(row.breached || 0) > 0}
-                        badge={row.playTargetMinutes ? `${row.playTargetMinutes}m` : 'live'}
-                        onClick={() => openT1WorkbenchDrawer(drawerKey, preset, nextFilters)}
-                      />
-                    )
-                  })}
-                </Box>
+          <OpsSection
+            title={(
+              <Stack direction="row" spacing={0.7} alignItems="center">
+                <RouteRoundedIcon sx={{ fontSize: 18, color: '#f97316' }} />
+                <Box component="span">Live Command Board</Box>
+              </Stack>
+            )}
+            subtitle="Primary lanes, side pressure, and queue ownership in one live Tier 1 command surface."
+            tone="#334155"
+            minHeight={0}
+            action={(
+              <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                <SignalChip label="P1 30m" tone="#ef4444" />
+                <SignalChip label="P2 60m" tone="#f97316" />
+                <SignalChip label="P3 / P4 90m" tone="#2563eb" />
+              </Stack>
+            )}
+          >
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.06fr 0.94fr' }, gap: 0.92, alignItems: 'start' }}>
+              <OpsSubPanel
+                title="Action Floor"
+                subtitle="Primary lanes first. Side pressure is folded underneath."
+                tone="#f97316"
+              >
+                <Stack spacing={0.85}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.78 }}>
+                    {t1PrimaryLaneTileRows.map((row) => {
+                      const drawerKey = row.key === 'P1' ? 'p1' : 'urgent'
+                      const preset = row.key === 'P1' ? 'p1Only' : 'dueNow'
+                      const nextFilters = row.key === 'P1' ? { pLevel: 'P1' } : { pLevel: row.key }
+                      return (
+                        <ConsoleLaneTile
+                          key={row.key || row.label}
+                          label={row.label}
+                          count={row.count}
+                          tone={row.tone || ACCENT}
+                          detail={`${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`}
+                          helper={`${row.playPolicyTitle || row.label} | ${row.playTargetMinutes || '--'}m target`}
+                          percent={row.percent}
+                          active={row.key === 'P1' ? (summary.tier1P1Breached || 0) > 0 : Number(row.breached || 0) > 0}
+                          badge={row.playTargetMinutes ? `${row.playTargetMinutes}m` : 'live'}
+                          onClick={() => openT1WorkbenchDrawer(drawerKey, preset, nextFilters)}
+                        />
+                      )
+                    })}
+                  </Box>
 
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.92fr 1.08fr' }, gap: 0.82, alignItems: 'start' }}>
-                  <OpsSubPanel title="Side pressure" subtitle="Parked, change, and non-play work kept visible but quieter." tone="#475569">
-                    {t1SupportActionRows.length ? (
-                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.68 }}>
-                        {t1SupportActionRows.map((row) => (
-                          <ConsoleLaneRail
-                            key={row.key || row.label}
-                            label={row.label}
-                            count={row.count}
-                            tone={row.tone || '#64748b'}
-                            percent={summary.tier1Open ? (Number(row.count || 0) / Number(summary.tier1Open || 1)) * 100 : 0}
-                            detail={row.playTargetMinutes
-                              ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
-                              : `${formatCount(row.noActiveTimer || 0)} no active play clock`}
-                            helper={row.playTargetMinutes ? `${row.playPolicyTitle || row.label}` : `${formatCount(row.count || 0)} open rows`}
-                            active={row.key === 'Change' ? Number(row.count || 0) > 0 : false}
-                          />
-                        ))}
-                      </Box>
-                    ) : (
-                      <AnalyticsChartFallback minHeight={180} message="No side-lane pressure is visible right now." />
-                    )}
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.92fr 1.08fr' }, gap: 0.82, alignItems: 'start' }}>
+                    <OpsSubPanel title="Side pressure" subtitle="Parked, change, and non-play work kept visible but quieter." tone="#475569">
+                      {t1SupportActionRows.length ? (
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.68 }}>
+                          {t1SupportActionRows.map((row) => (
+                            <ConsoleLaneRail
+                              key={row.key || row.label}
+                              label={row.label}
+                              count={row.count}
+                              tone={row.tone || '#64748b'}
+                              percent={summary.tier1Open ? (Number(row.count || 0) / Number(summary.tier1Open || 1)) * 100 : 0}
+                              detail={row.playTargetMinutes
+                                ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
+                                : `${formatCount(row.noActiveTimer || 0)} no active play clock`}
+                              helper={row.playTargetMinutes ? `${row.playPolicyTitle || row.label}` : `${formatCount(row.count || 0)} open rows`}
+                              active={row.key === 'Change' ? Number(row.count || 0) > 0 : false}
+                            />
+                          ))}
+                        </Box>
+                      ) : (
+                        <AnalyticsChartFallback minHeight={180} message="No side-lane pressure is visible right now." />
+                      )}
+                    </OpsSubPanel>
+
+                    <OpsSubPanel title="Lane pressure mix" subtitle="Primary versus side-lane concentration right now." tone="#475569">
+                      <Stack spacing={0.8}>
+                        <DonutBreakdownChart
+                          rows={t1ActionMixRows}
+                          dataKey="count"
+                          emptyMessage="No queue mix is available right now."
+                          colorMap={Object.fromEntries(t1ActionMixRows.map((row) => [row.key, row.tone || ACCENT]))}
+                          height={232}
+                        />
+                        <OpsValueTiles
+                          columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                          items={[
+                            {
+                              label: 'Clocks breached',
+                              value: formatCount(summary.tier1PlayClockBreached || 0),
+                              tone: '#f97316',
+                              helper: 'active work already late'
+                            },
+                            {
+                              label: 'Due <=30m',
+                              value: formatCount(summary.tier1PlayClockDueSoon || 0),
+                              tone: '#f59e0b',
+                              helper: 'next danger window'
+                            },
+                            {
+                              label: 'Parked timers',
+                              value: formatCount(summary.tier1ParkedTimers || 0),
+                              tone: '#64748b',
+                              helper: `${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`
+                            },
+                            {
+                              label: 'Change control',
+                              value: formatCount(summary.tier1ChangeControlOpen || 0),
+                              tone: '#8b5cf6',
+                              helper: 'separate operating lane'
+                            }
+                          ]}
+                        />
+                      </Stack>
+                    </OpsSubPanel>
+                  </Box>
+                </Stack>
+              </OpsSubPanel>
+
+              <OpsSubPanel
+                title="Queue Posture"
+                subtitle="Read the queue by ownership first, then switch the lens."
+                tone="#3b82f6"
+                action={(
+                  <ConsoleToggleStrip
+                    value={t1PostureLens}
+                    onChange={setT1PostureLens}
+                    options={[
+                      { value: 'workflowOwner', label: 'Owner', tone: '#14b8a6' },
+                      { value: 'operationalState', label: 'State', tone: '#3b82f6' },
+                      { value: 'escalationPath', label: 'Path', tone: '#8b5cf6' },
+                      { value: 'automation', label: 'Automation', tone: '#7c3aed' }
+                    ]}
+                  />
+                )}
+              >
+                <Stack spacing={0.82}>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.78 }}>
+                    <ConsoleLaneTile
+                      label="Desk-owned"
+                      count={summary.tier1WithDesk || 0}
+                      tone="#14b8a6"
+                      detail={`${formatCount(t1DeskUrgentCount)} urgent | ${formatCount(t1DeskP1Count)} P1`}
+                      helper="with Tier 1 right now"
+                      percent={summary.tier1Open ? ((summary.tier1WithDesk || 0) / summary.tier1Open) * 100 : 0}
+                      active={t1DeskUrgentCount > 0}
+                      onClick={() => setT1PostureLens('workflowOwner')}
+                    />
+                    <ConsoleLaneTile
+                      label="Maintenance"
+                      count={summary.tier1WithMaintenance || 0}
+                      tone="#3b82f6"
+                      detail={`${formatCount(t1MaintenanceBreachedCount)} breached | ${formatCount(t1MaintenanceTrackedCount)} tracked`}
+                      helper="largest external holder"
+                      percent={summary.tier1Open ? ((summary.tier1WithMaintenance || 0) / summary.tier1Open) * 100 : 0}
+                      active={t1MaintenanceBreachedCount > 0}
+                      onClick={() => setT1PostureLens('escalationPath')}
+                    />
+                    <ConsoleLaneTile
+                      label="Waiting client"
+                      count={summary.tier1WaitingClient || 0}
+                      tone="#f97316"
+                      detail={`${formatCount(t1ClientPendingOnHoldCount)} on hold | ${formatCount(t1ClientPendingUrgentCount)} urgent`}
+                      helper="ISP / client pending"
+                      percent={summary.tier1Open ? ((summary.tier1WaitingClient || 0) / summary.tier1Open) * 100 : 0}
+                      active={t1ClientPendingUrgentCount > 0}
+                      onClick={() => setT1PostureLens('workflowOwner')}
+                    />
+                    <ConsoleLaneTile
+                      label="Parked timers"
+                      count={summary.tier1ParkedTimers || 0}
+                      tone="#64748b"
+                      detail={`${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`}
+                      helper="pre-play timer buckets"
+                      percent={summary.tier1Open ? ((summary.tier1ParkedTimers || 0) / summary.tier1Open) * 100 : 0}
+                      active={Number(summary.tier1ParkedTimers || 0) > 0}
+                      onClick={() => setT1PostureLens('workflowOwner')}
+                    />
+                  </Box>
+
+                  <OpsSubPanel title={`${t1ActivePostureLens.label} leaderboard`} subtitle="Top live lanes under the selected ownership lens." tone={t1ActivePostureLens.tone}>
+                    <Stack spacing={0.82}>
+                      <HorizontalBarChart
+                        rows={t1ActivePostureLens.rows.slice(0, 6)}
+                        dataKey="count"
+                        emptyMessage={`No ${t1ActivePostureLens.label.toLowerCase()} shape is available right now.`}
+                        colorMap={Object.fromEntries((t1ActivePostureLens.rows || []).map((row) => [row.key, row.tone || t1ActivePostureLens.tone]))}
+                        height={246}
+                      />
+                      <OpsValueTiles
+                        columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                        items={(t1ActivePostureLens.rows || []).slice(0, 4).map((row) => ({
+                          label: row.label,
+                          value: formatCount(row.count || 0),
+                          tone: row.tone || t1ActivePostureLens.tone,
+                          helper: t1ActivePostureLens.secondaryText(row)
+                        }))}
+                      />
+                    </Stack>
+                  </OpsSubPanel>
+                </Stack>
+              </OpsSubPanel>
+            </Box>
+          </OpsSection>
+
+          <OpsSection
+            title={(
+              <Stack direction="row" spacing={0.7} alignItems="center">
+                <InsightsRoundedIcon sx={{ fontSize: 18, color: '#14b8a6' }} />
+                <Box component="span">Tempo + Workbench</Box>
+              </Stack>
+            )}
+            subtitle="Historic drift, day pace, and one-click routes into the live queue."
+            tone="#334155"
+            minHeight={0}
+          >
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 0.92, alignItems: 'start' }}>
+              <OpsSubPanel
+                title="Ops Drift"
+                subtitle="History and drift in one panel."
+                tone="#14b8a6"
+                action={(
+                  <ConsoleToggleStrip
+                    value={t1TrendLens}
+                    onChange={setT1TrendLens}
+                    options={[
+                      { value: 'queue', label: 'Queue', tone: '#14b8a6' },
+                      { value: 'received', label: 'Received', tone: '#0f766e' },
+                      { value: 'solved', label: 'Solved', tone: '#22c55e' },
+                      { value: 'voice', label: 'Voice', tone: '#06b6d4' }
+                    ]}
+                  />
+                )}
+              >
+                <Stack spacing={0.82}>
+                  <MultiLineChartPanel
+                    rows={t1ActiveTrendLens.rows}
+                    lines={t1ActiveTrendLens.lines}
+                    emptyMessage={t1ActiveTrendLens.emptyMessage}
+                    showLegend={false}
+                    height={248}
+                  />
+                  <OpsValueTiles
+                    columns={{ xs: `repeat(${Math.min(Math.max(t1ActiveTrendLens.summaryItems.length, 2), 4)}, minmax(0, 1fr))` }}
+                    items={t1ActiveTrendLens.summaryItems}
+                  />
+                </Stack>
+              </OpsSubPanel>
+
+              <OpsSubPanel title="Desk Control" subtitle="Daily pace, queue access, and one-click drill routes." tone="#8b5cf6">
+                <Stack spacing={0.9}>
+                  <OpsSubPanel title="Day pace" subtitle="Today versus the same weekday and automation touch." tone="#14b8a6">
+                    <OpsValueTiles
+                      columns={{ xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }}
+                      items={t1DeskCompareTiles}
+                    />
                   </OpsSubPanel>
 
-                  <OpsSubPanel title="Lane pressure mix" subtitle="Primary versus side-lane concentration right now." tone="#475569">
-                    <Stack spacing={0.8}>
-                      <DonutBreakdownChart
-                        rows={t1ActionMixRows}
-                        dataKey="count"
-                        emptyMessage="No queue mix is available right now."
-                        colorMap={Object.fromEntries(t1ActionMixRows.map((row) => [row.key, row.tone || ACCENT]))}
-                        height={232}
-                      />
+                  <OpsSubPanel title="Workbench launch" subtitle="Fast routes into the live queue." tone="#8b5cf6">
+                    <Stack spacing={0.82}>
                       <OpsValueTiles
                         columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
                         items={[
                           {
-                            label: 'Clocks breached',
-                            value: formatCount(summary.tier1PlayClockBreached || 0),
-                            tone: '#f97316',
-                            helper: 'active work already late'
+                            label: 'Live queue',
+                            value: formatCount(summary.tier1Open || 0),
+                            tone: '#14b8a6',
+                            helper: 'all open Tier 1 rows'
                           },
                           {
-                            label: 'Due <=30m',
-                            value: formatCount(summary.tier1PlayClockDueSoon || 0),
+                            label: 'Filtered',
+                            value: formatCount(t1FilteredActionViewRows.length),
+                            tone: '#3b82f6',
+                            helper: 'current filter result'
+                          },
+                          {
+                            label: 'Desk-owned',
+                            value: formatCount(t1DeskRows.length),
+                            tone: '#14b8a6',
+                            helper: 'with Tier 1 now'
+                          },
+                          {
+                            label: 'Urgent',
+                            value: formatCount(t1DueNowRows.length),
                             tone: '#f59e0b',
-                            helper: 'next danger window'
-                          },
-                          {
-                            label: 'Parked timers',
-                            value: formatCount(summary.tier1ParkedTimers || 0),
-                            tone: '#64748b',
-                            helper: `${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`
-                          },
-                          {
-                            label: 'Change control',
-                            value: formatCount(summary.tier1ChangeControlOpen || 0),
-                            tone: '#8b5cf6',
-                            helper: 'separate operating lane'
+                            helper: 'breached or <=30m'
                           }
                         ]}
                       />
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.65 }}>
+                        <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
+                        <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
+                        <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
+                        <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
+                        <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
+                        <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
+                      </Box>
+
+                      <Button
+                        variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
+                        onClick={() => {
+                          const next = !t1WorkbenchExpanded
+                          setT1WorkbenchExpanded(next)
+                          if (!next) {
+                            setT1WorkbenchDrawer('none')
+                          }
+                        }}
+                        sx={{
+                          borderRadius: 2.4,
+                          textTransform: 'none',
+                          fontWeight: 800,
+                          alignSelf: 'stretch'
+                        }}
+                      >
+                        {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
+                      </Button>
                     </Stack>
                   </OpsSubPanel>
-                </Box>
-              </Stack>
-            </OpsSection>
-
-            <OpsSection
-              title={(
-                <Stack direction="row" spacing={0.7} alignItems="center">
-                  <SupportAgentRoundedIcon sx={{ fontSize: 18, color: '#3b82f6' }} />
-                  <Box component="span">Queue Posture</Box>
                 </Stack>
-              )}
-              subtitle="Read the queue by ownership first, then switch the lens."
-              tone="#334155"
-              minHeight={0}
-              action={(
-                <ConsoleToggleStrip
-                  value={t1PostureLens}
-                  onChange={setT1PostureLens}
-                  options={[
-                    { value: 'workflowOwner', label: 'Owner', tone: '#14b8a6' },
-                    { value: 'operationalState', label: 'State', tone: '#3b82f6' },
-                    { value: 'escalationPath', label: 'Path', tone: '#8b5cf6' },
-                    { value: 'automation', label: 'Automation', tone: '#7c3aed' }
-                  ]}
-                />
-              )}
-            >
-              <Stack spacing={0.82}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.78 }}>
-                  <ConsoleLaneTile
-                    label="Desk-owned"
-                    count={summary.tier1WithDesk || 0}
-                    tone="#14b8a6"
-                    detail={`${formatCount(t1DeskUrgentCount)} urgent | ${formatCount(t1DeskP1Count)} P1`}
-                    helper="with Tier 1 right now"
-                    percent={summary.tier1Open ? ((summary.tier1WithDesk || 0) / summary.tier1Open) * 100 : 0}
-                    active={t1DeskUrgentCount > 0}
-                    onClick={() => setT1PostureLens('workflowOwner')}
-                  />
-                  <ConsoleLaneTile
-                    label="Maintenance"
-                    count={summary.tier1WithMaintenance || 0}
-                    tone="#3b82f6"
-                    detail={`${formatCount(t1MaintenanceBreachedCount)} breached | ${formatCount(t1MaintenanceTrackedCount)} tracked`}
-                    helper="largest external holder"
-                    percent={summary.tier1Open ? ((summary.tier1WithMaintenance || 0) / summary.tier1Open) * 100 : 0}
-                    active={t1MaintenanceBreachedCount > 0}
-                    onClick={() => setT1PostureLens('escalationPath')}
-                  />
-                  <ConsoleLaneTile
-                    label="Waiting client"
-                    count={summary.tier1WaitingClient || 0}
-                    tone="#f97316"
-                    detail={`${formatCount(t1ClientPendingOnHoldCount)} on hold | ${formatCount(t1ClientPendingUrgentCount)} urgent`}
-                    helper="ISP / client pending"
-                    percent={summary.tier1Open ? ((summary.tier1WaitingClient || 0) / summary.tier1Open) * 100 : 0}
-                    active={t1ClientPendingUrgentCount > 0}
-                    onClick={() => setT1PostureLens('workflowOwner')}
-                  />
-                  <ConsoleLaneTile
-                    label="Parked timers"
-                    count={summary.tier1ParkedTimers || 0}
-                    tone="#64748b"
-                    detail={`${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`}
-                    helper="pre-play timer buckets"
-                    percent={summary.tier1Open ? ((summary.tier1ParkedTimers || 0) / summary.tier1Open) * 100 : 0}
-                    active={Number(summary.tier1ParkedTimers || 0) > 0}
-                    onClick={() => setT1PostureLens('workflowOwner')}
-                  />
-                </Box>
-
-                <OpsSubPanel title={`${t1ActivePostureLens.label} leaderboard`} subtitle="Top live lanes under the selected ownership lens." tone={t1ActivePostureLens.tone}>
-                  <Stack spacing={0.82}>
-                    <HorizontalBarChart
-                      rows={t1ActivePostureLens.rows.slice(0, 6)}
-                      dataKey="count"
-                      emptyMessage={`No ${t1ActivePostureLens.label.toLowerCase()} shape is available right now.`}
-                      colorMap={Object.fromEntries((t1ActivePostureLens.rows || []).map((row) => [row.key, row.tone || t1ActivePostureLens.tone]))}
-                      height={246}
-                    />
-                    <OpsValueTiles
-                      columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                      items={(t1ActivePostureLens.rows || []).slice(0, 4).map((row) => ({
-                        label: row.label,
-                        value: formatCount(row.count || 0),
-                        tone: row.tone || t1ActivePostureLens.tone,
-                        helper: t1ActivePostureLens.secondaryText(row)
-                      }))}
-                    />
-                  </Stack>
-                </OpsSubPanel>
-              </Stack>
-            </OpsSection>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05, alignItems: 'start' }}>
-            <OpsSection
-              title={(
-                <Stack direction="row" spacing={0.7} alignItems="center">
-                  <InsightsRoundedIcon sx={{ fontSize: 18, color: '#14b8a6' }} />
-                  <Box component="span">Ops Drift</Box>
-                </Stack>
-              )}
-              subtitle="History and drift in one panel."
-              tone="#334155"
-              minHeight={0}
-              action={(
-                <ConsoleToggleStrip
-                  value={t1TrendLens}
-                  onChange={setT1TrendLens}
-                  options={[
-                    { value: 'queue', label: 'Queue', tone: '#14b8a6' },
-                    { value: 'received', label: 'Received', tone: '#0f766e' },
-                    { value: 'solved', label: 'Solved', tone: '#22c55e' },
-                    { value: 'voice', label: 'Voice', tone: '#06b6d4' }
-                  ]}
-                />
-              )}
-            >
-              <Stack spacing={0.82}>
-                <MultiLineChartPanel
-                  rows={t1ActiveTrendLens.rows}
-                  lines={t1ActiveTrendLens.lines}
-                  emptyMessage={t1ActiveTrendLens.emptyMessage}
-                  showLegend={false}
-                  height={248}
-                />
-                <OpsValueTiles
-                  columns={{ xs: `repeat(${Math.min(Math.max(t1ActiveTrendLens.summaryItems.length, 2), 4)}, minmax(0, 1fr))` }}
-                  items={t1ActiveTrendLens.summaryItems}
-                />
-              </Stack>
-            </OpsSection>
-
-            <OpsSection
-              title={(
-                <Stack direction="row" spacing={0.7} alignItems="center">
-                  <LanRoundedIcon sx={{ fontSize: 18, color: '#8b5cf6' }} />
-                  <Box component="span">Desk Control</Box>
-                </Stack>
-              )}
-              subtitle="Daily pace, queue access, and one-click drill routes."
-              tone="#334155"
-              minHeight={0}
-            >
-              <Stack spacing={0.9}>
-                <OpsSubPanel title="Day pace" subtitle="Today versus the same weekday and automation touch." tone="#14b8a6">
-                  <OpsValueTiles
-                    columns={{ xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }}
-                    items={t1DeskCompareTiles}
-                  />
-                </OpsSubPanel>
-
-                <OpsSubPanel title="Workbench launch" subtitle="Fast routes into the live queue." tone="#8b5cf6">
-                  <Stack spacing={0.82}>
-                    <OpsValueTiles
-                      columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                      items={[
-                        {
-                          label: 'Live queue',
-                          value: formatCount(summary.tier1Open || 0),
-                          tone: '#14b8a6',
-                          helper: 'all open Tier 1 rows'
-                        },
-                        {
-                          label: 'Filtered',
-                          value: formatCount(t1FilteredActionViewRows.length),
-                          tone: '#3b82f6',
-                          helper: 'current filter result'
-                        },
-                        {
-                          label: 'Desk-owned',
-                          value: formatCount(t1DeskRows.length),
-                          tone: '#14b8a6',
-                          helper: 'with Tier 1 now'
-                        },
-                        {
-                          label: 'Urgent',
-                          value: formatCount(t1DueNowRows.length),
-                          tone: '#f59e0b',
-                          helper: 'breached or <=30m'
-                        }
-                      ]}
-                    />
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.65 }}>
-                      <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
-                      <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
-                      <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
-                      <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
-                      <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
-                      <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
-                    </Box>
-
-                    <Button
-                      variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
-                      onClick={() => {
-                        const next = !t1WorkbenchExpanded
-                        setT1WorkbenchExpanded(next)
-                        if (!next) {
-                          setT1WorkbenchDrawer('none')
-                        }
-                      }}
-                      sx={{
-                        borderRadius: 2.4,
-                        textTransform: 'none',
-                        fontWeight: 800,
-                        alignSelf: 'stretch'
-                      }}
-                    >
-                      {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
-                    </Button>
-                  </Stack>
-                </OpsSubPanel>
-              </Stack>
-            </OpsSection>
-          </Box>
+              </OpsSubPanel>
+            </Box>
+          </OpsSection>
           <Collapse in={t1WorkbenchExpanded} timeout={220} unmountOnExit={false}>
             <Box ref={t1ActionViewRef}>
               <OpsSection title="Tier 1 Workbench" subtitle="Filtered live queue once the command view points you to a lane." tone="#14b8a6" minHeight={0}>
