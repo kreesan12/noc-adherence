@@ -39,6 +39,8 @@ import {
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -1031,12 +1033,18 @@ function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260, showLege
     return <AnalyticsChartFallback minHeight={height} message={emptyMessage} />
   }
 
+  const xInterval = rows.length > 40
+    ? Math.ceil(rows.length / 8)
+    : rows.length > 18
+      ? Math.ceil(rows.length / 10)
+      : 0
+
   return (
     <Box sx={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={rows} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={OPS_GRID} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} interval={2} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} interval={xInterval} minTickGap={18} />
           <YAxis tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} />
           <Tooltip />
           {showLegend ? <Legend wrapperStyle={{ color: OPS_MUTED }} /> : null}
@@ -1056,6 +1064,61 @@ function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260, showLege
           ))}
         </LineChart>
       </ResponsiveContainer>
+    </Box>
+  )
+}
+
+function DonutBreakdownChart({ rows, dataKey = 'count', emptyMessage, colorMap = {}, height = 220 }) {
+  if (!rows.length) {
+    return <AnalyticsChartFallback minHeight={height} message={emptyMessage} />
+  }
+
+  const total = rows.reduce((sum, row) => sum + Number(row[dataKey] || 0), 0)
+
+  return (
+    <Box sx={{ position: 'relative', height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Tooltip />
+          <Pie
+            data={rows}
+            dataKey={dataKey}
+            nameKey="label"
+            innerRadius="58%"
+            outerRadius="84%"
+            paddingAngle={2}
+            stroke="rgba(15, 23, 42, 0.92)"
+            strokeWidth={2}
+          >
+            {rows.map((row) => (
+              <Cell key={row.key || row.label} fill={colorMap[row.key] || row.tone || ACCENT} />
+            ))}
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          pointerEvents: 'none'
+        }}
+      >
+        <Stack spacing={0.12} alignItems="center">
+          <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.55 }}>
+            live mix
+          </Typography>
+          <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1 }}>
+            {formatCount(total)}
+          </Typography>
+          <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+            tracked rows
+          </Typography>
+        </Stack>
+      </Box>
     </Box>
   )
 }
@@ -2818,7 +2881,23 @@ export default function NocMonitoringPage() {
         ) : null}
 
         {meta?.dashboardNote ? (
-          <OpsAlert severity="info">{meta.dashboardNote}</OpsAlert>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: 0.95,
+              py: 0.62,
+              borderRadius: 2.6,
+              border: `1px solid ${alpha('#38bdf8', 0.18)}`,
+              bgcolor: 'rgba(8, 15, 29, 0.72)'
+            }}
+          >
+            <MonitorHeartRoundedIcon sx={{ fontSize: 17, color: '#7dd3fc', flexShrink: 0 }} />
+            <Typography variant="caption" sx={{ color: OPS_TEXT, lineHeight: 1.3 }}>
+              {meta.dashboardNote}
+            </Typography>
+          </Box>
         ) : null}
 
         <Box
@@ -3176,16 +3255,25 @@ export default function NocMonitoringPage() {
                     </Box>
                   </OpsSubPanel>
 
-                  <OpsSubPanel title="Secondary pressure" subtitle="Parked, change, and uncategorised work that still needs a place on the wall." tone="#475569">
-                    <CompactBreakdownList
-                      rows={t1SupportActionRows}
-                      total={summary.tier1Open || 0}
-                      maxRows={4}
-                      secondaryText={(row) => row.playTargetMinutes
-                        ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
-                        : `${formatCount(row.noActiveTimer || 0)} no active play clock`}
-                      emptyMessage="No parked or side-lane pressure is visible right now."
-                    />
+                  <OpsSubPanel title="Queue composition" subtitle="One quick shape view so parked and side pressure are visible without reading the full table." tone="#475569">
+                    <Stack spacing={0.75}>
+                      <DonutBreakdownChart
+                        rows={t1ActionMixRows}
+                        dataKey="count"
+                        emptyMessage="No queue mix is available right now."
+                        colorMap={Object.fromEntries(t1ActionMixRows.map((row) => [row.key, row.tone || ACCENT]))}
+                        height={200}
+                      />
+                      <CompactBreakdownList
+                        rows={t1SupportActionRows}
+                        total={summary.tier1Open || 0}
+                        maxRows={4}
+                        secondaryText={(row) => row.playTargetMinutes
+                          ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
+                          : `${formatCount(row.noActiveTimer || 0)} no active play clock`}
+                        emptyMessage="No parked or side-lane pressure is visible right now."
+                      />
+                    </Stack>
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Command shortcuts" subtitle="Jump the workbench straight into the lane that needs action." tone="#14b8a6">

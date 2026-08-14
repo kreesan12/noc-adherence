@@ -317,8 +317,8 @@ function ShellLayout() {
             onClick={() => setNavOpen(true)}
             sx={{
               position: 'fixed',
-              top: 14,
-              left: 14,
+              top: isMonitoringRoute ? 92 : 14,
+              left: isMonitoringRoute ? 12 : 14,
               zIndex: 2200,
               bgcolor: 'rgba(15, 23, 42, 0.86)',
               color: '#f8fafc',
