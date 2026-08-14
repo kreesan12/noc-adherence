@@ -18,7 +18,6 @@ import {
   Typography
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
-import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded'
 import LanRoundedIcon from '@mui/icons-material/LanRounded'
@@ -46,7 +45,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import { fetchNocMonitoringSnapshot, fetchNocMonitoringTelephonyPulse, refreshNocMonitoringSnapshot } from '../api/nocMonitoring'
+import { fetchNocMonitoringSnapshot, fetchNocMonitoringTelephonyPulse } from '../api/nocMonitoring'
 import { PageShell } from '../components/ui/PageScaffold'
 import { downloadWorkbook } from '../utils/slaExport'
 import {
@@ -64,12 +63,15 @@ const OPS_BORDER = 'rgba(148, 163, 184, 0.28)'
 const OPS_TEXT = '#0f172a'
 const OPS_MUTED = 'rgba(51, 65, 85, 0.72)'
 const OPS_GRID = 'rgba(148, 163, 184, 0.24)'
+const OPS_RADIUS_SM = 1.2
+const OPS_RADIUS_MD = 1.5
+const OPS_RADIUS_LG = 1.75
 const DEFAULT_HISTORY_HOURS = 72
 const SNAPSHOT_POLL_MS = 5 * 60 * 1000
 const TELEPHONY_POLL_MS = 5000
 const DASHBOARD_METRIC_ROOT_SX = {
   p: 1.05,
-  borderRadius: 3.1,
+  borderRadius: OPS_RADIUS_MD,
   backdropFilter: 'blur(14px)',
   color: OPS_TEXT,
   border: `1px solid ${OPS_BORDER}`,
@@ -82,7 +84,7 @@ const DASHBOARD_METRIC_VALUE_SX = {
   color: OPS_TEXT
 }
 const DASHBOARD_SECTION_ROOT_SX = {
-  borderRadius: 3.4,
+  borderRadius: OPS_RADIUS_LG,
   color: OPS_TEXT,
   border: '1px solid rgba(148, 163, 184, 0.18)',
   background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(245, 248, 252, 0.98) 100%)',
@@ -445,6 +447,34 @@ function SignalChip({ label, tone = '#64748b' }) {
   )
 }
 
+function SectionCollapseButton({ expanded, onClick }) {
+  return (
+    <Button
+      size="small"
+      variant="outlined"
+      onClick={onClick}
+      sx={{
+        minWidth: 0,
+        px: 0.95,
+        py: 0.42,
+        borderRadius: OPS_RADIUS_SM,
+        textTransform: 'none',
+        color: OPS_TEXT,
+        borderColor: 'rgba(148, 163, 184, 0.24)',
+        bgcolor: 'rgba(255, 255, 255, 0.96)',
+        fontWeight: 800,
+        fontSize: '0.74rem',
+        '&:hover': {
+          borderColor: 'rgba(100, 116, 139, 0.34)',
+          bgcolor: 'rgba(248, 250, 252, 0.98)'
+        }
+      }}
+    >
+      {expanded ? 'Collapse' : 'Expand'}
+    </Button>
+  )
+}
+
 function DrillCounterButton({ label, count, helper, tone = ACCENT, onClick }) {
   return (
     <Button
@@ -456,7 +486,7 @@ function DrillCounterButton({ label, count, helper, tone = ACCENT, onClick }) {
         justifyContent: 'flex-start',
         px: 0.95,
         py: 0.65,
-        borderRadius: 2.5,
+        borderRadius: OPS_RADIUS_SM,
         color: OPS_TEXT,
         borderColor: alpha(tone, 0.36),
         bgcolor: 'rgba(255, 255, 255, 0.98)',
@@ -577,7 +607,7 @@ function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 
             position: 'relative',
             overflow: 'hidden',
             p: 0.9,
-            borderRadius: 2.5,
+            borderRadius: OPS_RADIUS_MD,
             border: `1px solid ${alpha(item.tone || ACCENT, 0.22)}`,
             bgcolor: 'rgba(255, 255, 255, 0.98)',
             background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(item.tone || ACCENT, 0.12)} 100%)`,
@@ -598,7 +628,7 @@ function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 
               </Typography>
               {item.badge ? <SignalChip label={item.badge} tone={item.tone || ACCENT} /> : null}
             </Stack>
-            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1, color: OPS_TEXT, letterSpacing: -0.2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.04, color: OPS_TEXT, letterSpacing: -0.2, ...(item.valueSx || {}) }}>
               {item.value}
             </Typography>
             {item.helper ? (
@@ -613,26 +643,26 @@ function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 
   )
 }
 
-function OpsStatusPill({ label, value, tone = ACCENT }) {
+function OpsStatusPill({ label, value, tone = ACCENT, centered = false, quiet = false }) {
   return (
     <Box
       sx={{
         minWidth: 0,
         px: 1.15,
         py: 0.78,
-        borderRadius: 2.8,
+        borderRadius: OPS_RADIUS_MD,
         border: `1px solid ${alpha(tone, 0.34)}`,
         bgcolor: 'rgba(255, 255, 255, 0.98)',
         background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(tone, 0.12)} 100%)`,
         boxShadow: `inset 0 0 0 1px ${alpha('#ffffff', 0.7)}, 0 10px 24px ${alpha('#020617', 0.06)}`,
-        minHeight: 54
+        minHeight: 52
       }}
     >
-      <Stack spacing={0.3} sx={{ minWidth: 0 }}>
+      <Stack spacing={0.3} sx={{ minWidth: 0, alignItems: centered ? 'center' : 'stretch', textAlign: centered ? 'center' : 'left' }}>
         <Typography variant="caption" sx={{ color: alpha(tone, 0.9), textTransform: 'uppercase', letterSpacing: 0.74, lineHeight: 1, fontWeight: 800, fontSize: '0.58rem' }}>
           {label}
         </Typography>
-        <Stack direction="row" spacing={0.65} alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={0.65} alignItems="center" justifyContent={centered ? 'center' : 'space-between'} sx={{ minWidth: 0 }}>
           <Typography
             variant="body2"
             sx={{
@@ -646,7 +676,7 @@ function OpsStatusPill({ label, value, tone = ACCENT }) {
           >
             {value}
           </Typography>
-          <Box sx={{ width: 8, height: 8, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 14px ${alpha(tone, 0.55)}`, flexShrink: 0 }} />
+          {quiet ? null : <Box sx={{ width: 8, height: 8, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 14px ${alpha(tone, 0.55)}`, flexShrink: 0 }} />}
         </Stack>
       </Stack>
     </Box>
@@ -662,9 +692,9 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
         position: 'relative',
         overflow: 'hidden',
         width: '100%',
-        p: 1.02,
+        p: 0.92,
         textAlign: 'left',
-        borderRadius: 3,
+        borderRadius: OPS_RADIUS_LG,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.5 : 0.24)}`,
         bgcolor: 'rgba(255, 255, 255, 0.98)',
@@ -700,7 +730,7 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
                   sx={{
                     width: 26,
                     height: 26,
-                    borderRadius: 1.8,
+                    borderRadius: OPS_RADIUS_SM,
                     display: 'grid',
                     placeItems: 'center',
                     color: tone,
@@ -711,18 +741,18 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
                   {icon}
                 </Box>
               ) : null}
-              <Typography variant="caption" sx={{ color: alpha(tone, 0.9), textTransform: 'uppercase', letterSpacing: 0.58, fontWeight: 800 }}>
+              <Typography variant="caption" sx={{ color: alpha(tone, 0.9), textTransform: 'uppercase', letterSpacing: 0.54, fontWeight: 800 }}>
                 {label}
               </Typography>
             </Stack>
             <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 16px ${alpha(tone, 0.55)}` }} />
           </Stack>
           <Stack direction="row" spacing={0.9} alignItems="flex-end" justifyContent="space-between">
-            <Typography variant="h4" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 0.9, letterSpacing: -0.38 }}>
+            <Typography variant="h4" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 0.92, letterSpacing: -0.32, fontSize: '2rem' }}>
               {value}
             </Typography>
             {meta ? (
-              <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.12, textAlign: 'right', maxWidth: 120 }}>
+              <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.12, textAlign: 'right', maxWidth: 132 }}>
                 {meta}
               </Typography>
             ) : null}
@@ -731,7 +761,7 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
             {detail}
           </Typography>
           <Box sx={{ height: 4, borderRadius: 999, bgcolor: alpha(tone, 0.14), overflow: 'hidden' }}>
-            <Box sx={{ width: `${Math.max(10, Math.min(100, progress ?? (active ? 100 : 58)))}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.38)} 100%)` }} />
+            <Box sx={{ width: `${Math.min(100, Math.max(0, progress ?? (active ? 100 : 58)))}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.38)} 100%)` }} />
           </Box>
         </Stack>
       </Box>
@@ -776,7 +806,7 @@ function ConsoleLaneRail({ label, count, tone = ACCENT, percent = 0, detail, hel
         width: '100%',
         p: 0.9,
         textAlign: 'left',
-        borderRadius: 2.6,
+        borderRadius: OPS_RADIUS_MD,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.48 : 0.22)}`,
         bgcolor: 'rgba(255, 255, 255, 0.98)',
@@ -807,7 +837,7 @@ function ConsoleLaneRail({ label, count, tone = ACCENT, percent = 0, detail, hel
         <Box sx={{ height: 8, borderRadius: 999, bgcolor: 'rgba(148, 163, 184, 0.12)', overflow: 'hidden' }}>
           <Box
             sx={{
-              width: `${Math.max(4, Math.min(100, percent))}%`,
+              width: `${percent <= 0 ? 0 : Math.max(4, Math.min(100, percent))}%`,
               height: '100%',
               borderRadius: 999,
               background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.58)} 100%)`
@@ -838,7 +868,7 @@ function ConsoleLaneTile({ label, count, tone = ACCENT, detail, helper, percent 
         width: '100%',
         p: 0.95,
         textAlign: 'left',
-        borderRadius: 2.7,
+        borderRadius: OPS_RADIUS_MD,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.5 : 0.24)}`,
         bgcolor: 'rgba(255, 255, 255, 0.98)',
@@ -880,7 +910,7 @@ function ConsoleLaneTile({ label, count, tone = ACCENT, detail, helper, percent 
         <Box sx={{ height: 6, borderRadius: 999, bgcolor: 'rgba(148, 163, 184, 0.12)', overflow: 'hidden' }}>
           <Box
             sx={{
-              width: `${Math.max(6, Math.min(100, percent))}%`,
+              width: `${percent <= 0 ? 0 : Math.max(6, Math.min(100, percent))}%`,
               height: '100%',
               borderRadius: 999,
               background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.36)} 100%)`
@@ -958,7 +988,7 @@ function SpotlightCard({ item }) {
 
 function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.', getRowSx }) {
   return (
-    <Box sx={{ overflowX: 'auto', borderRadius: 2.4, border: `1px solid ${OPS_BORDER}`, background: OPS_PANEL_SOFT }}>
+    <Box sx={{ overflowX: 'auto', borderRadius: OPS_RADIUS_MD, border: `1px solid ${OPS_BORDER}`, background: OPS_PANEL_SOFT }}>
       <Table size="small" sx={{ minWidth: 760 }}>
         <TableHead>
           <TableRow>
@@ -1048,7 +1078,7 @@ function HorizontalBarChart({ rows, dataKey, emptyMessage, colorMap = {}, height
   )
 }
 
-function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260, showLegend = true }) {
+function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260, showLegend = true, xAxisLabel = null, yAxisLabel = null }) {
   if (!rows.length) {
     return <AnalyticsChartFallback minHeight={height} message={emptyMessage} />
   }
@@ -1062,10 +1092,21 @@ function MultiLineChartPanel({ rows, lines, emptyMessage, height = 260, showLege
   return (
     <Box sx={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+        <LineChart data={rows} margin={{ top: 8, right: 8, left: yAxisLabel ? 6 : -18, bottom: xAxisLabel ? 10 : 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={OPS_GRID} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} interval={xInterval} minTickGap={18} />
-          <YAxis tick={{ fontSize: 11, fill: OPS_MUTED }} stroke={OPS_GRID} />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11, fill: OPS_MUTED }}
+            stroke={OPS_GRID}
+            interval={xInterval}
+            minTickGap={18}
+            label={xAxisLabel ? { value: xAxisLabel, position: 'insideBottomRight', offset: -2, fill: OPS_MUTED, fontSize: 11 } : undefined}
+          />
+          <YAxis
+            tick={{ fontSize: 11, fill: OPS_MUTED }}
+            stroke={OPS_GRID}
+            label={yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft', fill: OPS_MUTED, fontSize: 11 } : undefined}
+          />
           <Tooltip />
           {showLegend ? <Legend wrapperStyle={{ color: OPS_MUTED }} /> : null}
           {lines.map((line) => (
@@ -1187,7 +1228,7 @@ function CompactBreakdownList({ rows, emptyMessage = 'No summary data is availab
             key={row.key || row.label}
             sx={{
               p: 0.85,
-              borderRadius: 2.2,
+              borderRadius: OPS_RADIUS_SM,
               border: `1px solid ${alpha(row.tone || ACCENT, 0.18)}`,
               bgcolor: alpha(row.tone || ACCENT, 0.08)
             }}
@@ -1237,7 +1278,7 @@ function OpsAlert({ severity = 'info', children }) {
     <Alert
       severity={severity}
       sx={{
-        borderRadius: 2.4,
+        borderRadius: OPS_RADIUS_MD,
         border: `1px solid ${OPS_BORDER}`,
         bgcolor: 'rgba(255, 255, 255, 0.98)',
         color: OPS_TEXT,
@@ -1329,7 +1370,7 @@ function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children, 
     <Box
       sx={{
         p: 0.9,
-        borderRadius: 2.7,
+        borderRadius: OPS_RADIUS_MD,
         border: `1px solid ${alpha(tone, 0.18)}`,
         bgcolor: 'rgba(255, 255, 255, 0.94)',
         background: `linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, ${alpha(tone, 0.05)} 100%)`,
@@ -1367,7 +1408,9 @@ export default function NocMonitoringPage() {
   const [payload, setPayload] = useState(null)
   const [telephonyPulse, setTelephonyPulse] = useState(null)
   const [tab, setTab] = useState('overview')
-  const [t1WatchExpanded, setT1WatchExpanded] = useState(false)
+  const [t1WatchExpanded, setT1WatchExpanded] = useState(true)
+  const [t1CommandExpanded, setT1CommandExpanded] = useState(true)
+  const [t1TempoExpanded, setT1TempoExpanded] = useState(true)
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
   const [t1DeskLimit, setT1DeskLimit] = useState(10)
@@ -1491,20 +1534,6 @@ export default function NocMonitoringPage() {
     }
   }, [loadTelephonyPulse, meta?.telephonyConfigured])
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true)
-    setError('')
-    try {
-      const next = await refreshNocMonitoringSnapshot({ historyHours: DEFAULT_HISTORY_HOURS })
-      setPayload(next)
-      void loadTelephonyPulse()
-    } catch (err) {
-      setError(err?.response?.data?.error || err?.message || 'Unable to refresh the monitoring snapshot.')
-    } finally {
-      setRefreshing(false)
-    }
-  }, [loadTelephonyPulse])
-
   const snapshot = payload?.snapshot
   const freshness = payload?.freshness
   const history = payload?.history || { series: {} }
@@ -1556,29 +1585,29 @@ export default function NocMonitoringPage() {
 
   const heroStatusItems = useMemo(() => [
     {
-      label: freshness?.hasSnapshot ? (freshness?.stale ? 'Snapshot aging' : 'Snapshot fresh') : 'Snapshot',
+      label: 'Snapshot freshness',
       value: freshness?.hasSnapshot ? formatSnapshotAge(freshness.ageMs) : 'bootstrapping',
-      tone: freshness?.hardStale ? '#dc2626' : freshness?.stale ? '#f97316' : '#16a34a'
+      tone: '#94a3b8'
     },
     {
       label: 'Updated',
       value: snapshot?.generatedAt ? formatStamp(snapshot.generatedAt) : 'Waiting',
-      tone: '#64748b'
+      tone: '#94a3b8'
     },
     {
       label: 'Ops day',
       value: summary.dayKey || '--',
-      tone: '#0f766e'
+      tone: '#94a3b8'
     },
     {
       label: 'Open work',
       value: formatCount((summary.majorOutageOpen || 0) + (summary.nldOutageOpen || 0) + (summary.backhaulOpen || 0) + (summary.vipOpen || 0) + (summary.tier1Open || 0) + (summary.tier2Open || 0)),
-      tone: '#1d4ed8'
+      tone: '#94a3b8'
     },
     {
       label: 'Impact',
       value: formatCount((summary.majorOutageSubscribers || 0) + (summary.nldOutageSubscribers || 0)),
-      tone: '#dc2626'
+      tone: '#94a3b8'
     }
   ], [freshness, snapshot, summary])
 
@@ -1638,6 +1667,149 @@ export default function NocMonitoringPage() {
   const tier1ClientPendingTickets = collections?.tier1ClientPendingTickets || []
   const tier1ParkedTickets = collections?.tier1ParkedTickets || []
   const t1InboundAnomalyRows = collections?.t1InboundAnomalies || []
+
+  const classifyTier1SlaProduct = useCallback((row) => {
+    const explicit = String(row?.slaProduct || '').trim()
+    if (explicit) return explicit
+    const serviceType = String(row?.serviceType || '').toLowerCase()
+    const product = String(row?.product || '').toUpperCase()
+    if (serviceType.includes('air')) return 'FF Air'
+    if (product === 'FTTB') return 'FTTB'
+    if (product === 'FTTH' || serviceType.includes('ftth') || serviceType.includes('home') || serviceType.includes('rise')) return 'FTTH'
+    return 'Other'
+  }, [])
+
+  const t1CreatedSlaBreachSummary = useMemo(() => {
+    const buckets = { FTTB: 0, FTTH: 0, 'FF Air': 0 }
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const slaProduct = classifyTier1SlaProduct(row)
+      if (!Object.prototype.hasOwnProperty.call(buckets, slaProduct)) return
+      const targetHours = slaProduct === 'FTTB' ? 8 : 12
+      if (Number(row?.ageHours || 0) >= targetHours) {
+        buckets[slaProduct] += 1
+      }
+    })
+    return {
+      ...buckets,
+      total: buckets.FTTB + buckets.FTTH + buckets['FF Air']
+    }
+  }, [classifyTier1SlaProduct, t1ActionViewRows])
+
+  const t1CreatedSlaPopulation = useMemo(() => {
+    const buckets = { FTTB: 0, FTTH: 0, 'FF Air': 0 }
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const slaProduct = classifyTier1SlaProduct(row)
+      if (Object.prototype.hasOwnProperty.call(buckets, slaProduct)) {
+        buckets[slaProduct] += 1
+      }
+    })
+    return buckets
+  }, [classifyTier1SlaProduct, t1ActionViewRows])
+
+  const t1RegionHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.region || '').trim() || 'Unknown region'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1OrganisationHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.organizationLabel || '').trim() || 'Unknown organisation'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1NodeHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.nodeName || '').trim() || 'Unknown node'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1OltHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.olt || '').trim() || 'Unknown OLT'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1QueueTrend = useMemo(() => {
+    const latest = historyTier1?.[historyTier1.length - 1] || null
+    const compare = latest?.bucketStart
+      ? findHistoryPointNear(historyTier1, dayjs(latest.bucketStart).subtract(24, 'hour').toISOString(), 180) || historyTier1?.[0] || null
+      : null
+    const delta = latest && compare ? Number(latest.open || 0) - Number(compare.open || 0) : null
+    const tone = delta == null ? '#94a3b8' : delta > 0 ? '#dc2626' : delta < 0 ? '#16a34a' : '#64748b'
+    const statusLabel = delta == null ? 'History building' : delta > 0 ? 'Trending up' : delta < 0 ? 'Trending down' : 'Flat'
+    return {
+      delta,
+      tone,
+      statusLabel,
+      helper: compare?.bucketStart ? `${formatSignedDelta(delta || 0)} vs ${dayjs(compare.bucketStart).format('DD MMM HH:mm')}` : 'stored snapshot trend still building'
+    }
+  }, [historyTier1])
+
+  const t1VoiceQueueState = useMemo(() => {
+    if (!tier1VoiceQueue) {
+      return {
+        tone: '#94a3b8',
+        active: false,
+        waiting: 0,
+        detail: 'Tier 1 voice queue unavailable',
+        meta: 'No live queue feed'
+      }
+    }
+    const waiting = Number(summary.telephonyTier1Waiting || 0)
+    const maxQueueSeconds = Number(summary.telephonyTier1MaxQueueSeconds || 0)
+    const avgAnswerSeconds = Number(summary.telephonyTier1AvgAnswerSeconds || 0)
+    const tone = waiting <= 0 ? '#16a34a' : maxQueueSeconds > 20 ? '#dc2626' : '#f59e0b'
+    const meta = `Avg ${formatSeconds(avgAnswerSeconds)} | Max ${formatSeconds(maxQueueSeconds)}`
+    return {
+      tone,
+      active: waiting > 0,
+      waiting,
+      detail: waiting <= 0 ? 'No callers waiting right now' : `${formatCount(waiting)} callers waiting in the NOC Tier 1 queue`,
+      meta
+    }
+  }, [summary, tier1VoiceQueue])
+
+  const t1VoiceAgentState = useMemo(() => {
+    const fallbackQueue = String(summary.telephonyTier1QueueName || '').toLowerCase()
+    const agents = (telephonyAgents || []).filter((row) => {
+      const queue = String(row?.queue || '').toLowerCase()
+      return fallbackQueue ? queue.includes(fallbackQueue) : false
+    })
+    const total = Number(summary.telephonyTier1AgentTotal || agents.length || 0)
+    const loggedIn = Number(summary.telephonyTier1AgentLoggedIn || agents.filter((row) => row.loggedIn).length || 0)
+    const busy = Number(summary.telephonyTier1AgentBusy || agents.filter((row) => Number(row?.activeCalls || 0) > 0).length || 0)
+    const ratio = total > 0 ? loggedIn / total : 0
+    const tone = total <= 0 ? '#94a3b8' : ratio >= 0.8 ? '#16a34a' : ratio >= 0.5 ? '#f59e0b' : '#dc2626'
+    return {
+      total,
+      loggedIn,
+      busy,
+      tone,
+      detail: total > 0 ? `${formatCount(loggedIn)}/${formatCount(total)} logged in on Tier 1 voice` : 'Tier 1 voice agents unavailable',
+      meta: total > 0 ? `${formatCount(busy)} on live calls` : 'No queue roster returned'
+    }
+  }, [summary, telephonyAgents])
 
   const overviewMetrics = useMemo(() => ([
     {
@@ -1810,7 +1982,7 @@ export default function NocMonitoringPage() {
       .map((row) => ({
         ...row,
         detail: row.playTargetMinutes
-          ? `${row.playPolicyTitle || row.label} | ${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
+          ? `${row.playPolicyTitle || row.label} | ${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} closing soon`
           : `${formatCount(row.count || 0)} open | ${formatCount(row.noActiveTimer || 0)} no active play clock`
       })),
     [t1ActionSummary]
@@ -1835,7 +2007,7 @@ export default function NocMonitoringPage() {
     () => t1PrimaryActionRows.map((row) => ({
       ...row,
       percent: summary.tier1Open ? (Number(row.count || 0) / Number(summary.tier1Open || 1)) * 100 : 0,
-      detail: `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`,
+      detail: `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} soon | ${formatCount(row.safe || 0)} safe`,
       helper: row.playTargetMinutes
         ? `${row.playPolicyTitle || row.label} | ${row.playTargetMinutes}m target`
         : `${formatCount(row.count || 0)} open`
@@ -2244,7 +2416,7 @@ export default function NocMonitoringPage() {
     { key: 'maintenance', label: 'Maintenance', count: t1MaintenanceRows.length, tone: '#3b82f6', detail: 'external lane' },
     { key: 'client', label: 'Waiting client', count: t1ClientPendingRows.length, tone: '#f97316', detail: 'ISP / client pending' },
     { key: 'p1', label: 'P1 queue', count: t1P1AttentionRows.length, tone: '#ef4444', detail: 'first-touch focus' },
-    { key: 'urgent', label: 'Urgent timers', count: t1DueNowRows.length, tone: '#f59e0b', detail: 'due <=30m' },
+    { key: 'urgent', label: 'Urgent timers', count: t1DueNowRows.length, tone: '#f59e0b', detail: 'closing soon' },
     { key: 'parked', label: 'Parked', count: t1ParkedRows.length, tone: '#64748b', detail: 'pre-play queues' }
   ]), [
     t1ClientPendingRows.length,
@@ -2294,14 +2466,14 @@ export default function NocMonitoringPage() {
       tone: '#14b8a6',
       summaryItems: [
         { label: 'Open now', value: formatCount(summary.tier1Open || 0), tone: '#14b8a6', helper: 'live Tier 1 queue' },
-        { label: 'Urgent', value: formatCount((collections.tier1UrgentTickets || []).length), tone: '#ef4444', helper: 'breached or <=30m' },
+        { label: 'Urgent', value: formatCount((collections.tier1UrgentTickets || []).length), tone: '#ef4444', helper: 'breached or closing soon' },
         { label: 'P1 unattended', value: formatCount(summary.tier1P1Unattended || 0), tone: '#dc2626', helper: 'first-touch queue' },
         { label: 'Change', value: formatCount(summary.tier1ChangeControlOpen || 0), tone: '#8b5cf6', helper: 'separate workflow' }
       ],
       rows: historyTier1,
       lines: [
         { key: 'open', label: 'Open queue', color: '#14b8a6' },
-        { key: 'urgent', label: 'Urgent / due <=30m', color: '#ef4444' }
+        { key: 'urgent', label: 'Urgent / closing soon', color: '#ef4444' }
       ],
       emptyMessage: 'Tier 1 historical queue pressure will appear after more monitoring buckets are stored.'
     },
@@ -2402,7 +2574,7 @@ export default function NocMonitoringPage() {
       emptyMessage: 'No Tier 1 desk-owned rows are open right now.',
       summaryItems: [
         { label: 'Desk-owned', value: formatCount(t1DeskRows.length), tone: '#0f766e', helper: 'active Tier 1 workbench' },
-        { label: 'Urgent', value: formatCount(t1DeskUrgentCount), tone: '#ea580c', helper: 'breached or due <=30m' },
+        { label: 'Urgent', value: formatCount(t1DeskUrgentCount), tone: '#ea580c', helper: 'breached or closing soon' },
         { label: 'P1 rows', value: formatCount(t1DeskP1Count), tone: '#dc2626', helper: 'live desk P1 pressure' }
       ]
     },
@@ -2431,7 +2603,7 @@ export default function NocMonitoringPage() {
       emptyMessage: 'No Tier 1 rows are currently waiting on the client or ISP.',
       summaryItems: [
         { label: 'Waiting client', value: formatCount(t1ClientPendingRows.length), tone: '#ea580c', helper: `${formatCount(t1ClientPendingOnHoldCount)} on hold right now` },
-        { label: 'Urgent', value: formatCount(t1ClientPendingUrgentCount), tone: '#d97706', helper: 'breached or due <=30m' }
+        { label: 'Urgent', value: formatCount(t1ClientPendingUrgentCount), tone: '#d97706', helper: 'breached or closing soon' }
       ]
     },
     p1: {
@@ -2514,71 +2686,131 @@ export default function NocMonitoringPage() {
     [t1WorkbenchDrawer, t1WorkbenchDrawerConfig]
   )
 
-  const t1CommandCardItems = useMemo(() => ([
-    {
-      label: 'First-touch risk',
-      value: formatCount(summary.tier1P1Unattended || 0),
-      detail: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0
-        ? `${formatCount(summary.tier1P1Breached || 0)} breached first-touch SLA`
-        : 'No breached first-touch rows right now',
-      meta: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0 ? 'P1 unattended' : 'P1 queue stable',
-      icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0 ? '#ef4444' : '#14b8a6',
-      active: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0,
-      progress: summary.tier1Open ? ((summary.tier1P1Unattended || 0) / summary.tier1Open) * 100 : 12,
-      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } },
-      onClick: () => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })
-    },
-    {
-      label: 'Timer pressure',
-      value: formatCount(summary.tier1PlayClockBreached || 0),
-      detail: `${formatCount(summary.tier1PlayClockDueSoon || 0)} more due inside 30m`,
-      meta: 'P2 / P3 / P4 active clocks',
-      icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: '#f97316',
-      active: (summary.tier1PlayClockBreached || 0) > 0,
-      progress: summary.tier1Open ? ((summary.tier1PlayClockBreached || 0) / summary.tier1Open) * 100 : 0,
-      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } },
-      onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow', { dueBucket: 'BREACHED' })
-    },
-    {
-      label: 'Due soon',
-      value: formatCount(summary.tier1PlayClockDueSoon || 0),
-      detail: `${formatCount((collections.tier1UrgentTickets || []).length)} rows under live timer watch`,
-      meta: 'next action window',
-      icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: (summary.tier1PlayClockDueSoon || 0) > 0 ? '#f59e0b' : '#14b8a6',
-      active: (summary.tier1PlayClockDueSoon || 0) > 0,
-      progress: summary.tier1Open ? ((summary.tier1PlayClockDueSoon || 0) / summary.tier1Open) * 100 : 0,
-      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } },
-      onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow')
-    },
-    {
-      label: 'Voice queue',
-      value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
-      detail: tier1VoiceQueue ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue right now` : 'Tier 1 voice queue unavailable',
-      meta: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within 20s target',
-      icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
-      active: !!summary.telephonyTier1SlaBreached,
-      progress: summary.telephonyTier1SlaBreached ? 100 : Math.min(100, Number(summary.telephonyTier1MaxQueueSeconds || 0) / 20 * 100),
-      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } }
-    },
-    {
-      label: 'Inbound anomaly',
-      value: formatCount(summary.t1InboundAnomalyCount || 0),
-      detail: summary.t1InboundFocusLabel
-        ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
-        : 'No abnormal inbound surge right now',
-      meta: summary.t1InboundFocusStatusDetail || 'completed-day watch',
-      icon: <CrisisAlertRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: summary.t1InboundFocusStatusTone || '#8b5cf6',
-      active: (summary.t1InboundAnomalyCount || 0) > 0,
-      progress: (summary.t1InboundAnomalyCount || 0) > 0 ? 100 : 18,
-      rootSx: { gridColumn: { xs: 'auto', xl: 'span 4' } },
-      onClick: () => t1InboundAnomalyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const t1CommandCardItems = useMemo(() => {
+    const p1Breached = Number(summary.tier1P1Breached || 0)
+    const p1Unattended = Number(summary.tier1P1Unattended || 0)
+    const timerBreached = Number(summary.tier1PlayClockBreached || 0)
+    const timerDueSoon = Number(summary.tier1PlayClockDueSoon || 0)
+    const timerTracked = Number(summary.tier1PlayClockTracked || 0)
+    const timerSafe = Math.max(0, timerTracked - timerBreached - timerDueSoon)
+    const queueTrendRising = Number(t1QueueTrend.delta || 0) > 0
+    const voiceAgentValue = t1VoiceAgentState.total > 0
+      ? `${formatCount(t1VoiceAgentState.loggedIn)}/${formatCount(t1VoiceAgentState.total)}`
+      : '--'
+
+    const productCard = (label, key, targetHours) => {
+      const breachCount = Number(t1CreatedSlaBreachSummary[key] || 0)
+      const population = Number(t1CreatedSlaPopulation[key] || 0)
+      const tone = breachCount > 0 ? '#dc2626' : '#16a34a'
+      return {
+        label,
+        value: formatCount(breachCount),
+        detail: `${formatCount(population)} open | ${targetHours}h create-to-now SLA`,
+        meta: breachCount > 0 ? 'breached rows' : 'within target',
+        icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+        tone,
+        active: breachCount > 0,
+        progress: population > 0 ? (breachCount / population) * 100 : 0
+      }
     }
-  ]), [collections.tier1UrgentTickets, openT1WorkbenchDrawer, summary, t1InboundAnomalyRef, tier1VoiceQueue])
+
+    return [
+      {
+        label: 'First-touch risk',
+        value: formatCount(p1Breached),
+        detail: `${formatCount(p1Unattended)} unattended | ${formatCount(p1Breached)} breached`,
+        meta: '30m first-touch target',
+        icon: p1Breached > 0 ? (
+          <NotificationsActiveRoundedIcon
+            sx={{
+              fontSize: 16,
+              animation: 'opsSiren 1.05s linear infinite',
+              '@keyframes opsSiren': {
+                '0%': { transform: 'rotate(-10deg) scale(1)', opacity: 0.8 },
+                '50%': { transform: 'rotate(10deg) scale(1.1)', opacity: 1 },
+                '100%': { transform: 'rotate(-10deg) scale(1)', opacity: 0.8 }
+              }
+            }}
+          />
+        ) : <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+        tone: p1Breached > 0 ? '#dc2626' : p1Unattended > 0 ? '#f59e0b' : '#16a34a',
+        active: p1Breached > 0 || p1Unattended > 0,
+        progress: summary.tier1Open ? (p1Unattended / summary.tier1Open) * 100 : 0,
+        onClick: () => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })
+      },
+      {
+        label: 'Timer pressure',
+        value: formatCount(timerBreached),
+        detail: `${formatCount(timerBreached)} breached | ${formatCount(timerDueSoon)} soon | ${formatCount(timerSafe)} safe`,
+        meta: 'P2 60m | P3/P4 90m',
+        icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
+        tone: timerBreached > 0 ? '#dc2626' : timerDueSoon > 0 ? '#f59e0b' : '#16a34a',
+        active: timerBreached > 0 || timerDueSoon > 0,
+        progress: timerTracked > 0 ? (timerBreached / timerTracked) * 100 : 0,
+        onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow', { dueBucket: 'BREACHED' })
+      },
+      productCard('FTTB SLA', 'FTTB', 8),
+      productCard('FTTH SLA', 'FTTH', 12),
+      productCard('FF Air SLA', 'FF Air', 12),
+      {
+        label: 'Voice queue',
+        value: tier1VoiceQueue ? formatCount(t1VoiceQueueState.waiting || 0) : '--',
+        detail: t1VoiceQueueState.detail,
+        meta: t1VoiceQueueState.meta,
+        icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
+        tone: t1VoiceQueueState.tone,
+        active: t1VoiceQueueState.active,
+        progress: tier1VoiceQueue
+          ? (Number(summary.telephonyTier1MaxQueueSeconds || 0) > 20
+              ? 100
+              : (Number(summary.telephonyTier1Waiting || 0) > 0 ? 55 : 0))
+          : 0
+      },
+      {
+        label: 'Voice agents',
+        value: voiceAgentValue,
+        detail: t1VoiceAgentState.detail,
+        meta: t1VoiceAgentState.meta,
+        icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+        tone: t1VoiceAgentState.tone,
+        active: t1VoiceAgentState.total > 0,
+        progress: t1VoiceAgentState.total > 0 ? (t1VoiceAgentState.loggedIn / t1VoiceAgentState.total) * 100 : 0
+      },
+      {
+        label: 'Open Tier 1',
+        value: formatCount(summary.tier1Open || 0),
+        detail: t1QueueTrend.statusLabel,
+        meta: t1QueueTrend.helper,
+        icon: <InsightsRoundedIcon sx={{ fontSize: 16 }} />,
+        tone: t1QueueTrend.tone,
+        active: queueTrendRising,
+        progress: summary.tier1Open ? Math.min(100, ((summary.tier1Open || 0) / Math.max(1, (summary.tier1Open || 0) + Math.abs(Number(t1QueueTrend.delta || 0)))) * 100) : 0
+      },
+      {
+        label: 'Inbound anomaly',
+        value: formatCount(summary.t1InboundAnomalyCount || 0),
+        detail: summary.t1InboundFocusLabel
+          ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
+          : 'No abnormal inbound surge right now',
+        meta: summary.t1InboundFocusStatusDetail || 'completed-day watch',
+        icon: <CrisisAlertRoundedIcon sx={{ fontSize: 16 }} />,
+        tone: summary.t1InboundFocusStatusTone || '#8b5cf6',
+        active: (summary.t1InboundAnomalyCount || 0) > 0,
+        progress: (summary.t1InboundAnomalyCount || 0) > 0 ? 100 : 0,
+        onClick: () => t1InboundAnomalyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    ]
+  }, [
+    openT1WorkbenchDrawer,
+    summary,
+    t1CreatedSlaBreachSummary,
+    t1CreatedSlaPopulation,
+    t1InboundAnomalyRef,
+    t1QueueTrend,
+    t1VoiceAgentState,
+    t1VoiceQueueState,
+    tier1VoiceQueue
+  ])
 
   const t1DeskCompareTiles = useMemo(() => ([
     {
@@ -2860,7 +3092,7 @@ export default function NocMonitoringPage() {
         shellSx={{ p: { xs: 0.95, md: 1.1 }, gap: 0.85 }}
         heroSx={{
           p: { xs: 1.05, md: 1.15 },
-          borderRadius: 3.4,
+          borderRadius: OPS_RADIUS_LG,
           color: OPS_TEXT,
           border: `1px solid ${OPS_BORDER}`,
           background: [
@@ -2887,7 +3119,7 @@ export default function NocMonitoringPage() {
       shellSx={{ p: { xs: 0.95, md: 1.1 }, gap: 0.85 }}
       heroSx={{
         p: { xs: 1.05, md: 1.15 },
-        borderRadius: 3.4,
+        borderRadius: OPS_RADIUS_LG,
         color: OPS_TEXT,
         border: `1px solid ${OPS_BORDER}`,
         background: [
@@ -2901,43 +3133,29 @@ export default function NocMonitoringPage() {
       titleSx={{ color: OPS_TEXT, fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
       actionsSx={{ width: { xs: '100%', xl: 'auto' } }}
       actions={(
-        <Stack direction={{ xs: 'column', xl: 'row' }} spacing={0.72} alignItems={{ xs: 'stretch', xl: 'center' }} justifyContent="flex-end">
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'repeat(2, minmax(0, 1fr))',
-                sm: 'repeat(3, minmax(0, 1fr))',
-                xl: 'repeat(5, minmax(104px, 1fr))'
-              },
-              gap: 0.55,
-              width: { xs: '100%', xl: 'auto' }
-            }}
-          >
-            {heroStatusItems.map((item) => (
-              <OpsStatusPill key={item.label} label={item.label} value={item.value} tone={item.tone} />
-            ))}
-          </Box>
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={handleRefresh}
-            disabled={refreshing}
-            sx={{
-              flexShrink: 0,
-              alignSelf: { xs: 'stretch', xl: 'center' },
-              minHeight: 42,
-              px: 1.4,
-              borderRadius: 2.4,
-              fontWeight: 800,
-              textTransform: 'none',
-              boxShadow: '0 14px 30px rgba(15, 118, 110, 0.24)'
-            }}
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh Snapshot'}
-          </Button>
-        </Stack>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              sm: 'repeat(3, minmax(0, 1fr))',
+              xl: 'repeat(5, minmax(108px, 1fr))'
+            },
+            gap: 0.55,
+            width: { xs: '100%', xl: 'auto' }
+          }}
+        >
+          {heroStatusItems.map((item) => (
+            <OpsStatusPill
+              key={item.label}
+              label={item.label}
+              value={item.value}
+              tone={item.tone}
+              centered
+              quiet
+            />
+          ))}
+        </Box>
       )}
     >
       <Box
@@ -2945,7 +3163,7 @@ export default function NocMonitoringPage() {
           display: 'grid',
           gap: 1.05,
           p: { xs: 0.8, md: 1 },
-          borderRadius: 4,
+          borderRadius: OPS_RADIUS_LG,
           border: `1px solid ${OPS_BORDER}`,
           background: [
             `radial-gradient(circle at top left, ${alpha('#0f766e', 0.1)} 0%, transparent 24%)`,
@@ -2970,14 +3188,11 @@ export default function NocMonitoringPage() {
         <Box
           sx={{
             display: 'flex',
-            flexDirection: { xs: 'column', xl: 'row' },
-            alignItems: { xs: 'stretch', xl: 'center' },
-            justifyContent: 'space-between',
-            gap: 0.7,
+            alignItems: 'center',
             px: { xs: 0.55, md: 0.7 },
             py: 0.32,
-            borderRadius: 2.8,
-            border: `1px solid ${alpha('#93c5fd', 0.12)}`,
+            borderRadius: OPS_RADIUS_MD,
+            border: `1px solid ${alpha('#93c5fd', 0.08)}`,
             bgcolor: 'rgba(255, 255, 255, 0.9)'
           }}
         >
@@ -2995,7 +3210,7 @@ export default function NocMonitoringPage() {
                 fontWeight: 700,
                 fontSize: 13,
                 textTransform: 'none',
-                borderRadius: 2.3,
+                borderRadius: OPS_RADIUS_SM,
                 px: 1.1,
                 py: 0.35
               },
@@ -3018,40 +3233,6 @@ export default function NocMonitoringPage() {
             <Tab value="voice" label="Voice & Queues" />
             <Tab value="skipped" label="Skipped" />
           </Tabs>
-
-          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap" sx={{ alignSelf: { xs: 'flex-start', xl: 'center' } }}>
-            <Chip
-              size="small"
-              icon={<MonitorHeartRoundedIcon sx={{ fontSize: 15 }} />}
-              label={meta?.dashboardNote ? 'Cached snapshot mode' : 'Snapshot mode'}
-              sx={{
-                height: 24,
-                color: OPS_TEXT,
-                bgcolor: 'rgba(255, 255, 255, 0.92)',
-                border: `1px solid ${alpha('#38bdf8', 0.18)}`,
-                '& .MuiChip-label': {
-                  px: 0.85,
-                  fontWeight: 700
-                }
-              }}
-            />
-            {warnings.length ? (
-              <Chip
-                size="small"
-                label={`${warnings.length} partial source${warnings.length === 1 ? '' : 's'}`}
-                sx={{
-                  height: 24,
-                  color: '#9a3412',
-                  bgcolor: 'rgba(255, 247, 237, 0.96)',
-                  border: `1px solid ${alpha('#f59e0b', 0.22)}`,
-                  '& .MuiChip-label': {
-                    px: 0.85,
-                    fontWeight: 700
-                  }
-                }}
-              />
-            ) : null}
-          </Stack>
         </Box>
 
       {tab === 'overview' ? (
@@ -3255,7 +3436,7 @@ export default function NocMonitoringPage() {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(12, minmax(0, 1fr))' },
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(9, minmax(0, 1fr))' },
               gap: 0.78
             }}
           >
@@ -3275,39 +3456,22 @@ export default function NocMonitoringPage() {
               subtitle="Supervisor watch in one live strip."
               tone="#ef4444"
               minHeight={0}
+              bodySx={t1WatchExpanded ? undefined : { display: 'none' }}
               action={(
                 <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
                   {(summary.t1InboundAnomalyCount || 0) > 0 ? <SignalChip label={`${formatCount(summary.t1InboundAnomalyCount || 0)} anomaly days`} tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6'} /> : null}
                   {(summary.t1InboundAnomalyCount || 0) > 0 ? <SignalChip label={summary.t1InboundFocusStatusLabel || 'Flagged'} tone={summary.t1InboundFocusStatusTone || '#ef4444'} /> : null}
                   {summary.telephonyTier1SlaBreached ? <SignalChip label="Voice SLA risk" tone="#ef4444" /> : null}
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setT1WatchExpanded((current) => !current)}
-                    sx={{
-                      minWidth: 0,
-                      px: 1,
-                      py: 0.42,
-                      borderRadius: 2.2,
-                      textTransform: 'none',
-                      color: OPS_TEXT,
-                      borderColor: 'rgba(148, 163, 184, 0.22)',
-                      bgcolor: 'rgba(255, 255, 255, 0.94)',
-                      fontWeight: 800,
-                      fontSize: '0.76rem'
-                    }}
-                  >
-                    {t1WatchExpanded ? 'Collapse' : 'Expand'}
-                  </Button>
+                  <SectionCollapseButton expanded={t1WatchExpanded} onClick={() => setT1WatchExpanded((current) => !current)} />
                 </Stack>
               )}
             >
               {t1WatchExpanded ? (
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.1fr 0.82fr 1fr' }, gap: 0.85, alignItems: 'stretch' }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.94fr 1.06fr' }, gap: 0.85, alignItems: 'stretch' }}>
                   <Box
                     sx={{
                       p: 1,
-                      borderRadius: 2.9,
+                      borderRadius: OPS_RADIUS_MD,
                       border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.28)}`,
                       bgcolor: 'rgba(255, 255, 255, 0.96)',
                       background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.12)} 0%, rgba(255, 255, 255, 0.98) 58%)`,
@@ -3332,62 +3496,99 @@ export default function NocMonitoringPage() {
                       <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" sx={{ pt: 0.15 }}>
                         <SignalChip label={summary.t1InboundFocusStatusLabel || 'Clear'} tone={summary.t1InboundFocusStatusTone || '#14b8a6'} />
                         <SignalChip label={summary.telephonyTier1SlaBreached ? 'Voice outside SLA' : 'Voice within SLA'} tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'} />
+                        {t1RegionHotspot ? <SignalChip label={`Province ${t1RegionHotspot.label}`} tone="#f59e0b" /> : null}
+                        {t1OrganisationHotspot ? <SignalChip label={`ISP ${t1OrganisationHotspot.label}`} tone="#2563eb" /> : null}
+                        {t1NodeHotspot ? <SignalChip label={`Node ${t1NodeHotspot.label}`} tone="#0f766e" /> : null}
+                        {t1OltHotspot ? <SignalChip label={`OLT ${t1OltHotspot.label}`} tone="#7c3aed" /> : null}
                       </Stack>
                       <Box sx={{ pt: 0.2 }}>
                         <CompactBreakdownList
                           rows={t1AnomalyListRows}
-                          maxRows={2}
+                          maxRows={3}
                           emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
                         />
                       </Box>
                     </Stack>
                   </Box>
 
-                  <OpsValueTiles
-                    columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                    items={[
-                      {
-                        label: 'Flagged days',
-                        value: formatCount(summary.t1InboundAnomalyCount || 0),
-                        tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6',
-                        helper: summary.t1InboundFocusStatusLabel || 'completed-day watch'
-                      },
-                      {
-                        label: 'Still high',
-                        value: summary.t1InboundFocusStatusLabel || 'No',
-                        tone: summary.t1InboundFocusStatusTone || '#64748b',
-                        helper: summary.t1InboundFocusLabel || 'no active focus'
-                      },
-                      {
-                        label: 'Products hit',
-                        value: formatCount(t1InboundAffectedServiceCount),
-                        tone: '#f59e0b',
-                        helper: 'distinct product groups'
-                      },
-                      {
-                        label: 'Voice queue',
-                        value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
-                        tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
-                        helper: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within target'
-                      }
-                    ]}
-                  />
-
-                  <OpsSubPanel title="Inbound pattern" subtitle="Recent completed-day spike profile." tone="#8b5cf6">
-                    <ConsoleSparklinePanel
-                      rows={t1InboundAnomalyTrendRows}
-                      lines={t1InboundAnomalyTrendLines.slice(0, 3)}
-                      emptyMessage="No Tier 1 inbound anomaly trend is available right now."
-                      height={168}
+                  <Stack spacing={0.85}>
+                    <OpsValueTiles
+                      columns={{ xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }}
+                      items={[
+                        {
+                          label: 'Flagged days',
+                          value: formatCount(summary.t1InboundAnomalyCount || 0),
+                          tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#ef4444' : '#8b5cf6',
+                          helper: summary.t1InboundFocusStatusLabel || 'completed-day watch'
+                        },
+                        {
+                          label: 'Ongoing spike',
+                          value: summary.t1InboundFocusStatusLabel || 'Clear',
+                          tone: summary.t1InboundFocusStatusTone || '#64748b',
+                          helper: summary.t1InboundFocusLabel || 'no active focus'
+                        },
+                        {
+                          label: 'Products hit',
+                          value: formatCount(t1InboundAffectedServiceCount),
+                          tone: '#f59e0b',
+                          helper: 'distinct product groups'
+                        },
+                        {
+                          label: 'Province hotspot',
+                          value: t1RegionHotspot?.label || 'None',
+                          tone: '#ea580c',
+                          helper: t1RegionHotspot ? `${formatCount(t1RegionHotspot.count)} live rows` : 'no regional hotspot',
+                          valueSx: { fontSize: '0.92rem', lineHeight: 1.08, wordBreak: 'break-word' }
+                        },
+                        {
+                          label: 'ISP hotspot',
+                          value: t1OrganisationHotspot?.label || 'None',
+                          tone: '#2563eb',
+                          helper: t1OrganisationHotspot ? `${formatCount(t1OrganisationHotspot.count)} live rows` : 'no ISP hotspot',
+                          valueSx: { fontSize: '0.92rem', lineHeight: 1.08, wordBreak: 'break-word' }
+                        },
+                        {
+                          label: 'Node hotspot',
+                          value: t1NodeHotspot?.label || 'None',
+                          tone: '#0f766e',
+                          helper: t1NodeHotspot ? `${formatCount(t1NodeHotspot.count)} live rows` : 'no node hotspot',
+                          valueSx: { fontSize: '0.92rem', lineHeight: 1.08, wordBreak: 'break-word' }
+                        },
+                        {
+                          label: 'OLT hotspot',
+                          value: t1OltHotspot?.label || 'None',
+                          tone: '#7c3aed',
+                          helper: t1OltHotspot ? `${formatCount(t1OltHotspot.count)} live rows` : 'no OLT hotspot',
+                          valueSx: { fontSize: '0.92rem', lineHeight: 1.08, wordBreak: 'break-word' }
+                        },
+                        {
+                          label: 'Voice queue',
+                          value: tier1VoiceQueue ? formatCount(summary.telephonyTier1Waiting || 0) : '--',
+                          tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
+                          helper: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within target'
+                        }
+                      ]}
                     />
-                  </OpsSubPanel>
+
+                    <OpsSubPanel title="Inbound pattern" subtitle="Recent completed-day spike profile." tone="#8b5cf6">
+                      <MultiLineChartPanel
+                        rows={t1InboundAnomalyTrendRows}
+                        lines={t1InboundAnomalyTrendLines.slice(0, 3)}
+                        emptyMessage="No Tier 1 inbound anomaly trend is available right now."
+                        height={184}
+                        showLegend
+                        xAxisLabel="Completed day"
+                        yAxisLabel="Tickets"
+                      />
+                    </OpsSubPanel>
+                  </Stack>
                 </Box>
               ) : (
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 0.85, alignItems: 'stretch' }}>
                   <Box
                     sx={{
                       p: 0.95,
-                      borderRadius: 2.8,
+                      borderRadius: OPS_RADIUS_MD,
                       border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.24)}`,
                       bgcolor: 'rgba(255, 255, 255, 0.96)',
                       background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.1)} 0%, rgba(255, 255, 255, 0.98) 62%)`
@@ -3408,9 +3609,13 @@ export default function NocMonitoringPage() {
                             {summary.t1InboundFocusStatusDetail || 'Completed-day inbound spikes are clear right now.'}
                           </Typography>
                         </Stack>
-                        <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" alignItems="flex-start">
+                  <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap" alignItems="flex-start">
                           <SignalChip label={summary.t1InboundFocusStatusLabel || 'Clear'} tone={summary.t1InboundFocusStatusTone || '#14b8a6'} />
                           <SignalChip label={summary.telephonyTier1SlaBreached ? 'Voice outside SLA' : 'Voice within SLA'} tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'} />
+                          {t1RegionHotspot ? <SignalChip label={t1RegionHotspot.label} tone="#f59e0b" /> : null}
+                          {t1OrganisationHotspot ? <SignalChip label={t1OrganisationHotspot.label} tone="#2563eb" /> : null}
+                          {t1NodeHotspot ? <SignalChip label={t1NodeHotspot.label} tone="#0f766e" /> : null}
+                          {t1OltHotspot ? <SignalChip label={t1OltHotspot.label} tone="#7c3aed" /> : null}
                         </Stack>
                       </Stack>
                       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 0.68 }}>
@@ -3440,6 +3645,24 @@ export default function NocMonitoringPage() {
                           helper="spread of anomaly pattern"
                           percent={Math.min(100, Number(t1InboundAffectedServiceCount || 0) * 25)}
                           active={t1InboundAffectedServiceCount > 1}
+                        />
+                        <ConsoleLaneTile
+                          label="Node hotspot"
+                          count={t1NodeHotspot?.count || 0}
+                          tone="#0f766e"
+                          detail={t1NodeHotspot?.label || 'No node hotspot'}
+                          helper={t1NodeHotspot ? 'live Tier 1 node cluster' : 'no repeated node pattern'}
+                          percent={summary.tier1Open ? ((t1NodeHotspot?.count || 0) / summary.tier1Open) * 100 : 0}
+                          active={(t1NodeHotspot?.count || 0) > 1}
+                        />
+                        <ConsoleLaneTile
+                          label="OLT hotspot"
+                          count={t1OltHotspot?.count || 0}
+                          tone="#7c3aed"
+                          detail={t1OltHotspot?.label || 'No OLT hotspot'}
+                          helper={t1OltHotspot ? 'live Tier 1 OLT cluster' : 'no repeated OLT pattern'}
+                          percent={summary.tier1Open ? ((t1OltHotspot?.count || 0) / summary.tier1Open) * 100 : 0}
+                          active={(t1OltHotspot?.count || 0) > 1}
                         />
                         <ConsoleLaneTile
                           label="Voice queue"
@@ -3477,14 +3700,17 @@ export default function NocMonitoringPage() {
             subtitle="Primary lanes, side pressure, and queue ownership in one live Tier 1 command surface."
             tone="#334155"
             minHeight={0}
+            bodySx={t1CommandExpanded ? undefined : { display: 'none' }}
             action={(
               <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
-                <SignalChip label="P1 30m" tone="#ef4444" />
-                <SignalChip label="P2 60m" tone="#f97316" />
-                <SignalChip label="P3 / P4 90m" tone="#2563eb" />
+                <SignalChip label={`${formatCount(summary.tier1P1Unattended || 0)} P1`} tone="#ef4444" />
+                <SignalChip label={`${formatCount(summary.tier1PlayClockBreached || 0)} breached`} tone="#f97316" />
+                <SignalChip label={`${formatCount(summary.tier1ParkedTimers || 0)} parked`} tone="#475569" />
+                <SectionCollapseButton expanded={t1CommandExpanded} onClick={() => setT1CommandExpanded((current) => !current)} />
               </Stack>
             )}
           >
+            {t1CommandExpanded ? (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.06fr 0.94fr' }, gap: 0.92, alignItems: 'start' }}>
               <OpsSubPanel
                 title="Action Floor"
@@ -3504,7 +3730,7 @@ export default function NocMonitoringPage() {
                           label={row.label}
                           count={row.count}
                           tone={row.tone || ACCENT}
-                          detail={`${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`}
+                          detail={`${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} soon | ${formatCount(row.safe || 0)} safe`}
                           helper={`${row.playPolicyTitle || row.label} | ${row.playTargetMinutes || '--'}m target`}
                           percent={row.percent}
                           active={row.key === 'P1' ? (summary.tier1P1Breached || 0) > 0 : Number(row.breached || 0) > 0}
@@ -3527,7 +3753,7 @@ export default function NocMonitoringPage() {
                               tone={row.tone || '#64748b'}
                               percent={summary.tier1Open ? (Number(row.count || 0) / Number(summary.tier1Open || 1)) * 100 : 0}
                               detail={row.playTargetMinutes
-                                ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
+                                ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} closing soon`
                                 : `${formatCount(row.noActiveTimer || 0)} no active play clock`}
                               helper={row.playTargetMinutes ? `${row.playPolicyTitle || row.label}` : `${formatCount(row.count || 0)} open rows`}
                               active={row.key === 'Change' ? Number(row.count || 0) > 0 : false}
@@ -3558,10 +3784,10 @@ export default function NocMonitoringPage() {
                               helper: 'active work already late'
                             },
                             {
-                              label: 'Due <=30m',
+                              label: 'Closing soon',
                               value: formatCount(summary.tier1PlayClockDueSoon || 0),
                               tone: '#f59e0b',
-                              helper: 'next danger window'
+                              helper: 'next timer window'
                             },
                             {
                               label: 'Parked timers',
@@ -3668,6 +3894,7 @@ export default function NocMonitoringPage() {
                 </Stack>
               </OpsSubPanel>
             </Box>
+            ) : null}
           </OpsSection>
 
           <OpsSection
@@ -3680,7 +3907,17 @@ export default function NocMonitoringPage() {
             subtitle="Historic drift, day pace, and one-click routes into the live queue."
             tone="#334155"
             minHeight={0}
+            bodySx={t1TempoExpanded ? undefined : { display: 'none' }}
+            action={(
+              <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                <SignalChip label={`${formatCount(summary.t1ReceivedToday || 0)} received`} tone="#0f766e" />
+                <SignalChip label={`${formatCount(summary.t1SolvedToday || 0)} solved`} tone="#16a34a" />
+                <SignalChip label={`${formatCount((t1AutomationCreatedTodaySummary || []).reduce((total, row) => total + Number(row.count || 0), 0))} automation`} tone="#8b5cf6" />
+                <SectionCollapseButton expanded={t1TempoExpanded} onClick={() => setT1TempoExpanded((current) => !current)} />
+              </Stack>
+            )}
           >
+            {t1TempoExpanded ? (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 0.92, alignItems: 'start' }}>
               <OpsSubPanel
                 title="Ops Drift"
@@ -3751,7 +3988,7 @@ export default function NocMonitoringPage() {
                             label: 'Urgent',
                             value: formatCount(t1DueNowRows.length),
                             tone: '#f59e0b',
-                            helper: 'breached or <=30m'
+                            helper: 'breached or closing soon'
                           }
                         ]}
                       />
@@ -3760,7 +3997,7 @@ export default function NocMonitoringPage() {
                         <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
                         <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
                         <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
-                        <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
+                        <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="closing soon" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
                         <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
                       </Box>
 
@@ -3774,7 +4011,7 @@ export default function NocMonitoringPage() {
                           }
                         }}
                         sx={{
-                          borderRadius: 2.4,
+                          borderRadius: OPS_RADIUS_SM,
                           textTransform: 'none',
                           fontWeight: 800,
                           alignSelf: 'stretch'
@@ -3787,6 +4024,7 @@ export default function NocMonitoringPage() {
                 </Stack>
               </OpsSubPanel>
             </Box>
+            ) : null}
           </OpsSection>
           <Collapse in={t1WorkbenchExpanded} timeout={220} unmountOnExit={false}>
             <Box ref={t1ActionViewRef}>
@@ -3868,7 +4106,7 @@ export default function NocMonitoringPage() {
                         <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
                         <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
                         <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
-                        <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
+                        <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="closing soon" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
                         <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
                       </Box>
                       <FilterChipGroup

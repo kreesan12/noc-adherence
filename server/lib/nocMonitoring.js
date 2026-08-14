@@ -57,6 +57,9 @@ const ZENDESK_API_TOKEN = process.env.ZENDESK_API_TOKEN
 const FIELD_IDS = {
   nld: '40137360073617',
   region: '5522811974801',
+  olt: '5352900733969',
+  nodeName: '5409430025745',
+  customerPremisesAlias: '5406464539409',
   subscriberImpact: '5552674828049',
   lastUpdate: '5352766585489',
   serviceType: '6715159991185',
@@ -241,12 +244,24 @@ const T1_STATUS_TONES = {
   unknown: '#64748b'
 }
 const T1_AUTOMATION_ROUTE_RULES = [
-  { key: 'outageLinked', label: 'Outage linked', tags: ['noc_outages_escalation_clone', 'noc_t2-outage_linked'], tone: '#f97316' },
-  { key: 'mnt', label: 'MNT', tags: ['maintenance_escalation_clone'], tone: '#2563eb' },
-  { key: 'dfa', label: 'DFA', tags: ['noc_t2-dfa_escalation'], tone: '#14b8a6' },
-  { key: 'liquid', label: 'Liquid', tags: ['noc_t2-liquid_escalation'], tone: '#7c3aed' },
-  { key: 'tier3', label: 'Tier 3', tags: ['noc_t3_escalation'], tone: '#334155' },
-  { key: 'pmt', label: 'PMT', tags: ['noc_t2-pmt_escalation'], tone: '#0891b2' }
+  { key: 'solidLookupFailure', label: 'Solid lookup failure', tags: ['solid_lookup_isp_failed'], tone: '#f97316' },
+  { key: 'mantleLookupFailure', label: 'Mantle lookup failure', tags: ['mantle_lookup_failed'], tone: '#fb923c' },
+  { key: 'linkDegraded', label: 'Link online but degraded', tags: ['mantle_degraded'], tone: '#f59e0b' },
+  {
+    key: 'linkOnline',
+    label: 'Link online',
+    tone: '#22c55e',
+    predicate: (ticket) => hasAnyTag(ticket, ['mantle_enabled']) && !hasAnyTag(ticket, ['mantle_degraded'])
+  },
+  { key: 'potentialConfigIssue', label: 'Potential config issue', tags: ['mantle_calix_ont_disabled__configuration_required'], tone: '#ef4444' },
+  { key: 'sendToMnt', label: 'Send to MNT', tags: ['auto_mnt_escl'], tone: '#2563eb' },
+  { key: 'sendToDfa', label: 'Sent to DFA', tags: ['auto_dfa_escl'], tone: '#7c3aed' },
+  { key: 'autoOutageLinked', label: 'Auto linked to outage', tags: ['auto_outage_linked'], tone: '#dc2626' },
+  { key: 'powerLoss', label: 'Power loss on ONT', tags: ['mantle_power_loss'], tone: '#e11d48' },
+  { key: 'autoOutageCatch', label: 'Auto outage catch', tags: ['auto_outage_catch'], tone: '#ea580c' },
+  { key: 'aiMntActivated', label: 'AI MNT active', tags: ['ai_parent_mnt_activated'], tone: '#0f766e' },
+  { key: 'aiDfaActivated', label: 'AI DFA active', tags: ['ai_parent_dfa_activated'], tone: '#0891b2' },
+  { key: 'zeroTouchAi', label: 'Zero-touch AI', tags: ['zero_touch_ai'], tone: '#16a34a' }
 ]
 
 let refreshPromise = null
@@ -297,6 +312,14 @@ function classifyTicketProduct(ticket) {
   if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTB)) return 'FTTB'
   if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTH)) return 'FTTH'
   return 'Other'
+}
+
+function classifyT1SlaProduct(ticket) {
+  const serviceTypeValue = asText(cf(ticket, FIELD_IDS.serviceType)).toLowerCase()
+  if (hasAnyTag(ticket, ['ff_air']) || serviceTypeValue.includes('air')) return 'FF Air'
+  if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTB)) return 'FTTB'
+  if (hasAnyTag(ticket, ['t2_ftth', 'rise', 'dstv']) || serviceTypeValue.includes('ftth') || serviceTypeValue.includes('home') || serviceTypeValue.includes('rise')) return 'FTTH'
+  return classifyTicketProduct(ticket)
 }
 
 function classifyT1InboundProductSignal(ticket) {
@@ -424,7 +447,10 @@ function classifyT1WorkflowOwner({ operationalStateKey, escalationPathKey, pLeve
 }
 
 function classifyT1AutomationRoutes(ticket) {
-  return T1_AUTOMATION_ROUTE_RULES.filter((rule) => hasAnyTag(ticket, rule.tags))
+  return T1_AUTOMATION_ROUTE_RULES.filter((rule) => {
+    if (typeof rule.predicate === 'function') return rule.predicate(ticket)
+    return hasAnyTag(ticket, rule.tags || [])
+  })
 }
 
 function summarizeRuleHits(rows, rules, accessor = (row) => row) {
@@ -628,6 +654,7 @@ function buildT1PlayClock(ticket, pLevel, status, now = dayjs(), timerCacheRow =
 function buildT1ActionRow(ticket, now = dayjs(), timerCacheRow = null) {
   const base = buildTicketBase(ticket, now)
   const product = classifyTicketProduct(ticket)
+  const slaProduct = classifyT1SlaProduct(ticket)
   const pLevel = classifyT1ActionLevel(ticket)
   const automationRoutes = classifyT1AutomationRoutes(ticket)
   const status = normalizeStatus(ticket.status)
@@ -642,6 +669,7 @@ function buildT1ActionRow(ticket, now = dayjs(), timerCacheRow = null) {
   return {
     ...base,
     product,
+    slaProduct,
     pLevel,
     operationalStateKey,
     operationalState,
@@ -650,6 +678,11 @@ function buildT1ActionRow(ticket, now = dayjs(), timerCacheRow = null) {
     workflowOwner,
     parkedTimerActive: pLevel === 'P3 Parked' || pLevel === 'P4 Parked',
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
+    region: firstText(cf(ticket, FIELD_IDS.region), 'Unknown region'),
+    olt: firstText(cf(ticket, FIELD_IDS.olt), 'Unknown OLT'),
+    nodeName: firstText(cf(ticket, FIELD_IDS.nodeName), 'Unknown node'),
+    customerPremisesAlias: firstText(cf(ticket, FIELD_IDS.customerPremisesAlias), ''),
+    organizationLabel: firstText(base.organizationName, base.organizationId ? `Org ${base.organizationId}` : '', 'Unknown organisation'),
     ...playClock,
     automationRoutes: automationRoutes.map((rule) => rule.label),
     automationRouteCount: automationRoutes.length,
@@ -1287,6 +1320,7 @@ function buildTicketBase(ticket, now = dayjs()) {
     assigneeId: ticket.assignee_id || null,
     groupId: ticket.group_id || null,
     organizationId: ticket.organization_id || null,
+    organizationName: firstText(ticket.organization_name, ticket.organization?.name, ticket.organization?.details?.name, ''),
     createdAt: ticket.created_at,
     updatedAt: ticket.updated_at,
     ageHours: buildAgeHours(ticket.created_at, now),
@@ -2325,13 +2359,17 @@ async function collectLiveSnapshot(requestedBy = 'system') {
   const t1ActionSummary = T1_ACTION_DEFS.map((definition) => {
     const rows = tier1Tickets.filter((row) => row.pLevel === definition.key)
     const trackedRows = rows.filter((row) => row.playClockActive)
+    const breached = trackedRows.filter((row) => row.dueBucket === 'BREACHED').length
+    const dueSoon = trackedRows.filter((row) => ['Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length
+    const safe = Math.max(0, trackedRows.length - breached - dueSoon)
     return {
       key: definition.key,
       label: definition.label,
       tone: definition.tone,
       count: rows.length,
-      breached: trackedRows.filter((row) => row.dueBucket === 'BREACHED').length,
-      dueSoon: trackedRows.filter((row) => ['Due <=15m', 'Due <=30m'].includes(row.dueBucket)).length,
+      breached,
+      dueSoon,
+      safe,
       tracked: trackedRows.length,
       noActiveTimer: rows.filter((row) => !row.playClockActive).length,
       playPolicyTitle: rows.find((row) => row.playPolicyTitle)?.playPolicyTitle || '',
@@ -2426,6 +2464,11 @@ async function collectLiveSnapshot(requestedBy = 'system') {
   const telephonyQueueWaitingSummary = buildTelephonyQueueWaitingSummary(telephony)
   const telephonyMissedAgentSummary = buildTelephonyMissedAgentSummary(telephony)
   const tier1VoiceQueue = findTier1VoiceQueue(telephony)
+  const tier1VoiceAgents = (telephony.agents || []).filter((row) => {
+    const queue = String(row.queue || '').toLowerCase()
+    const targetQueue = String(tier1VoiceQueue?.name || TIER1_VOICE_QUEUE_NAME).toLowerCase()
+    return queue && targetQueue && queue.includes(targetQueue)
+  })
 
   const t1ReceivedHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedToday, 'created_at')
   const t1ReceivedLastWeekHourlyRaw = buildHourlyTicketSeries(rawTier1CreatedLastWeek, 'created_at')
@@ -2563,6 +2606,10 @@ async function collectLiveSnapshot(requestedBy = 'system') {
     telephonyTier1Missed: tier1VoiceQueue ? asNumber(tier1VoiceQueue.missed, 0) : null,
     telephonyTier1AvgAnswerSeconds: tier1VoiceQueue ? asNumber(tier1VoiceQueue.avgAnswerSeconds, 0) : null,
     telephonyTier1MaxQueueSeconds: tier1VoiceQueue ? asNumber(tier1VoiceQueue.maxQueueSeconds, 0) : null,
+    telephonyTier1AgentTotal: tier1VoiceAgents.length,
+    telephonyTier1AgentLoggedIn: tier1VoiceAgents.filter((row) => row.loggedIn).length,
+    telephonyTier1AgentRegistered: tier1VoiceAgents.filter((row) => row.registered).length,
+    telephonyTier1AgentBusy: tier1VoiceAgents.filter((row) => asNumber(row.activeCalls, 0) > 0).length,
     telephonyTier1SlaBreached: tier1VoiceQueue
       ? asNumber(tier1VoiceQueue.maxQueueSeconds, 0) > TIER1_VOICE_SLA_SECONDS
         || asNumber(tier1VoiceQueue.avgAnswerSeconds, 0) > TIER1_VOICE_SLA_SECONDS
