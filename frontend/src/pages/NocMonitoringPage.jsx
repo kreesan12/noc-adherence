@@ -1387,7 +1387,7 @@ export default function NocMonitoringPage() {
   )
 
   const t1InboundAffectedServiceCount = useMemo(
-    () => new Set((t1InboundAnomalyRows || []).map((row) => row.serviceType).filter(Boolean)).size,
+    () => new Set((t1InboundAnomalyRows || []).map((row) => row.productType || row.serviceType).filter(Boolean)).size,
     [t1InboundAnomalyRows]
   )
 
@@ -1989,12 +1989,12 @@ export default function NocMonitoringPage() {
 
   const t1InboundAnomalyColumns = useMemo(() => [
     {
-      key: 'serviceType',
-      label: 'Service Type',
+      key: 'productType',
+      label: 'Product Type',
       render: (row) => (
         <Stack spacing={0.2}>
           <Typography variant="body2" sx={{ fontWeight: 700, color: OPS_TEXT }}>
-            {row.serviceType || '--'}
+            {row.productType || row.serviceType || '--'}
           </Typography>
           <Typography variant="caption" sx={{ color: OPS_MUTED }}>
             {row.productGroup || '--'}
@@ -2407,7 +2407,7 @@ export default function NocMonitoringPage() {
           </OpsAlert>
           {(summary.t1InboundAnomalyCount || 0) > 0 ? (
             <OpsAlert severity="warning">
-              Tier 1 inbound anomaly watch has flagged {formatCount(summary.t1InboundAnomalyCount || 0)} recent product spike{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'} across the last two completed days, led by {summary.t1InboundFocusLabel || 'the current lead service'}{summary.t1InboundFocusDayLabel ? ` on ${summary.t1InboundFocusDayLabel}` : ''}.
+              Tier 1 inbound anomaly watch has flagged {formatCount(summary.t1InboundAnomalyCount || 0)} recent product spike{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'} across the last two completed days, led by {summary.t1InboundFocusLabel || 'the current lead product'}{summary.t1InboundFocusDayLabel ? ` on ${summary.t1InboundFocusDayLabel}` : ''}.
             </OpsAlert>
           ) : null}
 
@@ -2645,7 +2645,7 @@ export default function NocMonitoringPage() {
           <Box ref={t1InboundAnomalyRef} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
             <OpsSection
               title="Inbound Anomaly Watch"
-              subtitle="Recent completed-day Tier 1 inbound service spikes against the prior-day baseline, designed to catch sudden demand shifts like Access Air surges before the live queue shape catches up."
+              subtitle="Recent completed-day Tier 1 inbound product spikes against the prior-day baseline, designed to catch sudden demand shifts like Access Air surges before the live queue shape catches up."
               tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706'}
               minHeight={0}
               action={<SignalChip label={`${formatCount(summary.t1InboundAnomalyCount || 0)} flagged`} tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706'} />}
@@ -2667,10 +2667,10 @@ export default function NocMonitoringPage() {
                       helper: 'Large jump versus the prior baseline'
                     },
                     {
-                      label: 'Affected services',
+                      label: 'Affected products',
                       value: formatCount(t1InboundAffectedServiceCount),
                       tone: '#f97316',
-                      helper: 'Distinct service types currently flagged'
+                      helper: 'Distinct inbound product types currently flagged'
                     },
                     {
                       label: 'Lead spike count',
@@ -2678,21 +2678,21 @@ export default function NocMonitoringPage() {
                       tone: '#0f766e',
                       helper: summary.t1InboundFocusLabel
                         ? `${summary.t1InboundFocusLabel}${summary.t1InboundFocusDayLabel ? ` | ${summary.t1InboundFocusDayLabel}` : ''}`
-                        : 'No lead service spike right now'
+                        : 'No lead product spike right now'
                     }
                   ]}
                 />
                 <MonitoringTable
                   rows={t1InboundAnomalyRows}
                   columns={t1InboundAnomalyColumns}
-                  emptyMessage="No abnormal recent Tier 1 inbound service spikes are visible right now."
+                  emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
                 />
               </Stack>
             </OpsSection>
 
             <OpsSection
               title="Inbound Product Drift"
-              subtitle="Daily ticket-count trend for the currently flagged or highest-volume Tier 1 inbound service types."
+              subtitle="Daily ticket-count trend for the currently flagged or highest-volume Tier 1 inbound product types."
               tone="#f97316"
               minHeight={0}
             >

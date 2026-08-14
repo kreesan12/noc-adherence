@@ -96,6 +96,13 @@ const TICKET_PRODUCT_TAGS = {
   FTTB: ['t2_fttb'],
   FTTH: ['t2_ftth', 'ff_air', 'dstv', 'rise']
 }
+const T1_INBOUND_PRODUCT_SIGNAL_DEFS = [
+  { label: 'Frogfoot Access Air', tags: ['ff_air'], productGroup: 'FTTH' },
+  { label: 'Access Rise', tags: ['rise'], productGroup: 'FTTH' },
+  { label: 'DStv', tags: ['dstv'], productGroup: 'FTTH' },
+  { label: 'FTTB', tags: ['t2_fttb'], productGroup: 'FTTB' },
+  { label: 'FTTH', tags: ['t2_ftth'], productGroup: 'FTTH' }
+]
 const T2_PARTY_TAG_RULES = [
   { label: 'DFA', tags: ['noc_t2-dfa_escalation'] },
   { label: 'Liquid', tags: ['noc_t2-liquid_escalation'] },
@@ -290,6 +297,33 @@ function classifyTicketProduct(ticket) {
   if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTB)) return 'FTTB'
   if (hasAnyTag(ticket, TICKET_PRODUCT_TAGS.FTTH)) return 'FTTH'
   return 'Other'
+}
+
+function classifyT1InboundProductSignal(ticket) {
+  const serviceTypeValue = asText(cf(ticket, FIELD_IDS.serviceType))
+  const normalizedServiceType = serviceTypeValue.toLowerCase()
+
+  for (const definition of T1_INBOUND_PRODUCT_SIGNAL_DEFS) {
+    if (hasAnyTag(ticket, definition.tags)) {
+      return {
+        label: definition.label,
+        productGroup: definition.productGroup
+      }
+    }
+  }
+
+  if (serviceTypeValue && !['unknown', 'n/a', 'na', 'none'].includes(normalizedServiceType)) {
+    return {
+      label: humanizeFieldChoice(serviceTypeValue),
+      productGroup: classifyTicketProduct(ticket)
+    }
+  }
+
+  const productGroup = classifyTicketProduct(ticket)
+  return {
+    label: productGroup,
+    productGroup
+  }
 }
 
 function isChangeControlTicket(ticket) {
@@ -729,8 +763,8 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
   const dayKeys = listRecentDayKeys(now, T1_INBOUND_ACTIVITY_LOOKBACK_DAYS)
   const dayKeySet = new Set(dayKeys)
   const dailyTotals = new Map(dayKeys.map((dayKey) => [dayKey, 0]))
-  const serviceDayCounts = new Map()
-  const serviceProductCounts = new Map()
+  const signalDayCounts = new Map()
+  const signalProductCounts = new Map()
 
   for (const ticket of rawTickets) {
     const createdAt = firstText(ticket?.created_at)
@@ -738,40 +772,43 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
     const dayKey = formatYmdInTz(new Date(createdAt))
     if (!dayKeySet.has(dayKey)) continue
 
-    const serviceType = serviceTypeLabelForTicket(ticket)
-    const productGroup = classifyTicketProduct(ticket)
+    const signal = classifyT1InboundProductSignal(ticket)
+    const signalLabel = signal.label
+    const productGroup = signal.productGroup || classifyTicketProduct(ticket)
     dailyTotals.set(dayKey, asNumber(dailyTotals.get(dayKey), 0) + 1)
 
-    if (!serviceDayCounts.has(serviceType)) {
-      serviceDayCounts.set(serviceType, new Map(dayKeys.map((value) => [value, 0])))
+    if (!signalDayCounts.has(signalLabel)) {
+      signalDayCounts.set(signalLabel, new Map(dayKeys.map((value) => [value, 0])))
     }
-    if (!serviceProductCounts.has(serviceType)) {
-      serviceProductCounts.set(serviceType, new Map())
+    if (!signalProductCounts.has(signalLabel)) {
+      signalProductCounts.set(signalLabel, new Map())
     }
 
-    const counts = serviceDayCounts.get(serviceType)
+    const counts = signalDayCounts.get(signalLabel)
     counts.set(dayKey, asNumber(counts.get(dayKey), 0) + 1)
 
-    const products = serviceProductCounts.get(serviceType)
+    const products = signalProductCounts.get(signalLabel)
     products.set(productGroup, asNumber(products.get(productGroup), 0) + 1)
   }
 
-  const serviceRows = Array.from(serviceDayCounts.entries())
-    .map(([serviceType, counts]) => {
+  const serviceRows = Array.from(signalDayCounts.entries())
+    .map(([signalLabel, counts]) => {
       const countEntries = dayKeys.map((dayKey) => ({
         dayKey,
         label: formatDayKeyLabel(dayKey),
         count: asNumber(counts.get(dayKey), 0)
       }))
-      const dominantProduct = Array.from(serviceProductCounts.get(serviceType)?.entries() || [])
+      const dominantProduct = Array.from(signalProductCounts.get(signalLabel)?.entries() || [])
         .sort((left, right) => right[1] - left[1])[0]?.[0] || 'Other'
       const total = countEntries.reduce((sum, row) => sum + row.count, 0)
       const peak = countEntries.reduce((max, row) => Math.max(max, row.count), 0)
 
       return {
-        key: serviceType,
-        label: serviceType,
-        serviceType,
+        key: signalLabel,
+        label: signalLabel,
+        productType: signalLabel,
+        signalLabel,
+        serviceType: signalLabel,
         productGroup: dominantProduct,
         total,
         peak,
@@ -782,7 +819,7 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
     .sort((left, right) => {
       if (right.total !== left.total) return right.total - left.total
       if (right.peak !== left.peak) return right.peak - left.peak
-      return String(left.serviceType).localeCompare(String(right.serviceType))
+      return String(left.productType).localeCompare(String(right.productType))
     })
 
   const completedDayKeys = dayKeys.slice(0, -1)
@@ -807,9 +844,11 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
 
       const ratioText = Number.isFinite(spike.ratio) ? `${spike.ratio.toFixed(1)}x` : 'new spike'
       anomalies.push({
-        key: `${row.serviceType}:${focusDayKey}`,
-        label: row.serviceType,
-        serviceType: row.serviceType,
+        key: `${row.productType}:${focusDayKey}`,
+        label: row.productType,
+        productType: row.productType,
+        signalLabel: row.productType,
+        serviceType: row.productType,
         productGroup: row.productGroup,
         dayKey: focusDayKey,
         dayLabel: formatDayKeyLabel(focusDayKey),
@@ -836,8 +875,8 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
   })
 
   const focusServices = [
-    ...new Set(anomalies.map((row) => row.serviceType)),
-    ...serviceRows.map((row) => row.serviceType)
+    ...new Set(anomalies.map((row) => row.productType)),
+    ...serviceRows.map((row) => row.productType)
   ].slice(0, T1_INBOUND_ACTIVITY_MAX_SERIES)
 
   const trendRows = dayKeys.map((dayKey) => {
@@ -847,14 +886,14 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
       total: asNumber(dailyTotals.get(dayKey), 0)
     }
     focusServices.forEach((serviceType, index) => {
-      const serviceRow = serviceRows.find((entry) => entry.serviceType === serviceType)
+      const serviceRow = serviceRows.find((entry) => entry.productType === serviceType)
       row[`series_${index + 1}`] = asNumber(serviceRow?.countsByDay?.[dayKey], 0)
     })
     return row
   })
 
   const trendServices = focusServices.map((serviceType, index) => {
-    const matchingAnomaly = anomalies.find((row) => row.serviceType === serviceType)
+    const matchingAnomaly = anomalies.find((row) => row.productType === serviceType)
     const palette = ['#dc2626', '#f97316', '#22c55e', '#38bdf8', '#8b5cf6']
     return {
       key: `series_${index + 1}`,
