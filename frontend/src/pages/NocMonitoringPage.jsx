@@ -3590,96 +3590,89 @@ export default function NocMonitoringPage() {
               </Stack>
             </OpsSection>
 
-            <Stack spacing={1.05}>
-              <OpsSection
-                title={(
-                  <Stack direction="row" spacing={0.7} alignItems="center">
-                    <InsightsRoundedIcon sx={{ fontSize: 18, color: '#14b8a6' }} />
-                    <Box component="span">Desk Pace</Box>
-                  </Stack>
-                )}
-                subtitle="Today versus the same weekday and automation touch."
-                tone="#334155"
-                minHeight={0}
-              >
-                <OpsValueTiles
-                  columns={{ xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }}
-                  items={t1DeskCompareTiles}
-                />
-              </OpsSection>
-
-              <OpsSection
-                title={(
-                  <Stack direction="row" spacing={0.7} alignItems="center">
-                    <LanRoundedIcon sx={{ fontSize: 18, color: '#8b5cf6' }} />
-                    <Box component="span">Drill Deck</Box>
-                  </Stack>
-                )}
-                subtitle="Fast routes into the live workbench."
-                tone="#334155"
-                minHeight={0}
-              >
-                <Stack spacing={0.82}>
-                  <OpsValueTiles
-                    columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
-                    items={[
-                      {
-                        label: 'Live queue',
-                        value: formatCount(summary.tier1Open || 0),
-                        tone: '#14b8a6',
-                        helper: 'all open Tier 1 rows'
-                      },
-                      {
-                        label: 'Filtered',
-                        value: formatCount(t1FilteredActionViewRows.length),
-                        tone: '#3b82f6',
-                        helper: 'current filter result'
-                      },
-                      {
-                        label: 'Desk-owned',
-                        value: formatCount(t1DeskRows.length),
-                        tone: '#14b8a6',
-                        helper: 'with Tier 1 now'
-                      },
-                      {
-                        label: 'Urgent',
-                        value: formatCount(t1DueNowRows.length),
-                        tone: '#f59e0b',
-                        helper: 'breached or <=30m'
-                      }
-                    ]}
-                  />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.65 }}>
-                    <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
-                    <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
-                    <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
-                    <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
-                    <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
-                    <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
-                  </Box>
-
-                  <Button
-                    variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
-                    onClick={() => {
-                      const next = !t1WorkbenchExpanded
-                      setT1WorkbenchExpanded(next)
-                      if (!next) {
-                        setT1WorkbenchDrawer('none')
-                      }
-                    }}
-                    sx={{
-                      borderRadius: 2.4,
-                      textTransform: 'none',
-                      fontWeight: 800,
-                      alignSelf: 'stretch'
-                    }}
-                  >
-                    {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
-                  </Button>
+            <OpsSection
+              title={(
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <LanRoundedIcon sx={{ fontSize: 18, color: '#8b5cf6' }} />
+                  <Box component="span">Desk Control</Box>
                 </Stack>
-              </OpsSection>
-            </Stack>
-          </Box>          <Collapse in={t1WorkbenchExpanded} timeout={220} unmountOnExit={false}>
+              )}
+              subtitle="Daily pace, queue access, and one-click drill routes."
+              tone="#334155"
+              minHeight={0}
+            >
+              <Stack spacing={0.9}>
+                <OpsSubPanel title="Day pace" subtitle="Today versus the same weekday and automation touch." tone="#14b8a6">
+                  <OpsValueTiles
+                    columns={{ xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }}
+                    items={t1DeskCompareTiles}
+                  />
+                </OpsSubPanel>
+
+                <OpsSubPanel title="Workbench launch" subtitle="Fast routes into the live queue." tone="#8b5cf6">
+                  <Stack spacing={0.82}>
+                    <OpsValueTiles
+                      columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                      items={[
+                        {
+                          label: 'Live queue',
+                          value: formatCount(summary.tier1Open || 0),
+                          tone: '#14b8a6',
+                          helper: 'all open Tier 1 rows'
+                        },
+                        {
+                          label: 'Filtered',
+                          value: formatCount(t1FilteredActionViewRows.length),
+                          tone: '#3b82f6',
+                          helper: 'current filter result'
+                        },
+                        {
+                          label: 'Desk-owned',
+                          value: formatCount(t1DeskRows.length),
+                          tone: '#14b8a6',
+                          helper: 'with Tier 1 now'
+                        },
+                        {
+                          label: 'Urgent',
+                          value: formatCount(t1DueNowRows.length),
+                          tone: '#f59e0b',
+                          helper: 'breached or <=30m'
+                        }
+                      ]}
+                    />
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.65 }}>
+                      <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
+                      <DrillCounterButton label="Maintenance" count={t1MaintenanceRows.length} helper="external lane" tone="#3b82f6" onClick={() => openT1WorkbenchDrawer('maintenance', 'maintenanceOwned')} />
+                      <DrillCounterButton label="Waiting client" count={t1ClientPendingRows.length} helper="ISP / client pending" tone="#f97316" onClick={() => openT1WorkbenchDrawer('client', 'all', { workflowOwner: 'Waiting on client / ISP' })} />
+                      <DrillCounterButton label="P1 queue" count={t1P1AttentionRows.length} helper="first-touch focus" tone="#ef4444" onClick={() => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })} />
+                      <DrillCounterButton label="Urgent timers" count={t1DueNowRows.length} helper="due <=30m" tone="#f59e0b" onClick={() => openT1WorkbenchDrawer('urgent', 'dueNow')} />
+                      <DrillCounterButton label="Parked" count={t1ParkedRows.length} helper="pre-play queues" tone="#64748b" onClick={() => openT1WorkbenchDrawer('parked', 'parkedTimers')} />
+                    </Box>
+
+                    <Button
+                      variant={t1WorkbenchExpanded ? 'outlined' : 'contained'}
+                      onClick={() => {
+                        const next = !t1WorkbenchExpanded
+                        setT1WorkbenchExpanded(next)
+                        if (!next) {
+                          setT1WorkbenchDrawer('none')
+                        }
+                      }}
+                      sx={{
+                        borderRadius: 2.4,
+                        textTransform: 'none',
+                        fontWeight: 800,
+                        alignSelf: 'stretch'
+                      }}
+                    >
+                      {t1WorkbenchExpanded ? 'Hide workbench' : 'Open workbench'}
+                    </Button>
+                  </Stack>
+                </OpsSubPanel>
+              </Stack>
+            </OpsSection>
+          </Box>
+          <Collapse in={t1WorkbenchExpanded} timeout={220} unmountOnExit={false}>
             <Box ref={t1ActionViewRef}>
               <OpsSection title="Tier 1 Workbench" subtitle="Filtered live queue once the command view points you to a lane." tone="#14b8a6" minHeight={0}>
                 <Stack spacing={0.9}>
