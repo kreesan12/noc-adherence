@@ -13,7 +13,7 @@ import {
 const SNAPSHOT_KEY = 'noc_monitoring_snapshot_v1'
 const T1_TIMER_CACHE_KEY = 'noc_monitoring_t1_timer_cache_v1'
 const TICKET_EVENT_WATERMARK_KEY = 'noc_monitoring_ticket_event_watermark_v1'
-const T1_INBOUND_ACTIVITY_CACHE_KEY = 'noc_monitoring_t1_inbound_activity_v1'
+const T1_INBOUND_ACTIVITY_CACHE_KEY = 'noc_monitoring_t1_inbound_activity_v2'
 const SOFT_TTL_MS = Number(process.env.NOC_MONITORING_SNAPSHOT_TTL_MS || 15 * 60 * 1000)
 const TELEPHONY_PULSE_TTL_MS = Math.max(1000, Number(process.env.NOC_MONITORING_TELEPHONY_TTL_MS || 3000))
 const HARD_STALE_MS = Number(process.env.NOC_MONITORING_HARD_STALE_MS || 6 * 60 * 60 * 1000)
