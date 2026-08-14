@@ -105,9 +105,26 @@ const DASHBOARD_SECTION_ROOT_SX = {
     borderColor: 'rgba(148, 163, 184, 0.2)'
   }
 }
+const DASHBOARD_SECTION_HEADER_SX = {
+  px: 1,
+  py: 0.78,
+  borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+  background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.92) 0%, rgba(9, 18, 34, 0.9) 100%)'
+}
 const DASHBOARD_SECTION_BODY_SX = {
   px: 1.05,
   py: 0.95
+}
+const DASHBOARD_SECTION_TITLE_SX = {
+  color: '#f8fafc',
+  fontSize: '0.94rem',
+  fontWeight: 800,
+  letterSpacing: 0.15
+}
+const DASHBOARD_SECTION_SUBTITLE_SX = {
+  fontSize: '0.76rem',
+  lineHeight: 1.25,
+  color: `${OPS_MUTED} !important`
 }
 const CONTROL_METRIC_ROOT_SX = {
   ...DASHBOARD_METRIC_ROOT_SX,
@@ -439,7 +456,8 @@ function DrillCounterButton({ label, count, helper, tone = ACCENT, onClick }) {
         borderRadius: 2.2,
         color: '#f8fafc',
         borderColor: alpha(tone, 0.4),
-        bgcolor: alpha(tone, 0.1),
+        bgcolor: 'rgba(8, 15, 29, 0.8)',
+        background: `linear-gradient(180deg, rgba(10, 18, 33, 0.94) 0%, ${alpha(tone, 0.12)} 100%)`,
         textTransform: 'none'
       }}
     >
@@ -548,10 +566,20 @@ function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 
         <Box
           key={item.label}
           sx={{
+            position: 'relative',
+            overflow: 'hidden',
             p: 0.85,
             borderRadius: 2.2,
             border: `1px solid ${alpha(item.tone || ACCENT, 0.22)}`,
-            bgcolor: alpha(item.tone || ACCENT, 0.08)
+            bgcolor: 'rgba(8, 15, 29, 0.82)',
+            background: `linear-gradient(180deg, rgba(10, 18, 33, 0.96) 0%, ${alpha(item.tone || ACCENT, 0.12)} 100%)`,
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              inset: '0 auto 0 0',
+              width: 3,
+              background: `linear-gradient(180deg, ${alpha(item.tone || ACCENT, 0.9)} 0%, ${alpha(item.tone || ACCENT, 0)} 100%)`
+            }
           }}
         >
           <Stack spacing={0.35}>
@@ -580,19 +608,21 @@ function OpsStatusPill({ label, value, tone = ACCENT }) {
   return (
     <Box
       sx={{
-        px: 0.95,
-        py: 0.48,
-        borderRadius: 999,
-        border: `1px solid ${alpha(tone, 0.26)}`,
-        bgcolor: alpha(tone, 0.1),
-        minWidth: 0
+        minWidth: 0,
+        px: 0.9,
+        py: 0.65,
+        borderRadius: 2.3,
+        border: `1px solid ${alpha(tone, 0.34)}`,
+        bgcolor: 'rgba(8, 15, 29, 0.84)',
+        background: `linear-gradient(180deg, rgba(10, 18, 33, 0.96) 0%, ${alpha(tone, 0.14)} 100%)`,
+        boxShadow: `inset 0 0 0 1px ${alpha('#ffffff', 0.03)}`
       }}
     >
-      <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.45, lineHeight: 1 }}>
+      <Stack spacing={0.1} sx={{ minWidth: 0 }}>
+        <Typography variant="caption" sx={{ color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: 0.6, lineHeight: 1 }}>
           {label}
         </Typography>
-        <Typography variant="caption" sx={{ color: '#f8fafc', fontWeight: 800, lineHeight: 1 }}>
+        <Typography variant="subtitle2" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.08, letterSpacing: 0.1 }}>
           {value}
         </Typography>
       </Stack>
@@ -606,14 +636,16 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
       component={onClick ? 'button' : 'div'}
       onClick={onClick}
       sx={{
+        position: 'relative',
+        overflow: 'hidden',
         width: '100%',
         p: 0.95,
         textAlign: 'left',
         borderRadius: 2.8,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.5 : 0.24)}`,
-        bgcolor: alpha(tone, active ? 0.14 : 0.08),
-        background: `linear-gradient(180deg, ${alpha(tone, active ? 0.22 : 0.14)} 0%, rgba(7, 17, 31, 0.94) 100%)`,
+        bgcolor: 'rgba(8, 15, 29, 0.84)',
+        background: `linear-gradient(180deg, rgba(10, 18, 33, 0.96) 0%, ${alpha(tone, active ? 0.18 : 0.1)} 100%)`,
         boxShadow: active
           ? `0 0 0 1px ${alpha(tone, 0.18)}, 0 20px 34px ${alpha(tone, 0.22)}`
           : 'inset 0 0 0 1px rgba(148, 163, 184, 0.06)',
@@ -621,6 +653,14 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
         transition: 'transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease',
         appearance: 'none',
         outline: 'none',
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          inset: '0 auto 0 0',
+          width: 3,
+          background: tone,
+          boxShadow: `0 0 24px ${alpha(tone, 0.5)}`
+        },
         '&:hover': onClick ? {
           transform: 'translateY(-1px)',
           borderColor: alpha(tone, 0.52),
@@ -907,7 +947,7 @@ function OpsAlert({ severity = 'info', children }) {
       sx={{
         borderRadius: 2.4,
         border: `1px solid ${OPS_BORDER}`,
-        bgcolor: 'rgba(15, 23, 42, 0.78)',
+        bgcolor: 'rgba(10, 18, 33, 0.82)',
         color: OPS_TEXT,
         '& .MuiAlert-icon': {
           color: '#f8fafc'
@@ -951,7 +991,10 @@ function OpsSection(props) {
   return (
     <SectionCard
       rootSx={DASHBOARD_SECTION_ROOT_SX}
+      headerSx={DASHBOARD_SECTION_HEADER_SX}
       bodySx={DASHBOARD_SECTION_BODY_SX}
+      titleSx={DASHBOARD_SECTION_TITLE_SX}
+      subtitleSx={DASHBOARD_SECTION_SUBTITLE_SX}
       {...props}
     />
   )
@@ -2116,6 +2159,22 @@ export default function NocMonitoringPage() {
         title="NOC Monitoring Hub"
         description="Native monitoring snapshot for outages, tickets, queue hygiene, and operational watchlists."
         accent={ACCENT}
+        shellSx={{ p: { xs: 0.95, md: 1.1 }, gap: 0.85 }}
+        heroSx={{
+          p: { xs: 1.05, md: 1.15 },
+          borderRadius: 3.4,
+          color: OPS_TEXT,
+          border: `1px solid ${OPS_BORDER}`,
+          background: [
+            `radial-gradient(circle at 12% 18%, ${alpha('#14b8a6', 0.2)} 0%, transparent 22%)`,
+            `radial-gradient(circle at 88% 16%, ${alpha('#2563eb', 0.18)} 0%, transparent 24%)`,
+            `linear-gradient(135deg, rgba(8, 15, 29, 0.98) 0%, rgba(10, 23, 43, 0.98) 52%, rgba(5, 12, 24, 0.98) 100%)`
+          ].join(','),
+          boxShadow: '0 26px 54px rgba(2, 6, 23, 0.34)'
+        }}
+        eyebrowSx={{ color: '#2dd4bf', mb: 0.22, fontWeight: 800, letterSpacing: 0.9 }}
+        titleSx={{ color: '#f8fafc', fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
+        descriptionSx={{ color: OPS_MUTED, fontSize: '0.92rem', maxWidth: 920 }}
       >
         <AnalyticsLoadingBlock message="Loading the current monitoring snapshot..." />
       </PageShell>
@@ -2127,20 +2186,56 @@ export default function NocMonitoringPage() {
       eyebrow="NOC Monitoring"
       title="NOC Monitoring Hub"
       accent={ACCENT}
+      shellSx={{ p: { xs: 0.95, md: 1.1 }, gap: 0.85 }}
+      heroSx={{
+        p: { xs: 1.05, md: 1.15 },
+        borderRadius: 3.4,
+        color: OPS_TEXT,
+        border: `1px solid ${OPS_BORDER}`,
+        background: [
+          `radial-gradient(circle at 12% 18%, ${alpha('#14b8a6', 0.22)} 0%, transparent 22%)`,
+          `radial-gradient(circle at 88% 16%, ${alpha('#2563eb', 0.2)} 0%, transparent 24%)`,
+          `linear-gradient(135deg, rgba(8, 15, 29, 0.98) 0%, rgba(10, 23, 43, 0.98) 52%, rgba(5, 12, 24, 0.98) 100%)`
+        ].join(','),
+        boxShadow: '0 26px 54px rgba(2, 6, 23, 0.34)'
+      }}
+      eyebrowSx={{ color: '#2dd4bf', mb: 0.22, fontWeight: 800, letterSpacing: 0.9 }}
+      titleSx={{ color: '#f8fafc', fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
+      actionsSx={{ width: { xs: '100%', xl: 'auto' } }}
       actions={(
-        <Stack direction={{ xs: 'column', xl: 'row' }} spacing={0.75} alignItems={{ xs: 'stretch', xl: 'center' }} justifyContent="flex-end">
-          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap">
+        <Stack direction={{ xs: 'column', xl: 'row' }} spacing={0.72} alignItems={{ xs: 'stretch', xl: 'center' }} justifyContent="flex-end">
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                sm: 'repeat(3, minmax(0, 1fr))',
+                xl: 'repeat(5, minmax(104px, 1fr))'
+              },
+              gap: 0.55,
+              width: { xs: '100%', xl: 'auto' }
+            }}
+          >
             {heroStatusItems.map((item) => (
               <OpsStatusPill key={item.label} label={item.label} value={item.value} tone={item.tone} />
             ))}
-          </Stack>
+          </Box>
           <Button
             size="small"
             variant="contained"
             startIcon={<RefreshRoundedIcon />}
             onClick={handleRefresh}
             disabled={refreshing}
-            sx={{ flexShrink: 0 }}
+            sx={{
+              flexShrink: 0,
+              alignSelf: { xs: 'stretch', xl: 'center' },
+              minHeight: 42,
+              px: 1.4,
+              borderRadius: 2.4,
+              fontWeight: 800,
+              textTransform: 'none',
+              boxShadow: '0 14px 30px rgba(15, 118, 110, 0.24)'
+            }}
           >
             {refreshing ? 'Refreshing...' : 'Refresh Snapshot'}
           </Button>
@@ -2180,9 +2275,11 @@ export default function NocMonitoringPage() {
 
         <Box
           sx={{
-            px: { xs: 0.2, md: 0.4 },
-            pb: 0.2,
-            borderBottom: `1px solid ${alpha('#93c5fd', 0.14)}`
+            px: { xs: 0.05, md: 0.12 },
+            py: 0.18,
+            borderRadius: 2.8,
+            border: `1px solid ${alpha('#93c5fd', 0.12)}`,
+            bgcolor: 'rgba(8, 15, 29, 0.58)'
           }}
         >
           <Tabs
@@ -2198,13 +2295,13 @@ export default function NocMonitoringPage() {
                 fontWeight: 700,
                 fontSize: 13,
                 textTransform: 'none',
-                borderRadius: 2.2,
+                borderRadius: 2.3,
                 px: 1.1,
                 py: 0.35
               },
               '& .Mui-selected': {
                 color: '#ffffff !important',
-                background: 'rgba(30, 41, 59, 0.65)'
+                background: 'linear-gradient(180deg, rgba(20, 184, 166, 0.22) 0%, rgba(37, 99, 235, 0.18) 100%)'
               },
               '& .MuiTabs-indicator': {
                 height: 3,

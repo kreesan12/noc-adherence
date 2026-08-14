@@ -15,15 +15,30 @@ export function PageShell({
   accent = '#0f766e',
   actions = null,
   stats = [],
-  children
+  children,
+  shellSx = {},
+  heroSx = {},
+  titleSx = {},
+  eyebrowSx = {},
+  descriptionSx = {},
+  actionsSx = {},
+  statsSx = {}
 }) {
   return (
-    <Box sx={{ p: { xs: 1.1, md: 1.35 }, display: 'grid', gap: 1.05 }}>
+    <Box
+      sx={{
+        p: { xs: 1.1, md: 1.35 },
+        display: 'grid',
+        gap: 1.05,
+        ...shellSx
+      }}
+    >
       <Paper
         sx={{
           p: 1.3,
           borderRadius: 2.6,
-          background: accentGradient(accent)
+          background: accentGradient(accent),
+          ...heroSx
         }}
       >
         <Stack
@@ -39,23 +54,42 @@ export function PageShell({
                 color: accent,
                 textTransform: 'uppercase',
                 letterSpacing: 0.7,
-                mb: 0.45
+                mb: 0.45,
+                ...eyebrowSx
               }}
             >
               {eyebrow}
             </Typography>
-            <Typography variant="h4" sx={{ mb: 0.4 }}>
+            <Typography
+              variant="h4"
+              sx={{
+                mb: 0.4,
+                ...titleSx
+              }}
+            >
               {title}
             </Typography>
             {description ? (
-              <Typography variant="body1" sx={{ color: 'text.secondary', maxWidth: 860 }}>
+              <Typography
+                variant="body1"
+                sx={{
+                  color: 'text.secondary',
+                  maxWidth: 860,
+                  ...descriptionSx
+                }}
+              >
                 {description}
               </Typography>
             ) : null}
           </Box>
 
           {actions ? (
-            <Box sx={{ width: { xs: '100%', lg: 'auto' } }}>
+            <Box
+              sx={{
+                width: { xs: '100%', lg: 'auto' },
+                ...actionsSx
+              }}
+            >
               {actions}
             </Box>
           ) : null}
@@ -71,6 +105,8 @@ export function PageShell({
                 md: `repeat(${Math.min(Math.max(stats.length, 2), 6)}, minmax(0, 1fr))`
               },
               gap: 0.8
+            ,
+              ...statsSx
             }}
           >
             {stats.map((stat) => (
@@ -90,18 +126,33 @@ export function SectionCard({
   subtitle = '',
   accent = '#0f766e',
   actions = null,
+  action = null,
   noPadding = false,
-  children
+  children,
+  rootSx = {},
+  headerSx = {},
+  bodySx = {},
+  titleSx = {},
+  subtitleSx = {}
 }) {
+  const headerActions = actions || action
+
   return (
-    <Paper sx={{ borderRadius: 2.4, overflow: 'hidden' }}>
+    <Paper
+      sx={{
+        borderRadius: 2.4,
+        overflow: 'hidden',
+        ...rootSx
+      }}
+    >
       <Box
         sx={{
           px: 1.15,
           py: 0.95,
           borderBottom: '1px solid',
           borderColor: 'divider',
-          background: `linear-gradient(180deg, ${alpha(accent, 0.08)} 0%, rgba(255,255,255,0.9) 100%)`
+          background: `linear-gradient(180deg, ${alpha(accent, 0.08)} 0%, rgba(255,255,255,0.9) 100%)`,
+          ...headerSx
         }}
       >
         <Stack
@@ -111,18 +162,34 @@ export function SectionCard({
           justifyContent="space-between"
         >
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h6">{title}</Typography>
+            <Typography variant="h6" sx={titleSx}>{title}</Typography>
             {subtitle ? (
-              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.15 }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'text.secondary',
+                  mt: 0.15,
+                  ...subtitleSx
+                }}
+              >
                 {subtitle}
               </Typography>
             ) : null}
           </Box>
-          {actions ? <Box sx={{ width: { xs: '100%', md: 'auto' } }}>{actions}</Box> : null}
+          {headerActions ? <Box sx={{ width: { xs: '100%', md: 'auto' } }}>{headerActions}</Box> : null}
         </Stack>
       </Box>
 
-      <Box sx={noPadding ? undefined : { p: 1.05 }}>
+      <Box
+        sx={
+          noPadding
+            ? bodySx
+            : {
+                p: 1.05,
+                ...bodySx
+              }
+        }
+      >
         {children}
       </Box>
     </Paper>
