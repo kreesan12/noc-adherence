@@ -653,7 +653,7 @@ function OpsStatusPill({ label, value, tone = ACCENT }) {
   )
 }
 
-function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, active = false, icon = null }) {
+function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, active = false, icon = null, progress = null, rootSx = null }) {
   return (
     <Box
       component={onClick ? 'button' : 'div'}
@@ -688,7 +688,8 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
           transform: 'translateY(-1px)',
           borderColor: alpha(tone, 0.52),
           boxShadow: `0 0 0 1px ${alpha(tone, 0.18)}, 0 22px 38px ${alpha(tone, 0.2)}`
-        } : undefined
+        } : undefined,
+        ...rootSx
       }}
     >
         <Stack spacing={0.42}>
@@ -730,7 +731,7 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
             {detail}
           </Typography>
           <Box sx={{ height: 4, borderRadius: 999, bgcolor: alpha(tone, 0.14), overflow: 'hidden' }}>
-            <Box sx={{ width: active ? '100%' : '58%', height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.38)} 100%)` }} />
+            <Box sx={{ width: `${Math.max(10, Math.min(100, progress ?? (active ? 100 : 58)))}%`, height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${tone} 0%, ${alpha(tone, 0.38)} 100%)` }} />
           </Box>
         </Stack>
       </Box>
@@ -2522,6 +2523,8 @@ export default function NocMonitoringPage() {
       icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
       tone: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0 ? '#ef4444' : '#14b8a6',
       active: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0,
+      progress: summary.tier1Open ? ((summary.tier1P1Unattended || 0) / summary.tier1Open) * 100 : 12,
+      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } },
       onClick: () => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })
     },
     {
@@ -2532,6 +2535,8 @@ export default function NocMonitoringPage() {
       icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
       tone: '#f97316',
       active: (summary.tier1PlayClockBreached || 0) > 0,
+      progress: summary.tier1Open ? ((summary.tier1PlayClockBreached || 0) / summary.tier1Open) * 100 : 0,
+      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } },
       onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow', { dueBucket: 'BREACHED' })
     },
     {
@@ -2542,6 +2547,8 @@ export default function NocMonitoringPage() {
       icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
       tone: (summary.tier1PlayClockDueSoon || 0) > 0 ? '#f59e0b' : '#14b8a6',
       active: (summary.tier1PlayClockDueSoon || 0) > 0,
+      progress: summary.tier1Open ? ((summary.tier1PlayClockDueSoon || 0) / summary.tier1Open) * 100 : 0,
+      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } },
       onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow')
     },
     {
@@ -2551,7 +2558,9 @@ export default function NocMonitoringPage() {
       meta: summary.telephonyTier1SlaBreached ? 'outside 20s target' : 'within 20s target',
       icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
       tone: summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4',
-      active: !!summary.telephonyTier1SlaBreached
+      active: !!summary.telephonyTier1SlaBreached,
+      progress: summary.telephonyTier1SlaBreached ? 100 : Math.min(100, Number(summary.telephonyTier1MaxQueueSeconds || 0) / 20 * 100),
+      rootSx: { gridColumn: { xs: 'auto', xl: 'span 2' } }
     },
     {
       label: 'Inbound anomaly',
@@ -2563,6 +2572,8 @@ export default function NocMonitoringPage() {
       icon: <CrisisAlertRoundedIcon sx={{ fontSize: 16 }} />,
       tone: summary.t1InboundFocusStatusTone || '#8b5cf6',
       active: (summary.t1InboundAnomalyCount || 0) > 0,
+      progress: (summary.t1InboundAnomalyCount || 0) > 0 ? 100 : 18,
+      rootSx: { gridColumn: { xs: 'auto', xl: 'span 4' } },
       onClick: () => t1InboundAnomalyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
   ]), [collections.tier1UrgentTickets, openT1WorkbenchDrawer, summary, t1InboundAnomalyRef, tier1VoiceQueue])
@@ -3242,7 +3253,7 @@ export default function NocMonitoringPage() {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(12, minmax(0, 1fr))' },
               gap: 0.78
             }}
           >
@@ -3383,8 +3394,8 @@ export default function NocMonitoringPage() {
                         label={row.label}
                         count={row.count}
                         tone={row.tone || ACCENT}
-                        detail={row.detail}
-                        helper={row.helper}
+                        detail={`${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`}
+                        helper={`${row.playPolicyTitle || row.label} | ${row.playTargetMinutes || '--'}m target`}
                         percent={row.percent}
                         active={row.key === 'P1' ? (summary.tier1P1Breached || 0) > 0 : Number(row.breached || 0) > 0}
                         badge={row.playTargetMinutes ? `${row.playTargetMinutes}m` : 'live'}
@@ -3394,10 +3405,10 @@ export default function NocMonitoringPage() {
                   })}
                 </Box>
 
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.96fr 1.04fr' }, gap: 0.82, alignItems: 'start' }}>
-                  <OpsSubPanel title="Side lanes" subtitle="Parked, change, and non-play work kept visible but quieter." tone="#475569">
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.92fr 1.08fr' }, gap: 0.82, alignItems: 'start' }}>
+                  <OpsSubPanel title="Side pressure" subtitle="Parked, change, and non-play work kept visible but quieter." tone="#475569">
                     {t1SupportActionRows.length ? (
-                      <Stack spacing={0.68}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.68 }}>
                         {t1SupportActionRows.map((row) => (
                           <ConsoleLaneRail
                             key={row.key || row.label}
@@ -3412,20 +3423,20 @@ export default function NocMonitoringPage() {
                             active={row.key === 'Change' ? Number(row.count || 0) > 0 : false}
                           />
                         ))}
-                      </Stack>
+                      </Box>
                     ) : (
                       <AnalyticsChartFallback minHeight={180} message="No side-lane pressure is visible right now." />
                     )}
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Lane pressure mix" subtitle="Primary versus side-lane concentration right now." tone="#475569">
-                    <Stack spacing={0.72}>
+                    <Stack spacing={0.8}>
                       <DonutBreakdownChart
                         rows={t1ActionMixRows}
                         dataKey="count"
                         emptyMessage="No queue mix is available right now."
                         colorMap={Object.fromEntries(t1ActionMixRows.map((row) => [row.key, row.tone || ACCENT]))}
-                        height={210}
+                        height={232}
                       />
                       <OpsValueTiles
                         columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
@@ -3529,23 +3540,25 @@ export default function NocMonitoringPage() {
                   />
                 </Box>
 
-                <OpsSubPanel title={t1ActivePostureLens.label} subtitle="Selected lens over the current live queue." tone={t1ActivePostureLens.tone}>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.02fr 0.98fr' }, gap: 0.82, alignItems: 'start' }}>
+                <OpsSubPanel title={`${t1ActivePostureLens.label} leaderboard`} subtitle="Top live lanes under the selected ownership lens." tone={t1ActivePostureLens.tone}>
+                  <Stack spacing={0.82}>
                     <HorizontalBarChart
                       rows={t1ActivePostureLens.rows.slice(0, 6)}
                       dataKey="count"
                       emptyMessage={`No ${t1ActivePostureLens.label.toLowerCase()} shape is available right now.`}
                       colorMap={Object.fromEntries((t1ActivePostureLens.rows || []).map((row) => [row.key, row.tone || t1ActivePostureLens.tone]))}
-                      height={238}
+                      height={246}
                     />
-                    <CompactBreakdownList
-                      rows={t1ActivePostureLens.rows.slice(0, 6)}
-                      total={t1ActivePostureLens.total}
-                      maxRows={6}
-                      secondaryText={(row) => t1ActivePostureLens.secondaryText(row)}
-                      emptyMessage={`No ${t1ActivePostureLens.label.toLowerCase()} shape is available right now.`}
+                    <OpsValueTiles
+                      columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                      items={(t1ActivePostureLens.rows || []).slice(0, 4).map((row) => ({
+                        label: row.label,
+                        value: formatCount(row.count || 0),
+                        tone: row.tone || t1ActivePostureLens.tone,
+                        helper: t1ActivePostureLens.secondaryText(row)
+                      }))}
                     />
-                  </Box>
+                  </Stack>
                 </OpsSubPanel>
               </Stack>
             </OpsSection>
