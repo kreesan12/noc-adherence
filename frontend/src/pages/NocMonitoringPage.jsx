@@ -884,6 +884,7 @@ function OpsSection(props) {
 
 export default function NocMonitoringPage() {
   const t1ActionViewRef = useRef(null)
+  const t1InboundAnomalyRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [exportingT1Action, setExportingT1Action] = useState(false)
@@ -1134,6 +1135,8 @@ export default function NocMonitoringPage() {
   const t2ProductSummary = trends.t2ProductSummary || []
   const t2ServiceTypeSummary = trends.t2ServiceTypeSummary || []
   const partialRouteSummary = trends.partialRouteSummary || []
+  const t1InboundAnomalyTrendRows = trends.t1InboundAnomalyTrendRows || []
+  const t1InboundAnomalyTrendServices = trends.t1InboundAnomalyTrendServices || []
   const hourlySeries = trends.hourlySeries || []
   const historyLanePressure = history?.series?.lanePressure || []
   const historySubscriberImpact = history?.series?.subscriberImpact || []
@@ -1148,6 +1151,7 @@ export default function NocMonitoringPage() {
   const tier1MaintenanceTickets = collections?.tier1MaintenanceTickets || []
   const tier1ClientPendingTickets = collections?.tier1ClientPendingTickets || []
   const tier1ParkedTickets = collections?.tier1ParkedTickets || []
+  const t1InboundAnomalyRows = collections?.t1InboundAnomalies || []
 
   const overviewMetrics = useMemo(() => ([
     {
@@ -1373,6 +1377,20 @@ export default function NocMonitoringPage() {
     [t1WorkflowOwnerSummary]
   )
 
+  const t1InboundAnomalyTrendLines = useMemo(
+    () => (t1InboundAnomalyTrendServices || []).map((row) => ({
+      key: row.key,
+      label: row.label,
+      color: row.tone || '#dc2626'
+    })),
+    [t1InboundAnomalyTrendServices]
+  )
+
+  const t1InboundAffectedServiceCount = useMemo(
+    () => new Set((t1InboundAnomalyRows || []).map((row) => row.serviceType).filter(Boolean)).size,
+    [t1InboundAnomalyRows]
+  )
+
   const t1EscalationRows = useMemo(
     () => (t1EscalationPathSummary || []).filter((row) => Number(row.count || 0) > 0),
     [t1EscalationPathSummary]
@@ -1406,6 +1424,15 @@ export default function NocMonitoringPage() {
       count: Number(summary.tier1ChangeControlOpen || 0),
       tone: '#8b5cf6',
       detail: 'Rows carrying the noc_change_checks tag'
+    },
+    {
+      key: 'inbound-anomaly',
+      label: 'Inbound spike',
+      count: Number(summary.t1InboundAnomalyCount || 0),
+      tone: Number(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706',
+      detail: summary.t1InboundFocusLabel
+        ? `${summary.t1InboundFocusLabel} on ${summary.t1InboundFocusDayLabel || summary.t1InboundFocusDayKey} hit ${formatCount(summary.t1InboundFocusCount || 0)}`
+        : 'No abnormal recent completed-day product spike detected'
     },
     {
       key: 'maintenance',
@@ -1959,6 +1986,30 @@ export default function NocMonitoringPage() {
     t1ActionColumnParts.age,
     t1ActionColumnParts.subject
   ], [t1ActionColumnParts])
+
+  const t1InboundAnomalyColumns = useMemo(() => [
+    {
+      key: 'serviceType',
+      label: 'Service Type',
+      render: (row) => (
+        <Stack spacing={0.2}>
+          <Typography variant="body2" sx={{ fontWeight: 700, color: OPS_TEXT }}>
+            {row.serviceType || '--'}
+          </Typography>
+          <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+            {row.productGroup || '--'}
+          </Typography>
+        </Stack>
+      )
+    },
+    { key: 'dayLabel', label: 'Day' },
+    { key: 'count', label: 'Count', render: (row) => formatCount(row.count || 0) },
+    { key: 'baselineAvg', label: 'Baseline Avg', render: (row) => Number(row.baselineAvg || 0).toFixed(1) },
+    { key: 'baselineMax', label: 'Prev Max', render: (row) => formatCount(row.baselineMax || 0) },
+    { key: 'deltaCount', label: 'Delta', render: (row) => formatSignedDelta(row.deltaCount || 0) },
+    { key: 'ratio', label: 'Lift', render: (row) => row.ratio ? `${Number(row.ratio).toFixed(1)}x` : 'new' },
+    { key: 'severity', label: 'Severity', render: (row) => <SignalChip label={titleCaseWords(row.severity || 'warning')} tone={row.tone || '#d97706'} /> }
+  ], [])
   const t2Columns = useMemo(() => [
     { key: 'id', label: 'Ticket', render: (row) => <ExternalTicketLink href={row.url} label={`#${row.id}`} /> },
     { key: 'status', label: 'Status', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
@@ -2354,6 +2405,11 @@ export default function NocMonitoringPage() {
           <OpsAlert severity="info">
             Tier 1 play clocks now stay bounded to the live NOC queue only: P1 uses the 30-minute first-touch reply clock, P2 uses the 60-minute Play Priority 2 update clock, and P3/P4 use the 90-minute play-update clocks. Live P2/P3/P4 rows now prefer backend-cached Zendesk audit anchors, while parked pre-play timers stay outside the active lane until the live play tags land.
           </OpsAlert>
+          {(summary.t1InboundAnomalyCount || 0) > 0 ? (
+            <OpsAlert severity="warning">
+              Tier 1 inbound anomaly watch has flagged {formatCount(summary.t1InboundAnomalyCount || 0)} recent product spike{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'} across the last two completed days, led by {summary.t1InboundFocusLabel || 'the current lead service'}{summary.t1InboundFocusDayLabel ? ` on ${summary.t1InboundFocusDayLabel}` : ''}.
+            </OpsAlert>
+          ) : null}
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.1fr 1fr 1.1fr' }, gap: 1.05 }}>
             <OpsSection title="Red Flag Board" subtitle="Immediate Tier 1 supervision signals before the desk drills into the full queue." tone="#dc2626" minHeight={0}>
@@ -2362,6 +2418,13 @@ export default function NocMonitoringPage() {
                   <DrillCounterButton label="P1 only" count={summary.tier1P1Unattended || 0} helper="first-touch queue" tone="#dc2626" onClick={() => applyT1ActionLens('p1Only', { systemState: 'new' })} />
                   <DrillCounterButton label="Due <=30m" count={summary.tier1PlayClockDueSoon || 0} helper="jump to action view" tone="#ea580c" onClick={() => applyT1ActionLens('dueNow')} />
                   <DrillCounterButton label="Change control" count={summary.tier1ChangeControlOpen || 0} helper="separate workflow" tone="#8b5cf6" onClick={() => applyT1ActionLens('changeControl')} />
+                  <DrillCounterButton
+                    label="Inbound anomalies"
+                    count={summary.t1InboundAnomalyCount || 0}
+                    helper={summary.t1InboundFocusLabel ? `${summary.t1InboundFocusLabel} recent spike` : 'recent daily product spikes'}
+                    tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706'}
+                    onClick={() => t1InboundAnomalyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  />
                 </Stack>
                 <OpsValueTiles
                   columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
@@ -2576,6 +2639,70 @@ export default function NocMonitoringPage() {
                   height={190}
                 />
               </Stack>
+            </OpsSection>
+          </Box>
+
+          <Box ref={t1InboundAnomalyRef} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
+            <OpsSection
+              title="Inbound Anomaly Watch"
+              subtitle="Recent completed-day Tier 1 inbound service spikes against the prior-day baseline, designed to catch sudden demand shifts like Access Air surges before the live queue shape catches up."
+              tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706'}
+              minHeight={0}
+              action={<SignalChip label={`${formatCount(summary.t1InboundAnomalyCount || 0)} flagged`} tone={(summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706'} />}
+            >
+              <Stack spacing={0.8}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }}
+                  items={[
+                    {
+                      label: 'Flagged spikes',
+                      value: formatCount(summary.t1InboundAnomalyCount || 0),
+                      tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : '#d97706',
+                      helper: 'Across the last two completed days'
+                    },
+                    {
+                      label: 'High severity',
+                      value: formatCount(summary.t1InboundHighAnomalyCount || 0),
+                      tone: '#dc2626',
+                      helper: 'Large jump versus the prior baseline'
+                    },
+                    {
+                      label: 'Affected services',
+                      value: formatCount(t1InboundAffectedServiceCount),
+                      tone: '#f97316',
+                      helper: 'Distinct service types currently flagged'
+                    },
+                    {
+                      label: 'Lead spike count',
+                      value: formatCount(summary.t1InboundFocusCount || 0),
+                      tone: '#0f766e',
+                      helper: summary.t1InboundFocusLabel
+                        ? `${summary.t1InboundFocusLabel}${summary.t1InboundFocusDayLabel ? ` | ${summary.t1InboundFocusDayLabel}` : ''}`
+                        : 'No lead service spike right now'
+                    }
+                  ]}
+                />
+                <MonitoringTable
+                  rows={t1InboundAnomalyRows}
+                  columns={t1InboundAnomalyColumns}
+                  emptyMessage="No abnormal recent Tier 1 inbound service spikes are visible right now."
+                />
+              </Stack>
+            </OpsSection>
+
+            <OpsSection
+              title="Inbound Product Drift"
+              subtitle="Daily ticket-count trend for the currently flagged or highest-volume Tier 1 inbound service types."
+              tone="#f97316"
+              minHeight={0}
+            >
+              <MultiLineChartPanel
+                rows={t1InboundAnomalyTrendLines.length ? t1InboundAnomalyTrendRows : []}
+                lines={t1InboundAnomalyTrendLines}
+                emptyMessage="Inbound product drift history will appear once the cached recent-day activity scan has enough data."
+                showLegend={false}
+                height={260}
+              />
             </OpsSection>
           </Box>
 

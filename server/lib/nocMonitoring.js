@@ -12,12 +12,21 @@ import {
 
 const SNAPSHOT_KEY = 'noc_monitoring_snapshot_v1'
 const T1_TIMER_CACHE_KEY = 'noc_monitoring_t1_timer_cache_v1'
+const TICKET_EVENT_WATERMARK_KEY = 'noc_monitoring_ticket_event_watermark_v1'
+const T1_INBOUND_ACTIVITY_CACHE_KEY = 'noc_monitoring_t1_inbound_activity_v1'
 const SOFT_TTL_MS = Number(process.env.NOC_MONITORING_SNAPSHOT_TTL_MS || 15 * 60 * 1000)
 const TELEPHONY_PULSE_TTL_MS = Math.max(1000, Number(process.env.NOC_MONITORING_TELEPHONY_TTL_MS || 3000))
 const HARD_STALE_MS = Number(process.env.NOC_MONITORING_HARD_STALE_MS || 6 * 60 * 60 * 1000)
 const HISTORY_BUCKET_MINUTES = Math.max(5, Number(process.env.NOC_MONITORING_HISTORY_BUCKET_MINUTES || 15))
 const HISTORY_WINDOW_HOURS = Math.max(6, Number(process.env.NOC_MONITORING_HISTORY_WINDOW_HOURS || 72))
 const HISTORY_RETENTION_DAYS = Math.max(7, Number(process.env.NOC_MONITORING_HISTORY_RETENTION_DAYS || 45))
+const TICKET_EVENT_BOOTSTRAP_DAYS = Math.max(14, Number(process.env.NOC_MONITORING_TICKET_EVENT_BOOTSTRAP_DAYS || 21))
+const TICKET_EVENT_RETENTION_DAYS = Math.max(30, Number(process.env.NOC_MONITORING_TICKET_EVENT_RETENTION_DAYS || 90))
+const TICKET_EVENT_MAX_PAGES = Math.max(1, Number(process.env.NOC_MONITORING_TICKET_EVENT_MAX_PAGES || 20))
+const T1_INBOUND_ACTIVITY_CACHE_TTL_MS = Math.max(15 * 60 * 1000, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_TTL_MS || 60 * 60 * 1000))
+const T1_INBOUND_ACTIVITY_LOOKBACK_DAYS = Math.max(8, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_LOOKBACK_DAYS || 10))
+const T1_INBOUND_ACTIVITY_BASELINE_DAYS = Math.max(4, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_BASELINE_DAYS || 7))
+const T1_INBOUND_ACTIVITY_MAX_SERIES = Math.max(2, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_MAX_SERIES || 4))
 const MAX_SEARCH_PAGES = Number(process.env.NOC_MONITORING_MAX_SEARCH_PAGES || 8)
 const MAX_SEARCH_RESULTS = Number(process.env.NOC_MONITORING_MAX_SEARCH_RESULTS || 2500)
 const SEARCH_EXPORT_PAGE_SIZE = Math.max(100, Math.min(1000, Number(process.env.NOC_MONITORING_SEARCH_PAGE_SIZE || 1000)))
@@ -646,6 +655,229 @@ function buildHourlyTicketSeries(rows, stampField, labelPrefix = '') {
       cumulative
     }
   })
+}
+
+function formatDayKeyLabel(dayKey) {
+  const parsed = dayjs(dayKey)
+  return parsed.isValid() ? parsed.format('DD MMM') : String(dayKey || '')
+}
+
+function listRecentDayKeys(now = dayjs(), totalDays = T1_INBOUND_ACTIVITY_LOOKBACK_DAYS) {
+  return Array.from({ length: totalDays }, (_, index) => (
+    formatYmdInTz(now.subtract((totalDays - 1) - index, 'day').toDate())
+  ))
+}
+
+function isCachedPayloadFresh(payload, ttlMs) {
+  const generatedAt = payload?.generatedAt ? Date.parse(payload.generatedAt) : NaN
+  return Number.isFinite(generatedAt) && (Date.now() - generatedAt) <= ttlMs
+}
+
+function serviceTypeLabelForTicket(ticket) {
+  return firstText(cf(ticket, FIELD_IDS.serviceType), classifyTicketProduct(ticket), 'Unknown')
+}
+
+function buildTier1InboundActivityQuery(startDayKey, endDayKey) {
+  return `tags:request_type_noc_tier_1 form:"${INITIAL_FORM_NAME}" created>=${startDayKey}T00:00:00Z created<=${endDayKey}T23:59:59Z`
+}
+
+function detectInboundSpike(currentCount, baselineCounts = []) {
+  const safeCounts = baselineCounts
+    .map((value) => asNumber(value, 0))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+
+  if (!safeCounts.length) {
+    return {
+      flagged: currentCount >= 8,
+      severity: currentCount >= 14 ? 'high' : 'warning',
+      baselineAvg: 0,
+      baselineMax: 0,
+      ratio: currentCount > 0 ? Number.POSITIVE_INFINITY : 0,
+      deltaCount: currentCount
+    }
+  }
+
+  const baselineAvg = safeCounts.reduce((sum, value) => sum + value, 0) / safeCounts.length
+  const baselineMax = Math.max(...safeCounts, 0)
+  const deltaCount = currentCount - baselineAvg
+  const ratio = baselineAvg > 0 ? currentCount / baselineAvg : Number.POSITIVE_INFINITY
+  const warningThreshold = baselineAvg < 1.5
+    ? Math.max(6, baselineMax + 4)
+    : Math.max(Math.ceil(baselineAvg * 1.75), baselineMax + 4, Math.ceil(baselineAvg + 5))
+  const highThreshold = baselineAvg < 1.5
+    ? Math.max(12, baselineMax + 8)
+    : Math.max(Math.ceil(baselineAvg * 2.5), baselineMax + 8, Math.ceil(baselineAvg + 8))
+
+  const flagged = currentCount >= warningThreshold && deltaCount >= 4
+  const severity = currentCount >= highThreshold && deltaCount >= 8 ? 'high' : 'warning'
+
+  return {
+    flagged,
+    severity,
+    baselineAvg,
+    baselineMax,
+    ratio,
+    deltaCount
+  }
+}
+
+function anomalyTone(severity) {
+  return severity === 'high' ? '#dc2626' : '#d97706'
+}
+
+function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
+  const dayKeys = listRecentDayKeys(now, T1_INBOUND_ACTIVITY_LOOKBACK_DAYS)
+  const dayKeySet = new Set(dayKeys)
+  const dailyTotals = new Map(dayKeys.map((dayKey) => [dayKey, 0]))
+  const serviceDayCounts = new Map()
+  const serviceProductCounts = new Map()
+
+  for (const ticket of rawTickets) {
+    const createdAt = firstText(ticket?.created_at)
+    if (!createdAt) continue
+    const dayKey = formatYmdInTz(new Date(createdAt))
+    if (!dayKeySet.has(dayKey)) continue
+
+    const serviceType = serviceTypeLabelForTicket(ticket)
+    const productGroup = classifyTicketProduct(ticket)
+    dailyTotals.set(dayKey, asNumber(dailyTotals.get(dayKey), 0) + 1)
+
+    if (!serviceDayCounts.has(serviceType)) {
+      serviceDayCounts.set(serviceType, new Map(dayKeys.map((value) => [value, 0])))
+    }
+    if (!serviceProductCounts.has(serviceType)) {
+      serviceProductCounts.set(serviceType, new Map())
+    }
+
+    const counts = serviceDayCounts.get(serviceType)
+    counts.set(dayKey, asNumber(counts.get(dayKey), 0) + 1)
+
+    const products = serviceProductCounts.get(serviceType)
+    products.set(productGroup, asNumber(products.get(productGroup), 0) + 1)
+  }
+
+  const serviceRows = Array.from(serviceDayCounts.entries())
+    .map(([serviceType, counts]) => {
+      const countEntries = dayKeys.map((dayKey) => ({
+        dayKey,
+        label: formatDayKeyLabel(dayKey),
+        count: asNumber(counts.get(dayKey), 0)
+      }))
+      const dominantProduct = Array.from(serviceProductCounts.get(serviceType)?.entries() || [])
+        .sort((left, right) => right[1] - left[1])[0]?.[0] || 'Other'
+      const total = countEntries.reduce((sum, row) => sum + row.count, 0)
+      const peak = countEntries.reduce((max, row) => Math.max(max, row.count), 0)
+
+      return {
+        key: serviceType,
+        label: serviceType,
+        serviceType,
+        productGroup: dominantProduct,
+        total,
+        peak,
+        countsByDay: Object.fromEntries(countEntries.map((row) => [row.dayKey, row.count])),
+        countEntries
+      }
+    })
+    .sort((left, right) => {
+      if (right.total !== left.total) return right.total - left.total
+      if (right.peak !== left.peak) return right.peak - left.peak
+      return String(left.serviceType).localeCompare(String(right.serviceType))
+    })
+
+  const completedDayKeys = dayKeys.slice(0, -1)
+  const focusDayKeys = completedDayKeys.slice(-2)
+  const anomalies = []
+
+  for (const row of serviceRows) {
+    for (const focusDayKey of focusDayKeys) {
+      const focusIndex = completedDayKeys.indexOf(focusDayKey)
+      if (focusIndex < 0) continue
+
+      const priorDayKeys = completedDayKeys
+        .slice(Math.max(0, focusIndex - T1_INBOUND_ACTIVITY_BASELINE_DAYS), focusIndex)
+      if (!priorDayKeys.length) continue
+
+      const baselineCounts = priorDayKeys.map((dayKey) => asNumber(row.countsByDay[dayKey], 0))
+      const currentCount = asNumber(row.countsByDay[focusDayKey], 0)
+      if (!currentCount) continue
+
+      const spike = detectInboundSpike(currentCount, baselineCounts)
+      if (!spike.flagged) continue
+
+      const ratioText = Number.isFinite(spike.ratio) ? `${spike.ratio.toFixed(1)}x` : 'new spike'
+      anomalies.push({
+        key: `${row.serviceType}:${focusDayKey}`,
+        label: row.serviceType,
+        serviceType: row.serviceType,
+        productGroup: row.productGroup,
+        dayKey: focusDayKey,
+        dayLabel: formatDayKeyLabel(focusDayKey),
+        count: currentCount,
+        baselineAvg: Number(spike.baselineAvg.toFixed(1)),
+        baselineMax: spike.baselineMax,
+        deltaCount: Math.round(spike.deltaCount),
+        ratio: Number.isFinite(spike.ratio) ? Number(spike.ratio.toFixed(2)) : null,
+        severity: spike.severity,
+        tone: anomalyTone(spike.severity),
+        detail: `${formatDayKeyLabel(focusDayKey)}: ${currentCount} tickets vs avg ${spike.baselineAvg.toFixed(1)} across the prior ${baselineCounts.length} days (prev max ${spike.baselineMax}, ${ratioText}).`
+      })
+    }
+  }
+
+  anomalies.sort((left, right) => {
+    const severityRank = { high: 0, warning: 1 }
+    const leftRank = severityRank[left.severity] ?? 9
+    const rightRank = severityRank[right.severity] ?? 9
+    if (leftRank !== rightRank) return leftRank - rightRank
+    if (right.deltaCount !== left.deltaCount) return right.deltaCount - left.deltaCount
+    if ((right.ratio || 0) !== (left.ratio || 0)) return (right.ratio || 0) - (left.ratio || 0)
+    return right.count - left.count
+  })
+
+  const focusServices = [
+    ...new Set(anomalies.map((row) => row.serviceType)),
+    ...serviceRows.map((row) => row.serviceType)
+  ].slice(0, T1_INBOUND_ACTIVITY_MAX_SERIES)
+
+  const trendRows = dayKeys.map((dayKey) => {
+    const row = {
+      dayKey,
+      label: formatDayKeyLabel(dayKey),
+      total: asNumber(dailyTotals.get(dayKey), 0)
+    }
+    focusServices.forEach((serviceType, index) => {
+      const serviceRow = serviceRows.find((entry) => entry.serviceType === serviceType)
+      row[`series_${index + 1}`] = asNumber(serviceRow?.countsByDay?.[dayKey], 0)
+    })
+    return row
+  })
+
+  const trendServices = focusServices.map((serviceType, index) => {
+    const matchingAnomaly = anomalies.find((row) => row.serviceType === serviceType)
+    const palette = ['#dc2626', '#f97316', '#22c55e', '#38bdf8', '#8b5cf6']
+    return {
+      key: `series_${index + 1}`,
+      label: serviceType,
+      tone: matchingAnomaly?.tone || palette[index % palette.length]
+    }
+  })
+
+  return {
+    generatedAt: now.toISOString(),
+    lookbackDays: T1_INBOUND_ACTIVITY_LOOKBACK_DAYS,
+    baselineDays: T1_INBOUND_ACTIVITY_BASELINE_DAYS,
+    dayKeys,
+    dailyTotals: dayKeys.map((dayKey) => ({
+      dayKey,
+      label: formatDayKeyLabel(dayKey),
+      count: asNumber(dailyTotals.get(dayKey), 0)
+    })),
+    serviceRows: serviceRows.slice(0, 18),
+    anomalies: anomalies.slice(0, 18),
+    trendRows,
+    trendServices
+  }
 }
 
 function mergeHourlySeriesByKey(seriesConfig, valueField = 'cumulative') {
@@ -1326,6 +1558,20 @@ async function writeJsonAutomationSetting(key, value, updatedBy = 'system') {
   })
 }
 
+async function getTier1InboundActivitySnapshot(now = dayjs(), requestedBy = 'system') {
+  const cached = await readJsonAutomationSetting(T1_INBOUND_ACTIVITY_CACHE_KEY)
+  if (isCachedPayloadFresh(cached, T1_INBOUND_ACTIVITY_CACHE_TTL_MS)) {
+    return cached
+  }
+
+  const dayKeys = listRecentDayKeys(now, T1_INBOUND_ACTIVITY_LOOKBACK_DAYS)
+  const query = buildTier1InboundActivityQuery(dayKeys[0], dayKeys[dayKeys.length - 1])
+  const rawTickets = await fetchZendeskExport(query)
+  const payload = buildTier1InboundActivityPayload(rawTickets, now)
+  await writeJsonAutomationSetting(T1_INBOUND_ACTIVITY_CACHE_KEY, payload, requestedBy)
+  return payload
+}
+
 function extractLatestAuditPlayClock(ticket, pLevel, audits = []) {
   const policy = getT1PlayPolicy(pLevel)
   if (!policy || policy.exactClock) return null
@@ -1702,7 +1948,8 @@ async function collectLiveSnapshot(requestedBy = 'system') {
     rawTier2SolvedPreviousWeek,
     rawPartialNldTickets,
     rawSkips,
-    telephony
+    telephony,
+    t1InboundActivity
   ] = await Promise.all([
     safe('outages', () => fetchZendeskExport(`group:${OUTAGE_GROUP_ID} form:"${OUTAGE_FORM_NAME}" status<solved`), []),
     safe('backhaul', () => fetchZendeskExport(`form:"NOC Alert Management" type:ticket status<solved tags:"${backhaulTag}"`), []),
@@ -1729,6 +1976,17 @@ async function collectLiveSnapshot(requestedBy = 'system') {
       reason: 'Telephony snapshot unavailable.',
       queues: [],
       agents: []
+    }),
+    safe('tier1-inbound-activity', () => getTier1InboundActivitySnapshot(now, requestedBy), {
+      generatedAt: null,
+      lookbackDays: T1_INBOUND_ACTIVITY_LOOKBACK_DAYS,
+      baselineDays: T1_INBOUND_ACTIVITY_BASELINE_DAYS,
+      dayKeys: [],
+      dailyTotals: [],
+      serviceRows: [],
+      anomalies: [],
+      trendRows: [],
+      trendServices: []
     })
   ])
 
@@ -1921,6 +2179,8 @@ async function collectLiveSnapshot(requestedBy = 'system') {
   )
   const t1AutomationOpenSummary = summarizeRuleHits(rawTier1OpenTickets, T1_AUTOMATION_ROUTE_RULES)
   const t1AutomationCreatedTodaySummary = summarizeRuleHits(rawTier1CreatedToday, T1_AUTOMATION_ROUTE_RULES)
+  const t1InboundAnomalies = Array.isArray(t1InboundActivity?.anomalies) ? t1InboundActivity.anomalies : []
+  const t1InboundFocus = t1InboundAnomalies[0] || null
 
   const t2ActiveRows = tier2Tickets.filter((row) => !['pending', 'new'].includes(normalizeStatus(row.status)))
   const t2PartySummary = summarizeRowsByKey(t2ActiveRows, 'party')
@@ -2073,7 +2333,13 @@ async function collectLiveSnapshot(requestedBy = 'system') {
     telephonyTier1SlaBreached: tier1VoiceQueue
       ? asNumber(tier1VoiceQueue.maxQueueSeconds, 0) > TIER1_VOICE_SLA_SECONDS
         || asNumber(tier1VoiceQueue.avgAnswerSeconds, 0) > TIER1_VOICE_SLA_SECONDS
-      : null
+      : null,
+    t1InboundAnomalyCount: t1InboundAnomalies.length,
+    t1InboundHighAnomalyCount: t1InboundAnomalies.filter((row) => row.severity === 'high').length,
+    t1InboundFocusLabel: t1InboundFocus?.serviceType || '',
+    t1InboundFocusDayKey: t1InboundFocus?.dayKey || '',
+    t1InboundFocusDayLabel: t1InboundFocus?.dayLabel || '',
+    t1InboundFocusCount: asNumber(t1InboundFocus?.count, 0)
   }
 
   return {
@@ -2109,6 +2375,9 @@ async function collectLiveSnapshot(requestedBy = 'system') {
       t1AutomationCreatedTodaySummary,
       t1ReceivedComparisonSeries: t1ReceivedComparisonSeries.slice(0, 24),
       t1SolvedComparisonSeries: t1SolvedComparisonSeries.slice(0, 24),
+      t1InboundDailyTotals: Array.isArray(t1InboundActivity?.dailyTotals) ? t1InboundActivity.dailyTotals : [],
+      t1InboundAnomalyTrendRows: Array.isArray(t1InboundActivity?.trendRows) ? t1InboundActivity.trendRows : [],
+      t1InboundAnomalyTrendServices: Array.isArray(t1InboundActivity?.trendServices) ? t1InboundActivity.trendServices : [],
       t2ReceivedComparisonSeries: t2ReceivedComparisonSeries.slice(0, 24),
       t2SolvedComparisonSeries: t2SolvedComparisonSeries.slice(0, 24),
       t2AgeBucketSummary,
@@ -2150,6 +2419,9 @@ async function collectLiveSnapshot(requestedBy = 'system') {
       t1EscalationPathSummary,
       t1AutomationOpenSummary,
       t1AutomationCreatedTodaySummary,
+      t1InboundAnomalies: t1InboundAnomalies.slice(0, 12),
+      t1InboundDailyTotals: Array.isArray(t1InboundActivity?.dailyTotals) ? t1InboundActivity.dailyTotals : [],
+      t1InboundServiceRows: Array.isArray(t1InboundActivity?.serviceRows) ? t1InboundActivity.serviceRows : [],
       tier1DeskTickets: t1DeskRows.slice(0, 150),
       tier1MaintenanceTickets: t1MaintenanceRows.slice(0, 150),
       tier1ClientPendingTickets: t1ClientPendingRows.slice(0, 150),
@@ -2292,6 +2564,7 @@ export function getNocMonitoringConfigMeta() {
     historyBucketMinutes: HISTORY_BUCKET_MINUTES,
     historyWindowHours: HISTORY_WINDOW_HOURS,
     historyRetentionDays: HISTORY_RETENTION_DAYS,
+    t1InboundActivityCacheTtlMs: T1_INBOUND_ACTIVITY_CACHE_TTL_MS,
     dashboardNote: 'This dashboard reads from a cached backend snapshot so the browser stays light and Zendesk does not get hammered by repeated live panel queries.',
     telephonyConfigured: Boolean(ILLATION_STATS_URL),
     telephonyAuthConfigured: Boolean(ILLATION_AUTH_HEADER || ILLATION_BEARER_TOKEN || ILLATION_API_KEY || ILLATION_ALLOW_ANON)
