@@ -2515,10 +2515,12 @@ export default function NocMonitoringPage() {
     {
       label: 'First-touch risk',
       value: formatCount(summary.tier1P1Unattended || 0),
-      detail: `${formatCount(summary.tier1P1Breached || 0)} breached first-touch SLA`,
-      meta: 'P1 unattended',
+      detail: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0
+        ? `${formatCount(summary.tier1P1Breached || 0)} breached first-touch SLA`
+        : 'No breached first-touch rows right now',
+      meta: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0 ? 'P1 unattended' : 'P1 queue stable',
       icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: '#ef4444',
+      tone: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0 ? '#ef4444' : '#14b8a6',
       active: (summary.tier1P1Breached || 0) > 0 || (summary.tier1P1Unattended || 0) > 0,
       onClick: () => openT1WorkbenchDrawer('p1', 'p1Only', { systemState: 'new' })
     },
@@ -2538,7 +2540,7 @@ export default function NocMonitoringPage() {
       detail: `${formatCount((collections.tier1UrgentTickets || []).length)} rows under live timer watch`,
       meta: 'next action window',
       icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
-      tone: '#f59e0b',
+      tone: (summary.tier1PlayClockDueSoon || 0) > 0 ? '#f59e0b' : '#14b8a6',
       active: (summary.tier1PlayClockDueSoon || 0) > 0,
       onClick: () => openT1WorkbenchDrawer('urgent', 'dueNow')
     },
@@ -3405,14 +3407,34 @@ export default function NocMonitoringPage() {
                         colorMap={Object.fromEntries(t1ActionMixRows.map((row) => [row.key, row.tone || ACCENT]))}
                         height={210}
                       />
-                      <CompactBreakdownList
-                        rows={t1ActionMixRows}
-                        total={summary.tier1Open || 0}
-                        maxRows={5}
-                        secondaryText={(row) => row.playTargetMinutes
-                          ? `${formatCount(row.breached || 0)} breached | ${formatCount(row.dueSoon || 0)} due <=30m`
-                          : `${formatCount(row.noActiveTimer || 0)} no active timer`}
-                        emptyMessage="No lane concentration data is visible right now."
+                      <OpsValueTiles
+                        columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                        items={[
+                          {
+                            label: 'Clocks breached',
+                            value: formatCount(summary.tier1PlayClockBreached || 0),
+                            tone: '#f97316',
+                            helper: 'active work already late'
+                          },
+                          {
+                            label: 'Due <=30m',
+                            value: formatCount(summary.tier1PlayClockDueSoon || 0),
+                            tone: '#f59e0b',
+                            helper: 'next danger window'
+                          },
+                          {
+                            label: 'Parked timers',
+                            value: formatCount(summary.tier1ParkedTimers || 0),
+                            tone: '#64748b',
+                            helper: `${formatCount(t1ParkedP3Count)} P3 | ${formatCount(t1ParkedP4Count)} P4`
+                          },
+                          {
+                            label: 'Change control',
+                            value: formatCount(summary.tier1ChangeControlOpen || 0),
+                            tone: '#8b5cf6',
+                            helper: 'separate operating lane'
+                          }
+                        ]}
                       />
                     </Stack>
                   </OpsSubPanel>
@@ -3578,10 +3600,34 @@ export default function NocMonitoringPage() {
                 minHeight={0}
               >
                 <Stack spacing={0.82}>
-                  <CompactBreakdownList
-                    rows={t1WorkbenchShortcutRows}
-                    maxRows={6}
-                    emptyMessage="No workbench shortcuts are visible right now."
+                  <OpsValueTiles
+                    columns={{ xs: 'repeat(2, minmax(0, 1fr))' }}
+                    items={[
+                      {
+                        label: 'Live queue',
+                        value: formatCount(summary.tier1Open || 0),
+                        tone: '#14b8a6',
+                        helper: 'all open Tier 1 rows'
+                      },
+                      {
+                        label: 'Filtered',
+                        value: formatCount(t1FilteredActionViewRows.length),
+                        tone: '#3b82f6',
+                        helper: 'current filter result'
+                      },
+                      {
+                        label: 'Desk-owned',
+                        value: formatCount(t1DeskRows.length),
+                        tone: '#14b8a6',
+                        helper: 'with Tier 1 now'
+                      },
+                      {
+                        label: 'Urgent',
+                        value: formatCount(t1DueNowRows.length),
+                        tone: '#f59e0b',
+                        helper: 'breached or <=30m'
+                      }
+                    ]}
                   />
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.65 }}>
                     <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
