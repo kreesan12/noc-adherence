@@ -80,7 +80,7 @@ function loadable(element) {
   return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
 }
 
-function SideNav({ open, onToggle, vacancyCount }) {
+function SideNav({ open, onToggle, onClose, vacancyCount, variant = 'permanent' }) {
   const { user } = useAuth()
   const location = useLocation()
 
@@ -106,7 +106,10 @@ function SideNav({ open, onToggle, vacancyCount }) {
 
   return (
     <Drawer
-      variant="permanent"
+      variant={variant}
+      open={open}
+      onClose={onClose}
+      ModalProps={variant === 'temporary' ? { keepMounted: true } : undefined}
       sx={{
         '& .MuiDrawer-paper': {
           width: DRAWER_WIDTH,
@@ -273,6 +276,7 @@ function ShellLayout() {
   const { user } = useAuth()
   const location = useLocation()
   const isLogin = location.pathname === '/login'
+  const isMonitoringRoute = location.pathname === '/noc-monitoring'
   const [navOpen, setNavOpen] = useState(() => localStorage.getItem(NAV_STORAGE_KEY) !== '0')
   const [vacancyCount, setVacancyCount] = useState(0)
 
@@ -281,17 +285,31 @@ function ShellLayout() {
   }, [navOpen])
 
   useEffect(() => {
+    if (isMonitoringRoute) {
+      setNavOpen(false)
+    }
+  }, [isMonitoringRoute])
+
+  useEffect(() => {
     if (!user || isLogin) return
     listVacancies(true)
       .then((res) => setVacancyCount(res.data.length))
       .catch(() => {})
   }, [user, isLogin])
 
-  const drawerWidth = !isLogin && navOpen ? DRAWER_WIDTH : 0
+  const permanentNavOpen = !isLogin && !isMonitoringRoute && navOpen
+  const drawerWidth = permanentNavOpen ? DRAWER_WIDTH : 0
+  const drawerVariant = isMonitoringRoute ? 'temporary' : 'permanent'
 
   return (
     <>
-      <SideNav open={navOpen} onToggle={() => setNavOpen(false)} vacancyCount={vacancyCount} />
+      <SideNav
+        open={navOpen}
+        onToggle={() => setNavOpen(false)}
+        onClose={() => setNavOpen(false)}
+        vacancyCount={vacancyCount}
+        variant={drawerVariant}
+      />
 
       {!isLogin && !navOpen ? (
         <Tooltip title="Show navigation">
@@ -316,7 +334,11 @@ function ShellLayout() {
         </Tooltip>
       ) : null}
 
-      <AppFrame drawerWidth={drawerWidth}>
+      <AppFrame
+        drawerWidth={drawerWidth}
+        reserveDrawer={permanentNavOpen}
+        compact={isMonitoringRoute}
+      >
         <FloatingTechUserStatus />
 
         <Routes>
