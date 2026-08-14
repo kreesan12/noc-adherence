@@ -1679,77 +1679,6 @@ export default function NocMonitoringPage() {
     return 'Other'
   }, [])
 
-  const t1CreatedSlaBreachSummary = useMemo(() => {
-    const buckets = { FTTB: 0, FTTH: 0, 'FF Air': 0 }
-    ;(t1ActionViewRows || []).forEach((row) => {
-      const slaProduct = classifyTier1SlaProduct(row)
-      if (!Object.prototype.hasOwnProperty.call(buckets, slaProduct)) return
-      const targetHours = slaProduct === 'FTTB' ? 8 : 12
-      if (Number(row?.ageHours || 0) >= targetHours) {
-        buckets[slaProduct] += 1
-      }
-    })
-    return {
-      ...buckets,
-      total: buckets.FTTB + buckets.FTTH + buckets['FF Air']
-    }
-  }, [classifyTier1SlaProduct, t1ActionViewRows])
-
-  const t1CreatedSlaPopulation = useMemo(() => {
-    const buckets = { FTTB: 0, FTTH: 0, 'FF Air': 0 }
-    ;(t1ActionViewRows || []).forEach((row) => {
-      const slaProduct = classifyTier1SlaProduct(row)
-      if (Object.prototype.hasOwnProperty.call(buckets, slaProduct)) {
-        buckets[slaProduct] += 1
-      }
-    })
-    return buckets
-  }, [classifyTier1SlaProduct, t1ActionViewRows])
-
-  const t1RegionHotspot = useMemo(() => {
-    const grouped = new Map()
-    ;(t1ActionViewRows || []).forEach((row) => {
-      const key = String(row?.region || '').trim() || 'Unknown region'
-      grouped.set(key, (grouped.get(key) || 0) + 1)
-    })
-    return [...grouped.entries()]
-      .map(([label, count]) => ({ label, count }))
-      .sort((left, right) => right.count - left.count)[0] || null
-  }, [t1ActionViewRows])
-
-  const t1OrganisationHotspot = useMemo(() => {
-    const grouped = new Map()
-    ;(t1ActionViewRows || []).forEach((row) => {
-      const key = String(row?.organizationLabel || '').trim() || 'Unknown organisation'
-      grouped.set(key, (grouped.get(key) || 0) + 1)
-    })
-    return [...grouped.entries()]
-      .map(([label, count]) => ({ label, count }))
-      .sort((left, right) => right.count - left.count)[0] || null
-  }, [t1ActionViewRows])
-
-  const t1NodeHotspot = useMemo(() => {
-    const grouped = new Map()
-    ;(t1ActionViewRows || []).forEach((row) => {
-      const key = String(row?.nodeName || '').trim() || 'Unknown node'
-      grouped.set(key, (grouped.get(key) || 0) + 1)
-    })
-    return [...grouped.entries()]
-      .map(([label, count]) => ({ label, count }))
-      .sort((left, right) => right.count - left.count)[0] || null
-  }, [t1ActionViewRows])
-
-  const t1OltHotspot = useMemo(() => {
-    const grouped = new Map()
-    ;(t1ActionViewRows || []).forEach((row) => {
-      const key = String(row?.olt || '').trim() || 'Unknown OLT'
-      grouped.set(key, (grouped.get(key) || 0) + 1)
-    })
-    return [...grouped.entries()]
-      .map(([label, count]) => ({ label, count }))
-      .sort((left, right) => right.count - left.count)[0] || null
-  }, [t1ActionViewRows])
-
   const t1QueueTrend = useMemo(() => {
     const latest = historyTier1?.[historyTier1.length - 1] || null
     const compare = latest?.bucketStart
@@ -2098,6 +2027,77 @@ export default function NocMonitoringPage() {
     () => sortTier1Rows(collections.tier1Tickets || []),
     [collections, sortTier1Rows]
   )
+
+  const t1CreatedSlaBreachSummary = useMemo(() => {
+    const buckets = { FTTB: 0, FTTH: 0, 'FF Air': 0 }
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const slaProduct = classifyTier1SlaProduct(row)
+      if (!Object.prototype.hasOwnProperty.call(buckets, slaProduct)) return
+      const targetHours = slaProduct === 'FTTB' ? 8 : 12
+      if (Number(row?.ageHours || 0) >= targetHours) {
+        buckets[slaProduct] += 1
+      }
+    })
+    return {
+      ...buckets,
+      total: buckets.FTTB + buckets.FTTH + buckets['FF Air']
+    }
+  }, [classifyTier1SlaProduct, t1ActionViewRows])
+
+  const t1CreatedSlaPopulation = useMemo(() => {
+    const buckets = { FTTB: 0, FTTH: 0, 'FF Air': 0 }
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const slaProduct = classifyTier1SlaProduct(row)
+      if (Object.prototype.hasOwnProperty.call(buckets, slaProduct)) {
+        buckets[slaProduct] += 1
+      }
+    })
+    return buckets
+  }, [classifyTier1SlaProduct, t1ActionViewRows])
+
+  const t1RegionHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.region || '').trim() || 'Unknown region'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1OrganisationHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.organizationLabel || '').trim() || 'Unknown organisation'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1NodeHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.nodeName || '').trim() || 'Unknown node'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
+
+  const t1OltHotspot = useMemo(() => {
+    const grouped = new Map()
+    ;(t1ActionViewRows || []).forEach((row) => {
+      const key = String(row?.olt || '').trim() || 'Unknown OLT'
+      grouped.set(key, (grouped.get(key) || 0) + 1)
+    })
+    return [...grouped.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count)[0] || null
+  }, [t1ActionViewRows])
 
   const t1DeskRows = useMemo(
     () => sortTier1Rows(tier1DeskTickets),
