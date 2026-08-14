@@ -317,13 +317,18 @@ function ShellLayout() {
             onClick={() => setNavOpen(true)}
             sx={{
               position: 'fixed',
-              top: isMonitoringRoute ? 92 : 14,
-              left: isMonitoringRoute ? 12 : 14,
+              top: isMonitoringRoute ? '50%' : 14,
+              left: isMonitoringRoute ? -2 : 14,
+              transform: isMonitoringRoute ? 'translateY(-50%)' : 'none',
               zIndex: 2200,
               bgcolor: 'rgba(15, 23, 42, 0.86)',
               color: '#f8fafc',
               border: '1px solid rgba(255,255,255,0.14)',
+              borderLeft: isMonitoringRoute ? 'none' : '1px solid rgba(255,255,255,0.14)',
+              borderRadius: isMonitoringRoute ? '0 14px 14px 0' : 2.2,
               boxShadow: '0 14px 34px rgba(15, 23, 42, 0.22)',
+              width: isMonitoringRoute ? 28 : 40,
+              height: isMonitoringRoute ? 42 : 40,
               '&:hover': {
                 bgcolor: 'rgba(15, 23, 42, 0.96)'
               }
