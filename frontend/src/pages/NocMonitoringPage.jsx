@@ -2235,6 +2235,22 @@ export default function NocMonitoringPage() {
     [t1ParkedRows]
   )
 
+  const t1WorkbenchShortcutRows = useMemo(() => ([
+    { key: 'desk', label: 'Desk-owned', count: t1DeskRows.length, tone: '#14b8a6', detail: 'with Tier 1' },
+    { key: 'maintenance', label: 'Maintenance', count: t1MaintenanceRows.length, tone: '#3b82f6', detail: 'external lane' },
+    { key: 'client', label: 'Waiting client', count: t1ClientPendingRows.length, tone: '#f97316', detail: 'ISP / client pending' },
+    { key: 'p1', label: 'P1 queue', count: t1P1AttentionRows.length, tone: '#ef4444', detail: 'first-touch focus' },
+    { key: 'urgent', label: 'Urgent timers', count: t1DueNowRows.length, tone: '#f59e0b', detail: 'due <=30m' },
+    { key: 'parked', label: 'Parked', count: t1ParkedRows.length, tone: '#64748b', detail: 'pre-play queues' }
+  ]), [
+    t1ClientPendingRows.length,
+    t1DeskRows.length,
+    t1DueNowRows.length,
+    t1MaintenanceRows.length,
+    t1P1AttentionRows.length,
+    t1ParkedRows.length
+  ])
+
   const t1PostureLensConfig = useMemo(() => ({
     workflowOwner: {
       label: 'Workflow owner',
@@ -3256,6 +3272,13 @@ export default function NocMonitoringPage() {
                       <SignalChip label={summary.t1InboundFocusStatusLabel || 'Clear'} tone={summary.t1InboundFocusStatusTone || '#14b8a6'} />
                       <SignalChip label={summary.telephonyTier1SlaBreached ? 'Voice outside SLA' : 'Voice within SLA'} tone={summary.telephonyTier1SlaBreached ? '#ef4444' : '#06b6d4'} />
                     </Stack>
+                    <Box sx={{ pt: 0.2 }}>
+                      <CompactBreakdownList
+                        rows={t1AnomalyListRows}
+                        maxRows={2}
+                        emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
+                      />
+                    </Box>
                   </Stack>
                 </Box>
 
@@ -3552,9 +3575,9 @@ export default function NocMonitoringPage() {
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.98fr 1.02fr' }, gap: 0.82, alignItems: 'start' }}>
                   <CompactBreakdownList
-                    rows={t1AnomalyListRows}
-                    maxRows={4}
-                    emptyMessage="No abnormal recent Tier 1 inbound product spikes are visible right now."
+                    rows={t1WorkbenchShortcutRows}
+                    maxRows={6}
+                    emptyMessage="No workbench shortcuts are visible right now."
                   />
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' }, gap: 0.65 }}>
                     <DrillCounterButton label="Desk-owned" count={t1DeskRows.length} helper="with Tier 1" tone="#14b8a6" onClick={() => openT1WorkbenchDrawer('desk', 'deskOwned')} />
