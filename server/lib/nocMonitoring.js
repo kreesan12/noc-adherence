@@ -874,10 +874,10 @@ function buildTier1InboundActivityPayload(rawTickets = [], now = dayjs()) {
     return right.count - left.count
   })
 
-  const focusServices = [
-    ...new Set(anomalies.map((row) => row.productType)),
+  const focusServices = Array.from(new Set([
+    ...anomalies.map((row) => row.productType),
     ...serviceRows.map((row) => row.productType)
-  ].slice(0, T1_INBOUND_ACTIVITY_MAX_SERIES)
+  ])).slice(0, T1_INBOUND_ACTIVITY_MAX_SERIES)
 
   const trendRows = dayKeys.map((dayKey) => {
     const row = {
