@@ -57,13 +57,13 @@ import {
 } from '../components/ui/AnalyticsPrimitives'
 
 const ACCENT = '#0f766e'
-const OPS_BG = '#091423'
-const OPS_PANEL = 'rgba(13, 24, 42, 0.9)'
-const OPS_PANEL_SOFT = 'rgba(16, 28, 48, 0.82)'
-const OPS_BORDER = 'rgba(148, 163, 184, 0.18)'
-const OPS_TEXT = '#e5eef8'
-const OPS_MUTED = 'rgba(203, 213, 225, 0.72)'
-const OPS_GRID = 'rgba(148, 163, 184, 0.16)'
+const OPS_BG = '#eef4fb'
+const OPS_PANEL = 'rgba(255, 255, 255, 0.98)'
+const OPS_PANEL_SOFT = 'rgba(255, 255, 255, 0.95)'
+const OPS_BORDER = 'rgba(148, 163, 184, 0.28)'
+const OPS_TEXT = '#0f172a'
+const OPS_MUTED = 'rgba(51, 65, 85, 0.72)'
+const OPS_GRID = 'rgba(148, 163, 184, 0.24)'
 const DEFAULT_HISTORY_HOURS = 72
 const SNAPSHOT_POLL_MS = 5 * 60 * 1000
 const TELEPHONY_POLL_MS = 5000
@@ -73,53 +73,53 @@ const DASHBOARD_METRIC_ROOT_SX = {
   backdropFilter: 'blur(14px)',
   color: OPS_TEXT,
   border: `1px solid ${OPS_BORDER}`,
-  bgcolor: 'rgba(12, 21, 38, 0.84)',
-  background: 'linear-gradient(180deg, rgba(22, 34, 56, 0.98) 0%, rgba(11, 19, 35, 0.92) 100%)',
-  boxShadow: '0 20px 38px rgba(2, 6, 23, 0.28), inset 0 1px 0 rgba(255,255,255,0.03)'
+  bgcolor: 'rgba(255, 255, 255, 0.98)',
+  background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(244, 247, 251, 0.96) 100%)',
+  boxShadow: '0 12px 28px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.7)'
 }
 const DASHBOARD_METRIC_VALUE_SX = {
   fontSize: '1.12rem',
-  color: '#ffffff'
+  color: OPS_TEXT
 }
 const DASHBOARD_SECTION_ROOT_SX = {
   borderRadius: 3.4,
   color: OPS_TEXT,
-  border: '1px solid rgba(96, 165, 250, 0.12)',
-  background: 'linear-gradient(180deg, rgba(16, 28, 48, 0.98) 0%, rgba(10, 18, 33, 0.97) 100%)',
-  boxShadow: '0 24px 48px rgba(2, 6, 23, 0.3), inset 0 1px 0 rgba(255,255,255,0.03)',
+  border: '1px solid rgba(148, 163, 184, 0.18)',
+  background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(245, 248, 252, 0.98) 100%)',
+  boxShadow: '0 16px 34px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.85)',
   '& > .MuiStack-root': {
-    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
-    background: 'linear-gradient(180deg, rgba(22, 34, 56, 0.94) 0%, rgba(12, 21, 38, 0.84) 100%)'
+    borderBottomColor: 'rgba(148, 163, 184, 0.18)',
+    background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(239, 246, 255, 0.9) 100%)'
   },
   '& > .MuiStack-root .MuiTypography-subtitle2': {
-    color: '#f8fafc'
+    color: OPS_TEXT
   },
   '& > .MuiStack-root .MuiTypography-body2': {
     color: `${OPS_MUTED} !important`
   },
   '& .MuiTableCell-root': {
     color: OPS_TEXT,
-    borderColor: 'rgba(148, 163, 184, 0.12)'
+    borderColor: 'rgba(148, 163, 184, 0.18)'
   },
   '& .MuiTableRow-root:hover': {
-    backgroundColor: 'rgba(30, 41, 59, 0.28)'
+    backgroundColor: 'rgba(226, 232, 240, 0.4)'
   },
   '& .MuiChip-root': {
-    borderColor: 'rgba(148, 163, 184, 0.2)'
+    borderColor: 'rgba(148, 163, 184, 0.24)'
   }
 }
 const DASHBOARD_SECTION_HEADER_SX = {
   px: 1,
   py: 0.72,
-  borderBottomColor: 'rgba(148, 163, 184, 0.12)',
-  background: 'linear-gradient(180deg, rgba(24, 38, 61, 0.9) 0%, rgba(12, 21, 38, 0.9) 100%)'
+  borderBottomColor: 'rgba(148, 163, 184, 0.18)',
+  background: 'linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(239, 246, 255, 0.92) 100%)'
 }
 const DASHBOARD_SECTION_BODY_SX = {
   px: 1.05,
   py: 0.92
 }
 const DASHBOARD_SECTION_TITLE_SX = {
-  color: '#f8fafc',
+  color: OPS_TEXT,
   fontSize: '0.94rem',
   fontWeight: 800,
   letterSpacing: 0.15
@@ -419,7 +419,7 @@ function priorityColor(priority) {
 function ExternalTicketLink({ href, label = 'Open' }) {
   if (!href) return <Typography variant="caption" sx={{ color: OPS_MUTED }}>No link</Typography>
   return (
-    <Link href={href} target="_blank" rel="noreferrer" underline="hover" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35, color: '#7dd3fc' }}>
+    <Link href={href} target="_blank" rel="noreferrer" underline="hover" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35, color: '#0f766e' }}>
       {label}
       <OpenInNewRoundedIcon sx={{ fontSize: 14 }} />
     </Link>
@@ -434,8 +434,8 @@ function SignalChip({ label, tone = '#64748b' }) {
       sx={{
         height: 22,
         fontWeight: 700,
-        color: '#f8fafc',
-        bgcolor: alpha(tone, 0.18),
+        color: OPS_TEXT,
+        bgcolor: alpha(tone, 0.12),
         border: `1px solid ${alpha(tone, 0.36)}`,
         '& .MuiChip-label': {
           px: 0.95
@@ -457,27 +457,27 @@ function DrillCounterButton({ label, count, helper, tone = ACCENT, onClick }) {
         px: 0.95,
         py: 0.65,
         borderRadius: 2.5,
-        color: '#f8fafc',
+        color: OPS_TEXT,
         borderColor: alpha(tone, 0.36),
-        bgcolor: 'rgba(12, 21, 38, 0.92)',
-        background: `linear-gradient(180deg, rgba(18, 30, 52, 0.96) 0%, ${alpha(tone, 0.16)} 100%)`,
+        bgcolor: 'rgba(255, 255, 255, 0.98)',
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(tone, 0.12)} 100%)`,
         textTransform: 'none',
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 10px 18px ${alpha('#020617', 0.16)}`,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 18px ${alpha('#020617', 0.06)}`,
         '&:hover': {
           borderColor: alpha(tone, 0.52),
-          bgcolor: 'rgba(14, 24, 42, 0.96)'
+          bgcolor: 'rgba(248, 250, 252, 0.98)'
         }
       }}
     >
       <Stack spacing={0.1} alignItems="flex-start">
-        <Typography variant="caption" sx={{ color: '#a5b4fc', lineHeight: 1.1, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <Typography variant="caption" sx={{ color: alpha(tone, 0.9), lineHeight: 1.1, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           {label}
         </Typography>
-        <Typography variant="subtitle1" sx={{ fontWeight: 900, color: '#ffffff', lineHeight: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 900, color: OPS_TEXT, lineHeight: 1 }}>
           {formatCount(count)}
         </Typography>
         {helper ? (
-          <Typography variant="caption" sx={{ color: alpha('#e5eef8', 0.78), lineHeight: 1.15 }}>
+          <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.15 }}>
             {helper}
           </Typography>
         ) : null}
@@ -502,8 +502,8 @@ function RowWindowSelector({ value, onChange, options = [10, 20, 50, 'all'] }) {
             sx={{
               height: 22,
               fontWeight: 700,
-              color: selected ? '#f8fafc' : OPS_MUTED,
-              bgcolor: selected ? 'rgba(15, 118, 110, 0.26)' : 'rgba(15, 23, 42, 0.64)',
+              color: OPS_TEXT,
+              bgcolor: selected ? 'rgba(15, 118, 110, 0.14)' : 'rgba(255, 255, 255, 0.95)',
               border: `1px solid ${selected ? alpha('#34d399', 0.42) : 'rgba(148, 163, 184, 0.18)'}`,
               '& .MuiChip-label': {
                 px: 0.95
@@ -531,8 +531,8 @@ function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT, 
           sx={{
             height: 22,
             fontWeight: 700,
-            color: value === 'all' ? '#f8fafc' : OPS_MUTED,
-            bgcolor: value === 'all' ? alpha(tone, 0.24) : 'rgba(15, 23, 42, 0.64)',
+            color: OPS_TEXT,
+            bgcolor: value === 'all' ? alpha(tone, 0.14) : 'rgba(255, 255, 255, 0.95)',
             border: `1px solid ${value === 'all' ? alpha(tone, 0.44) : 'rgba(148, 163, 184, 0.18)'}`,
             '& .MuiChip-label': {
               px: 0.95
@@ -552,8 +552,8 @@ function FilterChipGroup({ label, value, onChange, options = [], tone = ACCENT, 
               sx={{
                 height: 22,
                 fontWeight: 700,
-                color: selected ? '#f8fafc' : OPS_MUTED,
-                bgcolor: selected ? alpha(tone, 0.24) : 'rgba(15, 23, 42, 0.64)',
+                color: OPS_TEXT,
+                bgcolor: selected ? alpha(tone, 0.14) : 'rgba(255, 255, 255, 0.95)',
                 border: `1px solid ${selected ? alpha(tone, 0.44) : 'rgba(148, 163, 184, 0.18)'}`,
                 '& .MuiChip-label': {
                   px: 0.95
@@ -579,9 +579,9 @@ function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 
             p: 0.9,
             borderRadius: 2.5,
             border: `1px solid ${alpha(item.tone || ACCENT, 0.22)}`,
-            bgcolor: 'rgba(12, 21, 38, 0.9)',
-            background: `linear-gradient(180deg, rgba(20, 32, 54, 0.96) 0%, ${alpha(item.tone || ACCENT, 0.16)} 100%)`,
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+            bgcolor: 'rgba(255, 255, 255, 0.98)',
+            background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(item.tone || ACCENT, 0.12)} 100%)`,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8)',
             '&::before': {
               content: '""',
               position: 'absolute',
@@ -598,7 +598,7 @@ function OpsValueTiles({ items, columns = { xs: '1fr', md: 'repeat(3, minmax(0, 
               </Typography>
               {item.badge ? <SignalChip label={item.badge} tone={item.tone || ACCENT} /> : null}
             </Stack>
-            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1, color: '#f8fafc', letterSpacing: -0.2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1, color: OPS_TEXT, letterSpacing: -0.2 }}>
               {item.value}
             </Typography>
             {item.helper ? (
@@ -622,21 +622,21 @@ function OpsStatusPill({ label, value, tone = ACCENT }) {
         py: 0.78,
         borderRadius: 2.8,
         border: `1px solid ${alpha(tone, 0.34)}`,
-        bgcolor: 'rgba(8, 15, 29, 0.96)',
-        background: `linear-gradient(180deg, rgba(20, 33, 56, 0.98) 0%, ${alpha(tone, 0.16)} 100%)`,
-        boxShadow: `inset 0 0 0 1px ${alpha('#ffffff', 0.05)}, 0 12px 28px ${alpha('#020617', 0.24)}`,
+        bgcolor: 'rgba(255, 255, 255, 0.98)',
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(tone, 0.12)} 100%)`,
+        boxShadow: `inset 0 0 0 1px ${alpha('#ffffff', 0.7)}, 0 10px 24px ${alpha('#020617', 0.06)}`,
         minHeight: 54
       }}
     >
       <Stack spacing={0.3} sx={{ minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: '#dbe7ff', textTransform: 'uppercase', letterSpacing: 0.74, lineHeight: 1, fontWeight: 800, fontSize: '0.58rem' }}>
+        <Typography variant="caption" sx={{ color: alpha(tone, 0.9), textTransform: 'uppercase', letterSpacing: 0.74, lineHeight: 1, fontWeight: 800, fontSize: '0.58rem' }}>
           {label}
         </Typography>
         <Stack direction="row" spacing={0.65} alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
           <Typography
             variant="body2"
             sx={{
-              color: '#ffffff',
+              color: OPS_TEXT,
               fontWeight: 900,
               lineHeight: 1,
               fontSize: '1.04rem',
@@ -667,11 +667,11 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
         borderRadius: 3,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.5 : 0.24)}`,
-        bgcolor: 'rgba(10, 19, 35, 0.94)',
-        background: `linear-gradient(180deg, rgba(18, 31, 54, 0.98) 0%, rgba(10, 18, 33, 0.96) 58%, ${alpha(tone, active ? 0.18 : 0.12)} 100%)`,
+        bgcolor: 'rgba(255, 255, 255, 0.98)',
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 250, 252, 0.96) 58%, ${alpha(tone, active ? 0.14 : 0.08)} 100%)`,
         boxShadow: active
-          ? `0 0 0 1px ${alpha(tone, 0.18)}, 0 22px 38px ${alpha(tone, 0.2)}`
-          : 'inset 0 0 0 1px rgba(148, 163, 184, 0.05), 0 16px 30px rgba(2, 6, 23, 0.18)',
+          ? `0 0 0 1px ${alpha(tone, 0.12)}, 0 16px 28px ${alpha(tone, 0.12)}`
+          : 'inset 0 0 0 1px rgba(148, 163, 184, 0.05), 0 10px 22px rgba(2, 6, 23, 0.06)',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease',
         appearance: 'none',
@@ -687,7 +687,7 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
         '&:hover': onClick ? {
           transform: 'translateY(-1px)',
           borderColor: alpha(tone, 0.52),
-          boxShadow: `0 0 0 1px ${alpha(tone, 0.18)}, 0 22px 38px ${alpha(tone, 0.2)}`
+          boxShadow: `0 0 0 1px ${alpha(tone, 0.14)}, 0 18px 30px ${alpha(tone, 0.12)}`
         } : undefined,
         ...rootSx
       }}
@@ -704,21 +704,21 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
                     display: 'grid',
                     placeItems: 'center',
                     color: tone,
-                    bgcolor: alpha(tone, active ? 0.18 : 0.1),
+                    bgcolor: alpha(tone, active ? 0.12 : 0.08),
                     border: `1px solid ${alpha(tone, active ? 0.34 : 0.18)}`
                   }}
                 >
                   {icon}
                 </Box>
               ) : null}
-              <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.58, fontWeight: 800 }}>
+              <Typography variant="caption" sx={{ color: alpha(tone, 0.9), textTransform: 'uppercase', letterSpacing: 0.58, fontWeight: 800 }}>
                 {label}
               </Typography>
             </Stack>
             <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 16px ${alpha(tone, 0.55)}` }} />
           </Stack>
           <Stack direction="row" spacing={0.9} alignItems="flex-end" justifyContent="space-between">
-            <Typography variant="h4" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 0.9, letterSpacing: -0.38 }}>
+            <Typography variant="h4" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 0.9, letterSpacing: -0.38 }}>
               {value}
             </Typography>
             {meta ? (
@@ -727,7 +727,7 @@ function OpsPriorityCard({ label, value, detail, meta, tone = ACCENT, onClick, a
               </Typography>
             ) : null}
           </Stack>
-          <Typography variant="body2" sx={{ color: '#f8fafc', fontWeight: 800, lineHeight: 1.16 }}>
+          <Typography variant="body2" sx={{ color: OPS_TEXT, fontWeight: 800, lineHeight: 1.16 }}>
             {detail}
           </Typography>
           <Box sx={{ height: 4, borderRadius: 999, bgcolor: alpha(tone, 0.14), overflow: 'hidden' }}>
@@ -753,8 +753,8 @@ function ConsoleToggleStrip({ value, onChange, options, tone = ACCENT }) {
             sx={{
               height: 24,
               fontWeight: 800,
-              color: selected ? '#f8fafc' : OPS_MUTED,
-              bgcolor: selected ? alpha(option.tone || tone, 0.24) : 'rgba(15, 23, 42, 0.68)',
+              color: OPS_TEXT,
+              bgcolor: selected ? alpha(option.tone || tone, 0.14) : 'rgba(255, 255, 255, 0.95)',
               border: `1px solid ${selected ? alpha(option.tone || tone, 0.46) : 'rgba(148, 163, 184, 0.18)'}`,
               '& .MuiChip-label': {
                 px: 1
@@ -779,11 +779,11 @@ function ConsoleLaneRail({ label, count, tone = ACCENT, percent = 0, detail, hel
         borderRadius: 2.6,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.48 : 0.22)}`,
-        bgcolor: 'rgba(12, 21, 38, 0.9)',
-        background: `linear-gradient(180deg, rgba(19, 31, 53, 0.96) 0%, ${alpha(tone, active ? 0.16 : 0.1)} 100%)`,
+        bgcolor: 'rgba(255, 255, 255, 0.98)',
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(tone, active ? 0.12 : 0.08)} 100%)`,
         boxShadow: active
-          ? `0 0 0 1px ${alpha(tone, 0.12)}, 0 18px 28px ${alpha(tone, 0.12)}`
-          : 'inset 0 1px 0 rgba(255,255,255,0.03)',
+          ? `0 0 0 1px ${alpha(tone, 0.08)}, 0 12px 22px ${alpha(tone, 0.08)}`
+          : 'inset 0 1px 0 rgba(255,255,255,0.8)',
         cursor: onClick ? 'pointer' : 'default',
         appearance: 'none',
         outline: 'none',
@@ -798,7 +798,7 @@ function ConsoleLaneRail({ label, count, tone = ACCENT, percent = 0, detail, hel
         <Stack direction="row" spacing={0.8} alignItems="center" justifyContent="space-between">
           <Stack direction="row" spacing={0.62} alignItems="center" sx={{ minWidth: 0 }}>
             <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 16px ${alpha(tone, 0.55)}` }} />
-            <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 800 }} noWrap>
+            <Typography variant="body2" sx={{ color: OPS_TEXT, fontWeight: 800 }} noWrap>
               {label}
             </Typography>
           </Stack>
@@ -815,7 +815,7 @@ function ConsoleLaneRail({ label, count, tone = ACCENT, percent = 0, detail, hel
           />
         </Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.55} justifyContent="space-between">
-          <Typography variant="caption" sx={{ color: '#f8fafc', fontWeight: 700 }}>
+          <Typography variant="caption" sx={{ color: OPS_TEXT, fontWeight: 700 }}>
             {detail}
           </Typography>
           {helper ? (
@@ -841,11 +841,11 @@ function ConsoleLaneTile({ label, count, tone = ACCENT, detail, helper, percent 
         borderRadius: 2.7,
         color: OPS_TEXT,
         border: `1px solid ${alpha(tone, active ? 0.5 : 0.24)}`,
-        bgcolor: 'rgba(10, 18, 33, 0.94)',
-        background: `linear-gradient(180deg, rgba(19, 31, 53, 0.98) 0%, rgba(11, 19, 35, 0.96) 55%, ${alpha(tone, active ? 0.16 : 0.1)} 100%)`,
+        bgcolor: 'rgba(255, 255, 255, 0.98)',
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(248, 250, 252, 0.96) 55%, ${alpha(tone, active ? 0.14 : 0.08)} 100%)`,
         boxShadow: active
-          ? `0 20px 34px ${alpha(tone, 0.16)}`
-          : '0 12px 24px rgba(2, 6, 23, 0.18)',
+          ? `0 12px 24px ${alpha(tone, 0.12)}`
+          : '0 8px 18px rgba(2, 6, 23, 0.06)',
         cursor: onClick ? 'pointer' : 'default',
         appearance: 'none',
         outline: 'none',
@@ -860,16 +860,16 @@ function ConsoleLaneTile({ label, count, tone = ACCENT, detail, helper, percent 
       <Stack spacing={0.55}>
         <Stack direction="row" spacing={0.6} alignItems="flex-start" justifyContent="space-between">
           <Stack spacing={0.12} sx={{ minWidth: 0 }}>
-            <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.54, fontWeight: 800 }}>
+            <Typography variant="caption" sx={{ color: alpha(tone, 0.9), textTransform: 'uppercase', letterSpacing: 0.54, fontWeight: 800 }}>
               {label}
             </Typography>
-            <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 0.95, letterSpacing: -0.28 }}>
+            <Typography variant="h5" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 0.95, letterSpacing: -0.28 }}>
               {formatCount(count)}
             </Typography>
           </Stack>
           {badge ? <SignalChip label={badge} tone={tone} /> : <Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: tone, boxShadow: `0 0 16px ${alpha(tone, 0.55)}` }} />}
         </Stack>
-        <Typography variant="body2" sx={{ color: '#f8fafc', fontWeight: 700, lineHeight: 1.15 }}>
+        <Typography variant="body2" sx={{ color: OPS_TEXT, fontWeight: 700, lineHeight: 1.15 }}>
           {detail}
         </Typography>
         {helper ? (
@@ -930,8 +930,8 @@ function SpotlightCard({ item }) {
         borderRadius: 2.6,
         border: `1px solid ${alpha(item.tone, 0.28)}`,
         color: OPS_TEXT,
-        background: `linear-gradient(180deg, ${alpha(item.tone, 0.2)} 0%, rgba(10,18,33,0.94) 100%)`,
-        boxShadow: '0 12px 26px rgba(2, 6, 23, 0.24)'
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, ${alpha(item.tone, 0.12)} 100%)`,
+        boxShadow: `0 12px 26px ${alpha(item.tone, 0.08)}`
       }}
     >
       <Stack spacing={0.7}>
@@ -939,7 +939,7 @@ function SpotlightCard({ item }) {
           <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
             {item.title}
           </Typography>
-          {item.badge ? <Chip size="small" label={item.badge} sx={{ bgcolor: alpha(item.tone, 0.2), color: '#f8fafc', fontWeight: 700, border: `1px solid ${alpha(item.tone, 0.35)}` }} /> : null}
+          {item.badge ? <Chip size="small" label={item.badge} sx={{ bgcolor: alpha(item.tone, 0.12), color: OPS_TEXT, fontWeight: 700, border: `1px solid ${alpha(item.tone, 0.35)}` }} /> : null}
         </Stack>
         <Typography variant="body2" sx={{ color: OPS_MUTED }}>
           {item.message}
@@ -963,7 +963,7 @@ function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.', g
         <TableHead>
           <TableRow>
             {columns.map((column) => (
-              <TableCell key={column.key} sx={{ fontWeight: 800, whiteSpace: 'nowrap', color: '#f8fafc', bgcolor: 'rgba(15,23,42,0.78)' }}>
+              <TableCell key={column.key} sx={{ fontWeight: 800, whiteSpace: 'nowrap', color: OPS_TEXT, bgcolor: 'rgba(241, 245, 249, 0.98)' }}>
                 {column.label}
               </TableCell>
             ))}
@@ -1131,7 +1131,7 @@ function DonutBreakdownChart({ rows, dataKey = 'count', emptyMessage, colorMap =
           <Typography variant="caption" sx={{ color: OPS_MUTED, textTransform: 'uppercase', letterSpacing: 0.55 }}>
             live mix
           </Typography>
-          <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1 }}>
+          <Typography variant="h5" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 1 }}>
             {formatCount(total)}
           </Typography>
           <Typography variant="caption" sx={{ color: OPS_MUTED }}>
@@ -1158,7 +1158,7 @@ function SummaryStatBlock({ rows, emptyMessage = 'No summary data is available.'
               {row.label}
             </Typography>
           </Stack>
-          <Typography variant="body2" sx={{ fontWeight: 800, color: '#f8fafc' }}>
+          <Typography variant="body2" sx={{ fontWeight: 800, color: OPS_TEXT }}>
             {formatCount(row.count)}
           </Typography>
         </Stack>
@@ -1239,10 +1239,10 @@ function OpsAlert({ severity = 'info', children }) {
       sx={{
         borderRadius: 2.4,
         border: `1px solid ${OPS_BORDER}`,
-        bgcolor: 'rgba(10, 18, 33, 0.82)',
+        bgcolor: 'rgba(255, 255, 255, 0.98)',
         color: OPS_TEXT,
         '& .MuiAlert-icon': {
-          color: '#f8fafc'
+          color: OPS_TEXT
         },
         '& .MuiAlert-message': {
           color: OPS_TEXT
@@ -1287,7 +1287,7 @@ function OpsSection({ tone = ACCENT, rootSx, headerSx, bodySx, ...props }) {
         position: 'relative',
         overflow: 'hidden',
         border: `1px solid ${alpha(tone, 0.18)}`,
-        boxShadow: `0 24px 48px rgba(2, 6, 23, 0.3), 0 0 0 1px ${alpha(tone, 0.06)}, inset 0 1px 0 rgba(255,255,255,0.03)`,
+        boxShadow: `0 14px 28px rgba(15, 23, 42, 0.07), 0 0 0 1px ${alpha(tone, 0.05)}, inset 0 1px 0 rgba(255,255,255,0.8)`,
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -1301,14 +1301,14 @@ function OpsSection({ tone = ACCENT, rootSx, headerSx, bodySx, ...props }) {
           inset: '0 auto auto 0',
           width: '42%',
           height: 140,
-          background: `radial-gradient(circle at top left, ${alpha(tone, 0.12)} 0%, transparent 68%)`,
+          background: `radial-gradient(circle at top left, ${alpha(tone, 0.08)} 0%, transparent 68%)`,
           pointerEvents: 'none'
         },
         ...rootSx
       }}
       headerSx={{
         ...DASHBOARD_SECTION_HEADER_SX,
-        background: `linear-gradient(180deg, ${alpha(tone, 0.14)} 0%, rgba(12, 21, 38, 0.92) 72%)`,
+        background: `linear-gradient(180deg, ${alpha(tone, 0.08)} 0%, rgba(255, 255, 255, 0.94) 72%)`,
         ...headerSx
       }}
       bodySx={{
@@ -1331,16 +1331,16 @@ function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children, 
         p: 0.9,
         borderRadius: 2.7,
         border: `1px solid ${alpha(tone, 0.18)}`,
-        bgcolor: 'rgba(10, 18, 33, 0.72)',
-        background: `linear-gradient(180deg, rgba(18, 30, 52, 0.92) 0%, ${alpha(tone, 0.06)} 100%)`,
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 24px ${alpha(tone, 0.05)}`,
+        bgcolor: 'rgba(255, 255, 255, 0.94)',
+        background: `linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, ${alpha(tone, 0.05)} 100%)`,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.85), 0 10px 22px ${alpha(tone, 0.04)}`,
         ...rootSx
       }}
     >
       <Stack spacing={0.75}>
         <Stack direction="row" spacing={0.7} alignItems="flex-start" justifyContent="space-between">
           <Stack spacing={0.18} sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle2" sx={{ color: '#f8fafc', fontWeight: 800 }}>
+            <Typography variant="subtitle2" sx={{ color: OPS_TEXT, fontWeight: 800 }}>
               {title}
             </Typography>
             {subtitle ? (
@@ -2864,14 +2864,14 @@ export default function NocMonitoringPage() {
           color: OPS_TEXT,
           border: `1px solid ${OPS_BORDER}`,
           background: [
-            `radial-gradient(circle at 12% 18%, ${alpha('#14b8a6', 0.2)} 0%, transparent 22%)`,
-            `radial-gradient(circle at 88% 16%, ${alpha('#2563eb', 0.18)} 0%, transparent 24%)`,
-            `linear-gradient(135deg, rgba(8, 15, 29, 0.98) 0%, rgba(10, 23, 43, 0.98) 52%, rgba(5, 12, 24, 0.98) 100%)`
+            `radial-gradient(circle at 12% 18%, ${alpha('#14b8a6', 0.16)} 0%, transparent 22%)`,
+            `radial-gradient(circle at 88% 16%, ${alpha('#2563eb', 0.14)} 0%, transparent 24%)`,
+            `linear-gradient(135deg, rgba(255, 255, 255, 0.99) 0%, rgba(243, 248, 255, 0.98) 52%, rgba(238, 244, 251, 0.98) 100%)`
           ].join(','),
-          boxShadow: '0 26px 54px rgba(2, 6, 23, 0.34)'
+          boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)'
         }}
-        eyebrowSx={{ color: '#2dd4bf', mb: 0.22, fontWeight: 800, letterSpacing: 0.9 }}
-        titleSx={{ color: '#f8fafc', fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
+        eyebrowSx={{ color: '#0f766e', mb: 0.22, fontWeight: 800, letterSpacing: 0.9 }}
+        titleSx={{ color: OPS_TEXT, fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
         descriptionSx={{ color: OPS_MUTED, fontSize: '0.92rem', maxWidth: 920 }}
       >
         <AnalyticsLoadingBlock message="Loading the current monitoring snapshot..." />
@@ -2891,14 +2891,14 @@ export default function NocMonitoringPage() {
         color: OPS_TEXT,
         border: `1px solid ${OPS_BORDER}`,
         background: [
-          `radial-gradient(circle at 12% 18%, ${alpha('#14b8a6', 0.22)} 0%, transparent 22%)`,
-          `radial-gradient(circle at 88% 16%, ${alpha('#2563eb', 0.2)} 0%, transparent 24%)`,
-          `linear-gradient(135deg, rgba(8, 15, 29, 0.98) 0%, rgba(10, 23, 43, 0.98) 52%, rgba(5, 12, 24, 0.98) 100%)`
+          `radial-gradient(circle at 12% 18%, ${alpha('#14b8a6', 0.16)} 0%, transparent 22%)`,
+          `radial-gradient(circle at 88% 16%, ${alpha('#2563eb', 0.14)} 0%, transparent 24%)`,
+          `linear-gradient(135deg, rgba(255, 255, 255, 0.99) 0%, rgba(243, 248, 255, 0.98) 52%, rgba(238, 244, 251, 0.98) 100%)`
         ].join(','),
-        boxShadow: '0 26px 54px rgba(2, 6, 23, 0.34)'
+        boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)'
       }}
-      eyebrowSx={{ color: '#2dd4bf', mb: 0.22, fontWeight: 800, letterSpacing: 0.9 }}
-      titleSx={{ color: '#f8fafc', fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
+      eyebrowSx={{ color: '#0f766e', mb: 0.22, fontWeight: 800, letterSpacing: 0.9 }}
+      titleSx={{ color: OPS_TEXT, fontSize: { xs: '1.7rem', md: '1.95rem' }, fontWeight: 900, lineHeight: 1.02 }}
       actionsSx={{ width: { xs: '100%', xl: 'auto' } }}
       actions={(
         <Stack direction={{ xs: 'column', xl: 'row' }} spacing={0.72} alignItems={{ xs: 'stretch', xl: 'center' }} justifyContent="flex-end">
@@ -2948,14 +2948,14 @@ export default function NocMonitoringPage() {
           borderRadius: 4,
           border: `1px solid ${OPS_BORDER}`,
           background: [
-            `radial-gradient(circle at top left, ${alpha('#0f766e', 0.18)} 0%, transparent 24%)`,
-            `radial-gradient(circle at 82% 18%, ${alpha('#1d4ed8', 0.16)} 0%, transparent 22%)`,
-            `linear-gradient(180deg, ${OPS_BG} 0%, #0a1426 100%)`
+            `radial-gradient(circle at top left, ${alpha('#0f766e', 0.1)} 0%, transparent 24%)`,
+            `radial-gradient(circle at 82% 18%, ${alpha('#1d4ed8', 0.08)} 0%, transparent 22%)`,
+            `linear-gradient(180deg, ${OPS_BG} 0%, #f8fbff 100%)`
           ].join(','),
-          boxShadow: '0 30px 60px rgba(2, 6, 23, 0.24)'
+          boxShadow: '0 20px 42px rgba(15, 23, 42, 0.08)'
         }}
       >
-        {refreshing ? <LinearProgress sx={{ borderRadius: 999, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.08)' }} /> : null}
+        {refreshing ? <LinearProgress sx={{ borderRadius: 999, overflow: 'hidden', bgcolor: 'rgba(226,232,240,0.72)' }} /> : null}
 
         {error ? (
           <OpsAlert severity="error">{error}</OpsAlert>
@@ -2978,7 +2978,7 @@ export default function NocMonitoringPage() {
             py: 0.32,
             borderRadius: 2.8,
             border: `1px solid ${alpha('#93c5fd', 0.12)}`,
-            bgcolor: 'rgba(8, 15, 29, 0.58)'
+            bgcolor: 'rgba(255, 255, 255, 0.9)'
           }}
         >
           <Tabs
@@ -3000,8 +3000,8 @@ export default function NocMonitoringPage() {
                 py: 0.35
               },
               '& .Mui-selected': {
-                color: '#ffffff !important',
-                background: 'linear-gradient(180deg, rgba(20, 184, 166, 0.22) 0%, rgba(37, 99, 235, 0.18) 100%)'
+                color: `${OPS_TEXT} !important`,
+                background: 'linear-gradient(180deg, rgba(20, 184, 166, 0.14) 0%, rgba(37, 99, 235, 0.1) 100%)'
               },
               '& .MuiTabs-indicator': {
                 height: 3,
@@ -3026,8 +3026,8 @@ export default function NocMonitoringPage() {
               label={meta?.dashboardNote ? 'Cached snapshot mode' : 'Snapshot mode'}
               sx={{
                 height: 24,
-                color: '#dbeafe',
-                bgcolor: 'rgba(8, 15, 29, 0.78)',
+                color: OPS_TEXT,
+                bgcolor: 'rgba(255, 255, 255, 0.92)',
                 border: `1px solid ${alpha('#38bdf8', 0.18)}`,
                 '& .MuiChip-label': {
                   px: 0.85,
@@ -3041,8 +3041,8 @@ export default function NocMonitoringPage() {
                 label={`${warnings.length} partial source${warnings.length === 1 ? '' : 's'}`}
                 sx={{
                   height: 24,
-                  color: '#fde68a',
-                  bgcolor: 'rgba(120, 53, 15, 0.3)',
+                  color: '#9a3412',
+                  bgcolor: 'rgba(255, 247, 237, 0.96)',
                   border: `1px solid ${alpha('#f59e0b', 0.22)}`,
                   '& .MuiChip-label': {
                     px: 0.85,
@@ -3290,9 +3290,9 @@ export default function NocMonitoringPage() {
                       py: 0.42,
                       borderRadius: 2.2,
                       textTransform: 'none',
-                      color: '#f8fafc',
-                      borderColor: 'rgba(148, 163, 184, 0.18)',
-                      bgcolor: 'rgba(15, 23, 42, 0.56)',
+                      color: OPS_TEXT,
+                      borderColor: 'rgba(148, 163, 184, 0.22)',
+                      bgcolor: 'rgba(255, 255, 255, 0.94)',
                       fontWeight: 800,
                       fontSize: '0.76rem'
                     }}
@@ -3309,16 +3309,16 @@ export default function NocMonitoringPage() {
                       p: 1,
                       borderRadius: 2.9,
                       border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.28)}`,
-                      bgcolor: 'rgba(8, 15, 29, 0.82)',
-                      background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.18)} 0%, rgba(8, 15, 29, 0.96) 58%)`,
-                      boxShadow: `0 18px 32px ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.12)}`
+                      bgcolor: 'rgba(255, 255, 255, 0.96)',
+                      background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.12)} 0%, rgba(255, 255, 255, 0.98) 58%)`,
+                      boxShadow: `0 14px 24px ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.08)}`
                     }}
                   >
                     <Stack spacing={0.62} sx={{ height: '100%' }}>
-                      <Typography variant="caption" sx={{ color: '#cbd5f5', textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
+                      <Typography variant="caption" sx={{ color: alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.92), textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
                         Current watch
                       </Typography>
-                      <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
+                      <Typography variant="h5" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
                         {summary.t1InboundFocusLabel
                           ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
                           : 'No major inbound anomaly right now'}
@@ -3389,17 +3389,17 @@ export default function NocMonitoringPage() {
                       p: 0.95,
                       borderRadius: 2.8,
                       border: `1px solid ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.24)}`,
-                      bgcolor: 'rgba(8, 15, 29, 0.84)',
-                      background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.16)} 0%, rgba(8, 15, 29, 0.96) 62%)`
+                      bgcolor: 'rgba(255, 255, 255, 0.96)',
+                      background: `linear-gradient(135deg, ${alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.1)} 0%, rgba(255, 255, 255, 0.98) 62%)`
                     }}
                   >
                     <Stack spacing={0.72}>
                       <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.8} justifyContent="space-between">
                         <Stack spacing={0.18}>
-                          <Typography variant="caption" sx={{ color: '#cbd5f5', textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
+                          <Typography variant="caption" sx={{ color: alpha((summary.t1InboundAnomalyCount || 0) > 0 ? '#ef4444' : '#14b8a6', 0.92), textTransform: 'uppercase', letterSpacing: 0.62, fontWeight: 800 }}>
                             Current watch
                           </Typography>
-                          <Typography variant="h5" sx={{ color: '#ffffff', fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
+                          <Typography variant="h5" sx={{ color: OPS_TEXT, fontWeight: 900, lineHeight: 1.02, letterSpacing: -0.28 }}>
                             {summary.t1InboundFocusLabel
                               ? `${summary.t1InboundFocusLabel} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
                               : 'No major inbound anomaly right now'}
