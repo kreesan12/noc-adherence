@@ -1324,7 +1324,7 @@ function OpsSection({ tone = ACCENT, rootSx, headerSx, bodySx, ...props }) {
   )
 }
 
-function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children }) {
+function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children, rootSx = null }) {
   return (
     <Box
       sx={{
@@ -1333,7 +1333,8 @@ function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children }
         border: `1px solid ${alpha(tone, 0.18)}`,
         bgcolor: 'rgba(10, 18, 33, 0.72)',
         background: `linear-gradient(180deg, rgba(18, 30, 52, 0.92) 0%, ${alpha(tone, 0.06)} 100%)`,
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 24px ${alpha(tone, 0.05)}`
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 12px 24px ${alpha(tone, 0.05)}`,
+        ...rootSx
       }}
     >
       <Stack spacing={0.75}>
@@ -3489,6 +3490,7 @@ export default function NocMonitoringPage() {
                 title="Action Floor"
                 subtitle="Primary lanes first. Side pressure is folded underneath."
                 tone="#f97316"
+                rootSx={{ p: 0, border: 'none', bgcolor: 'transparent', background: 'transparent', boxShadow: 'none' }}
               >
                 <Stack spacing={0.85}>
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.78 }}>
@@ -3585,6 +3587,7 @@ export default function NocMonitoringPage() {
                 title="Queue Posture"
                 subtitle="Read the queue by ownership first, then switch the lens."
                 tone="#3b82f6"
+                rootSx={{ p: 0, border: 'none', bgcolor: 'transparent', background: 'transparent', boxShadow: 'none' }}
                 action={(
                   <ConsoleToggleStrip
                     value={t1PostureLens}
@@ -3683,6 +3686,7 @@ export default function NocMonitoringPage() {
                 title="Ops Drift"
                 subtitle="History and drift in one panel."
                 tone="#14b8a6"
+                rootSx={{ p: 0, border: 'none', bgcolor: 'transparent', background: 'transparent', boxShadow: 'none' }}
                 action={(
                   <ConsoleToggleStrip
                     value={t1TrendLens}
@@ -3711,7 +3715,7 @@ export default function NocMonitoringPage() {
                 </Stack>
               </OpsSubPanel>
 
-              <OpsSubPanel title="Desk Control" subtitle="Daily pace, queue access, and one-click drill routes." tone="#8b5cf6">
+              <OpsSubPanel title="Desk Control" subtitle="Daily pace, queue access, and one-click drill routes." tone="#8b5cf6" rootSx={{ p: 0, border: 'none', bgcolor: 'transparent', background: 'transparent', boxShadow: 'none' }}>
                 <Stack spacing={0.9}>
                   <OpsSubPanel title="Day pace" subtitle="Today versus the same weekday and automation touch." tone="#14b8a6">
                     <OpsValueTiles
