@@ -31,6 +31,14 @@ import CallRoundedIcon from '@mui/icons-material/CallRounded'
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import dayjs from 'dayjs'
 import {
+  CircleMarker,
+  MapContainer,
+  Popup as LeafletPopup,
+  TileLayer,
+  Tooltip as LeafletTooltip,
+  useMap
+} from 'react-leaflet'
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -45,7 +53,11 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import { fetchNocMonitoringSnapshot, fetchNocMonitoringTelephonyPulse } from '../api/nocMonitoring'
+import {
+  fetchNocMonitoringSnapshot,
+  fetchNocMonitoringTelephonyPulse,
+  fetchNocMonitoringTier1PremisesMap
+} from '../api/nocMonitoring'
 import { PageShell } from '../components/ui/PageScaffold'
 import { downloadWorkbook } from '../utils/slaExport'
 import {
@@ -365,6 +377,80 @@ function sortByPresetOrder(values, order = []) {
     if (leftRank !== rightRank) return leftRank - rightRank
     return String(left).localeCompare(String(right))
   })
+}
+
+function normalizePremisesAliasKey(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function buildTier1PremisesClusters(rows = []) {
+  const grouped = new Map()
+
+  rows.forEach((row) => {
+    const aliasLabel = String(row?.customerPremisesAlias || '').replace(/\s+/g, ' ').trim()
+    if (!aliasLabel || aliasLabel.length < 6) return
+
+    const key = normalizePremisesAliasKey(aliasLabel)
+    if (!key || ['--', 'n/a', 'na', 'none', 'null', 'unknown', 'unknown address'].includes(key)) return
+
+    const existing = grouped.get(key) || {
+      key,
+      label: aliasLabel,
+      count: 0,
+      regionCounts: new Map(),
+      nodeCounts: new Map(),
+      oltCounts: new Map(),
+      orgCounts: new Map(),
+      productCounts: new Map(),
+      tickets: []
+    }
+
+    const bump = (map, value) => {
+      const text = String(value || '').replace(/\s+/g, ' ').trim()
+      if (!text) return
+      map.set(text, (map.get(text) || 0) + 1)
+    }
+
+    existing.count += 1
+    bump(existing.regionCounts, row?.region)
+    bump(existing.nodeCounts, row?.nodeName)
+    bump(existing.oltCounts, row?.olt)
+    bump(existing.orgCounts, row?.organizationLabel)
+    bump(existing.productCounts, row?.product)
+
+    if (existing.tickets.length < 8) {
+      existing.tickets.push({
+        id: row?.id,
+        url: row?.url || '',
+        subject: row?.subject || '',
+        pLevel: row?.pLevel || '',
+        dueBucket: row?.dueBucket || '',
+        workflowOwner: row?.workflowOwner || ''
+      })
+    }
+
+    grouped.set(key, existing)
+  })
+
+  const pickTopLabel = (map, fallback = '--') => [...map.entries()]
+    .sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0])))[0]?.[0] || fallback
+
+  return [...grouped.values()]
+    .map((entry) => ({
+      key: entry.key,
+      label: entry.label,
+      count: entry.count,
+      region: pickTopLabel(entry.regionCounts, 'Unknown region'),
+      nodeName: pickTopLabel(entry.nodeCounts, 'Unknown node'),
+      olt: pickTopLabel(entry.oltCounts, 'Unknown OLT'),
+      organizationLabel: pickTopLabel(entry.orgCounts, 'Unknown organisation'),
+      product: pickTopLabel(entry.productCounts, '--'),
+      tickets: entry.tickets
+    }))
+    .sort((left, right) => right.count - left.count || String(left.label).localeCompare(String(right.label)))
 }
 
 function findHistoryPointNear(rows, targetTs, toleranceMinutes = 20) {
@@ -1023,6 +1109,27 @@ function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.', g
   )
 }
 
+function PremisesHotspotMapFit({ markers }) {
+  const map = useMap()
+
+  useEffect(() => {
+    if (!markers?.length) return
+    const points = markers
+      .map((marker) => [Number(marker.lat), Number(marker.lng)])
+      .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))
+
+    if (!points.length) return
+    if (points.length === 1) {
+      map.setView(points[0], 13, { animate: false })
+      return
+    }
+
+    map.fitBounds(points, { padding: [26, 26] })
+  }, [map, markers])
+
+  return null
+}
+
 function VerticalBarChart({ rows, dataKey, emptyMessage, colorMap = {}, height = 250 }) {
   if (!rows.length) {
     return <AnalyticsChartFallback minHeight={height} message={emptyMessage} />
@@ -1407,6 +1514,10 @@ export default function NocMonitoringPage() {
   const [error, setError] = useState('')
   const [payload, setPayload] = useState(null)
   const [telephonyPulse, setTelephonyPulse] = useState(null)
+  const [t1PremisesMapPayload, setT1PremisesMapPayload] = useState(null)
+  const [t1PremisesMapLoading, setT1PremisesMapLoading] = useState(false)
+  const [t1PremisesMapError, setT1PremisesMapError] = useState('')
+  const [t1PremisesHotspotLimit, setT1PremisesHotspotLimit] = useState(10)
   const [tab, setTab] = useState('overview')
   const [t1WatchExpanded, setT1WatchExpanded] = useState(true)
   const [t1CommandExpanded, setT1CommandExpanded] = useState(true)
@@ -1454,6 +1565,21 @@ export default function NocMonitoringPage() {
       setTelephonyPulse(next?.pulse || null)
     } catch {
       // Keep the last good telephony pulse on screen during fast poll failures.
+    }
+  }, [])
+
+  const loadT1PremisesMap = useCallback(async () => {
+    setT1PremisesMapError('')
+    setT1PremisesMapLoading(true)
+    try {
+      const next = await fetchNocMonitoringTier1PremisesMap({ clusterLimit: 150 })
+      setT1PremisesMapPayload(next)
+      return next
+    } catch (err) {
+      setT1PremisesMapError(err?.response?.data?.error || err?.message || 'Unable to load Tier 1 premises hotspot map.')
+      return null
+    } finally {
+      setT1PremisesMapLoading(false)
     }
   }, [])
 
@@ -1533,6 +1659,27 @@ export default function NocMonitoringPage() {
       }
     }
   }, [loadTelephonyPulse, meta?.telephonyConfigured])
+
+  useEffect(() => {
+    if (tab !== 'tier1' || !payload?.snapshot?.generatedAt) return undefined
+
+    let cancelled = false
+
+    ;(async () => {
+      try {
+        const next = await loadT1PremisesMap()
+        if (!cancelled) {
+          setT1PremisesMapPayload(next || null)
+        }
+      } catch {
+        // handled inside loadT1PremisesMap
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadT1PremisesMap, payload?.snapshot?.generatedAt, tab])
 
   const snapshot = payload?.snapshot
   const freshness = payload?.freshness
@@ -2234,6 +2381,41 @@ export default function NocMonitoringPage() {
     [matchesT1ActionFilters, matchesT1QuickPreset, t1ActionFilters, t1ActionViewRows]
   )
 
+  const t1PremisesClusters = useMemo(
+    () => buildTier1PremisesClusters(t1FilteredActionViewRows),
+    [t1FilteredActionViewRows]
+  )
+
+  const t1PremisesMarkerMap = useMemo(
+    () => new Map((t1PremisesMapPayload?.markers || []).map((marker) => [marker.key, marker])),
+    [t1PremisesMapPayload]
+  )
+
+  const t1PremisesMapMarkers = useMemo(
+    () => t1PremisesClusters
+      .map((cluster) => {
+        const marker = t1PremisesMarkerMap.get(cluster.key)
+        if (!marker) return null
+        return {
+          ...cluster,
+          ...marker
+        }
+      })
+      .filter(Boolean),
+    [t1PremisesClusters, t1PremisesMarkerMap]
+  )
+
+  const t1PremisesVisibleClusters = useMemo(
+    () => t1PremisesHotspotLimit === 'all'
+      ? t1PremisesClusters
+      : t1PremisesClusters.slice(0, Number(t1PremisesHotspotLimit || 10)),
+    [t1PremisesClusters, t1PremisesHotspotLimit]
+  )
+
+  const t1PremisesHotspot = t1PremisesClusters[0] || null
+  const t1PremisesMappedCount = t1PremisesMapMarkers.length
+  const t1PremisesUnmappedCount = Math.max(0, t1PremisesClusters.length - t1PremisesMappedCount)
+
   const t1DueNowVisibleRows = useMemo(
     () => t1DueNowLimit === 'all' ? t1DueNowRows : t1DueNowRows.slice(0, Number(t1DueNowLimit || 15)),
     [t1DueNowLimit, t1DueNowRows]
@@ -2334,6 +2516,9 @@ export default function NocMonitoringPage() {
               Priority: formatExportValue(row.priority),
               Product: formatExportValue(row.product),
               ServiceType: formatExportValue(row.serviceType),
+              Node: formatExportValue(row.nodeName),
+              OLT: formatExportValue(row.olt),
+              CustomerPremisesAlias: formatExportValue(row.customerPremisesAlias),
               WorkflowOwner: formatExportValue(row.workflowOwner),
               OperationalState: formatExportValue(row.operationalState),
               EscalationPath: formatExportValue(row.escalationPath),
@@ -2947,6 +3132,33 @@ export default function NocMonitoringPage() {
     status: { key: 'status', label: 'System State', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
     product: { key: 'product', label: 'Product' },
     service: { key: 'serviceType', label: 'Service', render: (row) => row.serviceType || '--' },
+    node: {
+      key: 'nodeName',
+      label: 'Node',
+      render: (row) => (
+        <Typography variant="body2" sx={{ maxWidth: 180, fontWeight: 700, whiteSpace: 'normal', lineHeight: 1.25 }}>
+          {row.nodeName || '--'}
+        </Typography>
+      )
+    },
+    olt: {
+      key: 'olt',
+      label: 'OLT',
+      render: (row) => (
+        <Typography variant="body2" sx={{ maxWidth: 140, fontWeight: 700, whiteSpace: 'normal', lineHeight: 1.25 }}>
+          {row.olt || '--'}
+        </Typography>
+      )
+    },
+    premisesAlias: {
+      key: 'customerPremisesAlias',
+      label: 'Premises Alias',
+      render: (row) => (
+        <Typography variant="body2" sx={{ maxWidth: 240, whiteSpace: 'normal', lineHeight: 1.25 }}>
+          {row.customerPremisesAlias || '--'}
+        </Typography>
+      )
+    },
     workflowOwner: { key: 'workflowOwner', label: 'Workflow Owner', render: (row) => <SignalChip label={row.workflowOwner || 'Needs review'} tone={T1_WORKFLOW_OWNER_TONE_MAP[row.workflowOwner] || '#64748b'} /> },
     operationalState: { key: 'operationalState', label: 'Operational State', render: (row) => <SignalChip label={row.operationalState} tone={T1_OPERATIONAL_STATE_TONE_MAP[row.operationalState] || '#64748b'} /> },
     escalationPath: { key: 'escalationPath', label: 'Escalation Path', render: (row) => <SignalChip label={row.escalationPath || 'Tier 1 review'} tone={T1_ESCALATION_PATH_TONE_MAP[row.escalationPath] || '#475569'} /> },
@@ -2972,6 +3184,9 @@ export default function NocMonitoringPage() {
     t1ActionColumnParts.playPolicy,
     t1ActionColumnParts.dueBucket,
     t1ActionColumnParts.remaining,
+    t1ActionColumnParts.node,
+    t1ActionColumnParts.olt,
+    t1ActionColumnParts.premisesAlias,
     t1ActionColumnParts.operationalState,
     t1ActionColumnParts.workflowOwner,
     t1ActionColumnParts.escalationPath,
@@ -2992,11 +3207,45 @@ export default function NocMonitoringPage() {
     t1ActionColumnParts.status,
     t1ActionColumnParts.product,
     t1ActionColumnParts.service,
+    t1ActionColumnParts.node,
+    t1ActionColumnParts.olt,
+    t1ActionColumnParts.premisesAlias,
     t1ActionColumnParts.automation,
     t1ActionColumnParts.updated,
     t1ActionColumnParts.age,
     t1ActionColumnParts.subject
   ], [t1ActionColumnParts])
+
+  const t1PremisesHotspotColumns = useMemo(() => [
+    {
+      key: 'label',
+      label: 'Premises Alias',
+      render: (row) => (
+        <Stack spacing={0.25}>
+          <Typography variant="body2" sx={{ fontWeight: 800, maxWidth: 260, whiteSpace: 'normal', lineHeight: 1.25 }}>
+            {row.label}
+          </Typography>
+          <Typography variant="caption" sx={{ color: OPS_MUTED }}>
+            {row.organizationLabel || 'Unknown organisation'}
+          </Typography>
+        </Stack>
+      )
+    },
+    { key: 'count', label: 'Tickets', render: (row) => formatCount(row.count || 0) },
+    { key: 'region', label: 'Region', render: (row) => row.region || '--' },
+    { key: 'nodeName', label: 'Node', render: (row) => row.nodeName || '--' },
+    { key: 'olt', label: 'OLT', render: (row) => row.olt || '--' },
+    {
+      key: 'topTicket',
+      label: 'Lead Ticket',
+      render: (row) => {
+        const ticket = row.tickets?.[0]
+        return ticket?.id
+          ? <ExternalTicketLink href={ticket.url} label={`#${ticket.id}`} />
+          : '--'
+      }
+    }
+  ], [])
 
   const t1InboundAnomalyColumns = useMemo(() => [
     {
@@ -3895,6 +4144,196 @@ export default function NocMonitoringPage() {
               </OpsSubPanel>
             </Box>
             ) : null}
+          </OpsSection>
+
+          <OpsSection
+            title={(
+              <Stack direction="row" spacing={0.7} alignItems="center">
+                <LanRoundedIcon sx={{ fontSize: 18, color: '#0891b2' }} />
+                <Box component="span">Premises Hotspots</Box>
+              </Stack>
+            )}
+            subtitle="Customer Premises Alias clustering from the current filtered Tier 1 queue, with cached map placement when aliases resolve."
+            tone="#0891b2"
+            minHeight={0}
+          >
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.12fr 0.88fr' }, gap: 0.92, alignItems: 'start' }}>
+              <OpsSubPanel
+                title="Bubble map"
+                subtitle="Repeated premises aliases plotted from cached server-side geocodes."
+                tone="#0891b2"
+                action={(
+                  <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                    <SignalChip label={`${formatCount(t1PremisesClusters.length)} aliases`} tone="#0891b2" />
+                    <SignalChip label={`${formatCount(t1PremisesMappedCount)} mapped`} tone="#16a34a" />
+                    <SignalChip label={`${formatCount(t1PremisesUnmappedCount)} pending`} tone="#64748b" />
+                  </Stack>
+                )}
+              >
+                <Stack spacing={0.82}>
+                  <OpsValueTiles
+                    columns={{ xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }}
+                    items={[
+                      {
+                        label: 'Filtered aliases',
+                        value: formatCount(t1PremisesClusters.length),
+                        tone: '#0891b2',
+                        helper: 'distinct premises in current queue lens'
+                      },
+                      {
+                        label: 'Mapped aliases',
+                        value: formatCount(t1PremisesMappedCount),
+                        tone: '#16a34a',
+                        helper: 'ready for bubble plotting'
+                      },
+                      {
+                        label: 'Pending matches',
+                        value: formatCount(t1PremisesUnmappedCount),
+                        tone: '#64748b',
+                        helper: t1PremisesMapPayload?.geocodingEnabled ? 'still resolving or unmatched' : 'geocoding currently off'
+                      },
+                      {
+                        label: 'Top hotspot',
+                        value: formatCount(t1PremisesHotspot?.count || 0),
+                        tone: '#f97316',
+                        helper: t1PremisesHotspot?.label || 'no repeated alias in current queue'
+                      }
+                    ]}
+                  />
+
+                  {t1PremisesMapError ? (
+                    <OpsAlert severity="warning">
+                      {t1PremisesMapError}
+                    </OpsAlert>
+                  ) : null}
+
+                  {t1PremisesMapLoading ? (
+                    <AnalyticsLoadingBlock minHeight={360} message="Loading Tier 1 premises hotspot map..." />
+                  ) : t1PremisesMapMarkers.length ? (
+                    <Box sx={{ height: 360, borderRadius: OPS_RADIUS_MD, overflow: 'hidden', border: `1px solid ${OPS_BORDER}` }}>
+                      <MapContainer center={[-29, 24]} zoom={5} minZoom={4} style={{ height: '100%', width: '100%' }} zoomControl>
+                        <TileLayer
+                          attribution='&copy; OpenStreetMap contributors'
+                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
+                        <PremisesHotspotMapFit markers={t1PremisesMapMarkers} />
+                        {t1PremisesMapMarkers.map((marker) => {
+                          const tone = marker.count >= 4 ? '#dc2626' : marker.count >= 2 ? '#f59e0b' : '#0891b2'
+                          const radius = Math.max(8, Math.min(24, 8 + Math.sqrt(Number(marker.count || 0)) * 3))
+                          return (
+                            <CircleMarker
+                              key={marker.key}
+                              center={[Number(marker.lat), Number(marker.lng)]}
+                              radius={radius}
+                              pathOptions={{
+                                color: tone,
+                                fillColor: tone,
+                                fillOpacity: 0.42,
+                                weight: 2
+                              }}
+                            >
+                              <LeafletTooltip direction="top" offset={[0, -6]} opacity={0.95}>
+                                {marker.label} | {formatCount(marker.count)} tickets
+                              </LeafletTooltip>
+                              <LeafletPopup>
+                                <Stack spacing={0.7} sx={{ minWidth: 220 }}>
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                    {marker.label}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    {marker.formattedAddress || marker.label}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    {formatCount(marker.count)} tickets | {marker.organizationLabel || 'Unknown organisation'}
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    {marker.region || 'Unknown region'} | {marker.nodeName || 'Unknown node'} | {marker.olt || 'Unknown OLT'}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                    {marker.tickets?.[0]?.id ? `Lead ticket #${marker.tickets[0].id}` : 'No lead ticket preview'}
+                                  </Typography>
+                                </Stack>
+                              </LeafletPopup>
+                            </CircleMarker>
+                          )
+                        })}
+                      </MapContainer>
+                    </Box>
+                  ) : (
+                    <AnalyticsChartFallback
+                      minHeight={360}
+                      message={
+                        t1PremisesClusters.length
+                          ? (t1PremisesMapPayload?.geocodingEnabled
+                            ? 'Premises aliases exist in the queue, but no map matches have resolved yet.'
+                            : 'Premises aliases are present, but geocoding is not configured on the API yet.')
+                          : 'No customer premises aliases are present in the current filtered Tier 1 queue.'
+                      }
+                    />
+                  )}
+                </Stack>
+              </OpsSubPanel>
+
+              <Stack spacing={0.82}>
+                <OpsSubPanel
+                  title="Hotspot table"
+                  subtitle="Top repeated premises aliases in the current filtered queue."
+                  tone="#14b8a6"
+                  action={(
+                    <RowWindowSelector value={t1PremisesHotspotLimit} onChange={setT1PremisesHotspotLimit} options={[5, 10, 20, 'all']} />
+                  )}
+                >
+                  <MonitoringTable
+                    rows={t1PremisesVisibleClusters}
+                    columns={t1PremisesHotspotColumns}
+                    emptyMessage="No customer premises aliases are available in the current Tier 1 queue lens."
+                  />
+                </OpsSubPanel>
+
+                <OpsSubPanel
+                  title="Pending map matches"
+                  subtitle="Aliases still waiting on a location match or address cleanup."
+                  tone="#475569"
+                  action={(
+                    <SignalChip
+                      label={t1PremisesMapPayload?.geocodingEnabled ? 'Geocoding live' : 'Geocoding off'}
+                      tone={t1PremisesMapPayload?.geocodingEnabled ? '#16a34a' : '#64748b'}
+                    />
+                  )}
+                >
+                  {(t1PremisesMapPayload?.unresolved || []).length ? (
+                    <Stack spacing={0.65}>
+                      {(t1PremisesMapPayload?.unresolved || []).slice(0, 6).map((row) => (
+                        <Box
+                          key={row.key}
+                          sx={{
+                            p: 0.8,
+                            borderRadius: OPS_RADIUS_SM,
+                            border: `1px solid ${alpha('#64748b', 0.25)}`,
+                            background: alpha('#f8fafc', 0.92)
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" spacing={0.8} alignItems="center">
+                            <Typography variant="body2" sx={{ fontWeight: 800, maxWidth: 260, whiteSpace: 'normal', lineHeight: 1.25 }}>
+                              {row.label}
+                            </Typography>
+                            <SignalChip label={formatCount(row.count || 0)} tone="#64748b" />
+                          </Stack>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.35, color: OPS_MUTED }}>
+                            {row.reason || 'Pending geocode resolution'}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <AnalyticsChartFallback
+                      minHeight={120}
+                      message={t1PremisesClusters.length ? 'All visible premises aliases that could be mapped have resolved cleanly.' : 'No premises aliases need map matching right now.'}
+                    />
+                  )}
+                </OpsSubPanel>
+              </Stack>
+            </Box>
           </OpsSection>
 
           <OpsSection

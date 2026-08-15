@@ -14,6 +14,7 @@ const SNAPSHOT_KEY = 'noc_monitoring_snapshot_v1'
 const T1_TIMER_CACHE_KEY = 'noc_monitoring_t1_timer_cache_v1'
 const TICKET_EVENT_WATERMARK_KEY = 'noc_monitoring_ticket_event_watermark_v1'
 const T1_INBOUND_ACTIVITY_CACHE_KEY = 'noc_monitoring_t1_inbound_activity_v2'
+const T1_PREMISES_GEOCODE_CACHE_KEY = 'noc_monitoring_t1_premises_geocode_cache_v1'
 const SOFT_TTL_MS = Number(process.env.NOC_MONITORING_SNAPSHOT_TTL_MS || 15 * 60 * 1000)
 const TELEPHONY_PULSE_TTL_MS = Math.max(1000, Number(process.env.NOC_MONITORING_TELEPHONY_TTL_MS || 3000))
 const HARD_STALE_MS = Number(process.env.NOC_MONITORING_HARD_STALE_MS || 6 * 60 * 60 * 1000)
@@ -27,6 +28,10 @@ const T1_INBOUND_ACTIVITY_CACHE_TTL_MS = Math.max(15 * 60 * 1000, Number(process
 const T1_INBOUND_ACTIVITY_LOOKBACK_DAYS = Math.max(8, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_LOOKBACK_DAYS || 10))
 const T1_INBOUND_ACTIVITY_BASELINE_DAYS = Math.max(4, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_BASELINE_DAYS || 7))
 const T1_INBOUND_ACTIVITY_MAX_SERIES = Math.max(2, Number(process.env.NOC_MONITORING_T1_INBOUND_ACTIVITY_MAX_SERIES || 4))
+const T1_PREMISES_GEOCODE_TTL_MS = Math.max(24 * 60 * 60 * 1000, Number(process.env.NOC_MONITORING_T1_PREMISES_GEOCODE_TTL_MS || 14 * 24 * 60 * 60 * 1000))
+const T1_PREMISES_GEOCODE_NEGATIVE_TTL_MS = Math.max(6 * 60 * 60 * 1000, Number(process.env.NOC_MONITORING_T1_PREMISES_GEOCODE_NEGATIVE_TTL_MS || 3 * 24 * 60 * 60 * 1000))
+const T1_PREMISES_GEOCODE_REQUEST_LIMIT = Math.max(1, Math.min(60, Number(process.env.NOC_MONITORING_T1_PREMISES_GEOCODE_REQUEST_LIMIT || 20)))
+const T1_PREMISES_CLUSTER_LIMIT = Math.max(10, Math.min(300, Number(process.env.NOC_MONITORING_T1_PREMISES_CLUSTER_LIMIT || 150)))
 const MAX_SEARCH_PAGES = Number(process.env.NOC_MONITORING_MAX_SEARCH_PAGES || 8)
 const MAX_SEARCH_RESULTS = Number(process.env.NOC_MONITORING_MAX_SEARCH_RESULTS || 2500)
 const SEARCH_EXPORT_PAGE_SIZE = Math.max(100, Math.min(1000, Number(process.env.NOC_MONITORING_SEARCH_PAGE_SIZE || 1000)))
@@ -53,6 +58,7 @@ const ILLATION_ALLOW_ANON = process.env.ILLATION_DASHBOARD_ALLOW_ANON === '1'
 const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN
 const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL
 const ZENDESK_API_TOKEN = process.env.ZENDESK_API_TOKEN
+const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || '').trim()
 
 const FIELD_IDS = {
   nld: '40137360073617',
@@ -1292,6 +1298,42 @@ function firstText(...values) {
   return ''
 }
 
+function normalizePremisesAlias(value) {
+  return asText(value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function hasUsablePremisesAlias(value) {
+  const text = asText(value).replace(/\s+/g, ' ').trim()
+  if (!text || text.length < 6) return false
+  const normalized = text.toLowerCase()
+  return !['--', 'n/a', 'na', 'none', 'null', 'unknown', 'unknown address'].includes(normalized)
+}
+
+function bumpCount(map, value) {
+  const text = asText(value).replace(/\s+/g, ' ').trim()
+  if (!text) return
+  map.set(text, (map.get(text) || 0) + 1)
+}
+
+function selectTopCountLabel(map, fallback = '--') {
+  return [...(map?.entries?.() || [])]
+    .sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0])))[0]?.[0] || fallback
+}
+
+function isFreshPremisesGeocodeCacheEntry(entry) {
+  const timestamp = Date.parse(entry?.resolvedAt || entry?.lastAttemptAt || '')
+  if (!Number.isFinite(timestamp)) return false
+  const ttlMs = entry?.status === 'resolved'
+    && Number.isFinite(Number(entry?.lat))
+    && Number.isFinite(Number(entry?.lng))
+    ? T1_PREMISES_GEOCODE_TTL_MS
+    : T1_PREMISES_GEOCODE_NEGATIVE_TTL_MS
+  return (Date.now() - timestamp) <= ttlMs
+}
+
 function humanizeFieldChoice(value) {
   const text = asText(value)
   if (!text) return ''
@@ -1827,6 +1869,122 @@ async function writeJsonAutomationSetting(key, value, updatedBy = 'system') {
       updatedBy: asText(updatedBy) || 'system'
     }
   })
+}
+
+function buildTier1PremisesClusters(rows = []) {
+  const grouped = new Map()
+
+  for (const row of rows) {
+    const aliasLabel = asText(row?.customerPremisesAlias).replace(/\s+/g, ' ').trim()
+    if (!hasUsablePremisesAlias(aliasLabel)) continue
+
+    const key = normalizePremisesAlias(aliasLabel)
+    const existing = grouped.get(key) || {
+      key,
+      label: aliasLabel,
+      count: 0,
+      regions: new Map(),
+      nodes: new Map(),
+      olts: new Map(),
+      organisations: new Map(),
+      products: new Map(),
+      serviceTypes: new Map(),
+      actionLanes: new Map(),
+      tickets: []
+    }
+
+    existing.count += 1
+    bumpCount(existing.regions, row?.region)
+    bumpCount(existing.nodes, row?.nodeName)
+    bumpCount(existing.olts, row?.olt)
+    bumpCount(existing.organisations, row?.organizationLabel)
+    bumpCount(existing.products, row?.product)
+    bumpCount(existing.serviceTypes, row?.serviceType)
+    bumpCount(existing.actionLanes, row?.pLevel)
+
+    if (existing.tickets.length < 12) {
+      existing.tickets.push({
+        id: row?.id,
+        url: row?.url || '',
+        subject: row?.subject || '',
+        pLevel: row?.pLevel || '',
+        dueBucket: row?.dueBucket || '',
+        workflowOwner: row?.workflowOwner || '',
+        updatedAt: row?.updatedAt || '',
+        region: row?.region || '',
+        nodeName: row?.nodeName || '',
+        olt: row?.olt || ''
+      })
+    }
+
+    grouped.set(key, existing)
+  }
+
+  return [...grouped.values()]
+    .map((entry) => ({
+      key: entry.key,
+      label: entry.label,
+      count: entry.count,
+      region: selectTopCountLabel(entry.regions, 'Unknown region'),
+      nodeName: selectTopCountLabel(entry.nodes, 'Unknown node'),
+      olt: selectTopCountLabel(entry.olts, 'Unknown OLT'),
+      organizationLabel: selectTopCountLabel(entry.organisations, 'Unknown organisation'),
+      product: selectTopCountLabel(entry.products, '--'),
+      serviceType: selectTopCountLabel(entry.serviceTypes, '--'),
+      actionLane: selectTopCountLabel(entry.actionLanes, '--'),
+      tickets: entry.tickets
+    }))
+    .sort((left, right) => right.count - left.count || String(left.label).localeCompare(String(right.label)))
+}
+
+async function readTier1PremisesGeocodeCache() {
+  const cached = await readJsonAutomationSetting(T1_PREMISES_GEOCODE_CACHE_KEY)
+  return cached?.entries && typeof cached.entries === 'object'
+    ? cached
+    : { updatedAt: null, entries: {} }
+}
+
+async function geocodeTier1PremisesAlias(aliasLabel) {
+  if (!GOOGLE_MAPS_API_KEY) {
+    return {
+      status: 'disabled',
+      reason: 'Google Maps geocoding is not configured.'
+    }
+  }
+
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+  url.searchParams.set('address', `${aliasLabel}, South Africa`)
+  url.searchParams.set('region', 'za')
+  url.searchParams.set('key', GOOGLE_MAPS_API_KEY)
+
+  const data = await fetchJsonWithTimeout(url.toString(), { timeoutMs: 20000 })
+  const status = asText(data?.status)
+  const firstResult = Array.isArray(data?.results) ? data.results[0] : null
+
+  if (status === 'OK' && firstResult?.geometry?.location) {
+    return {
+      status: 'resolved',
+      lat: Number(firstResult.geometry.location.lat),
+      lng: Number(firstResult.geometry.location.lng),
+      formattedAddress: asText(firstResult.formatted_address) || aliasLabel,
+      locationType: asText(firstResult.geometry?.location_type) || '',
+      resolvedAt: new Date().toISOString()
+    }
+  }
+
+  if (status === 'ZERO_RESULTS') {
+    return {
+      status: 'unresolved',
+      reason: 'No geocode match returned.',
+      lastAttemptAt: new Date().toISOString()
+    }
+  }
+
+  return {
+    status: 'unresolved',
+    reason: firstText(data?.error_message, status, 'Geocode lookup failed.'),
+    lastAttemptAt: new Date().toISOString()
+  }
 }
 
 async function getTier1InboundActivitySnapshot(now = dayjs(), requestedBy = 'system') {
@@ -2747,6 +2905,103 @@ async function readStoredSnapshot() {
   return readJsonAutomationSetting(SNAPSHOT_KEY)
 }
 
+export async function getNocMonitoringTier1PremisesMap({
+  requestedBy = 'system',
+  clusterLimit = T1_PREMISES_CLUSTER_LIMIT
+} = {}) {
+  const snapshot = await readStoredSnapshot()
+  const rows = Array.isArray(snapshot?.collections?.tier1Tickets) ? snapshot.collections.tier1Tickets : []
+  const allClusters = buildTier1PremisesClusters(rows)
+  const limitedClusters = allClusters.slice(0, Math.max(1, Math.min(T1_PREMISES_CLUSTER_LIMIT, Number(clusterLimit) || T1_PREMISES_CLUSTER_LIMIT)))
+  const rowsWithAlias = rows.filter((row) => hasUsablePremisesAlias(row?.customerPremisesAlias)).length
+
+  const cached = await readTier1PremisesGeocodeCache()
+  const nextEntries = { ...(cached?.entries || {}) }
+  let cacheChanged = false
+  let lookupsTriggered = 0
+
+  for (const cluster of limitedClusters) {
+    const cacheEntry = nextEntries[cluster.key]
+    if (cacheEntry && isFreshPremisesGeocodeCacheEntry(cacheEntry)) continue
+    if (!GOOGLE_MAPS_API_KEY || lookupsTriggered >= T1_PREMISES_GEOCODE_REQUEST_LIMIT) continue
+
+    try {
+      const resolved = await geocodeTier1PremisesAlias(cluster.label)
+      nextEntries[cluster.key] = {
+        label: cluster.label,
+        ...resolved
+      }
+      cacheChanged = true
+      lookupsTriggered += 1
+    } catch (error) {
+      nextEntries[cluster.key] = {
+        label: cluster.label,
+        status: 'unresolved',
+        reason: error?.message || 'Geocode lookup failed.',
+        lastAttemptAt: new Date().toISOString()
+      }
+      cacheChanged = true
+      lookupsTriggered += 1
+    }
+  }
+
+  if (cacheChanged) {
+    await writeJsonAutomationSetting(
+      T1_PREMISES_GEOCODE_CACHE_KEY,
+      {
+        updatedAt: new Date().toISOString(),
+        entries: nextEntries
+      },
+      requestedBy
+    )
+  }
+
+  const markers = []
+  const unresolved = []
+
+  for (const cluster of limitedClusters) {
+    const cacheEntry = nextEntries[cluster.key]
+    if (
+      cacheEntry?.status === 'resolved'
+      && Number.isFinite(Number(cacheEntry?.lat))
+      && Number.isFinite(Number(cacheEntry?.lng))
+    ) {
+      markers.push({
+        key: cluster.key,
+        label: cluster.label,
+        lat: Number(cacheEntry.lat),
+        lng: Number(cacheEntry.lng),
+        formattedAddress: firstText(cacheEntry.formattedAddress, cluster.label),
+        locationType: cacheEntry.locationType || '',
+        resolvedAt: cacheEntry.resolvedAt || cacheEntry.lastAttemptAt || null
+      })
+    } else {
+      unresolved.push({
+        key: cluster.key,
+        label: cluster.label,
+        count: cluster.count,
+        reason: cacheEntry?.reason || (GOOGLE_MAPS_API_KEY ? 'Pending geocode match.' : 'Geocoding is not configured.'),
+        lastAttemptAt: cacheEntry?.lastAttemptAt || null
+      })
+    }
+  }
+
+  return {
+    generatedAt: snapshot?.generatedAt || null,
+    geocodingEnabled: Boolean(GOOGLE_MAPS_API_KEY),
+    summary: {
+      tier1Rows: rows.length,
+      rowsWithAlias,
+      distinctAliases: allClusters.length,
+      mappedAliases: markers.length,
+      unresolvedAliases: unresolved.length,
+      lookupBudgetPerRequest: T1_PREMISES_GEOCODE_REQUEST_LIMIT
+    },
+    markers,
+    unresolved: unresolved.slice(0, 25)
+  }
+}
+
 function getFreshness(snapshot) {
   if (!snapshot?.generatedAt) {
     return {
@@ -2859,6 +3114,9 @@ export function getNocMonitoringConfigMeta() {
     historyWindowHours: HISTORY_WINDOW_HOURS,
     historyRetentionDays: HISTORY_RETENTION_DAYS,
     t1InboundActivityCacheTtlMs: T1_INBOUND_ACTIVITY_CACHE_TTL_MS,
+    t1PremisesGeocodeConfigured: Boolean(GOOGLE_MAPS_API_KEY),
+    t1PremisesGeocodeRequestLimit: T1_PREMISES_GEOCODE_REQUEST_LIMIT,
+    t1PremisesClusterLimit: T1_PREMISES_CLUSTER_LIMIT,
     dashboardNote: 'This dashboard reads from a cached backend snapshot so the browser stays light and Zendesk does not get hammered by repeated live panel queries.',
     telephonyConfigured: Boolean(ILLATION_STATS_URL),
     telephonyAuthConfigured: Boolean(ILLATION_AUTH_HEADER || ILLATION_BEARER_TOKEN || ILLATION_API_KEY || ILLATION_ALLOW_ANON)

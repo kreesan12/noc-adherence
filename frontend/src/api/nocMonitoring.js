@@ -18,3 +18,10 @@ export async function fetchNocMonitoringTelephonyPulse() {
   const { data } = await api.get('/noc-monitoring/telephony/current')
   return data
 }
+
+export async function fetchNocMonitoringTier1PremisesMap({ clusterLimit } = {}) {
+  const { data } = await api.get('/noc-monitoring/tier1-premises-map', {
+    params: clusterLimit ? { clusterLimit } : undefined
+  })
+  return data
+}
