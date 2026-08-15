@@ -81,6 +81,18 @@ const OPS_RADIUS_LG = 1.75
 const DEFAULT_HISTORY_HOURS = 72
 const SNAPSHOT_POLL_MS = 5 * 60 * 1000
 const TELEPHONY_POLL_MS = 5000
+const OUTAGE_PROCESS_MARKERS = [
+  { key: 'validate', label: 'Validate impact', target: '0-10m', detail: 'Confirm affected routes, subs, and service footprint.', tone: '#0f766e' },
+  { key: 'vendorLog', label: 'Log to vendor', target: 'By 20m for NLD', detail: 'Vendor ticket raised and tracking started.', tone: '#ea580c' },
+  { key: 'solid', label: 'Solid outage created', target: 'Early incident', detail: 'Formal outage record opened for tracking.', tone: '#2563eb' },
+  { key: 'comms', label: 'Comms sent', target: 'Early incident', detail: 'Customer / stakeholder communication issued.', tone: '#7c3aed' },
+  { key: 'ack', label: 'Vendor ack / dispatch / ETA / side', target: 'Inside 1h', detail: 'Need acknowledgement, ETA, and side of link.', tone: '#d97706' },
+  { key: 'onsite', label: 'On site', target: 'By 2h', detail: 'Vendor should be on site for outage / NLD / backhaul.', tone: '#dc2626' },
+  { key: 'test', label: 'Test', target: 'Mid incident', detail: 'Field and desk testing underway.', tone: '#0891b2' },
+  { key: 'localise', label: 'Localise fault', target: 'Before 4h', detail: 'Fault side / cause understood and narrowed down.', tone: '#14b8a6' },
+  { key: 'pictures', label: 'Pictures received', target: 'Repair evidence', detail: 'Visual proof / site evidence back from field.', tone: '#8b5cf6' },
+  { key: 'resolve', label: 'Repaired / confirm / resolve', target: 'By 4h', detail: 'Repair complete, levels confirmed, closure ready.', tone: '#16a34a' }
+]
 const DASHBOARD_METRIC_ROOT_SX = {
   p: 1.05,
   borderRadius: OPS_RADIUS_MD,
@@ -415,7 +427,7 @@ function buildTier1PremisesClusters(rows = []) {
     }
 
     existing.count += 1
-    bump(existing.regionCounts, row?.region)
+    bump(existing.regionCounts, row?.province || row?.region)
     bump(existing.nodeCounts, row?.nodeName)
     bump(existing.oltCounts, row?.olt)
     bump(existing.orgCounts, row?.organizationLabel)
@@ -443,7 +455,7 @@ function buildTier1PremisesClusters(rows = []) {
       key: entry.key,
       label: entry.label,
       count: entry.count,
-      region: pickTopLabel(entry.regionCounts, 'Unknown region'),
+      province: pickTopLabel(entry.regionCounts, 'Unknown province'),
       nodeName: pickTopLabel(entry.nodeCounts, 'Unknown node'),
       olt: pickTopLabel(entry.oltCounts, 'Unknown OLT'),
       organizationLabel: pickTopLabel(entry.orgCounts, 'Unknown organisation'),
@@ -1505,6 +1517,62 @@ function OpsSubPanel({ title, subtitle, tone = ACCENT, action = null, children, 
   )
 }
 
+function ProcessMilestoneStrip({ items, liveTone = '#0f766e' }) {
+  if (!items?.length) {
+    return <AnalyticsChartFallback minHeight={140} message="No process milestones are configured." />
+  }
+
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridAutoFlow: 'column',
+        gridAutoColumns: { xs: 'minmax(188px, 1fr)', xl: 'minmax(204px, 1fr)' },
+        gap: 0.78,
+        overflowX: 'auto',
+        pb: 0.35
+      }}
+    >
+      {items.map((item, index) => (
+        <Box
+          key={item.key || item.label}
+          sx={{
+            minWidth: 0,
+            p: 0.82,
+            borderRadius: OPS_RADIUS_MD,
+            border: `1px solid ${alpha(item.tone || liveTone, 0.2)}`,
+            bgcolor: 'rgba(255,255,255,0.98)',
+            background: `linear-gradient(180deg, rgba(255,255,255,0.99) 0%, ${alpha(item.tone || liveTone, 0.08)} 100%)`,
+            boxShadow: `0 8px 18px ${alpha(item.tone || liveTone, 0.05)}`
+          }}
+        >
+          <Stack spacing={0.55}>
+            <Stack direction="row" spacing={0.65} alignItems="flex-start" justifyContent="space-between">
+              <Stack spacing={0.12} sx={{ minWidth: 0 }}>
+                <Typography variant="caption" sx={{ color: alpha(item.tone || liveTone, 0.92), textTransform: 'uppercase', letterSpacing: 0.58, fontWeight: 800 }}>
+                  Step {index + 1}
+                </Typography>
+                <Typography variant="body2" sx={{ color: OPS_TEXT, fontWeight: 800, lineHeight: 1.18 }}>
+                  {item.label}
+                </Typography>
+              </Stack>
+              <SignalChip label={item.target} tone={item.tone || liveTone} />
+            </Stack>
+            <Typography variant="caption" sx={{ color: OPS_MUTED, lineHeight: 1.3 }}>
+              {item.detail}
+            </Typography>
+            {item.liveNote ? (
+              <Typography variant="caption" sx={{ color: alpha(item.tone || liveTone, 0.96), fontWeight: 700, lineHeight: 1.25 }}>
+                {item.liveNote}
+              </Typography>
+            ) : null}
+          </Stack>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
 export default function NocMonitoringPage() {
   const t1ActionViewRef = useRef(null)
   const t1InboundAnomalyRef = useRef(null)
@@ -1522,6 +1590,16 @@ export default function NocMonitoringPage() {
   const [t1WatchExpanded, setT1WatchExpanded] = useState(true)
   const [t1CommandExpanded, setT1CommandExpanded] = useState(true)
   const [t1TempoExpanded, setT1TempoExpanded] = useState(true)
+  const [overviewPulseExpanded, setOverviewPulseExpanded] = useState(true)
+  const [overviewWorkbenchExpanded, setOverviewWorkbenchExpanded] = useState(true)
+  const [outagesRadarExpanded, setOutagesRadarExpanded] = useState(true)
+  const [outagesDeskExpanded, setOutagesDeskExpanded] = useState(true)
+  const [tier2RadarExpanded, setTier2RadarExpanded] = useState(true)
+  const [tier2WorkbenchExpanded, setTier2WorkbenchExpanded] = useState(true)
+  const [nldRadarExpanded, setNldRadarExpanded] = useState(true)
+  const [nldWorkbenchExpanded, setNldWorkbenchExpanded] = useState(true)
+  const [voiceRadarExpanded, setVoiceRadarExpanded] = useState(true)
+  const [voiceWorkbenchExpanded, setVoiceWorkbenchExpanded] = useState(true)
   const [t1DueNowLimit, setT1DueNowLimit] = useState(15)
   const [t1ActionViewLimit, setT1ActionViewLimit] = useState(20)
   const [t1DeskLimit, setT1DeskLimit] = useState(10)
@@ -1955,6 +2033,74 @@ export default function NocMonitoringPage() {
     }
   ]), [summary, telephonySummary])
 
+  const overviewCommandCards = useMemo(() => {
+    const liveVoiceWaiting = Number(summary.telephonyTier1Waiting || 0)
+    const liveVoiceTone = liveVoiceWaiting <= 0
+      ? '#16a34a'
+      : summary.telephonyTier1SlaBreached ? '#dc2626' : '#f59e0b'
+
+    return [
+      {
+        label: 'Major outages',
+        value: formatCount(summary.majorOutageOpen || 0),
+        detail: `${formatCount(summary.majorOutageSubscribers || 0)} subscribers impacted`,
+        meta: `${formatCount(summary.outageP1 || 0)} P1 | ${formatCount(summary.outageP2 || 0)} P2`,
+        tone: '#dc2626',
+        icon: <NotificationsActiveRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: Math.min(100, Number(summary.majorOutageSubscribers || 0) > 0 ? 100 : 18)
+      },
+      {
+        label: 'Tier 1 load',
+        value: formatCount(summary.tier1Open || 0),
+        detail: `${formatCount(summary.t1ReceivedToday || 0)} received | ${formatCount(summary.t1SolvedToday || 0)} solved`,
+        meta: `${formatCount(summary.tier1P1Breached || 0)} first-touch breaches`,
+        tone: '#0f766e',
+        icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: Math.min(100, Number(summary.tier1Open || 0))
+      },
+      {
+        label: 'Tier 2 load',
+        value: formatCount(summary.tier2Open || 0),
+        detail: `${formatCount(summary.t2ReceivedToday || 0)} received | ${formatCount(summary.t2SolvedToday || 0)} solved`,
+        meta: `${formatCount(summary.tier2NewUnassigned || 0)} unattended`,
+        tone: '#1d4ed8',
+        icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: Math.min(100, Number(summary.tier2Open || 0))
+      },
+      {
+        label: 'NLD pressure',
+        value: formatCount((summary.nldOutageOpen || 0) + (summary.nldPartialEventCount || 0)),
+        detail: `${formatCount(summary.nldOutageOpen || 0)} open NLD outages`,
+        meta: `${formatCount(summary.nldPartialNotLoggedCount || 0)} not logged`,
+        tone: '#f97316',
+        icon: <LanRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: Math.min(100, Number(summary.nldPartialEventCount || 0) + Number(summary.nldOutageOpen || 0))
+      },
+      {
+        label: 'Voice queue',
+        value: telephonySummary ? formatCount(liveVoiceWaiting) : '--',
+        detail: telephonySummary ? `${formatSeconds(summary.telephonyTier1AvgAnswerSeconds || 0)} avg answer` : 'telephony not configured',
+        meta: telephonySummary ? `${formatSeconds(summary.telephonyTier1MaxQueueSeconds || 0)} max queue` : 'no live feed',
+        tone: liveVoiceTone,
+        icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, liveVoiceWaiting > 0 ? 60 + (liveVoiceWaiting * 4) : 10) : 0
+      },
+      {
+        label: 'Inbound anomaly',
+        value: formatCount(summary.t1InboundAnomalyCount || 0),
+        detail: (summary.t1InboundAnomalyCount || 0) > 0
+          ? `${summary.t1InboundFocusLabel || 'Inbound product'} | ${summary.t1InboundFocusStatusLabel || 'Flagged'}`
+          : 'No current inbound spike',
+        meta: (summary.t1InboundAnomalyCount || 0) > 0
+          ? `${formatCount(summary.t1InboundSustainedCount || 0)} sustained`
+          : 'watch clear',
+        tone: (summary.t1InboundHighAnomalyCount || 0) > 0 ? '#dc2626' : ((summary.t1InboundAnomalyCount || 0) > 0 ? '#f59e0b' : '#475569'),
+        icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: Math.min(100, Number(summary.t1InboundAnomalyCount || 0) * 26)
+      }
+    ]
+  }, [summary, telephonySummary])
+
   const tier1VoiceWeekCompare = useMemo(() => {
     const latest = historyTier1VoiceQueue?.[historyTier1VoiceQueue.length - 1]
     if (!latest?.bucketStart) return { lastWeek: null, previousWeek: null }
@@ -2205,7 +2351,7 @@ export default function NocMonitoringPage() {
   const t1RegionHotspot = useMemo(() => {
     const grouped = new Map()
     ;(t1ActionViewRows || []).forEach((row) => {
-      const key = String(row?.region || '').trim() || 'Unknown region'
+      const key = String(row?.province || row?.region || '').trim() || 'Unknown province'
       grouped.set(key, (grouped.get(key) || 0) + 1)
     })
     return [...grouped.entries()]
@@ -3057,6 +3203,240 @@ export default function NocMonitoringPage() {
     }
   ]), [summary])
 
+  const outageCommandCards = useMemo(() => [
+    {
+      label: 'Major outages',
+      value: formatCount(summary.majorOutageOpen || 0),
+      detail: `${formatCount(summary.majorOutageSubscribers || 0)} subscribers impacted`,
+      meta: `${formatCount(majorOutageOverSlaCount)} over 4h SLA`,
+      tone: '#dc2626',
+      icon: <NotificationsActiveRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.majorOutageSubscribers || 0) > 0 ? 100 : 18)
+    },
+    {
+      label: 'NLD outages',
+      value: formatCount(summary.nldOutageOpen || 0),
+      detail: `${formatCount(summary.nldOutageSubscribers || 0)} subscribers impacted`,
+      meta: `${formatCount(nldOutageOverSlaCount)} over 4h SLA`,
+      tone: '#f97316',
+      icon: <LanRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.nldOutageOpen || 0) * 8)
+    },
+    {
+      label: 'Backhauls',
+      value: formatCount(summary.backhaulOpen || 0),
+      detail: `${formatCount(summary.vipOpen || 0)} VIP-linked rows alongside backhaul pressure`,
+      meta: `${formatCount(backhaulOverSlaCount)} over 4h SLA`,
+      tone: '#7c3aed',
+      icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.backhaulOpen || 0) * 10)
+    },
+    {
+      label: 'P1 + P2',
+      value: formatCount((summary.outageP1 || 0) + (summary.outageP2 || 0)),
+      detail: `${formatCount(summary.outageP1 || 0)} P1 | ${formatCount(summary.outageP2 || 0)} P2`,
+      meta: 'highest live alert pressure',
+      tone: ((summary.outageP1 || 0) + (summary.outageP2 || 0)) > 0 ? '#dc2626' : '#16a34a',
+      icon: <CrisisAlertRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, ((Number(summary.outageP1 || 0) + Number(summary.outageP2 || 0)) * 10))
+    },
+    {
+      label: 'Priority stack',
+      value: formatCount((summary.outageP1 || 0) + (summary.outageP2 || 0) + (summary.outageP3 || 0) + (summary.outageP4 || 0) + (summary.outagePower || 0)),
+      detail: `${formatCount(summary.outageP3 || 0)} P3 | ${formatCount(summary.outageP4 || 0)} P4 | ${formatCount(summary.outagePower || 0)} power`,
+      meta: `${formatCount(nldPartialLogLateCount)} NLD partials over 20m`,
+      tone: '#ea580c',
+      icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, (Number(summary.outageP1 || 0) + Number(summary.outageP2 || 0) + Number(summary.outageP3 || 0) + Number(summary.outageP4 || 0) + Number(summary.outagePower || 0)) * 6)
+    }
+  ], [backhaulOverSlaCount, majorOutageOverSlaCount, nldOutageOverSlaCount, nldPartialLogLateCount, summary])
+
+  const tier2CommandCards = useMemo(() => [
+    {
+      label: 'Tickets received',
+      value: formatCount(summary.t2ReceivedToday || 0),
+      detail: `7d ${formatCount(summary.t2ReceivedLastWeek || 0)} | 14d ${formatCount(summary.t2ReceivedPreviousWeek || 0)}`,
+      meta: 'today intake pace',
+      tone: '#1d4ed8',
+      icon: <InsightsRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.t2ReceivedToday || 0))
+    },
+    {
+      label: 'Tickets solved',
+      value: formatCount(summary.t2SolvedToday || 0),
+      detail: `7d ${formatCount(summary.t2SolvedLastWeek || 0)} | 14d ${formatCount(summary.t2SolvedPreviousWeek || 0)}`,
+      meta: 'today closure pace',
+      tone: '#60a5fa',
+      icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.t2SolvedToday || 0))
+    },
+    {
+      label: 'Open queue',
+      value: formatCount(summary.tier2Open || 0),
+      detail: `${formatCount(summary.tier2NewUnassigned || 0)} new / unattended`,
+      meta: `${formatCount(summary.t2HandoverOpen || 0)} handover`,
+      tone: '#0f172a',
+      icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.tier2Open || 0))
+    },
+    {
+      label: 'New unattended',
+      value: formatCount(summary.tier2NewUnassigned || 0),
+      detail: 'Immediate Tier 2 attention lane',
+      meta: 'unassigned or untouched',
+      tone: (summary.tier2NewUnassigned || 0) > 0 ? '#dc2626' : '#16a34a',
+      icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.tier2NewUnassigned || 0) * 10)
+    },
+    {
+      label: 'Handover open',
+      value: formatCount(summary.t2HandoverOpen || 0),
+      detail: 'Live macro handover workflow',
+      meta: 'needs movement across parties',
+      tone: '#ea580c',
+      icon: <RouteRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.t2HandoverOpen || 0) * 10)
+    }
+  ], [summary])
+
+  const nldCommandCards = useMemo(() => [
+    {
+      label: 'Partial events',
+      value: formatCount(summary.nldPartialEventCount || 0),
+      detail: 'recent partial-NLD event rows in lookback',
+      meta: `${formatCount(summary.nldPartialClusterCount || 0)} clusters`,
+      tone: '#f97316',
+      icon: <LanRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.nldPartialEventCount || 0))
+    },
+    {
+      label: 'Route clusters',
+      value: formatCount(summary.nldPartialClusterCount || 0),
+      detail: 'repeat event clusters on the same route',
+      meta: `${formatCount(summary.nldPartialNotLoggedCount || 0)} not logged`,
+      tone: '#dc2626',
+      icon: <RouteRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.nldPartialClusterCount || 0) * 14)
+    },
+    {
+      label: 'Open NLD outages',
+      value: formatCount(summary.nldOutageOpen || 0),
+      detail: `${formatCount(summary.nldOutageSubscribers || 0)} subscribers impacted`,
+      meta: 'current NLD outage desk',
+      tone: '#0f766e',
+      icon: <NotificationsActiveRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.nldOutageOpen || 0) * 10)
+    },
+    {
+      label: 'Not logged',
+      value: formatCount(summary.nldPartialNotLoggedCount || 0),
+      detail: 'partial events without outage ticket match',
+      meta: 'direct logging watchlist',
+      tone: (summary.nldPartialNotLoggedCount || 0) > 0 ? '#ea580c' : '#16a34a',
+      icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+      progress: Math.min(100, Number(summary.nldPartialNotLoggedCount || 0) * 14)
+    }
+  ], [summary])
+
+  const voiceCommandCards = useMemo(() => {
+    const waiting = Number(telephonySummary?.callsWaiting || 0)
+    const waitingTone = waiting <= 0 ? '#16a34a' : waiting > 0 && Number(telephonySummary?.maxQueueSeconds || 0) > 20 ? '#dc2626' : '#f59e0b'
+
+    return [
+      {
+        label: 'Calls waiting',
+        value: telephonySummary ? formatCount(waiting) : '--',
+        detail: telephonySummary ? `${formatSeconds(telephonySummary.maxQueueSeconds || 0)} max queue` : 'telephony not configured',
+        meta: telephonySummary ? `${formatSeconds(telephonySummary.avgAnswerSeconds || 0)} avg answer` : 'no live feed',
+        tone: waitingTone,
+        icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, waiting > 0 ? 60 + waiting * 6 : 8) : 0
+      },
+      {
+        label: 'Answered',
+        value: telephonySummary ? formatCount(telephonySummary.callsAnswered || 0) : '--',
+        detail: 'current dashboard-day call throughput',
+        meta: telephonySummary ? `${formatCount(telephonySummary.customerCallCount || 0)} customer calls` : 'no live feed',
+        tone: '#0891b2',
+        icon: <InsightsRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, Number(telephonySummary.callsAnswered || 0) / 2) : 0
+      },
+      {
+        label: 'Missed',
+        value: telephonySummary ? formatCount(telephonySummary.callsMissed || 0) : '--',
+        detail: telephonySummary ? `${formatPercent(telephonySummary.abandonRate || 0)} abandon rate` : 'telephony not configured',
+        meta: 'calls lost from the current feed window',
+        tone: '#dc2626',
+        icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, Number(telephonySummary.callsMissed || 0) * 10) : 0
+      },
+      {
+        label: 'Tier 1 voice agents',
+        value: t1VoiceAgentState.total > 0 ? `${formatCount(t1VoiceAgentState.loggedIn)}/${formatCount(t1VoiceAgentState.total)}` : '--',
+        detail: t1VoiceAgentState.detail,
+        meta: t1VoiceAgentState.meta,
+        tone: t1VoiceAgentState.tone,
+        icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: t1VoiceAgentState.total > 0 ? (t1VoiceAgentState.loggedIn / t1VoiceAgentState.total) * 100 : 0
+      },
+      {
+        label: 'Queues live',
+        value: telephonySummary ? formatCount(summary.telephonyQueues || 0) : '--',
+        detail: telephonySummary ? `${formatCount(telephonyQueueWaitingSummary.length || 0)} queues with visibility` : 'telephony not configured',
+        meta: telephonySummary ? `${formatCount(telephonyMissedAgentSummary.length || 0)} agents with missed calls` : 'no live feed',
+        tone: '#7c3aed',
+        icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, Number(summary.telephonyQueues || 0) * 8) : 0
+      }
+    ]
+  }, [summary, t1VoiceAgentState, telephonyMissedAgentSummary.length, telephonyQueueWaitingSummary.length, telephonySummary])
+
+  const majorOutageOverSlaCount = useMemo(
+    () => (collections.majorOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
+    [collections]
+  )
+
+  const nldOutageOverSlaCount = useMemo(
+    () => (collections.nldOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
+    [collections]
+  )
+
+  const backhaulOverSlaCount = useMemo(
+    () => (collections.backhauls || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
+    [collections]
+  )
+
+  const nldPartialLogLateCount = useMemo(
+    () => (collections.nldPartialNotLogged || []).filter((row) => Number(row?.ageHours || 0) > (20 / 60)).length,
+    [collections]
+  )
+
+  const outageProcessMarkerItems = useMemo(() => (OUTAGE_PROCESS_MARKERS.map((marker) => {
+    switch (marker.key) {
+      case 'vendorLog':
+        return { ...marker, liveNote: `${formatCount(nldPartialLogLateCount)} NLD partial events are already beyond the 20-minute log marker.` }
+      case 'onsite':
+        return { ...marker, liveNote: `${formatCount(nldOutageOverSlaCount + backhaulOverSlaCount)} NLD / backhaul rows are already beyond the 2-hour site-arrival guide.` }
+      case 'resolve':
+        return { ...marker, liveNote: `${formatCount(majorOutageOverSlaCount + nldOutageOverSlaCount + backhaulOverSlaCount)} live rows are already beyond the 4-hour restore target.` }
+      default:
+        return marker
+    }
+  })), [backhaulOverSlaCount, majorOutageOverSlaCount, nldOutageOverSlaCount, nldPartialLogLateCount])
+
+  const nldProcessMarkerItems = useMemo(() => (OUTAGE_PROCESS_MARKERS.map((marker) => {
+    switch (marker.key) {
+      case 'vendorLog':
+        return { ...marker, liveNote: `${formatCount(nldPartialLogLateCount)} partial events still need outage logging before the 20-minute target slips further.` }
+      case 'onsite':
+        return { ...marker, liveNote: `${formatCount(nldOutageOverSlaCount)} open NLD outages are already beyond the 2-hour site-arrival guide.` }
+      case 'resolve':
+        return { ...marker, liveNote: `${formatCount(nldOutageOverSlaCount)} open NLD outages are already beyond the 4-hour outage SLA.` }
+      default:
+        return marker
+    }
+  })), [nldOutageOverSlaCount, nldPartialLogLateCount])
+
   const priorityRows = useMemo(() => {
     const groups = collections.outagePriorityTickets || {}
     return [
@@ -3232,7 +3612,7 @@ export default function NocMonitoringPage() {
       )
     },
     { key: 'count', label: 'Tickets', render: (row) => formatCount(row.count || 0) },
-    { key: 'region', label: 'Region', render: (row) => row.region || '--' },
+    { key: 'province', label: 'Province', render: (row) => row.province || '--' },
     { key: 'nodeName', label: 'Node', render: (row) => row.nodeName || '--' },
     { key: 'olt', label: 'OLT', render: (row) => row.olt || '--' },
     {
@@ -3277,6 +3657,8 @@ export default function NocMonitoringPage() {
     { key: 'status', label: 'Status', render: (row) => <Chip size="small" label={row.status} color={severityColor(row.status)} /> },
     { key: 'priority', label: 'Priority', render: (row) => <Chip size="small" label={row.priority} color={priorityColor(row.priority)} /> },
     { key: 'product', label: 'Product' },
+    { key: 'organizationLabel', label: 'ISP', render: (row) => row.organizationLabel || '--' },
+    { key: 'province', label: 'Province', render: (row) => row.province || '--' },
     { key: 'party', label: 'Party' },
     { key: 'handover', label: 'Handover', render: (row) => row.handover ? <Chip size="small" color="warning" label="Handover" /> : '--' },
     { key: 'ageHours', label: 'Age', render: (row) => formatAgeHours(row.ageHours) },
@@ -3491,191 +3873,273 @@ export default function NocMonitoringPage() {
               Tier 1 inbound anomaly watch is active: {summary.t1InboundFocusLabel || 'lead product'} is flagged with {formatCount(summary.t1InboundAnomalyCount || 0)} recent anomaly day{Number(summary.t1InboundAnomalyCount || 0) === 1 ? '' : 's'}. {summary.t1InboundFocusStatusDetail || 'The spike is still under watch.'}
             </OpsAlert>
           ) : null}
-          <MetricStrip items={overviewMetrics} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 0.82 }}>
+            {overviewCommandCards.map((item) => (
+              <OpsPriorityCard key={item.label} {...item} />
+            ))}
+          </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.2fr 0.8fr' }, gap: 1.05 }}>
-            <OpsSection title="Open Work By Lane" subtitle="Live open counts and aged counts across the core lanes from the current snapshot." tone="#0f766e" minHeight={0}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1 }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
-                    Open items
-                  </Typography>
-                  <VerticalBarChart rows={laneChartData} dataKey="openCount" emptyMessage="No lane counts were returned for this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} />
+          <OpsSection
+            title="Monitoring Pulse"
+            subtitle="Shared pressure view across outages, Tier 1, Tier 2, and subscriber impact."
+            tone="#1d4ed8"
+            minHeight={0}
+            bodySx={overviewPulseExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={overviewPulseExpanded} onClick={() => setOverviewPulseExpanded((current) => !current)} />}
+          >
+            {overviewPulseExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.2fr 0.8fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Open work by lane" subtitle="Live open counts and aged counts across the core lanes." tone="#0f766e">
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 0.95 }}>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                          Open items
+                        </Typography>
+                        <VerticalBarChart rows={laneChartData} dataKey="openCount" emptyMessage="No lane counts were returned for this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} height={220} />
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                          Aged items beyond lane threshold
+                        </Typography>
+                        <VerticalBarChart rows={laneChartData} dataKey="agedCount" emptyMessage="No aged items are available in this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} height={220} />
+                      </Box>
+                    </Box>
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Pressure mix" subtitle="Impact, outage priority, and partial-NLD pressure areas." tone="#dc2626">
+                    <Box sx={{ display: 'grid', gap: 0.9 }}>
+                      <VerticalBarChart rows={impactChartData} dataKey="impactCount" emptyMessage="No subscriber impact is available right now." colorMap={Object.fromEntries(impactChartData.map((lane) => [lane.key, lane.tone]))} height={220} />
+                      <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                        <SignalChip label={`P1 ${formatCount(summary.outageP1 || 0)}`} tone="#dc2626" />
+                        <SignalChip label={`P2 ${formatCount(summary.outageP2 || 0)}`} tone="#ea580c" />
+                        <SignalChip label={`P3 ${formatCount(summary.outageP3 || 0)}`} tone="#d97706" />
+                        <SignalChip label={`P4 ${formatCount(summary.outageP4 || 0)}`} tone="#2563eb" />
+                        <SignalChip label={`Power ${formatCount(summary.outagePower || 0)}`} tone="#7c3aed" />
+                        <SignalChip label={`Partial not logged ${formatCount(summary.nldPartialNotLoggedCount || 0)}`} tone="#475569" />
+                      </Stack>
+                    </Box>
+                  </OpsSubPanel>
                 </Box>
-                <Box>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
-                    Aged items beyond lane threshold
-                  </Typography>
-                  <VerticalBarChart rows={laneChartData} dataKey="agedCount" emptyMessage="No aged items are available in this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} />
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Historical queue pressure" subtitle={`Backlog direction across the last ${historyWindowLabel}.`} tone="#1d4ed8">
+                    <MultiLineChartPanel
+                      rows={historyLanePressure}
+                      lines={[
+                        { key: 'tier1Open', label: 'Tier 1', color: '#0f766e' },
+                        { key: 'tier2Open', label: 'Tier 2', color: '#1d4ed8' },
+                        { key: 'majorOutageOpen', label: 'Major outages', color: '#dc2626' },
+                        { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
+                      ]}
+                      emptyMessage="Historical queue pressure is still building and will appear after a few refresh buckets land."
+                      height={220}
+                    />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Historical subscriber impact" subtitle={`Open impact over the last ${historyWindowLabel}.`} tone="#dc2626">
+                    <MultiLineChartPanel
+                      rows={historySubscriberImpact}
+                      lines={[
+                        { key: 'majorOutageSubscribers', label: 'Major outage subs', color: '#dc2626' },
+                        { key: 'nldOutageSubscribers', label: 'NLD subs', color: '#f97316' },
+                        { key: 'totalSubscribers', label: 'Total impacted', color: '#facc15' }
+                      ]}
+                      emptyMessage="Historical subscriber impact will light up once more monitoring buckets have been stored."
+                      height={220}
+                    />
+                  </OpsSubPanel>
                 </Box>
               </Box>
-            </OpsSection>
+            ) : null}
+          </OpsSection>
 
-            <OpsSection title="Operational Pressure" subtitle="Impact, outage priority, and partial NLD pressure areas that need fast eyes." tone="#1d4ed8" minHeight={0}>
-              <Box sx={{ display: 'grid', gap: 1 }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
-                    Subscriber impact by lane
-                  </Typography>
-                  <VerticalBarChart rows={impactChartData} dataKey="impactCount" emptyMessage="No subscriber impact is available right now." colorMap={Object.fromEntries(impactChartData.map((lane) => [lane.key, lane.tone]))} />
+          <OpsSection
+            title="Shared Workbench"
+            subtitle="Operational detail blocks used to branch into the desk-specific tabs."
+            tone="#0f172a"
+            minHeight={0}
+            bodySx={overviewWorkbenchExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={overviewWorkbenchExpanded} onClick={() => setOverviewWorkbenchExpanded((current) => !current)} />}
+          >
+            {overviewWorkbenchExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.95fr 1.05fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Outage priority lanes" subtitle="Native alert bucket view from the latest snapshot." tone="#dc2626">
+                    <VerticalBarChart rows={outagePrioritySummary} dataKey="count" emptyMessage="No outage priority lanes are active in this snapshot." colorMap={Object.fromEntries(outagePrioritySummary.map((row) => [row.key, row.tone]))} height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Daily ops flow" subtitle={`Tier 1 and Tier 2 received versus solved for ${summary.dayKey || 'today'}.`} tone="#0f172a">
+                    <MultiLineChartPanel
+                      rows={hourlySeries}
+                      lines={[
+                        { key: 't1Received', label: 'T1 received', color: '#0f766e' },
+                        { key: 't1Solved', label: 'T1 solved', color: '#22c55e' },
+                        { key: 't2Received', label: 'T2 received', color: '#1d4ed8' },
+                        { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
+                      ]}
+                      emptyMessage="No Tier 1 or Tier 2 intake data is available for the current ops day."
+                      height={220}
+                    />
+                  </OpsSubPanel>
                 </Box>
-                <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap>
-                  <Chip size="small" label={`P1 ${formatCount(summary.outageP1 || 0)}`} color="error" />
-                  <Chip size="small" label={`P2 ${formatCount(summary.outageP2 || 0)}`} color="warning" />
-                  <Chip size="small" label={`P3 ${formatCount(summary.outageP3 || 0)}`} color="warning" />
-                  <Chip size="small" label={`P4 ${formatCount(summary.outageP4 || 0)}`} color="info" />
-                  <Chip size="small" label={`Power ${formatCount(summary.outagePower || 0)}`} color="secondary" />
-                  <Chip size="small" label={`Partial not logged ${formatCount(summary.nldPartialNotLoggedCount || 0)}`} color="default" />
-                </Stack>
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Partial NLD routes" subtitle="Top partial-route pressure in the current lookback window." tone="#f97316">
+                    <VerticalBarChart rows={partialRouteSummary.slice(0, 10)} dataKey="count" emptyMessage="No partial NLD routes were returned for the current lookback window." height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Operational spotlights" subtitle="Strongest live watch items pulled from the latest snapshot." tone="#0f172a">
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.85 }}>
+                      {spotlights.length ? spotlights.map((item) => <SpotlightCard key={item.key} item={item} />) : (
+                        <AnalyticsChartFallback minHeight={220} message="No spotlight items are available for this snapshot." />
+                      )}
+                    </Box>
+                  </OpsSubPanel>
+                </Box>
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Outage impact by region" subtitle="Subscriber-impact concentration by outage region." tone="#dc2626">
+                    <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage region impact is available right now." height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Tier 2 service mix" subtitle="Current Tier 2 open work grouped by service type." tone="#1d4ed8">
+                    <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type split is available right now." height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Voice queue pressure" subtitle="Waiting callers by queue from the telephony snapshot." tone="#0891b2">
+                    <HorizontalBarChart rows={telephonyQueueWaitingSummary} dataKey="count" emptyMessage="No queue waiting data is available right now." height={220} />
+                  </OpsSubPanel>
+                </Box>
               </Box>
-            </OpsSection>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05 }}>
-            <OpsSection title="Historical Queue Pressure" subtitle={`Backend snapshot trend across the last ${historyWindowLabel} so the desk can see whether backlog is rising or cooling.`} tone="#1d4ed8" minHeight={0}>
-              <MultiLineChartPanel
-                rows={historyLanePressure}
-                lines={[
-                  { key: 'tier1Open', label: 'Tier 1', color: '#0f766e' },
-                  { key: 'tier2Open', label: 'Tier 2', color: '#1d4ed8' },
-                  { key: 'majorOutageOpen', label: 'Major outages', color: '#dc2626' },
-                  { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
-                ]}
-                emptyMessage="Historical queue pressure is still building and will appear after a few refresh buckets land."
-              />
-            </OpsSection>
-
-            <OpsSection title="Historical Subscriber Impact" subtitle={`Open outage impact over the last ${historyWindowLabel} from persisted monitoring buckets.`} tone="#dc2626" minHeight={0}>
-              <MultiLineChartPanel
-                rows={historySubscriberImpact}
-                lines={[
-                  { key: 'majorOutageSubscribers', label: 'Major outage subs', color: '#dc2626' },
-                  { key: 'nldOutageSubscribers', label: 'NLD subs', color: '#f97316' },
-                  { key: 'totalSubscribers', label: 'Total impacted', color: '#facc15' }
-                ]}
-                emptyMessage="Historical subscriber impact will light up once more monitoring buckets have been stored."
-              />
-            </OpsSection>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.95fr 1.05fr' }, gap: 1.05 }}>
-            <OpsSection title="Outage Priority Lanes" subtitle="This is the missing Grafana-style alert bucket view pulled into the native snapshot." tone="#dc2626" minHeight={0}>
-              <VerticalBarChart rows={outagePrioritySummary} dataKey="count" emptyMessage="No outage priority lanes are active in this snapshot." colorMap={Object.fromEntries(outagePrioritySummary.map((row) => [row.key, row.tone]))} />
-            </OpsSection>
-
-            <OpsSection title="Daily Ops Flow" subtitle={`Tier 1 and Tier 2 received versus solved for ${summary.dayKey || 'today'}.`} tone="#0f172a" minHeight={0}>
-              <MultiLineChartPanel
-                rows={hourlySeries}
-                lines={[
-                  { key: 't1Received', label: 'T1 received', color: '#0f766e' },
-                  { key: 't1Solved', label: 'T1 solved', color: '#22c55e' },
-                  { key: 't2Received', label: 'T2 received', color: '#1d4ed8' },
-                  { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
-                ]}
-                emptyMessage="No Tier 1 or Tier 2 intake data is available for the current ops day."
-              />
-            </OpsSection>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
-            <OpsSection title="Partial NLD Routes" subtitle="Top partial-NLD routes from the live event feed in the current lookback window." tone="#f97316" minHeight={0}>
-              <VerticalBarChart rows={partialRouteSummary.slice(0, 10)} dataKey="count" emptyMessage="No partial NLD routes were returned for the current lookback window." />
-            </OpsSection>
-
-            <OpsSection title="Operational Spotlights" subtitle="The strongest live watch items pulled from the latest snapshot." tone="#0f172a" minHeight={0}>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.95 }}>
-                {spotlights.length ? spotlights.map((item) => <SpotlightCard key={item.key} item={item} />) : (
-                  <AnalyticsChartFallback minHeight={220} message="No spotlight items are available for this snapshot." />
-                )}
-              </Box>
-            </OpsSection>
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Outage Impact By Region" subtitle="Subscriber-impact concentration by outage region." tone="#dc2626" minHeight={0}>
-              <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage region impact is available right now." />
-            </OpsSection>
-
-            <OpsSection title="Tier 2 Service Mix" subtitle="Current Tier 2 open work grouped by service type." tone="#1d4ed8" minHeight={0}>
-              <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type split is available right now." />
-            </OpsSection>
-
-            <OpsSection title="Voice Queue Pressure" subtitle="Waiting callers by queue from the telephony snapshot." tone="#0891b2" minHeight={0}>
-              <HorizontalBarChart rows={telephonyQueueWaitingSummary} dataKey="count" emptyMessage="No queue waiting data is available right now." />
-            </OpsSection>
-          </Box>
+            ) : null}
+          </OpsSection>
         </Box>
       ) : null}
 
       {tab === 'outages' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <MetricStrip
-            items={outagePrioritySummary.map((row) => ({
-              label: row.label,
-              value: formatCount(row.count),
-              subtext: `Oldest active ${formatAgeHours(row.highestAgeHours)}`,
-              tone: row.tone,
-              icon: <CrisisAlertRoundedIcon fontSize="small" />
-            }))}
-          />
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Outage Desk Pressure Trend" subtitle={`Major outage, NLD, and backhaul load captured over the last ${historyWindowLabel}.`} tone="#dc2626" minHeight={0}>
-              <MultiLineChartPanel
-                rows={historyLanePressure}
-                lines={[
-                  { key: 'majorOutageOpen', label: 'Major outages', color: '#dc2626' },
-                  { key: 'nldOutageOpen', label: 'NLD outages', color: '#f97316' },
-                  { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
-                ]}
-                emptyMessage="Historical outage desk pressure will appear as more backend buckets are stored."
-              />
-            </OpsSection>
-
-            <OpsSection title="Outage Priority Trend" subtitle={`Priority-lane movement over the last ${historyWindowLabel} from the persisted monitoring cache.`} tone="#ea580c" minHeight={0}>
-              <MultiLineChartPanel
-                rows={historyOutagePriority}
-                lines={[
-                  { key: 'newUnassigned', label: 'New / unattended', color: '#94a3b8' },
-                  { key: 'p1', label: 'P1', color: '#dc2626' },
-                  { key: 'p2', label: 'P2', color: '#f97316' },
-                  { key: 'p3', label: 'P3', color: '#d97706' },
-                  { key: 'p4', label: 'P4', color: '#2563eb' },
-                  { key: 'power', label: 'Power', color: '#7c3aed' }
-                ]}
-                emptyMessage="Historical outage-priority movement will appear after a few stored refresh buckets."
-              />
-            </OpsSection>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' }, gap: 0.82 }}>
+            {outageCommandCards.map((item) => (
+              <OpsPriorityCard key={item.label} {...item} />
+            ))}
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Impact By Region" subtitle="Subscriber impact rolled up by outage region." tone="#dc2626" minHeight={0}>
-              <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage-region impact data is available right now." />
-            </OpsSection>
+          <OpsSection
+            title="Outage Radar"
+            subtitle="SLA pressure, priority flow, and where outage load is concentrating."
+            tone="#dc2626"
+            minHeight={0}
+            bodySx={outagesRadarExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={outagesRadarExpanded} onClick={() => setOutagesRadarExpanded((current) => !current)} />}
+          >
+            {outagesRadarExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }}
+                  items={[
+                    { label: 'Major >4h', value: formatCount(majorOutageOverSlaCount), tone: majorOutageOverSlaCount > 0 ? '#dc2626' : '#16a34a', helper: 'major outage SLA breaches' },
+                    { label: 'NLD >4h', value: formatCount(nldOutageOverSlaCount), tone: nldOutageOverSlaCount > 0 ? '#f97316' : '#16a34a', helper: 'NLD outage SLA breaches' },
+                    { label: 'Backhaul >4h', value: formatCount(backhaulOverSlaCount), tone: backhaulOverSlaCount > 0 ? '#7c3aed' : '#16a34a', helper: 'backhaul SLA breaches' },
+                    { label: 'NLD log >20m', value: formatCount(nldPartialLogLateCount), tone: nldPartialLogLateCount > 0 ? '#ea580c' : '#16a34a', helper: 'partial events still not logged' }
+                  ]}
+                />
 
-            <OpsSection title="Outage Service Split" subtitle="Open outage rows grouped by service type." tone="#f97316" minHeight={0}>
-              <HorizontalBarChart rows={outageServiceTypeSummary} dataKey="count" emptyMessage="No outage service-type summary is available right now." />
-            </OpsSection>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Desk pressure trend" subtitle={`Major outage, NLD, and backhaul movement across the last ${historyWindowLabel}.`} tone="#dc2626">
+                    <MultiLineChartPanel
+                      rows={historyLanePressure}
+                      lines={[
+                        { key: 'majorOutageOpen', label: 'Major outages', color: '#dc2626' },
+                        { key: 'nldOutageOpen', label: 'NLD outages', color: '#f97316' },
+                        { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
+                      ]}
+                      emptyMessage="Historical outage desk pressure will appear as more backend buckets are stored."
+                      height={220}
+                    />
+                  </OpsSubPanel>
 
-            <OpsSection title="Backhaul Owner Load" subtitle="Current open backhaul tickets by working owner." tone="#7c3aed" minHeight={0}>
-              <HorizontalBarChart rows={backhaulOwnerSummary} dataKey="count" emptyMessage="No backhaul owner summary is available right now." />
-            </OpsSection>
-          </Box>
+                  <OpsSubPanel title="Priority trend" subtitle={`P1 to P4 movement across the last ${historyWindowLabel}.`} tone="#ea580c">
+                    <MultiLineChartPanel
+                      rows={historyOutagePriority}
+                      lines={[
+                        { key: 'newUnassigned', label: 'New / unattended', color: '#94a3b8' },
+                        { key: 'p1', label: 'P1', color: '#dc2626' },
+                        { key: 'p2', label: 'P2', color: '#f97316' },
+                        { key: 'p3', label: 'P3', color: '#d97706' },
+                        { key: 'p4', label: 'P4', color: '#2563eb' },
+                        { key: 'power', label: 'Power', color: '#7c3aed' }
+                      ]}
+                      emptyMessage="Historical outage-priority movement will appear after a few stored refresh buckets."
+                      height={220}
+                    />
+                  </OpsSubPanel>
+                </Box>
 
-          <OpsSection title="Priority Queue Detail" subtitle="Native replacement for the Grafana P1/P2/P3/P4 and power alert tables." tone="#dc2626" minHeight={0}>
-            <MonitoringTable rows={priorityRows} columns={priorityColumns} emptyMessage="No outage priority rows are active right now." />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Impact by region" subtitle="Subscriber impact rolled up by outage region." tone="#dc2626">
+                    <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage-region impact data is available right now." height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Outage service split" subtitle="Open outage rows grouped by service type." tone="#f97316">
+                    <HorizontalBarChart rows={outageServiceTypeSummary} dataKey="count" emptyMessage="No outage service-type summary is available right now." height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Backhaul owner load" subtitle="Current open backhaul tickets by working owner." tone="#7c3aed">
+                    <HorizontalBarChart rows={backhaulOwnerSummary} dataKey="count" emptyMessage="No backhaul owner summary is available right now." height={220} />
+                  </OpsSubPanel>
+                </Box>
+
+                <OpsSubPanel title="Outage process markers" subtitle="Static visual guide for where live outage, NLD, and backhaul work should roughly sit against age." tone="#0f766e">
+                  <ProcessMilestoneStrip items={outageProcessMarkerItems} liveTone="#0f766e" />
+                </OpsSubPanel>
+              </Box>
+            ) : null}
           </OpsSection>
 
-          <OpsSection title="Major Outage Desk" subtitle="Open non-NLD outage capturing tickets, ranked by age." tone="#dc2626" minHeight={0}>
-            <MonitoringTable rows={collections.majorOutages || []} columns={majorColumns} emptyMessage="No major outage rows are open right now." />
-          </OpsSection>
+          <OpsSection
+            title="Open Desks"
+            subtitle="Priority queue first, then the three live outage desks."
+            tone="#0f172a"
+            minHeight={0}
+            bodySx={outagesDeskExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={outagesDeskExpanded} onClick={() => setOutagesDeskExpanded((current) => !current)} />}
+          >
+            {outagesDeskExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Priority queue detail" subtitle="Native replacement for the Grafana P1 / P2 / P3 / P4 and power alert table." tone="#dc2626">
+                    <MonitoringTable rows={priorityRows} columns={priorityColumns} emptyMessage="No outage priority rows are active right now." />
+                  </OpsSubPanel>
 
-          <OpsSection title="NLD Outage Desk" subtitle="Open NLD outage capturing tickets with subscriber impact and last update context." tone="#f97316" minHeight={0}>
-            <MonitoringTable rows={collections.nldOutages || []} columns={nldColumns} emptyMessage="No open NLD outage rows are visible right now." />
-          </OpsSection>
+                  <OpsSubPanel title="Outage SLA cues" subtitle="Fast supervision tiles for the live outage estate." tone="#ea580c">
+                    <OpsValueTiles
+                      columns={{ xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(2, minmax(0, 1fr))' }}
+                      items={[
+                        { label: 'Major >4h', value: formatCount(majorOutageOverSlaCount), tone: majorOutageOverSlaCount > 0 ? '#dc2626' : '#16a34a', helper: `${formatCount(summary.majorOutageOpen || 0)} total open` },
+                        { label: 'NLD >4h', value: formatCount(nldOutageOverSlaCount), tone: nldOutageOverSlaCount > 0 ? '#f97316' : '#16a34a', helper: `${formatCount(summary.nldOutageOpen || 0)} total open` },
+                        { label: 'Backhaul >4h', value: formatCount(backhaulOverSlaCount), tone: backhaulOverSlaCount > 0 ? '#7c3aed' : '#16a34a', helper: `${formatCount(summary.backhaulOpen || 0)} total open` },
+                        { label: 'NLD log >20m', value: formatCount(nldPartialLogLateCount), tone: nldPartialLogLateCount > 0 ? '#ea580c' : '#16a34a', helper: `${formatCount(summary.nldPartialNotLoggedCount || 0)} not logged rows` }
+                      ]}
+                    />
+                  </OpsSubPanel>
+                </Box>
 
-          <OpsSection title="Backhaul Desk" subtitle="Open backhaul tickets driven off the configured backhaul tag." tone="#7c3aed" minHeight={0}>
-            <MonitoringTable rows={collections.backhauls || []} columns={backhaulColumns} emptyMessage="No backhaul tickets are open right now." />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Major outage desk" subtitle="Open non-NLD outage capturing tickets ranked by age." tone="#dc2626">
+                    <MonitoringTable rows={collections.majorOutages || []} columns={majorColumns} emptyMessage="No major outage rows are open right now." />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="NLD outage desk" subtitle="Open NLD outage capturing tickets with subscriber impact and last update context." tone="#f97316">
+                    <MonitoringTable rows={collections.nldOutages || []} columns={nldColumns} emptyMessage="No open NLD outage rows are visible right now." />
+                  </OpsSubPanel>
+                </Box>
+
+                <OpsSubPanel title="Backhaul desk" subtitle="Open backhaul tickets driven off the configured backhaul tag." tone="#7c3aed">
+                  <MonitoringTable rows={collections.backhauls || []} columns={backhaulColumns} emptyMessage="No backhaul tickets are open right now." />
+                </OpsSubPanel>
+              </Box>
+            ) : null}
           </OpsSection>
         </Box>
       ) : null}
@@ -4247,7 +4711,7 @@ export default function NocMonitoringPage() {
                                     {formatCount(marker.count)} tickets | {marker.organizationLabel || 'Unknown organisation'}
                                   </Typography>
                                   <Typography variant="body2">
-                                    {marker.region || 'Unknown region'} | {marker.nodeName || 'Unknown node'} | {marker.olt || 'Unknown OLT'}
+                                    {marker.province || marker.region || 'Unknown province'} | {marker.nodeName || 'Unknown node'} | {marker.olt || 'Unknown OLT'}
                                   </Typography>
                                   <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                                     {marker.tickets?.[0]?.id ? `Lead ticket #${marker.tickets[0].id}` : 'No lead ticket preview'}
@@ -4691,238 +5155,289 @@ export default function NocMonitoringPage() {
 
       {tab === 'tier2' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <MetricStrip items={tier2ComparisonMetrics} />
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Tier 2 Intake Compare" subtitle="Today versus the same weekday on the last two weeks for Tier 2 received tickets." tone="#1d4ed8" minHeight={0}>
-              <MultiLineChartPanel
-                rows={t2ReceivedComparisonSeries}
-                lines={[
-                  { key: 'today', label: 'Today', color: '#1d4ed8' },
-                  { key: 'lastWeek', label: '7 days ago', color: '#60a5fa' },
-                  { key: 'previousWeek', label: '14 days ago', color: '#bfdbfe' }
-                ]}
-                emptyMessage="No Tier 2 received comparison data is available right now."
-              />
-            </OpsSection>
-
-            <OpsSection title="Tier 2 Solved Compare" subtitle="Today versus the same weekday on the last two weeks for Tier 2 solved tickets." tone="#0891b2" minHeight={0}>
-              <MultiLineChartPanel
-                rows={t2SolvedComparisonSeries}
-                lines={[
-                  { key: 'today', label: 'Today', color: '#0891b2' },
-                  { key: 'lastWeek', label: '7 days ago', color: '#38bdf8' },
-                  { key: 'previousWeek', label: '14 days ago', color: '#bae6fd' }
-                ]}
-                emptyMessage="No Tier 2 solved comparison data is available right now."
-              />
-            </OpsSection>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' }, gap: 0.82 }}>
+            {tier2CommandCards.map((item) => (
+              <OpsPriorityCard key={item.label} {...item} />
+            ))}
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
-            <OpsSection title="Tier 2 Queue Trend" subtitle={`Open queue, unattended rows, and handover drift over the last ${historyWindowLabel}.`} tone="#1d4ed8" minHeight={0}>
-              <MultiLineChartPanel
-                rows={historyTier2}
-                lines={[
-                  { key: 'open', label: 'Open queue', color: '#1d4ed8' },
-                  { key: 'unattended', label: 'New / unattended', color: '#dc2626' },
-                  { key: 'handover', label: 'Handover', color: '#ea580c' }
-                ]}
-                emptyMessage="Tier 2 historical queue pressure will appear after more monitoring buckets land."
-              />
-            </OpsSection>
+          <OpsSection
+            title="Tier 2 Radar"
+            subtitle="Intake pace, queue trend, and where Tier 2 backlog is concentrating."
+            tone="#1d4ed8"
+            minHeight={0}
+            bodySx={tier2RadarExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={tier2RadarExpanded} onClick={() => setTier2RadarExpanded((current) => !current)} />}
+          >
+            {tier2RadarExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Tier 2 intake compare" subtitle="Today versus the same weekday on the prior two weeks." tone="#1d4ed8">
+                    <MultiLineChartPanel
+                      rows={t2ReceivedComparisonSeries}
+                      lines={[
+                        { key: 'today', label: 'Today', color: '#1d4ed8' },
+                        { key: 'lastWeek', label: '7 days ago', color: '#60a5fa' },
+                        { key: 'previousWeek', label: '14 days ago', color: '#bfdbfe' }
+                      ]}
+                      emptyMessage="No Tier 2 received comparison data is available right now."
+                      height={220}
+                    />
+                  </OpsSubPanel>
 
-            <OpsSection title="Tier 2 Daily Flow" subtitle={`Hourly received versus solved flow for ${summary.dayKey || 'today'}.`} tone="#0f172a" minHeight={0}>
-              <MultiLineChartPanel
-                rows={hourlySeries}
-                lines={[
-                  { key: 't2Received', label: 'T2 received', color: '#1d4ed8' },
-                  { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
-                ]}
-                emptyMessage="No Tier 2 flow data is available for the current ops day."
-              />
-            </OpsSection>
-          </Box>
+                  <OpsSubPanel title="Tier 2 solved compare" subtitle="Today versus the same weekday on the prior two weeks." tone="#0891b2">
+                    <MultiLineChartPanel
+                      rows={t2SolvedComparisonSeries}
+                      lines={[
+                        { key: 'today', label: 'Today', color: '#0891b2' },
+                        { key: 'lastWeek', label: '7 days ago', color: '#38bdf8' },
+                        { key: 'previousWeek', label: '14 days ago', color: '#bae6fd' }
+                      ]}
+                      emptyMessage="No Tier 2 solved comparison data is available right now."
+                      height={220}
+                    />
+                  </OpsSubPanel>
+                </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.86fr 0.86fr 1.28fr' }, gap: 1.05 }}>
-            <OpsSection title="Tier 2 Active By Party" subtitle="The Grafana-style party split for active Tier 2 work excluding pending and new." tone="#1d4ed8" minHeight={0}>
-              <VerticalBarChart rows={t2PartySummary} dataKey="count" emptyMessage="No active Tier 2 party breakdown is available right now." />
-            </OpsSection>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.05fr 0.95fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Tier 2 queue trend" subtitle={`Open queue, unattended rows, and handover drift over the last ${historyWindowLabel}.`} tone="#1d4ed8">
+                    <MultiLineChartPanel
+                      rows={historyTier2}
+                      lines={[
+                        { key: 'open', label: 'Open queue', color: '#1d4ed8' },
+                        { key: 'unattended', label: 'New / unattended', color: '#dc2626' },
+                        { key: 'handover', label: 'Handover', color: '#ea580c' }
+                      ]}
+                      emptyMessage="Tier 2 historical queue pressure will appear after more monitoring buckets land."
+                      height={220}
+                    />
+                  </OpsSubPanel>
 
-            <OpsSection title="Tier 2 Product Split" subtitle="Open Tier 2 work split by the same product-tag logic used in the Grafana action transforms." tone="#0f172a" minHeight={0}>
-              <SummaryStatBlock rows={t2ProductSummary} emptyMessage="No Tier 2 product split is available right now." />
-            </OpsSection>
+                  <OpsSubPanel title="Tier 2 daily flow" subtitle={`Hourly received versus solved flow for ${summary.dayKey || 'today'}.`} tone="#0f172a">
+                    <MultiLineChartPanel
+                      rows={hourlySeries}
+                      lines={[
+                        { key: 't2Received', label: 'T2 received', color: '#1d4ed8' },
+                        { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
+                      ]}
+                      emptyMessage="No Tier 2 flow data is available for the current ops day."
+                      height={220}
+                    />
+                  </OpsSubPanel>
+                </Box>
 
-            <OpsSection title="Tier 2 Age Profile" subtitle="Open Tier 2 work bucketed by queue age for a quicker backlog shape view." tone="#0f172a" minHeight={0}>
-              <VerticalBarChart rows={t2AgeBucketSummary} dataKey="count" emptyMessage="No Tier 2 age profile is available right now." colorMap={Object.fromEntries(t2AgeBucketSummary.map((row) => [row.key, row.tone]))} />
-            </OpsSection>
-          </Box>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.86fr 0.86fr 1.28fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Tier 2 active by party" subtitle="Active Tier 2 work excluding pending and new." tone="#1d4ed8">
+                    <VerticalBarChart rows={t2PartySummary} dataKey="count" emptyMessage="No active Tier 2 party breakdown is available right now." height={220} />
+                  </OpsSubPanel>
 
-          <OpsSection title="Tier 2 Service Type" subtitle="Live Tier 2 queue grouped by service type from Zendesk fields." tone="#0891b2" minHeight={0}>
-            <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type summary is available right now." />
+                  <OpsSubPanel title="Tier 2 product split" subtitle="Open Tier 2 work grouped by product-tag logic." tone="#0f172a">
+                    <SummaryStatBlock rows={t2ProductSummary} emptyMessage="No Tier 2 product split is available right now." />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Tier 2 age profile" subtitle="Open Tier 2 work bucketed by queue age." tone="#0f172a">
+                    <VerticalBarChart rows={t2AgeBucketSummary} dataKey="count" emptyMessage="No Tier 2 age profile is available right now." colorMap={Object.fromEntries(t2AgeBucketSummary.map((row) => [row.key, row.tone]))} height={220} />
+                  </OpsSubPanel>
+                </Box>
+              </Box>
+            ) : null}
           </OpsSection>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
-            <OpsSection title="Tier 2 New / Unassigned" subtitle="Immediate unattended Tier 2 rows from the live snapshot." tone="#dc2626" minHeight={0}>
-              <MonitoringTable rows={collections.tier2NewUnassignedTickets || []} columns={t2Columns} emptyMessage="No new or unattended Tier 2 tickets are open right now." />
-            </OpsSection>
+          <OpsSection
+            title="Tier 2 Workbench"
+            subtitle="Service mix, immediate unattended work, handovers, and the full live queue."
+            tone="#0f172a"
+            minHeight={0}
+            bodySx={tier2WorkbenchExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={tier2WorkbenchExpanded} onClick={() => setTier2WorkbenchExpanded((current) => !current)} />}
+          >
+            {tier2WorkbenchExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <OpsSubPanel title="Tier 2 service type" subtitle="Live Tier 2 queue grouped by service type from Zendesk fields." tone="#0891b2">
+                  <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type summary is available right now." height={220} />
+                </OpsSubPanel>
 
-            <OpsSection title="Tier 2 Handover" subtitle="Open handover rows that used to sit in their own Grafana panel." tone="#ea580c" minHeight={0}>
-              <MonitoringTable rows={collections.tier2HandoverTickets || []} columns={t2Columns} emptyMessage="No handover Tier 2 rows are open right now." />
-            </OpsSection>
-          </Box>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Tier 2 new / unassigned" subtitle="Immediate unattended Tier 2 rows from the live snapshot." tone="#dc2626">
+                    <MonitoringTable rows={collections.tier2NewUnassignedTickets || []} columns={t2Columns} emptyMessage="No new or unattended Tier 2 tickets are open right now." />
+                  </OpsSubPanel>
 
-          <OpsSection title="Tier 2 Open Queue" subtitle="Full Tier 2 queue with party and handover context carried into the native hub." tone="#1d4ed8" minHeight={0}>
-            <MonitoringTable rows={collections.tier2Tickets || []} columns={t2Columns} emptyMessage="No Tier 2 tickets are open right now." />
+                  <OpsSubPanel title="Tier 2 handover" subtitle="Open handover rows that used to sit in their own Grafana panel." tone="#ea580c">
+                    <MonitoringTable rows={collections.tier2HandoverTickets || []} columns={t2Columns} emptyMessage="No handover Tier 2 rows are open right now." />
+                  </OpsSubPanel>
+                </Box>
+
+                <OpsSubPanel title="Tier 2 open queue" subtitle="Full Tier 2 queue with ISP, province, party, and handover context." tone="#1d4ed8">
+                  <MonitoringTable rows={collections.tier2Tickets || []} columns={t2Columns} emptyMessage="No Tier 2 tickets are open right now." />
+                </OpsSubPanel>
+              </Box>
+            ) : null}
           </OpsSection>
         </Box>
       ) : null}
 
       {tab === 'nld' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <MetricStrip
-            items={[
-              {
-                label: 'Partial events',
-                value: formatCount(summary.nldPartialEventCount || 0),
-                subtext: 'recent partial-NLD event rows in lookback',
-                tone: '#f97316',
-                icon: <LanRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Route clusters',
-                value: formatCount(summary.nldPartialClusterCount || 0),
-                subtext: 'repeat event clusters on the same route',
-                tone: '#dc2626',
-                icon: <RouteRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Not logged',
-                value: formatCount(summary.nldPartialNotLoggedCount || 0),
-                subtext: 'partial events without an outage ticket match',
-                tone: '#ea580c',
-                icon: <WarningAmberRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Open NLD outages',
-                value: formatCount(summary.nldOutageOpen || 0),
-                subtext: `${formatCount(summary.nldOutageSubscribers || 0)} subscribers impacted`,
-                tone: '#0f766e',
-                icon: <NotificationsActiveRoundedIcon fontSize="small" />
-              }
-            ]}
-          />
-
-          <OpsSection title="Partial NLD Trend" subtitle={`Events, clusters, and not-logged pressure over the last ${historyWindowLabel}.`} tone="#f97316" minHeight={0}>
-            <MultiLineChartPanel
-              rows={historyNldPartials}
-              lines={[
-                { key: 'events', label: 'Partial events', color: '#f97316' },
-                { key: 'clusters', label: 'Route clusters', color: '#dc2626' },
-                { key: 'notLogged', label: 'Not logged', color: '#eab308' }
-              ]}
-              emptyMessage="Historical partial-NLD pressure will appear after more stored monitoring buckets are created."
-            />
-          </OpsSection>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
-            <OpsSection title="Partial Route Pressure" subtitle="Top partial-NLD route concentrations from the current event lookback." tone="#f97316" minHeight={0}>
-              <VerticalBarChart rows={partialRouteSummary.slice(0, 12)} dataKey="count" emptyMessage="No partial route pressure is available right now." />
-            </OpsSection>
-
-            <OpsSection title="Cluster Summary" subtitle="Routes with repeated event activity in the cluster window." tone="#dc2626" minHeight={0}>
-              <MonitoringTable rows={collections.nldPartialClusters || []} columns={nldClusterColumns} emptyMessage="No NLD clusters were detected in the current window." />
-            </OpsSection>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gap: 0.82 }}>
+            {nldCommandCards.map((item) => (
+              <OpsPriorityCard key={item.label} {...item} />
+            ))}
           </Box>
 
-          <OpsSection title="Partial Not Logged" subtitle="Active partial events that have not matched back to an open outage ticket yet." tone="#ea580c" minHeight={0}>
-            <MonitoringTable rows={collections.nldPartialNotLogged || []} columns={nldEventColumns} emptyMessage="No partial events are waiting for outage logging right now." />
+          <OpsSection
+            title="NLD Radar"
+            subtitle="Partial-route pressure, repeat clusters, and outage logging watch."
+            tone="#f97316"
+            minHeight={0}
+            bodySx={nldRadarExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={nldRadarExpanded} onClick={() => setNldRadarExpanded((current) => !current)} />}
+          >
+            {nldRadarExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <OpsValueTiles
+                  columns={{ xs: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }}
+                  items={[
+                    { label: 'Open NLD >4h', value: formatCount(nldOutageOverSlaCount), tone: nldOutageOverSlaCount > 0 ? '#dc2626' : '#16a34a', helper: '4h outage SLA watch' },
+                    { label: 'Not logged >20m', value: formatCount(nldPartialLogLateCount), tone: nldPartialLogLateCount > 0 ? '#ea580c' : '#16a34a', helper: 'logging to vendor target' },
+                    { label: 'Partial clusters', value: formatCount(summary.nldPartialClusterCount || 0), tone: '#dc2626', helper: 'repeat route pressure' },
+                    { label: 'Subscribers hit', value: formatCount(summary.nldOutageSubscribers || 0), tone: '#0f766e', helper: 'open NLD outage impact' }
+                  ]}
+                />
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Partial NLD trend" subtitle={`Events, clusters, and not-logged pressure over the last ${historyWindowLabel}.`} tone="#f97316">
+                    <MultiLineChartPanel
+                      rows={historyNldPartials}
+                      lines={[
+                        { key: 'events', label: 'Partial events', color: '#f97316' },
+                        { key: 'clusters', label: 'Route clusters', color: '#dc2626' },
+                        { key: 'notLogged', label: 'Not logged', color: '#eab308' }
+                      ]}
+                      emptyMessage="Historical partial-NLD pressure will appear after more stored monitoring buckets are created."
+                      height={220}
+                    />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Partial route pressure" subtitle="Top route concentrations from the current event lookback." tone="#dc2626">
+                    <VerticalBarChart rows={partialRouteSummary.slice(0, 12)} dataKey="count" emptyMessage="No partial route pressure is available right now." height={220} />
+                  </OpsSubPanel>
+                </Box>
+
+                <OpsSubPanel title="NLD process markers" subtitle="Static visual guide for NLD logging, vendor arrival, and four-hour restoration flow." tone="#0f766e">
+                  <ProcessMilestoneStrip items={nldProcessMarkerItems} liveTone="#0f766e" />
+                </OpsSubPanel>
+              </Box>
+            ) : null}
           </OpsSection>
 
-          <OpsSection title="Recent Partial NLD Events" subtitle="Recent partial-NLD event rows, including the route and circuit context derived from the alert subject." tone="#0f172a" minHeight={0}>
-            <MonitoringTable rows={collections.nldPartialEvents || []} columns={nldEventColumns} emptyMessage="No partial-NLD event rows are available right now." />
+          <OpsSection
+            title="NLD Workbench"
+            subtitle="Cluster detail, not-logged events, and the live partial-event stream."
+            tone="#0f172a"
+            minHeight={0}
+            bodySx={nldWorkbenchExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={nldWorkbenchExpanded} onClick={() => setNldWorkbenchExpanded((current) => !current)} />}
+          >
+            {nldWorkbenchExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Cluster summary" subtitle="Routes with repeated activity in the cluster window." tone="#dc2626">
+                    <MonitoringTable rows={collections.nldPartialClusters || []} columns={nldClusterColumns} emptyMessage="No NLD clusters were detected in the current window." />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Partial not logged" subtitle="Partial events that still have not matched back to an outage ticket." tone="#ea580c">
+                    <MonitoringTable rows={collections.nldPartialNotLogged || []} columns={nldEventColumns} emptyMessage="No partial events are waiting for outage logging right now." />
+                  </OpsSubPanel>
+                </Box>
+
+                <OpsSubPanel title="Recent partial NLD events" subtitle="Recent partial-event rows, including route and circuit context derived from the alert subject." tone="#0f172a">
+                  <MonitoringTable rows={collections.nldPartialEvents || []} columns={nldEventColumns} emptyMessage="No partial-NLD event rows are available right now." />
+                </OpsSubPanel>
+              </Box>
+            ) : null}
           </OpsSection>
         </Box>
       ) : null}
 
       {tab === 'voice' ? (
         <Box sx={{ display: 'grid', gap: 1.05 }}>
-          <MetricStrip
-            items={[
-              {
-                label: 'Calls answered',
-                value: telephonySummary ? formatCount(telephonySummary.callsAnswered || 0) : '--',
-                subtext: 'live voice stats from Illation',
-                tone: '#0891b2',
-                icon: <CallRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Calls missed',
-                value: telephonySummary ? formatCount(telephonySummary.callsMissed || 0) : '--',
-                subtext: 'current dashboard day snapshot',
-                tone: '#dc2626',
-                icon: <WarningAmberRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Avg answer',
-                value: telephonySummary ? formatSeconds(telephonySummary.avgAnswerSeconds || 0) : '--',
-                subtext: telephonySummary ? `Abandon rate ${formatPercent(telephonySummary.abandonRate || 0)}` : 'telephony not configured',
-                tone: '#0f766e',
-                icon: <InsightsRoundedIcon fontSize="small" />
-              },
-              {
-                label: 'Waiting now',
-                value: telephonySummary ? formatCount(telephonySummary.callsWaiting || 0) : '--',
-                subtext: telephonySummary ? `Max queue ${formatSeconds(telephonySummary.maxQueueSeconds || 0)}` : 'telephony not configured',
-                tone: '#7c3aed',
-                icon: <MonitorHeartRoundedIcon fontSize="small" />
-              }
-            ]}
-          />
-
-          <OpsSection title="Voice Queue Trend" subtitle={`Waiting, answered, and missed call movement across the last ${historyWindowLabel}.`} tone="#0891b2" minHeight={0}>
-            <MultiLineChartPanel
-              rows={historyTelephony}
-              lines={[
-                { key: 'waiting', label: 'Waiting', color: '#7c3aed' },
-                { key: 'answered', label: 'Answered', color: '#0891b2' },
-                { key: 'missed', label: 'Missed', color: '#dc2626' }
-              ]}
-              emptyMessage="Historical telephony queue movement will appear once more backend voice snapshots are stored."
-            />
-          </OpsSection>
-
-          <OpsSection title="Voice Hourly Flow" subtitle="Hourly voice intake, abandon volume, and talk-time pattern from the Illation dashboard stats feed." tone="#0891b2" minHeight={0}>
-            <MultiLineChartPanel
-              rows={telephonyHourly.map((row) => ({ ...row, label: `${row.hour}:00` }))}
-              lines={[
-                { key: 'received', label: 'Received', color: '#0891b2' },
-                { key: 'abandoned', label: 'Abandoned', color: '#dc2626' },
-                { key: 'avgTalkSeconds', label: 'Avg talk sec', color: '#0f766e' }
-              ]}
-              emptyMessage="No telephony hourly feed is available right now."
-            />
-          </OpsSection>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
-            <OpsSection title="Queue Waiting Snapshot" subtitle="Live waiting callers by queue from the Illation feed." tone="#0891b2" minHeight={0}>
-              <HorizontalBarChart rows={telephonyQueueWaitingSummary} dataKey="count" emptyMessage="No queue waiting summary is available right now." />
-            </OpsSection>
-
-            <OpsSection title="Missed Calls By Agent" subtitle="Highest missed-call counts by agent in the current voice snapshot." tone="#dc2626" minHeight={0}>
-              <HorizontalBarChart rows={telephonyMissedAgentSummary} dataKey="count" emptyMessage="No missed-call agent summary is available right now." />
-            </OpsSection>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' }, gap: 0.82 }}>
+            {voiceCommandCards.map((item) => (
+              <OpsPriorityCard key={item.label} {...item} />
+            ))}
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
-            <OpsSection title="Telephony Queues" subtitle="Queue pressure from the Illation stats feed." tone="#0891b2" minHeight={0}>
-              <MonitoringTable rows={telephonyQueues} columns={queueColumns} emptyMessage="No telephony queue rows are available right now." />
-            </OpsSection>
+          <OpsSection
+            title="Voice Radar"
+            subtitle="Queue movement, intake flow, and immediate missed-call pressure."
+            tone="#0891b2"
+            minHeight={0}
+            bodySx={voiceRadarExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={voiceRadarExpanded} onClick={() => setVoiceRadarExpanded((current) => !current)} />}
+          >
+            {voiceRadarExpanded ? (
+              <Box sx={{ display: 'grid', gap: 1.05 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Voice queue trend" subtitle={`Waiting, answered, and missed call movement across the last ${historyWindowLabel}.`} tone="#0891b2">
+                    <MultiLineChartPanel
+                      rows={historyTelephony}
+                      lines={[
+                        { key: 'waiting', label: 'Waiting', color: '#7c3aed' },
+                        { key: 'answered', label: 'Answered', color: '#0891b2' },
+                        { key: 'missed', label: 'Missed', color: '#dc2626' }
+                      ]}
+                      emptyMessage="Historical telephony queue movement will appear once more backend voice snapshots are stored."
+                      height={220}
+                    />
+                  </OpsSubPanel>
 
-            <OpsSection title="Telephony Agents" subtitle="Agent state, login, and missed-call context from the same live voice feed." tone="#0f172a" minHeight={0}>
-              <MonitoringTable rows={telephonyAgents} columns={agentColumns} emptyMessage="No telephony agent rows are available right now." />
-            </OpsSection>
-          </Box>
+                  <OpsSubPanel title="Voice hourly flow" subtitle="Hourly intake, abandon volume, and talk-time pattern from Illation." tone="#0f172a">
+                    <MultiLineChartPanel
+                      rows={telephonyHourly.map((row) => ({ ...row, label: `${row.hour}:00` }))}
+                      lines={[
+                        { key: 'received', label: 'Received', color: '#0891b2' },
+                        { key: 'abandoned', label: 'Abandoned', color: '#dc2626' },
+                        { key: 'avgTalkSeconds', label: 'Avg talk sec', color: '#0f766e' }
+                      ]}
+                      emptyMessage="No telephony hourly feed is available right now."
+                      height={220}
+                    />
+                  </OpsSubPanel>
+                </Box>
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
+                  <OpsSubPanel title="Queue waiting snapshot" subtitle="Live waiting callers by queue from the Illation feed." tone="#0891b2">
+                    <HorizontalBarChart rows={telephonyQueueWaitingSummary} dataKey="count" emptyMessage="No queue waiting summary is available right now." height={220} />
+                  </OpsSubPanel>
+
+                  <OpsSubPanel title="Missed calls by agent" subtitle="Highest missed-call counts by agent in the current voice snapshot." tone="#dc2626">
+                    <HorizontalBarChart rows={telephonyMissedAgentSummary} dataKey="count" emptyMessage="No missed-call agent summary is available right now." height={220} />
+                  </OpsSubPanel>
+                </Box>
+              </Box>
+            ) : null}
+          </OpsSection>
+
+          <OpsSection
+            title="Voice Workbench"
+            subtitle="Queue and agent detail from the live telephony feed."
+            tone="#0f172a"
+            minHeight={0}
+            bodySx={voiceWorkbenchExpanded ? undefined : { display: 'none' }}
+            action={<SectionCollapseButton expanded={voiceWorkbenchExpanded} onClick={() => setVoiceWorkbenchExpanded((current) => !current)} />}
+          >
+            {voiceWorkbenchExpanded ? (
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
+                <OpsSubPanel title="Telephony queues" subtitle="Queue pressure from the Illation stats feed." tone="#0891b2">
+                  <MonitoringTable rows={telephonyQueues} columns={queueColumns} emptyMessage="No telephony queue rows are available right now." />
+                </OpsSubPanel>
+
+                <OpsSubPanel title="Telephony agents" subtitle="Agent state, login, and missed-call context from the same live voice feed." tone="#0f172a">
+                  <MonitoringTable rows={telephonyAgents} columns={agentColumns} emptyMessage="No telephony agent rows are available right now." />
+                </OpsSubPanel>
+              </Box>
+            ) : null}
+          </OpsSection>
         </Box>
       ) : null}
 

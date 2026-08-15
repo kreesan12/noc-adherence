@@ -63,6 +63,8 @@ const GOOGLE_MAPS_API_KEY = String(process.env.GOOGLE_MAPS_API_KEY || '').trim()
 const FIELD_IDS = {
   nld: '40137360073617',
   region: '5522811974801',
+  province: '12660952249489',
+  clientNameIsp: '5925943471121',
   olt: '5352900733969',
   nodeName: '5409430025745',
   customerPremisesAlias: '5406464539409',
@@ -269,6 +271,19 @@ const T1_AUTOMATION_ROUTE_RULES = [
   { key: 'aiDfaActivated', label: 'AI DFA active', tags: ['ai_parent_dfa_activated'], tone: '#0891b2' },
   { key: 'zeroTouchAi', label: 'Zero-touch AI', tags: ['zero_touch_ai'], tone: '#16a34a' }
 ]
+
+const PROVINCE_VALUE_LABELS = {
+  province_western_cape: 'Western Cape',
+  province_eastern_cape: 'Eastern Cape',
+  province_southern_cape: 'Southern Cape',
+  province_northern_cape: 'Northern Cape',
+  province_north_west: 'North West',
+  province_gauteng: 'Gauteng',
+  'province_kwazulu-natal': 'KwaZulu-Natal',
+  province_limpopo: 'Limpopo',
+  province_mpumalanga: 'Mpumalanga',
+  province_free_state: 'Free State'
+}
 
 let refreshPromise = null
 let telephonyPulseCache = null
@@ -666,6 +681,7 @@ function buildT1ActionRow(ticket, now = dayjs(), timerCacheRow = null) {
   const base = buildTicketBase(ticket, now)
   const product = classifyTicketProduct(ticket)
   const slaProduct = classifyT1SlaProduct(ticket)
+  const province = resolveTicketProvinceLabel(ticket)
   const pLevel = classifyT1ActionLevel(ticket)
   const automationRoutes = classifyT1AutomationRoutes(ticket)
   const status = normalizeStatus(ticket.status)
@@ -689,11 +705,12 @@ function buildT1ActionRow(ticket, now = dayjs(), timerCacheRow = null) {
     workflowOwner,
     parkedTimerActive: pLevel === 'P3 Parked' || pLevel === 'P4 Parked',
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
-    region: firstText(cf(ticket, FIELD_IDS.region), 'Unknown region'),
+    province,
+    region: province,
     olt: firstText(cf(ticket, FIELD_IDS.olt), 'Unknown OLT'),
     nodeName: firstText(cf(ticket, FIELD_IDS.nodeName), 'Unknown node'),
     customerPremisesAlias: firstText(cf(ticket, FIELD_IDS.customerPremisesAlias), ''),
-    organizationLabel: firstText(base.organizationName, base.organizationId ? `Org ${base.organizationId}` : '', 'Unknown organisation'),
+    organizationLabel: resolveTicketOrganisationLabel(ticket, base),
     ...playClock,
     automationRoutes: automationRoutes.map((rule) => rule.label),
     automationRouteCount: automationRoutes.length,
@@ -709,6 +726,8 @@ function buildT2TicketRow(ticket, now = dayjs()) {
     ...base,
     product: classifyTicketProduct(ticket),
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
+    province: resolveTicketProvinceLabel(ticket),
+    organizationLabel: resolveTicketOrganisationLabel(ticket, base),
     party: classifyT2Party(ticket),
     handover: hasAnyTag(ticket, ['handover_ticket_macro'])
   }
@@ -1354,6 +1373,35 @@ function humanizeFieldChoice(value) {
     .join(' ')
 }
 
+function formatProvinceFieldValue(value) {
+  const text = asText(value)
+  if (!text) return ''
+
+  const normalized = text.toLowerCase()
+  if (PROVINCE_VALUE_LABELS[normalized]) return PROVINCE_VALUE_LABELS[normalized]
+  if (normalized.startsWith('province_') || normalized.startsWith('province-')) {
+    return humanizeFieldChoice(normalized.replace(/^province[_-]?/, ''))
+  }
+  return text
+}
+
+function resolveTicketProvinceLabel(ticket) {
+  return firstText(
+    formatProvinceFieldValue(cf(ticket, FIELD_IDS.province)),
+    cf(ticket, FIELD_IDS.region),
+    'Unknown province'
+  )
+}
+
+function resolveTicketOrganisationLabel(ticket, base = null) {
+  return firstText(
+    cf(ticket, FIELD_IDS.clientNameIsp),
+    base?.organizationName,
+    base?.organizationId ? `Org ${base.organizationId}` : '',
+    'Unknown organisation'
+  )
+}
+
 function sortByAgeDesc(rows) {
   return [...rows].sort((a, b) => (b.ageHours || 0) - (a.ageHours || 0))
 }
@@ -1386,6 +1434,8 @@ function buildOutageRow(ticket, now = dayjs()) {
   const subscriberImpact = asNumber(cf(ticket, FIELD_IDS.subscriberImpact), 0)
   return {
     ...base,
+    province: resolveTicketProvinceLabel(ticket),
+    organizationLabel: resolveTicketOrganisationLabel(ticket, base),
     region: firstText(cf(ticket, FIELD_IDS.region), 'Unknown region'),
     subscriberImpact,
     serviceType: firstText(cf(ticket, FIELD_IDS.serviceType), 'Unknown'),
@@ -1404,6 +1454,8 @@ function buildBackhaulRow(ticket, now = dayjs()) {
   const base = buildTicketBase(ticket, now)
   return {
     ...base,
+    province: resolveTicketProvinceLabel(ticket),
+    organizationLabel: resolveTicketOrganisationLabel(ticket, base),
     owner: firstText(cf(ticket, FIELD_IDS.backhaulOwner), 'Unassigned'),
     issue: firstText(cf(ticket, FIELD_IDS.backhaulIssue), 'Unknown'),
     sideA: firstText(cf(ticket, FIELD_IDS.backhaulSideA), ''),
