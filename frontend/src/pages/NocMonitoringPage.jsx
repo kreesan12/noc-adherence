@@ -1965,6 +1965,59 @@ export default function NocMonitoringPage() {
     }
   }, [summary, telephonyAgents])
 
+  const voiceCommandCards = useMemo(() => {
+    const waiting = Number(telephonySummary?.callsWaiting || 0)
+    const waitingTone = waiting <= 0 ? '#16a34a' : waiting > 0 && Number(telephonySummary?.maxQueueSeconds || 0) > 20 ? '#dc2626' : '#f59e0b'
+
+    return [
+      {
+        label: 'Calls waiting',
+        value: telephonySummary ? formatCount(waiting) : '--',
+        detail: telephonySummary ? `${formatSeconds(telephonySummary.maxQueueSeconds || 0)} max queue` : 'telephony not configured',
+        meta: telephonySummary ? `${formatSeconds(telephonySummary.avgAnswerSeconds || 0)} avg answer` : 'no live feed',
+        tone: waitingTone,
+        icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, waiting > 0 ? 60 + waiting * 6 : 8) : 0
+      },
+      {
+        label: 'Answered',
+        value: telephonySummary ? formatCount(telephonySummary.callsAnswered || 0) : '--',
+        detail: 'current dashboard-day call throughput',
+        meta: telephonySummary ? `${formatCount(telephonySummary.customerCallCount || 0)} customer calls` : 'no live feed',
+        tone: '#0891b2',
+        icon: <InsightsRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, Number(telephonySummary.callsAnswered || 0) / 2) : 0
+      },
+      {
+        label: 'Missed',
+        value: telephonySummary ? formatCount(telephonySummary.callsMissed || 0) : '--',
+        detail: telephonySummary ? `${formatPercent(telephonySummary.abandonRate || 0)} abandon rate` : 'telephony not configured',
+        meta: 'calls lost from the current feed window',
+        tone: '#dc2626',
+        icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, Number(telephonySummary.callsMissed || 0) * 10) : 0
+      },
+      {
+        label: 'Tier 1 voice agents',
+        value: t1VoiceAgentState.total > 0 ? `${formatCount(t1VoiceAgentState.loggedIn)}/${formatCount(t1VoiceAgentState.total)}` : '--',
+        detail: t1VoiceAgentState.detail,
+        meta: t1VoiceAgentState.meta,
+        tone: t1VoiceAgentState.tone,
+        icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: t1VoiceAgentState.total > 0 ? (t1VoiceAgentState.loggedIn / t1VoiceAgentState.total) * 100 : 0
+      },
+      {
+        label: 'Queues live',
+        value: telephonySummary ? formatCount(summary.telephonyQueues || 0) : '--',
+        detail: telephonySummary ? `${formatCount(telephonyQueueWaitingSummary.length || 0)} queues with visibility` : 'telephony not configured',
+        meta: telephonySummary ? `${formatCount(telephonyMissedAgentSummary.length || 0)} agents with missed calls` : 'no live feed',
+        tone: '#7c3aed',
+        icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
+        progress: telephonySummary ? Math.min(100, Number(summary.telephonyQueues || 0) * 8) : 0
+      }
+    ]
+  }, [summary, t1VoiceAgentState, telephonyMissedAgentSummary.length, telephonyQueueWaitingSummary.length, telephonySummary])
+
   const overviewMetrics = useMemo(() => ([
     {
       label: 'Major outages',
@@ -3337,59 +3390,6 @@ export default function NocMonitoringPage() {
       progress: Math.min(100, Number(summary.nldPartialNotLoggedCount || 0) * 14)
     }
   ], [summary])
-
-  const voiceCommandCards = useMemo(() => {
-    const waiting = Number(telephonySummary?.callsWaiting || 0)
-    const waitingTone = waiting <= 0 ? '#16a34a' : waiting > 0 && Number(telephonySummary?.maxQueueSeconds || 0) > 20 ? '#dc2626' : '#f59e0b'
-
-    return [
-      {
-        label: 'Calls waiting',
-        value: telephonySummary ? formatCount(waiting) : '--',
-        detail: telephonySummary ? `${formatSeconds(telephonySummary.maxQueueSeconds || 0)} max queue` : 'telephony not configured',
-        meta: telephonySummary ? `${formatSeconds(telephonySummary.avgAnswerSeconds || 0)} avg answer` : 'no live feed',
-        tone: waitingTone,
-        icon: <CallRoundedIcon sx={{ fontSize: 16 }} />,
-        progress: telephonySummary ? Math.min(100, waiting > 0 ? 60 + waiting * 6 : 8) : 0
-      },
-      {
-        label: 'Answered',
-        value: telephonySummary ? formatCount(telephonySummary.callsAnswered || 0) : '--',
-        detail: 'current dashboard-day call throughput',
-        meta: telephonySummary ? `${formatCount(telephonySummary.customerCallCount || 0)} customer calls` : 'no live feed',
-        tone: '#0891b2',
-        icon: <InsightsRoundedIcon sx={{ fontSize: 16 }} />,
-        progress: telephonySummary ? Math.min(100, Number(telephonySummary.callsAnswered || 0) / 2) : 0
-      },
-      {
-        label: 'Missed',
-        value: telephonySummary ? formatCount(telephonySummary.callsMissed || 0) : '--',
-        detail: telephonySummary ? `${formatPercent(telephonySummary.abandonRate || 0)} abandon rate` : 'telephony not configured',
-        meta: 'calls lost from the current feed window',
-        tone: '#dc2626',
-        icon: <WarningAmberRoundedIcon sx={{ fontSize: 16 }} />,
-        progress: telephonySummary ? Math.min(100, Number(telephonySummary.callsMissed || 0) * 10) : 0
-      },
-      {
-        label: 'Tier 1 voice agents',
-        value: t1VoiceAgentState.total > 0 ? `${formatCount(t1VoiceAgentState.loggedIn)}/${formatCount(t1VoiceAgentState.total)}` : '--',
-        detail: t1VoiceAgentState.detail,
-        meta: t1VoiceAgentState.meta,
-        tone: t1VoiceAgentState.tone,
-        icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
-        progress: t1VoiceAgentState.total > 0 ? (t1VoiceAgentState.loggedIn / t1VoiceAgentState.total) * 100 : 0
-      },
-      {
-        label: 'Queues live',
-        value: telephonySummary ? formatCount(summary.telephonyQueues || 0) : '--',
-        detail: telephonySummary ? `${formatCount(telephonyQueueWaitingSummary.length || 0)} queues with visibility` : 'telephony not configured',
-        meta: telephonySummary ? `${formatCount(telephonyMissedAgentSummary.length || 0)} agents with missed calls` : 'no live feed',
-        tone: '#7c3aed',
-        icon: <MonitorHeartRoundedIcon sx={{ fontSize: 16 }} />,
-        progress: telephonySummary ? Math.min(100, Number(summary.telephonyQueues || 0) * 8) : 0
-      }
-    ]
-  }, [summary, t1VoiceAgentState, telephonyMissedAgentSummary.length, telephonyQueueWaitingSummary.length, telephonySummary])
 
   const majorOutageOverSlaCount = useMemo(
     () => (collections.majorOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
