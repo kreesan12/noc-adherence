@@ -1084,14 +1084,31 @@ function SpotlightCard({ item }) {
   )
 }
 
-function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.', getRowSx }) {
+function MonitoringTable({ rows, columns, emptyMessage = 'No rows available.', getRowSx, maxHeight = null }) {
   return (
-    <Box sx={{ overflowX: 'auto', borderRadius: OPS_RADIUS_MD, border: `1px solid ${OPS_BORDER}`, background: OPS_PANEL_SOFT }}>
-      <Table size="small" sx={{ minWidth: 760 }}>
+    <Box
+      sx={{
+        overflowX: 'auto',
+        overflowY: maxHeight ? 'auto' : 'visible',
+        maxHeight,
+        borderRadius: OPS_RADIUS_MD,
+        border: `1px solid ${OPS_BORDER}`,
+        background: OPS_PANEL_SOFT
+      }}
+    >
+      <Table size="small" stickyHeader={Boolean(maxHeight)} sx={{ minWidth: 760 }}>
         <TableHead>
           <TableRow>
             {columns.map((column) => (
-              <TableCell key={column.key} sx={{ fontWeight: 800, whiteSpace: 'nowrap', color: OPS_TEXT, bgcolor: 'rgba(241, 245, 249, 0.98)' }}>
+              <TableCell
+                key={column.key}
+                sx={{
+                  fontWeight: 800,
+                  whiteSpace: 'nowrap',
+                  color: OPS_TEXT,
+                  bgcolor: 'rgba(241, 245, 249, 0.98)'
+                }}
+              >
                 {column.label}
               </TableCell>
             ))}
@@ -1325,6 +1342,25 @@ function SummaryStatBlock({ rows, emptyMessage = 'No summary data is available.'
       ))}
     </Stack>
   )
+}
+
+function CompactCategoryPanel({ rows, dataKey = 'count', emptyMessage = 'No summary data is available.', chartHeight = 220, compactThreshold = 3 }) {
+  const normalizedRows = Array.isArray(rows)
+    ? rows.map((row) => ({
+        ...row,
+        count: Number(row?.count ?? row?.[dataKey] ?? 0)
+      }))
+    : []
+
+  if (!normalizedRows.length) {
+    return <AnalyticsChartFallback minHeight={chartHeight} message={emptyMessage} />
+  }
+
+  if (normalizedRows.length <= compactThreshold) {
+    return <SummaryStatBlock rows={normalizedRows} emptyMessage={emptyMessage} />
+  }
+
+  return <HorizontalBarChart rows={normalizedRows} dataKey="count" emptyMessage={emptyMessage} height={chartHeight} />
 }
 
 function CompactBreakdownList({ rows, emptyMessage = 'No summary data is available.', total = null, secondaryText, maxRows = null }) {
@@ -3896,20 +3932,20 @@ export default function NocMonitoringPage() {
                         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
                           Open items
                         </Typography>
-                        <VerticalBarChart rows={laneChartData} dataKey="openCount" emptyMessage="No lane counts were returned for this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} height={220} />
+                        <VerticalBarChart rows={laneChartData} dataKey="openCount" emptyMessage="No lane counts were returned for this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} height={190} />
                       </Box>
                       <Box>
                         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
                           Aged items beyond lane threshold
                         </Typography>
-                        <VerticalBarChart rows={laneChartData} dataKey="agedCount" emptyMessage="No aged items are available in this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} height={220} />
+                        <VerticalBarChart rows={laneChartData} dataKey="agedCount" emptyMessage="No aged items are available in this snapshot." colorMap={Object.fromEntries(laneChartData.map((lane) => [lane.key, lane.tone]))} height={190} />
                       </Box>
                     </Box>
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Pressure mix" subtitle="Impact, outage priority, and partial-NLD pressure areas." tone="#dc2626">
                     <Box sx={{ display: 'grid', gap: 0.9 }}>
-                      <VerticalBarChart rows={impactChartData} dataKey="impactCount" emptyMessage="No subscriber impact is available right now." colorMap={Object.fromEntries(impactChartData.map((lane) => [lane.key, lane.tone]))} height={220} />
+                      <VerticalBarChart rows={impactChartData} dataKey="impactCount" emptyMessage="No subscriber impact is available right now." colorMap={Object.fromEntries(impactChartData.map((lane) => [lane.key, lane.tone]))} height={190} />
                       <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
                         <SignalChip label={`P1 ${formatCount(summary.outageP1 || 0)}`} tone="#dc2626" />
                         <SignalChip label={`P2 ${formatCount(summary.outageP2 || 0)}`} tone="#ea580c" />
@@ -3933,7 +3969,7 @@ export default function NocMonitoringPage() {
                         { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
                       ]}
                       emptyMessage="Historical queue pressure is still building and will appear after a few refresh buckets land."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
 
@@ -3946,7 +3982,7 @@ export default function NocMonitoringPage() {
                         { key: 'totalSubscribers', label: 'Total impacted', color: '#facc15' }
                       ]}
                       emptyMessage="Historical subscriber impact will light up once more monitoring buckets have been stored."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
                 </Box>
@@ -3966,7 +4002,7 @@ export default function NocMonitoringPage() {
               <Box sx={{ display: 'grid', gap: 1.05 }}>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.95fr 1.05fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Outage priority lanes" subtitle="Native alert bucket view from the latest snapshot." tone="#dc2626">
-                    <VerticalBarChart rows={outagePrioritySummary} dataKey="count" emptyMessage="No outage priority lanes are active in this snapshot." colorMap={Object.fromEntries(outagePrioritySummary.map((row) => [row.key, row.tone]))} height={220} />
+                    <CompactCategoryPanel rows={outagePrioritySummary} emptyMessage="No outage priority lanes are active in this snapshot." chartHeight={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Daily ops flow" subtitle={`Tier 1 and Tier 2 received versus solved for ${summary.dayKey || 'today'}.`} tone="#0f172a">
@@ -3979,14 +4015,14 @@ export default function NocMonitoringPage() {
                         { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
                       ]}
                       emptyMessage="No Tier 1 or Tier 2 intake data is available for the current ops day."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
                 </Box>
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Partial NLD routes" subtitle="Top partial-route pressure in the current lookback window." tone="#f97316">
-                    <VerticalBarChart rows={partialRouteSummary.slice(0, 10)} dataKey="count" emptyMessage="No partial NLD routes were returned for the current lookback window." height={220} />
+                    <VerticalBarChart rows={partialRouteSummary.slice(0, 10)} dataKey="count" emptyMessage="No partial NLD routes were returned for the current lookback window." height={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Operational spotlights" subtitle="Strongest live watch items pulled from the latest snapshot." tone="#0f172a">
@@ -4000,15 +4036,15 @@ export default function NocMonitoringPage() {
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
                   <OpsSubPanel title="Outage impact by region" subtitle="Subscriber-impact concentration by outage region." tone="#dc2626">
-                    <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage region impact is available right now." height={220} />
+                    <CompactCategoryPanel rows={outageRegionImpactSummary} emptyMessage="No outage region impact is available right now." chartHeight={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Tier 2 service mix" subtitle="Current Tier 2 open work grouped by service type." tone="#1d4ed8">
-                    <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type split is available right now." height={220} />
+                    <CompactCategoryPanel rows={t2ServiceTypeSummary} emptyMessage="No Tier 2 service-type split is available right now." chartHeight={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Voice queue pressure" subtitle="Waiting callers by queue from the telephony snapshot." tone="#0891b2">
-                    <HorizontalBarChart rows={telephonyQueueWaitingSummary} dataKey="count" emptyMessage="No queue waiting data is available right now." height={220} />
+                    <CompactCategoryPanel rows={telephonyQueueWaitingSummary} emptyMessage="No queue waiting data is available right now." chartHeight={190} />
                   </OpsSubPanel>
                 </Box>
               </Box>
@@ -4055,7 +4091,7 @@ export default function NocMonitoringPage() {
                         { key: 'backhaulOpen', label: 'Backhaul', color: '#7c3aed' }
                       ]}
                       emptyMessage="Historical outage desk pressure will appear as more backend buckets are stored."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
 
@@ -4071,22 +4107,22 @@ export default function NocMonitoringPage() {
                         { key: 'power', label: 'Power', color: '#7c3aed' }
                       ]}
                       emptyMessage="Historical outage-priority movement will appear after a few stored refresh buckets."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
                 </Box>
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.05 }}>
                   <OpsSubPanel title="Impact by region" subtitle="Subscriber impact rolled up by outage region." tone="#dc2626">
-                    <HorizontalBarChart rows={outageRegionImpactSummary} dataKey="count" emptyMessage="No outage-region impact data is available right now." height={220} />
+                    <CompactCategoryPanel rows={outageRegionImpactSummary} emptyMessage="No outage-region impact data is available right now." chartHeight={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Outage service split" subtitle="Open outage rows grouped by service type." tone="#f97316">
-                    <HorizontalBarChart rows={outageServiceTypeSummary} dataKey="count" emptyMessage="No outage service-type summary is available right now." height={220} />
+                    <CompactCategoryPanel rows={outageServiceTypeSummary} emptyMessage="No outage service-type summary is available right now." chartHeight={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Backhaul owner load" subtitle="Current open backhaul tickets by working owner." tone="#7c3aed">
-                    <HorizontalBarChart rows={backhaulOwnerSummary} dataKey="count" emptyMessage="No backhaul owner summary is available right now." height={220} />
+                    <CompactCategoryPanel rows={backhaulOwnerSummary} emptyMessage="No backhaul owner summary is available right now." chartHeight={190} />
                   </OpsSubPanel>
                 </Box>
 
@@ -4109,7 +4145,7 @@ export default function NocMonitoringPage() {
               <Box sx={{ display: 'grid', gap: 1.05 }}>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1.08fr 0.92fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Priority queue detail" subtitle="Native replacement for the Grafana P1 / P2 / P3 / P4 and power alert table." tone="#dc2626">
-                    <MonitoringTable rows={priorityRows} columns={priorityColumns} emptyMessage="No outage priority rows are active right now." />
+                    <MonitoringTable rows={priorityRows} columns={priorityColumns} emptyMessage="No outage priority rows are active right now." maxHeight={280} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Outage SLA cues" subtitle="Fast supervision tiles for the live outage estate." tone="#ea580c">
@@ -4127,16 +4163,16 @@ export default function NocMonitoringPage() {
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Major outage desk" subtitle="Open non-NLD outage capturing tickets ranked by age." tone="#dc2626">
-                    <MonitoringTable rows={collections.majorOutages || []} columns={majorColumns} emptyMessage="No major outage rows are open right now." />
+                    <MonitoringTable rows={collections.majorOutages || []} columns={majorColumns} emptyMessage="No major outage rows are open right now." maxHeight={320} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="NLD outage desk" subtitle="Open NLD outage capturing tickets with subscriber impact and last update context." tone="#f97316">
-                    <MonitoringTable rows={collections.nldOutages || []} columns={nldColumns} emptyMessage="No open NLD outage rows are visible right now." />
+                    <MonitoringTable rows={collections.nldOutages || []} columns={nldColumns} emptyMessage="No open NLD outage rows are visible right now." maxHeight={320} />
                   </OpsSubPanel>
                 </Box>
 
                 <OpsSubPanel title="Backhaul desk" subtitle="Open backhaul tickets driven off the configured backhaul tag." tone="#7c3aed">
-                  <MonitoringTable rows={collections.backhauls || []} columns={backhaulColumns} emptyMessage="No backhaul tickets are open right now." />
+                  <MonitoringTable rows={collections.backhauls || []} columns={backhaulColumns} emptyMessage="No backhaul tickets are open right now." maxHeight={340} />
                 </OpsSubPanel>
               </Box>
             ) : null}
@@ -5181,7 +5217,7 @@ export default function NocMonitoringPage() {
                         { key: 'previousWeek', label: '14 days ago', color: '#bfdbfe' }
                       ]}
                       emptyMessage="No Tier 2 received comparison data is available right now."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
 
@@ -5194,7 +5230,7 @@ export default function NocMonitoringPage() {
                         { key: 'previousWeek', label: '14 days ago', color: '#bae6fd' }
                       ]}
                       emptyMessage="No Tier 2 solved comparison data is available right now."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
                 </Box>
@@ -5209,7 +5245,7 @@ export default function NocMonitoringPage() {
                         { key: 'handover', label: 'Handover', color: '#ea580c' }
                       ]}
                       emptyMessage="Tier 2 historical queue pressure will appear after more monitoring buckets land."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
 
@@ -5221,14 +5257,14 @@ export default function NocMonitoringPage() {
                         { key: 't2Solved', label: 'T2 solved', color: '#60a5fa' }
                       ]}
                       emptyMessage="No Tier 2 flow data is available for the current ops day."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
                 </Box>
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '0.86fr 0.86fr 1.28fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Tier 2 active by party" subtitle="Active Tier 2 work excluding pending and new." tone="#1d4ed8">
-                    <VerticalBarChart rows={t2PartySummary} dataKey="count" emptyMessage="No active Tier 2 party breakdown is available right now." height={220} />
+                    <VerticalBarChart rows={t2PartySummary} dataKey="count" emptyMessage="No active Tier 2 party breakdown is available right now." height={190} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Tier 2 product split" subtitle="Open Tier 2 work grouped by product-tag logic." tone="#0f172a">
@@ -5236,7 +5272,7 @@ export default function NocMonitoringPage() {
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Tier 2 age profile" subtitle="Open Tier 2 work bucketed by queue age." tone="#0f172a">
-                    <VerticalBarChart rows={t2AgeBucketSummary} dataKey="count" emptyMessage="No Tier 2 age profile is available right now." colorMap={Object.fromEntries(t2AgeBucketSummary.map((row) => [row.key, row.tone]))} height={220} />
+                    <VerticalBarChart rows={t2AgeBucketSummary} dataKey="count" emptyMessage="No Tier 2 age profile is available right now." colorMap={Object.fromEntries(t2AgeBucketSummary.map((row) => [row.key, row.tone]))} height={190} />
                   </OpsSubPanel>
                 </Box>
               </Box>
@@ -5254,21 +5290,21 @@ export default function NocMonitoringPage() {
             {tier2WorkbenchExpanded ? (
               <Box sx={{ display: 'grid', gap: 1.05 }}>
                 <OpsSubPanel title="Tier 2 service type" subtitle="Live Tier 2 queue grouped by service type from Zendesk fields." tone="#0891b2">
-                  <HorizontalBarChart rows={t2ServiceTypeSummary} dataKey="count" emptyMessage="No Tier 2 service-type summary is available right now." height={220} />
+                  <CompactCategoryPanel rows={t2ServiceTypeSummary} emptyMessage="No Tier 2 service-type summary is available right now." chartHeight={180} />
                 </OpsSubPanel>
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Tier 2 new / unassigned" subtitle="Immediate unattended Tier 2 rows from the live snapshot." tone="#dc2626">
-                    <MonitoringTable rows={collections.tier2NewUnassignedTickets || []} columns={t2Columns} emptyMessage="No new or unattended Tier 2 tickets are open right now." />
+                    <MonitoringTable rows={collections.tier2NewUnassignedTickets || []} columns={t2Columns} emptyMessage="No new or unattended Tier 2 tickets are open right now." maxHeight={260} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Tier 2 handover" subtitle="Open handover rows that used to sit in their own Grafana panel." tone="#ea580c">
-                    <MonitoringTable rows={collections.tier2HandoverTickets || []} columns={t2Columns} emptyMessage="No handover Tier 2 rows are open right now." />
+                    <MonitoringTable rows={collections.tier2HandoverTickets || []} columns={t2Columns} emptyMessage="No handover Tier 2 rows are open right now." maxHeight={260} />
                   </OpsSubPanel>
                 </Box>
 
                 <OpsSubPanel title="Tier 2 open queue" subtitle="Full Tier 2 queue with ISP, province, party, and handover context." tone="#1d4ed8">
-                  <MonitoringTable rows={collections.tier2Tickets || []} columns={t2Columns} emptyMessage="No Tier 2 tickets are open right now." />
+                  <MonitoringTable rows={collections.tier2Tickets || []} columns={t2Columns} emptyMessage="No Tier 2 tickets are open right now." maxHeight={620} />
                 </OpsSubPanel>
               </Box>
             ) : null}
@@ -5314,12 +5350,12 @@ export default function NocMonitoringPage() {
                         { key: 'notLogged', label: 'Not logged', color: '#eab308' }
                       ]}
                       emptyMessage="Historical partial-NLD pressure will appear after more stored monitoring buckets are created."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Partial route pressure" subtitle="Top route concentrations from the current event lookback." tone="#dc2626">
-                    <VerticalBarChart rows={partialRouteSummary.slice(0, 12)} dataKey="count" emptyMessage="No partial route pressure is available right now." height={220} />
+                    <VerticalBarChart rows={partialRouteSummary.slice(0, 12)} dataKey="count" emptyMessage="No partial route pressure is available right now." height={190} />
                   </OpsSubPanel>
                 </Box>
 
@@ -5342,16 +5378,16 @@ export default function NocMonitoringPage() {
               <Box sx={{ display: 'grid', gap: 1.05 }}>
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
                   <OpsSubPanel title="Cluster summary" subtitle="Routes with repeated activity in the cluster window." tone="#dc2626">
-                    <MonitoringTable rows={collections.nldPartialClusters || []} columns={nldClusterColumns} emptyMessage="No NLD clusters were detected in the current window." />
+                    <MonitoringTable rows={collections.nldPartialClusters || []} columns={nldClusterColumns} emptyMessage="No NLD clusters were detected in the current window." maxHeight={240} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Partial not logged" subtitle="Partial events that still have not matched back to an outage ticket." tone="#ea580c">
-                    <MonitoringTable rows={collections.nldPartialNotLogged || []} columns={nldEventColumns} emptyMessage="No partial events are waiting for outage logging right now." />
+                    <MonitoringTable rows={collections.nldPartialNotLogged || []} columns={nldEventColumns} emptyMessage="No partial events are waiting for outage logging right now." maxHeight={240} />
                   </OpsSubPanel>
                 </Box>
 
                 <OpsSubPanel title="Recent partial NLD events" subtitle="Recent partial-event rows, including route and circuit context derived from the alert subject." tone="#0f172a">
-                  <MonitoringTable rows={collections.nldPartialEvents || []} columns={nldEventColumns} emptyMessage="No partial-NLD event rows are available right now." />
+                  <MonitoringTable rows={collections.nldPartialEvents || []} columns={nldEventColumns} emptyMessage="No partial-NLD event rows are available right now." maxHeight={320} />
                 </OpsSubPanel>
               </Box>
             ) : null}
@@ -5387,7 +5423,7 @@ export default function NocMonitoringPage() {
                         { key: 'missed', label: 'Missed', color: '#dc2626' }
                       ]}
                       emptyMessage="Historical telephony queue movement will appear once more backend voice snapshots are stored."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
 
@@ -5400,18 +5436,18 @@ export default function NocMonitoringPage() {
                         { key: 'avgTalkSeconds', label: 'Avg talk sec', color: '#0f766e' }
                       ]}
                       emptyMessage="No telephony hourly feed is available right now."
-                      height={220}
+                      height={190}
                     />
                   </OpsSubPanel>
                 </Box>
 
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 1.05 }}>
                   <OpsSubPanel title="Queue waiting snapshot" subtitle="Live waiting callers by queue from the Illation feed." tone="#0891b2">
-                    <HorizontalBarChart rows={telephonyQueueWaitingSummary} dataKey="count" emptyMessage="No queue waiting summary is available right now." height={220} />
+                    <CompactCategoryPanel rows={telephonyQueueWaitingSummary} emptyMessage="No queue waiting summary is available right now." chartHeight={180} />
                   </OpsSubPanel>
 
                   <OpsSubPanel title="Missed calls by agent" subtitle="Highest missed-call counts by agent in the current voice snapshot." tone="#dc2626">
-                    <HorizontalBarChart rows={telephonyMissedAgentSummary} dataKey="count" emptyMessage="No missed-call agent summary is available right now." height={220} />
+                    <CompactCategoryPanel rows={telephonyMissedAgentSummary} emptyMessage="No missed-call agent summary is available right now." chartHeight={180} />
                   </OpsSubPanel>
                 </Box>
               </Box>
@@ -5429,11 +5465,11 @@ export default function NocMonitoringPage() {
             {voiceWorkbenchExpanded ? (
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 1fr' }, gap: 1.05 }}>
                 <OpsSubPanel title="Telephony queues" subtitle="Queue pressure from the Illation stats feed." tone="#0891b2">
-                  <MonitoringTable rows={telephonyQueues} columns={queueColumns} emptyMessage="No telephony queue rows are available right now." />
+                  <MonitoringTable rows={telephonyQueues} columns={queueColumns} emptyMessage="No telephony queue rows are available right now." maxHeight={240} />
                 </OpsSubPanel>
 
                 <OpsSubPanel title="Telephony agents" subtitle="Agent state, login, and missed-call context from the same live voice feed." tone="#0f172a">
-                  <MonitoringTable rows={telephonyAgents} columns={agentColumns} emptyMessage="No telephony agent rows are available right now." />
+                  <MonitoringTable rows={telephonyAgents} columns={agentColumns} emptyMessage="No telephony agent rows are available right now." maxHeight={620} />
                 </OpsSubPanel>
               </Box>
             ) : null}
