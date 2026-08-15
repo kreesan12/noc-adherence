@@ -3256,6 +3256,26 @@ export default function NocMonitoringPage() {
     }
   ]), [summary])
 
+  const majorOutageOverSlaCount = useMemo(
+    () => (collections.majorOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
+    [collections]
+  )
+
+  const nldOutageOverSlaCount = useMemo(
+    () => (collections.nldOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
+    [collections]
+  )
+
+  const backhaulOverSlaCount = useMemo(
+    () => (collections.backhauls || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
+    [collections]
+  )
+
+  const nldPartialLogLateCount = useMemo(
+    () => (collections.nldPartialNotLogged || []).filter((row) => Number(row?.ageHours || 0) > (20 / 60)).length,
+    [collections]
+  )
+
   const outageCommandCards = useMemo(() => [
     {
       label: 'Major outages',
@@ -3320,7 +3340,7 @@ export default function NocMonitoringPage() {
       detail: `7d ${formatCount(summary.t2SolvedLastWeek || 0)} | 14d ${formatCount(summary.t2SolvedPreviousWeek || 0)}`,
       meta: 'today closure pace',
       tone: '#60a5fa',
-      icon: <SupportAgentRoundedIcon sx={{ fontSize: 16 }} />,
+      icon: <SupportAgentRoundedIcon fontSize="small" />,
       progress: Math.min(100, Number(summary.t2SolvedToday || 0))
     },
     {
@@ -3390,26 +3410,6 @@ export default function NocMonitoringPage() {
       progress: Math.min(100, Number(summary.nldPartialNotLoggedCount || 0) * 14)
     }
   ], [summary])
-
-  const majorOutageOverSlaCount = useMemo(
-    () => (collections.majorOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
-    [collections]
-  )
-
-  const nldOutageOverSlaCount = useMemo(
-    () => (collections.nldOutages || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
-    [collections]
-  )
-
-  const backhaulOverSlaCount = useMemo(
-    () => (collections.backhauls || []).filter((row) => Number(row?.ageHours || 0) > 4).length,
-    [collections]
-  )
-
-  const nldPartialLogLateCount = useMemo(
-    () => (collections.nldPartialNotLogged || []).filter((row) => Number(row?.ageHours || 0) > (20 / 60)).length,
-    [collections]
-  )
 
   const outageProcessMarkerItems = useMemo(() => (OUTAGE_PROCESS_MARKERS.map((marker) => {
     switch (marker.key) {
