@@ -1096,6 +1096,32 @@ model NocMonitoringSnapshotHistory {
   @@map("noc_monitoring_snapshot_history")
 }
 
+model NocMonitoringTicketEventFact {
+  eventKey         String   @id @map("event_key")
+  zendeskEventId   String?  @map("zendesk_event_id")
+  ticketId         String   @map("ticket_id")
+  lane             String
+  action           String
+  eventAt          DateTime @map("event_at")
+  dayKey           String   @map("day_key")
+  hourKey          String   @map("hour_key")
+  status           String?
+  priority         String?
+  formId           String?  @map("form_id")
+  groupId          String?  @map("group_id")
+  subject          String?
+  tags             Json?
+  automationRoutes Json?    @map("automation_routes")
+  payload          Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([lane, action, dayKey], map: "idx_noc_monitoring_ticket_event_fact_lane_action_day_key")
+  @@index([lane, action, eventAt], map: "idx_noc_monitoring_ticket_event_fact_lane_action_event_at")
+  @@index([ticketId, eventAt], map: "idx_noc_monitoring_ticket_event_fact_ticket_event_at")
+  @@index([dayKey, hourKey], map: "idx_noc_monitoring_ticket_event_fact_day_hour")
+  @@map("noc_monitoring_ticket_event_fact")
+}
+
 model WatcherAlertLog {
   id        Int      @id @default(autoincrement())
   dedupeKey String   @unique @map("dedupe_key")
@@ -1139,4 +1165,30 @@ model WhatsAppGroupDirectory {
   @@index([name])
   @@index([lastSeenAt])
   @@map("whatsapp_group_directory")
+}
+
+enum PublicRatingSubmissionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+
+  @@map("public_rating_submission_status")
+}
+
+model PublicRatingSubmission {
+  submissionId          String                       @id @default(uuid()) @map("submission_id") @db.Uuid
+  ratingToken           String                       @map("rating_token") @db.VarChar(255)
+  rating                Int
+  comment               String?                      @db.Text
+  customerName          String?                      @map("customer_name") @db.VarChar(120)
+  status                PublicRatingSubmissionStatus @default(PENDING)
+  submittedAt           DateTime                     @default(now()) @map("submitted_at")
+  acknowledgedAt        DateTime?                    @map("acknowledged_at")
+  acknowledgementReason String?                      @map("acknowledgement_reason") @db.Text
+  createdAt             DateTime                     @default(now()) @map("created_at")
+  updatedAt             DateTime                     @updatedAt @map("updated_at")
+
+  @@index([status, submittedAt], map: "idx_public_rating_submission_status_submitted_at")
+  @@index([ratingToken], map: "idx_public_rating_submission_rating_token")
+  @@map("public_rating_submission")
 }

@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-08-20
+
+### Public Rating Gateway
+
+- Added a new secure public customer-rating gateway on the API server:
+  - `GET /rating/:ratingToken`
+  - `POST /rating/:ratingToken`
+- Added bearer-protected internal polling endpoints for the private scheduling system:
+  - `GET /api/integration/pending-ratings`
+  - `POST /api/integration/rating-submissions/:submissionId/ack`
+- Stored public rating submissions in the existing Postgres database as a durable queue instead of attempting any direct call into the private scheduling environment.
+- Added security controls around the gateway path:
+  - constant-time bearer-token validation
+  - no-store caching headers
+  - CSP and standard browser hardening headers
+  - sanitized access logging so public rating tokens are not written to request logs
+  - rate limiting on public rating submissions per IP and per token/IP pair
+- Refactored the server startup into a reusable app factory so the public gateway can be tested in isolation without dragging in the full authenticated business stack.
+- Added automated coverage for:
+  - valid queue submission
+  - invalid rating rejection
+  - unauthenticated polling rejection
+  - pending-only polling results
+  - idempotent acknowledgement removal from the pending queue
+- Added xneelo nginx proxy support for `/rating/...` so the public form can be served directly over HTTPS without exposing any private scheduling details.
+
 ## 2026-08-14
 
 ### NOC Monitoring Hub
