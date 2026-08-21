@@ -266,19 +266,20 @@ export function createApp({
       : '[Startup] Web process running API-only mode; WhatsApp automation is disabled here'
   )
 
-  app.use(cors(corsOptions))
-  app.options('*', cors(corsOptions))
   app.use(express.json({ limit: '100mb' }))
   app.use(express.urlencoded({ limit: '100mb', extended: true }))
   app.use(morgan(createAccessLogFormat()))
-
-  addWhatsAppStatusRoute(app, webWhatsAppEnabled)
-  addWhatsAppNotifyRoute(app, webWhatsAppEnabled)
 
   app.use(publicRatingGatewayRoutes({
     repo: ratingGatewayRepo,
     bearerToken: publicRatingGatewayToken
   }))
+
+  app.use(cors(corsOptions))
+  app.options('*', cors(corsOptions))
+
+  addWhatsAppStatusRoute(app, webWhatsAppEnabled)
+  addWhatsAppNotifyRoute(app, webWhatsAppEnabled)
 
   if (includeBusinessRoutes) {
     mountBusinessRoutes(app, prismaClient)

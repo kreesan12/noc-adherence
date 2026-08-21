@@ -19,7 +19,8 @@ const DEFAULT_PENDING_LIMIT = 25
 const MAX_PENDING_LIMIT = 100
 const INVALID_TOKEN_MESSAGE = 'This feedback page is not available.'
 const RATE_LIMIT_MESSAGE = 'Please wait a moment before submitting feedback again.'
-const INVALID_SUBMISSION_MESSAGE = 'Please select a rating between 1 and 5 and keep optional fields within the allowed length.'
+const INVALID_RATING_MESSAGE = 'Please select a rating between 1 and 5.'
+const INVALID_SUBMISSION_MESSAGE = 'Unable to submit feedback. Please try again.'
 
 function wantsJson(req) {
   const acceptHeader = String(req.get('accept') || '')
@@ -44,6 +45,11 @@ function renderPublicError(req, res, { statusCode, message, values = {} }) {
   }
 
   res.status(statusCode).send(renderRatingFormPage({ errorMessage: message, values }))
+}
+
+function getSubmissionValidationMessage(submissionResult) {
+  const hasRatingIssue = submissionResult?.error?.issues?.some((issue) => issue?.path?.[0] === 'rating')
+  return hasRatingIssue ? INVALID_RATING_MESSAGE : INVALID_SUBMISSION_MESSAGE
 }
 
 function validateIntegrationAuth(req, res, expectedToken) {
@@ -72,8 +78,8 @@ export default function publicRatingGatewayRoutes({
   const router = Router()
   router.use(applyPublicGatewaySecurityHeaders)
 
-  router.get('/rating/:ratingToken', (req, res) => {
-    const tokenResult = parseRatingToken(req.params.ratingToken)
+  router.get('/rating/:rating_token', (req, res) => {
+    const tokenResult = parseRatingToken(req.params.rating_token)
     if (!tokenResult.success) {
       renderPublicError(req, res, {
         statusCode: 404,
@@ -85,8 +91,8 @@ export default function publicRatingGatewayRoutes({
     res.status(200).send(renderRatingFormPage())
   })
 
-  router.post('/rating/:ratingToken', async (req, res, next) => {
-    const tokenResult = parseRatingToken(req.params.ratingToken)
+  router.post('/rating/:rating_token', async (req, res, next) => {
+    const tokenResult = parseRatingToken(req.params.rating_token)
     if (!tokenResult.success) {
       renderPublicError(req, res, {
         statusCode: 404,
@@ -118,7 +124,7 @@ export default function publicRatingGatewayRoutes({
     if (!submissionResult.success) {
       renderPublicError(req, res, {
         statusCode: 400,
-        message: INVALID_SUBMISSION_MESSAGE,
+        message: getSubmissionValidationMessage(submissionResult),
         values: {
           rating: req.body?.rating,
           comment: req.body?.comment,

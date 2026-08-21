@@ -15,12 +15,14 @@ function buildApp(repo) {
   })
 }
 
-test('valid public submission enters the queue', async () => {
+test('valid form-urlencoded submission with scheduling rt_32hex token enters the queue', async () => {
   const repo = createMemoryPublicRatingGatewayRepo()
   const app = buildApp(repo)
+  const ratingToken = 'rt_0123456789abcdef0123456789abcdef'
 
   const response = await request(app)
-    .post('/rating/rt_valid_token_01')
+    .post(`/rating/${ratingToken}`)
+    .set('Origin', 'null')
     .type('form')
     .send({
       rating: '5',
@@ -33,7 +35,7 @@ test('valid public submission enters the queue', async () => {
 
   const rows = await repo.listPendingSubmissions(10)
   assert.equal(rows.length, 1)
-  assert.equal(rows[0].ratingToken, 'rt_valid_token_01')
+  assert.equal(rows[0].ratingToken, ratingToken)
   assert.equal(rows[0].rating, 5)
   assert.equal(rows[0].comment, 'Helpful technician.')
   assert.equal(rows[0].customerName, 'Customer name')

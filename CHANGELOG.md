@@ -25,6 +25,10 @@
   - pending-only polling results
   - idempotent acknowledgement removal from the pending queue
 - Added xneelo nginx proxy support for `/rating/...` so the public form can be served directly over HTTPS without exposing any private scheduling details.
+- Fixed the public browser POST path for real Scheduling QR submissions:
+  - moved the public `/rating/...` routes outside the app-wide CORS gate so `Origin: null` webview submissions are not rejected before persistence
+  - aligned the public route parameter handling on `rating_token` for both GET and POST
+  - added a regression test for `application/x-www-form-urlencoded` submissions using the real `rt_<32hex>` token shape
 
 ## 2026-08-14
 
