@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-21
+
+### Public Rating Gateway
+
+- Prevented misleading repeat public QR rating submissions by hashing rating tokens, enforcing one queued submission per token, and showing accepted, pending, or rejected state pages instead of re-displaying the form after Scheduling acknowledgement.
+- Added replay-state coverage for the public gateway so accepted, pending, rejected, and duplicate POST scenarios stay protected on the public side before Scheduling has to reject a reused QR token.
+
 ## 2026-08-20
 
 ### Public Rating Gateway
@@ -424,3 +431,4 @@
 - Removed the retired ROC appointments and technician mobile frontend pages, APIs, helpers, and theme files.
 - Removed the retired ROC/tech backend route wiring and the old ROC/MNT seed script from the active codebase.
 - Left unrelated `MNT` references in workload and automation reporting intact where they represent maintenance volume data rather than the retired ROC/MNT appointments feature.
+

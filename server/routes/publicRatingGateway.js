@@ -1,16 +1,17 @@
 import { Router } from 'express'
 
 import {
-  PUBLIC_THANK_YOU_MESSAGE,
+  TOKEN_SUBMISSION_STATE_MESSAGES,
   applyPublicGatewaySecurityHeaders,
   buildAcknowledgementResponse,
   buildPendingSubmissionResponse,
   createPublicSubmissionRateLimiter,
+  hashRatingToken,
   parseAcknowledgement,
   parsePublicSubmission,
   parseRatingToken,
   renderRatingFormPage,
-  renderThankYouPage,
+  renderSubmissionStatePage,
   renderUnavailablePage,
   safeCompareBearerToken
 } from '../lib/publicRatingGateway.js'
@@ -47,9 +48,39 @@ function renderPublicError(req, res, { statusCode, message, values = {} }) {
   res.status(statusCode).send(renderRatingFormPage({ errorMessage: message, values }))
 }
 
+function renderSubmissionState(res, status) {
+  res.status(200).send(renderSubmissionStatePage(status))
+}
+
+function messageForSubmissionStatus(status) {
+  return TOKEN_SUBMISSION_STATE_MESSAGES[status] || TOKEN_SUBMISSION_STATE_MESSAGES.REJECTED
+}
+
+function respondWithSubmissionState(req, res, status) {
+  if (wantsJson(req)) {
+    res.status(200).json({ message: messageForSubmissionStatus(status) })
+    return
+  }
+
+  renderSubmissionState(res, status)
+}
+
 function getSubmissionValidationMessage(submissionResult) {
   const hasRatingIssue = submissionResult?.error?.issues?.some((issue) => issue?.path?.[0] === 'rating')
   return hasRatingIssue ? INVALID_RATING_MESSAGE : INVALID_SUBMISSION_MESSAGE
+}
+
+function isUniqueTokenHashError(error) {
+  if (error?.code !== 'P2002') return false
+  const target = error?.meta?.target
+  if (Array.isArray(target)) {
+    return target.includes('ratingTokenHash') || target.includes('uq_public_rating_submission_rating_token_hash')
+  }
+
+  const normalizedTarget = String(target || '')
+  return normalizedTarget.includes('ratingTokenHash')
+    || normalizedTarget.includes('rating_token_hash')
+    || normalizedTarget.includes('uq_public_rating_submission_rating_token_hash')
 }
 
 function validateIntegrationAuth(req, res, expectedToken) {
@@ -78,7 +109,7 @@ export default function publicRatingGatewayRoutes({
   const router = Router()
   router.use(applyPublicGatewaySecurityHeaders)
 
-  router.get('/rating/:rating_token', (req, res) => {
+  router.get('/rating/:rating_token', async (req, res, next) => {
     const tokenResult = parseRatingToken(req.params.rating_token)
     if (!tokenResult.success) {
       renderPublicError(req, res, {
@@ -88,7 +119,18 @@ export default function publicRatingGatewayRoutes({
       return
     }
 
-    res.status(200).send(renderRatingFormPage())
+    const ratingTokenHash = hashRatingToken(tokenResult.data)
+    try {
+      const existingRow = await repo.findSubmissionByTokenHash(ratingTokenHash)
+      if (existingRow) {
+        renderSubmissionState(res, existingRow.status)
+        return
+      }
+
+      res.status(200).send(renderRatingFormPage())
+    } catch (error) {
+      next(error)
+    }
   })
 
   router.post('/rating/:rating_token', async (req, res, next) => {
@@ -101,9 +143,16 @@ export default function publicRatingGatewayRoutes({
       return
     }
 
+    const ratingTokenHash = hashRatingToken(tokenResult.data)
+    const existingRow = await repo.findSubmissionByTokenHash(ratingTokenHash)
+    if (existingRow) {
+      respondWithSubmissionState(req, res, existingRow.status)
+      return
+    }
+
     const limiterOutcome = rateLimiter.consume({
       ip: req.ip || req.socket?.remoteAddress || 'unknown',
-      ratingToken: tokenResult.data
+      ratingToken: ratingTokenHash
     })
 
     if (!limiterOutcome.allowed) {
@@ -135,20 +184,32 @@ export default function publicRatingGatewayRoutes({
     }
 
     try {
-      await repo.enqueueSubmission({
+      await repo.createPendingSubmission({
         ratingToken: tokenResult.data,
+        ratingTokenHash,
         rating: submissionResult.data.rating,
         comment: submissionResult.data.comment,
         customerName: submissionResult.data.customerName
       })
 
-      if (wantsJson(req)) {
-        res.status(202).json({ message: PUBLIC_THANK_YOU_MESSAGE })
-        return
+      respondWithSubmissionState(req, res, 'PENDING')
+    } catch (error) {
+      if (isUniqueTokenHashError(error)) {
+        try {
+          const existingRow = await repo.findSubmissionByTokenHash(ratingTokenHash)
+          if (!existingRow) {
+            next(error)
+            return
+          }
+
+          respondWithSubmissionState(req, res, existingRow.status)
+          return
+        } catch (lookupError) {
+          next(lookupError)
+          return
+        }
       }
 
-      res.status(200).send(renderThankYouPage())
-    } catch (error) {
       next(error)
     }
   })

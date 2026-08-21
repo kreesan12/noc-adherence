@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 import request from 'supertest'
 
 import { createApp } from '../app.js'
-import { createMemoryPublicRatingGatewayRepo } from '../lib/publicRatingGateway.js'
+import {
+  createMemoryPublicRatingGatewayRepo,
+  hashRatingToken
+} from '../lib/publicRatingGateway.js'
 
 const GATEWAY_TOKEN = 'test-gateway-token'
 
@@ -31,11 +34,12 @@ test('valid form-urlencoded submission with scheduling rt_32hex token enters the
     })
 
   assert.equal(response.status, 200)
-  assert.match(response.text, /Thank you\. Your feedback has been received\./)
+  assert.match(response.text, /Your feedback has been submitted and is being processed\./)
 
   const rows = await repo.listPendingSubmissions(10)
   assert.equal(rows.length, 1)
   assert.equal(rows[0].ratingToken, ratingToken)
+  assert.equal(rows[0].ratingTokenHash, hashRatingToken(ratingToken))
   assert.equal(rows[0].rating, 5)
   assert.equal(rows[0].comment, 'Helpful technician.')
   assert.equal(rows[0].customerName, 'Customer name')
@@ -62,6 +66,118 @@ test('invalid rating is rejected', async () => {
   assert.equal(rows.length, 0)
 })
 
+test('accepted token GET shows already received state and hides the form', async () => {
+  const ratingToken = 'rt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  const repo = createMemoryPublicRatingGatewayRepo([
+    {
+      submissionId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      ratingToken,
+      ratingTokenHash: hashRatingToken(ratingToken),
+      rating: 5,
+      comment: 'Accepted row',
+      customerName: 'Accepted Customer',
+      status: 'ACCEPTED',
+      submittedAt: new Date('2026-08-20T10:00:00Z'),
+      acknowledgedAt: new Date('2026-08-20T10:05:00Z'),
+      acknowledgementReason: null
+    }
+  ])
+  const app = buildApp(repo)
+
+  const response = await request(app).get(`/rating/${ratingToken}`)
+
+  assert.equal(response.status, 200)
+  assert.match(response.text, /Thank you\. Your feedback has already been received\./)
+  assert.doesNotMatch(response.text, /<form method="post"/i)
+})
+
+test('pending token GET shows processing state and hides the form', async () => {
+  const ratingToken = 'rt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const repo = createMemoryPublicRatingGatewayRepo([
+    {
+      submissionId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      ratingToken,
+      ratingTokenHash: hashRatingToken(ratingToken),
+      rating: 4,
+      comment: 'Pending row',
+      customerName: 'Pending Customer',
+      status: 'PENDING',
+      submittedAt: new Date('2026-08-20T11:00:00Z'),
+      acknowledgedAt: null,
+      acknowledgementReason: null
+    }
+  ])
+  const app = buildApp(repo)
+
+  const response = await request(app).get(`/rating/${ratingToken}`)
+
+  assert.equal(response.status, 200)
+  assert.match(response.text, /Your feedback has been submitted and is being processed\./)
+  assert.doesNotMatch(response.text, /<form method="post"/i)
+})
+
+test('rejected token GET shows unavailable state and hides the form', async () => {
+  const ratingToken = 'rt_cccccccccccccccccccccccccccccccc'
+  const repo = createMemoryPublicRatingGatewayRepo([
+    {
+      submissionId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      ratingToken,
+      ratingTokenHash: hashRatingToken(ratingToken),
+      rating: 2,
+      comment: 'Rejected row',
+      customerName: 'Rejected Customer',
+      status: 'REJECTED',
+      submittedAt: new Date('2026-08-20T12:00:00Z'),
+      acknowledgedAt: new Date('2026-08-20T12:05:00Z'),
+      acknowledgementReason: 'Expired'
+    }
+  ])
+  const app = buildApp(repo)
+
+  const response = await request(app).get(`/rating/${ratingToken}`)
+
+  assert.equal(response.status, 200)
+  assert.match(response.text, /This feedback link is no longer available\./)
+  assert.doesNotMatch(response.text, /<form method="post"/i)
+})
+
+test('duplicate POST does not create another row and returns the existing pending state', async () => {
+  const ratingToken = 'rt_dddddddddddddddddddddddddddddddd'
+  const repo = createMemoryPublicRatingGatewayRepo([
+    {
+      submissionId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      ratingToken,
+      ratingTokenHash: hashRatingToken(ratingToken),
+      rating: 5,
+      comment: 'First submission',
+      customerName: 'Duplicate Customer',
+      status: 'PENDING',
+      submittedAt: new Date('2026-08-20T13:00:00Z'),
+      acknowledgedAt: null,
+      acknowledgementReason: null
+    }
+  ])
+  const app = buildApp(repo)
+
+  const response = await request(app)
+    .post(`/rating/${ratingToken}`)
+    .set('Origin', 'null')
+    .type('form')
+    .send({
+      rating: '3',
+      comment: 'Replay attempt',
+      customer_name: 'Another name'
+    })
+
+  assert.equal(response.status, 200)
+  assert.match(response.text, /Your feedback has been submitted and is being processed\./)
+
+  const rows = repo.dump()
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].submissionId, 'dddddddd-dddd-dddd-dddd-dddddddddddd')
+  assert.equal(rows[0].comment, 'First submission')
+})
+
 test('unauthenticated pending endpoint is rejected', async () => {
   const repo = createMemoryPublicRatingGatewayRepo()
   const app = buildApp(repo)
@@ -78,6 +194,7 @@ test('authenticated pending endpoint returns only pending records', async () => 
     {
       submissionId: '11111111-1111-1111-1111-111111111111',
       ratingToken: 'rt_pending',
+      ratingTokenHash: hashRatingToken('rt_pending'),
       rating: 4,
       comment: 'Pending row',
       customerName: 'Pending Customer',
@@ -89,6 +206,7 @@ test('authenticated pending endpoint returns only pending records', async () => 
     {
       submissionId: '22222222-2222-2222-2222-222222222222',
       ratingToken: 'rt_done',
+      ratingTokenHash: hashRatingToken('rt_done'),
       rating: 2,
       comment: 'Handled row',
       customerName: 'Done Customer',
@@ -121,6 +239,7 @@ test('ack prevents a record being returned again and remains idempotent', async 
     {
       submissionId: '33333333-3333-3333-3333-333333333333',
       ratingToken: 'rt_ack_me',
+      ratingTokenHash: hashRatingToken('rt_ack_me'),
       rating: 5,
       comment: 'Great visit',
       customerName: 'Ack Customer',

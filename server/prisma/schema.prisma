@@ -1178,6 +1178,7 @@ enum PublicRatingSubmissionStatus {
 model PublicRatingSubmission {
   submissionId          String                       @id @default(uuid()) @map("submission_id") @db.Uuid
   ratingToken           String                       @map("rating_token") @db.VarChar(255)
+  ratingTokenHash       String                       @unique(map: "uq_public_rating_submission_rating_token_hash") @map("rating_token_hash") @db.Char(64)
   rating                Int
   comment               String?                      @db.Text
   customerName          String?                      @map("customer_name") @db.VarChar(120)

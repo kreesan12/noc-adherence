@@ -12,6 +12,11 @@ const PENDING_STATUSES = new Set(['PENDING'])
 const PUBLIC_SUBMISSION_WINDOW_MS = 15 * 60 * 1000
 const MAX_PER_IP_WINDOW = 20
 const MAX_PER_TOKEN_IP_WINDOW = 3
+const TOKEN_SUBMISSION_STATE_MESSAGES = {
+  ACCEPTED: 'Thank you. Your feedback has already been received.',
+  PENDING: 'Your feedback has been submitted and is being processed.',
+  REJECTED: 'This feedback link is no longer available.'
+}
 
 const ratingTokenSchema = z
   .string()
@@ -353,6 +358,25 @@ export function renderThankYouPage() {
   })
 }
 
+export function renderSubmissionStatePage(status) {
+  const message = TOKEN_SUBMISSION_STATE_MESSAGES[status] || TOKEN_SUBMISSION_STATE_MESSAGES.REJECTED
+  return basePageShell({
+    title: PUBLIC_FORM_TITLE,
+    body: `
+      <main class="card" aria-labelledby="rating-title">
+        <section class="card__header">
+          <p class="eyebrow">Customer feedback</p>
+          <h1 id="rating-title">${PUBLIC_FORM_TITLE}</h1>
+        </section>
+        <section class="thank-you">
+          <div class="thank-you__icon" aria-hidden="true">&#10003;</div>
+          <p>${escapeHtml(message)}</p>
+        </section>
+      </main>
+    `
+  })
+}
+
 export function renderUnavailablePage(message = 'This feedback page is not available.') {
   return basePageShell({
     title: 'Feedback unavailable',
@@ -370,6 +394,10 @@ export function renderUnavailablePage(message = 'This feedback page is not avail
 
 export function parseRatingToken(value) {
   return ratingTokenSchema.safeParse(value)
+}
+
+export function hashRatingToken(value) {
+  return crypto.createHash('sha256').update(String(value), 'utf8').digest('hex')
 }
 
 export function parsePublicSubmission(input) {
@@ -521,10 +549,17 @@ export function buildAcknowledgementResponse(row) {
 
 export function createPrismaPublicRatingGatewayRepo(prisma) {
   return {
-    async enqueueSubmission({ ratingToken, rating, comment, customerName }) {
+    async findSubmissionByTokenHash(ratingTokenHash) {
+      return prisma.publicRatingSubmission.findUnique({
+        where: { ratingTokenHash }
+      })
+    },
+
+    async createPendingSubmission({ ratingToken, ratingTokenHash, rating, comment, customerName }) {
       return prisma.publicRatingSubmission.create({
         data: {
           ratingToken,
+          ratingTokenHash,
           rating,
           comment,
           customerName,
@@ -567,10 +602,24 @@ export function createMemoryPublicRatingGatewayRepo(seedRows = []) {
   const rows = [...seedRows].map((row) => ({ ...row }))
 
   return {
-    async enqueueSubmission({ ratingToken, rating, comment, customerName }) {
+    async findSubmissionByTokenHash(ratingTokenHash) {
+      const row = rows.find((entry) => entry.ratingTokenHash === ratingTokenHash)
+      return row ? { ...row } : null
+    },
+
+    async createPendingSubmission({ ratingToken, ratingTokenHash, rating, comment, customerName }) {
+      const duplicate = rows.find((entry) => entry.ratingTokenHash === ratingTokenHash)
+      if (duplicate) {
+        const error = new Error('Unique constraint failed on ratingTokenHash')
+        error.code = 'P2002'
+        error.meta = { target: ['ratingTokenHash'] }
+        throw error
+      }
+
       const row = {
         submissionId: randomUUID(),
         ratingToken,
+        ratingTokenHash,
         rating,
         comment: comment ?? null,
         customerName: customerName ?? null,
@@ -607,4 +656,10 @@ export function createMemoryPublicRatingGatewayRepo(seedRows = []) {
   }
 }
 
-export { PUBLIC_FORM_TITLE, PUBLIC_THANK_YOU_MESSAGE, MAX_COMMENT_LENGTH, MAX_CUSTOMER_NAME_LENGTH }
+export {
+  PUBLIC_FORM_TITLE,
+  PUBLIC_THANK_YOU_MESSAGE,
+  MAX_COMMENT_LENGTH,
+  MAX_CUSTOMER_NAME_LENGTH,
+  TOKEN_SUBMISSION_STATE_MESSAGES
+}
