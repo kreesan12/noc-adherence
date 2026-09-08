@@ -38,6 +38,7 @@ import {
   getWhatsAppWatcherConfig,
   getWhatsAppWatcherDispatchHistory,
   getWhatsAppWatcherHistory,
+  queueNldOperationsDigest,
   queueWhatsAppWatcherTest,
   saveWhatsAppWatcherConfig
 } from '../api/whatsappWatchers'
@@ -363,6 +364,7 @@ export default function WhatsAppWatchersPage() {
   const [groupLoading, setGroupLoading] = useState(false)
   const [groupLimit, setGroupLimit] = useState(20)
   const [testingWatcherKey, setTestingWatcherKey] = useState('')
+  const [queueingNldDigest, setQueueingNldDigest] = useState(false)
   const [watcherExpanded, setWatcherExpanded] = useState({
     nld: false,
     backhaul: false,
@@ -640,6 +642,23 @@ export default function WhatsAppWatchersPage() {
     }
   }
 
+  async function sendNldOperationsDigest() {
+    setQueueingNldDigest(true)
+    setError('')
+    setNotice('')
+
+    try {
+      const { data } = await queueNldOperationsDigest()
+      const targetCount = data?.queued?.targetGroupIds?.length || 0
+      setNotice(`Live NLD position digest queued to ${targetCount ? `${targetCount} configured group(s)` : 'the default WhatsApp group'}. It will send without mentions shortly.`)
+      await loadDispatchHistory(historyFilter, historyLimit)
+    } catch (err) {
+      setError(extractError(err, 'Failed to queue the live NLD position digest'))
+    } finally {
+      setQueueingNldDigest(false)
+    }
+  }
+
   const summary = useMemo(() => {
     if (!draft) {
       return {
@@ -800,6 +819,16 @@ export default function WhatsAppWatchersPage() {
                     </Button>
                     {watcherExpanded.nld ? (
                       <>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="info"
+                          startIcon={queueingNldDigest ? <CircularProgress size={14} /> : <SendRoundedIcon />}
+                          onClick={sendNldOperationsDigest}
+                          disabled={loading || saving || queueingNldDigest}
+                        >
+                          {queueingNldDigest ? 'Building digest...' : 'Send position digest'}
+                        </Button>
                         <TestButton watcherKey="nld" testingWatcherKey={testingWatcherKey} onClick={sendWatcherTest} disabled={loading || saving} />
                         <Button size="small" variant="outlined" startIcon={<RestoreRoundedIcon />} onClick={() => resetSection('nld')}>
                           Reset section

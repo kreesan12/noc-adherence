@@ -327,6 +327,68 @@ async function fetchPartialNldAlertsRaw() {
   return data.results || []
 }
 
+// Builds the same completed-window position used by the scheduled digest. It is
+// exported for the admin-triggered run so manual tests use the production data path.
+export async function buildCurrentNldOperationsDigest({ now = dayjs(), watcherConfig }) {
+  const config = watcherConfig?.nld
+  if (!config) throw new Error('NLD watcher configuration is unavailable.')
+
+  const digestWindow = getDigestWindow(now, config.digestIntervalMinutes)
+  const rawOutages = await fetchOutageTickets()
+  const openOutages = rawOutages
+    .filter(isNldTicket)
+    .map((ticket) => enrichOutageTicket(ticket, now))
+
+  const updatedOutages = await fetchRecentlyUpdatedOutages(config.resolvedLookbackHours)
+  const resolvedOutages = updatedOutages
+    .filter((ticket) => isNldTicket(ticket) && isSolvedStatus(ticket.status))
+    .map((ticket) => enrichOutageTicket(ticket, now))
+    .filter((ticket) => {
+      const updatedAtMs = dayjs(ticket.updated_at).valueOf()
+      return updatedAtMs >= digestWindow.startMs && updatedAtMs < digestWindow.endMs
+    })
+
+  const rawPartial = await fetchPartialNldAlertsRaw()
+  const partialEvents = transformPartialNldAlerts(rawPartial, {
+    partialLookbackHours: config.partialLookbackHours,
+    zendeskSubdomain: ZENDESK_SUBDOMAIN
+  })
+  const clusters = findPartialClusters(partialEvents, {
+    nowMs: now.valueOf(),
+    clusterWindowHours: config.clusterWindowHours,
+    clusterMinEvents: config.clusterMinEvents
+  })
+  const notLogged = findPartialNotLogged(partialEvents, buildOutageRouteIndex(openOutages), {
+    partialNotLoggedMinutes: config.notLoggedMinutes
+  })
+  const operations = await collectOperationsDigestLanes(now, digestWindow, watcherConfig)
+
+  return {
+    message: buildDigestMsg({
+      openOutages,
+      resolvedOutages,
+      clusters,
+      notLogged,
+      now,
+      config,
+      ...operations
+    }),
+    payload: {
+      digestBucket: digestWindow.bucket,
+      windowStart: new Date(digestWindow.startMs).toISOString(),
+      windowEnd: new Date(digestWindow.endMs).toISOString(),
+      openCount: openOutages.length,
+      resolvedCount: resolvedOutages.length,
+      backhaulOpenCount: operations.backhaulOpen.length,
+      backhaulResolvedCount: operations.backhaulResolved.length,
+      majorOutageOpenCount: operations.majorOutageOpen.length,
+      majorOutageResolvedCount: operations.majorOutageResolved.length,
+      partialClusters: clusters.length,
+      partialNotLogged: notLogged.length
+    }
+  }
+}
+
 function buildPartialClusterMsg(clusters, { title, clusterWindowHours, action }) {
   if (!clusters.length) return null
 

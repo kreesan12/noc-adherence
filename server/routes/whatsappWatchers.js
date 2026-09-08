@@ -8,6 +8,7 @@ import {
   WHATSAPP_WATCHER_CONFIG_META
 } from '../lib/whatsappWatcherConfig.js'
 import { buildWatcherTestMessage } from '../watcherDispatchWorker.js'
+import { buildCurrentNldOperationsDigest } from '../nldOutageWatcher.js'
 
 const WATCHER_SECTION_MAP = {
   nld: 'nld',
@@ -146,6 +147,40 @@ export default function whatsappWatchersRouter() {
         targetGroupIds: groupIds,
         mentionJids,
         status: row.status
+      }
+    })
+  })
+
+  r.post('/nld-digest', async (req, res) => {
+    const config = await getWhatsappWatcherConfig({ forceFresh: true })
+    const section = config?.nld
+    if (!section?.enabled) {
+      return res.status(400).json({ error: 'The NLD watcher is currently paused.' })
+    }
+
+    const { message, payload } = await buildCurrentNldOperationsDigest({ watcherConfig: config })
+    const targetGroupIds = normalizeIdList(section.groupIds)
+    const row = await prisma.watcherDispatchRequest.create({
+      data: {
+        watcherKey: 'nld',
+        dispatchType: 'nld_digest',
+        targetGroupIds,
+        mentionJids: [],
+        message,
+        requestedBy: formatActor(req.user),
+        status: 'pending'
+      }
+    })
+
+    res.json({
+      ok: true,
+      queued: {
+        id: row.id,
+        watcherKey: row.watcherKey,
+        targetGroupIds,
+        mentionJids: [],
+        status: row.status,
+        payload
       }
     })
   })

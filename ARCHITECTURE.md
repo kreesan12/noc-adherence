@@ -91,6 +91,7 @@
   - watcher admin also exposes queue-level dispatch history so test sends can be checked without SSH access
   - NLD operations delivery is exception-led: new events, the first SLA breach, and partial-NLD risk remain immediate; repeat aging and routine closures are carried by a scheduled digest
   - the NLD digest runs hourly by default, is sent without mentions, and combines NLD, backhaul, and major-outage open position, aging, impact, partial pressure, and recent closures
+  - admins can queue the same live NLD digest on demand from WhatsApp Watchers; it uses the durable dispatch queue and remains mention-free
   - watcher polling is gated on a live WhatsApp session so an unlinked sender cannot create durable dedupe records for messages it was unable to deliver
 
 ### Database

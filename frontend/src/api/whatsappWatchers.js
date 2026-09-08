@@ -32,3 +32,7 @@ export function queueWhatsAppWatcherTest(watcherKey, options = {}) {
     ...options
   })
 }
+
+export function queueNldOperationsDigest() {
+  return api.post('/admin/whatsapp-watchers/nld-digest')
+}

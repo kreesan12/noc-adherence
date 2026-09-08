@@ -19,6 +19,7 @@
   - closure counts for the completed interval
 - Digest messages intentionally do not mention/tag group members. NLD admin controls now expose digest enablement, interval, item cap, and wording.
 - Added a WhatsApp-session readiness gate across NLD, backhaul, major-outage, and VIP watchers. While a sender session is unlinked, watchers defer work without writing dedupe records, preventing undelivered alerts from being incorrectly treated as sent during a number change or session outage.
+- Added an admin-only `Send position digest` action that builds the real current NLD operations digest and sends it through the normal durable WhatsApp dispatch queue without mentions. This provides a safe live test and an auditable manual catch-up action.
 
 ## 2026-08-21
 
