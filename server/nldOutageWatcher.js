@@ -16,7 +16,8 @@ import { getWhatsappWatcherConfig } from './lib/whatsappWatcherConfig.js'
 import {
   buildTicketSummary as buildBackhaulSummary,
   fetchActiveBackhaulTickets,
-  fetchRecentlyUpdatedBackhaulTickets
+  fetchRecentlyUpdatedBackhaulTickets,
+  isStandaloneBackhaulTicket
 } from './backhaulWatcher.js'
 import {
   buildSummary as buildMajorOutageSummary,
@@ -241,12 +242,14 @@ async function collectOperationsDigestLanes(now, digestWindow, watcherConfig) {
   }
 
   return {
-    backhaulOpen: activeBackhaul.map((ticket) => buildBackhaulSummary(ticket, now)),
+    backhaulOpen: activeBackhaul
+      .filter(isStandaloneBackhaulTicket)
+      .map((ticket) => buildBackhaulSummary(ticket, now)),
     majorOutageOpen: activeMajorOutages
       .filter(isMajorOutageTicket)
       .map((ticket) => buildMajorOutageSummary(ticket, now)),
     backhaulResolved: updatedBackhaul
-      .filter((ticket) => isSolvedStatus(ticket.status) && wasUpdatedInWindow(ticket))
+      .filter((ticket) => isStandaloneBackhaulTicket(ticket) && isSolvedStatus(ticket.status) && wasUpdatedInWindow(ticket))
       .map((ticket) => buildBackhaulSummary(ticket, now)),
     majorOutageResolved: updatedMajorOutages
       .filter((ticket) => isMajorOutageTicket(ticket) && isSolvedStatus(ticket.status) && wasUpdatedInWindow(ticket))
@@ -283,10 +286,11 @@ export function buildDigestMsg({
     .slice(0, cap)
 
   const lines = [
-    `${templates.digestTitle || 'NLD operations position'} | ${now.format('HH:mm')}`,
+    `${templates.digestTitle || 'Operations position'} | ${now.format('HH:mm')}`,
     '',
     `NLD: ${openOutages.length} open | ${totalSubscriberImpact(openOutages)} subs | ${countBreachRows(openOutages, breachHours)} over ${breachHours}h`,
-    `Backhaul: ${backhaulOpen.length} open | ${countBreachRows(backhaulOpen, breachHours)} over ${breachHours}h | Major outage: ${majorOutageOpen.length} open | ${totalSubscriberImpact(majorOutageOpen)} subs | ${countBreachRows(majorOutageOpen, breachHours)} over ${breachHours}h`,
+    `Backhaul: ${backhaulOpen.length} open | ${countBreachRows(backhaulOpen, breachHours)} over ${breachHours}h`,
+    `Major outage: ${majorOutageOpen.length} open | ${totalSubscriberImpact(majorOutageOpen)} subs | ${countBreachRows(majorOutageOpen, breachHours)} over ${breachHours}h`,
     `All live aging: <1h ${buckets.underOne} | 1-2h ${buckets.oneToTwo} | 2-${breachHours}h ${buckets.twoToBreach} | ${breachHours}h+ ${buckets.breached}`,
     `Partial pressure: ${clusters.length} cluster${clusters.length === 1 ? '' : 's'} | ${notLogged.length} not logged`,
     ''
@@ -310,7 +314,6 @@ export function buildDigestMsg({
     lines.push('')
   }
 
-  lines.push('Use the Ops Hub for the full live workbench and ticket links.')
   return lines.join('\n')
 }
 

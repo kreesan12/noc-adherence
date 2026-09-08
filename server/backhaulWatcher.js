@@ -36,6 +36,13 @@ function makeHeaders() {
   }
 }
 
+// Backhaul alerts can be attached to a formal outage after correlation. Those
+// records belong in the Major Outage/NLD lanes, not as a second backhaul item.
+export function isStandaloneBackhaulTicket(ticket) {
+  const tags = new Set((ticket?.tags || []).map((tag) => String(tag || '').toLowerCase()))
+  return !tags.has('outage_new_internal') && !tags.has('outage_new_external')
+}
+
 export async function fetchActiveBackhaulTickets(tag) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set('query', `type:ticket status<solved tags:${tag}`)
@@ -207,6 +214,7 @@ export function startBackhaulWatcher(sendSlaAlert, isWhatsAppReady = () => true)
       const immediateBreaches = []
 
       for (const ticket of activeTickets) {
+        if (!isStandaloneBackhaulTicket(ticket)) continue
         const summary = buildTicketSummary(ticket, now)
         if (!Number.isFinite(summary.ageHours)) continue
 

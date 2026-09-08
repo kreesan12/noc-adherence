@@ -21,7 +21,6 @@ const ZENDESK_EMAIL = process.env.ZENDESK_EMAIL
 const ZENDESK_API_TOKEN = process.env.ZENDESK_API_TOKEN
 const OUTAGE_GROUP_ID = String(process.env.OUTAGE_WATCHER_GROUP_ID || '5160847905297').trim()
 const OUTAGE_FORM_NAME = String(process.env.OUTAGE_WATCHER_FORM_NAME || 'Outage Capturing').trim()
-const NLD_FIELD_ID = '40137360073617'
 const REGION_FIELD_ID = '5522811974801'
 const SUBSCRIBER_IMPACT_FIELD_ID = '5552674828049'
 const LAST_UPDATE_FIELD_ID = '5352766585489'
@@ -50,9 +49,7 @@ function makeHeaders() {
 }
 
 function isNldTicket(ticket) {
-  const subject = String(ticket.subject || '').toUpperCase()
-  if (subject.includes('NLD')) return true
-  return !!String(cf(ticket, NLD_FIELD_ID) || '').trim()
+  return String(ticket.subject || '').toUpperCase().includes('NLD')
 }
 
 export function isMajorOutageTicket(ticket) {

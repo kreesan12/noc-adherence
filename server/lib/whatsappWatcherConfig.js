@@ -138,7 +138,7 @@ function buildDefaultConfig() {
         recentTitle: 'NLD outage logged',
         breachTitle: 'NLD outage aging breach',
         resolvedTitle: 'NLD outage resolved',
-        digestTitle: 'NLD operations position',
+        digestTitle: 'Operations position',
         partialClusterTitle: 'Partial NLD cluster detected',
         partialNotLoggedTitle: 'Partial NLD not linked to outage',
         breachAction: 'escalate and request outage update',
