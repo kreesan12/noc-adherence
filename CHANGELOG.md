@@ -22,6 +22,7 @@
 - Added an admin-only `Send position digest` action that builds the real current NLD operations digest and sends it through the normal durable WhatsApp dispatch queue without mentions. This provides a safe live test and an auditable manual catch-up action.
 - Tightened the NLD digest presentation: it now uses `Operations position`, separates NLD, backhaul, and major-outage summaries onto individual lines, and omits the redundant closing prompt.
 - Corrected watcher lane precedence for correlated outage records: a formal Outage Capturing ticket with `iris_backhaul_down` now remains in Major Outage instead of being duplicated as a standalone backhaul. This fixes ticket `#4126238`.
+- Added WhatsApp-native bold hierarchy to the operations digest, including its heading, lane labels, aging and partial-risk labels, oldest-open heading, and closure-summary heading.
 
 ## 2026-08-21
 

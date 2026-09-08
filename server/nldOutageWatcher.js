@@ -285,19 +285,20 @@ export function buildDigestMsg({
     .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
     .slice(0, cap)
 
+  const resolvedTitle = templates.resolvedTitle || 'Resolved since last digest'
   const lines = [
-    `${templates.digestTitle || 'Operations position'} | ${now.format('HH:mm')}`,
+    `*${templates.digestTitle || 'Operations position'}* | ${now.format('HH:mm')}`,
     '',
-    `NLD: ${openOutages.length} open | ${totalSubscriberImpact(openOutages)} subs | ${countBreachRows(openOutages, breachHours)} over ${breachHours}h`,
-    `Backhaul: ${backhaulOpen.length} open | ${countBreachRows(backhaulOpen, breachHours)} over ${breachHours}h`,
-    `Major outage: ${majorOutageOpen.length} open | ${totalSubscriberImpact(majorOutageOpen)} subs | ${countBreachRows(majorOutageOpen, breachHours)} over ${breachHours}h`,
-    `All live aging: <1h ${buckets.underOne} | 1-2h ${buckets.oneToTwo} | 2-${breachHours}h ${buckets.twoToBreach} | ${breachHours}h+ ${buckets.breached}`,
-    `Partial pressure: ${clusters.length} cluster${clusters.length === 1 ? '' : 's'} | ${notLogged.length} not logged`,
+    `*NLD:* ${openOutages.length} open | ${totalSubscriberImpact(openOutages)} subs | ${countBreachRows(openOutages, breachHours)} over ${breachHours}h`,
+    `*Backhaul:* ${backhaulOpen.length} open | ${countBreachRows(backhaulOpen, breachHours)} over ${breachHours}h`,
+    `*Major Outage:* ${majorOutageOpen.length} open | ${totalSubscriberImpact(majorOutageOpen)} subs | ${countBreachRows(majorOutageOpen, breachHours)} over ${breachHours}h`,
+    `*All live aging:* <1h ${buckets.underOne} | 1-2h ${buckets.oneToTwo} | 2-${breachHours}h ${buckets.twoToBreach} | ${breachHours}h+ ${buckets.breached}`,
+    `*Partial pressure:* ${clusters.length} cluster${clusters.length === 1 ? '' : 's'} | ${notLogged.length} not logged`,
     ''
   ]
 
   if (oldest.length) {
-    lines.push('Oldest open')
+    lines.push('*Oldest Open*')
     oldest.forEach((outage) => {
       const impact = Number(outage.subscriberImpact) ? ` | ${outage.subscriberImpact} subs` : ''
       lines.push(`${outage.lane} #${outage.id} | ${outage.laneLabel}${impact} | ${formatAgeHours(outage.ageHours)}`)
@@ -305,9 +306,10 @@ export function buildDigestMsg({
     lines.push('')
   }
 
-  const closureSummary = `NLD ${resolvedOutages.length} | Backhaul ${backhaulResolved.length} | Major outage ${majorOutageResolved.length}`
+  const closureSummary = `NLD ${resolvedOutages.length} | Backhaul ${backhaulResolved.length} | Major Outage ${majorOutageResolved.length}`
   if (recentlyResolved.length || backhaulResolved.length || majorOutageResolved.length) {
-    lines.push(`${templates.resolvedTitle || 'NLD closures'} since last digest: ${closureSummary}`)
+    lines.push(`*${resolvedTitle}*`)
+    lines.push(closureSummary)
     recentlyResolved.forEach((outage) => {
       lines.push(`#${outage.id} | ${outage.nld || 'Route unknown'} | ${outage.subscriberImpact} subs | ${formatAgeHours(outage.totalHours)} total`)
     })

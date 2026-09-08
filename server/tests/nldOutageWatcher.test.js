@@ -11,7 +11,7 @@ test('NLD digest summarizes live aging and recent closures without individual ti
       digestMaxItems: 2,
       templates: {
         digestTitle: 'Operations position',
-        resolvedTitle: 'NLD closures'
+        resolvedTitle: 'Resolved since last digest'
       }
     },
     openOutages: [
@@ -34,13 +34,15 @@ test('NLD digest summarizes live aging and recent closures without individual ti
     notLogged: [{ ticketId: 105 }]
   })
 
-  assert.match(message, /NLD: 3 open \| 57 subs \| 1 over 4h/)
-  assert.match(message, /Backhaul: 1 open \| 1 over 4h/)
-  assert.match(message, /Major outage: 1 open \| 22 subs \| 0 over 4h/)
-  assert.match(message, /All live aging: <1h 1 \| 1-2h 1 \| 2-4h 1 \| 4h\+ 2/)
-  assert.match(message, /Partial pressure: 1 cluster \| 1 not logged/)
+  assert.match(message, /\*Operations position\*/)
+  assert.match(message, /\*NLD:\* 3 open \| 57 subs \| 1 over 4h/)
+  assert.match(message, /\*Backhaul:\* 1 open \| 1 over 4h/)
+  assert.match(message, /\*Major Outage:\* 1 open \| 22 subs \| 0 over 4h/)
+  assert.match(message, /\*All live aging:\* <1h 1 \| 1-2h 1 \| 2-4h 1 \| 4h\+ 2/)
+  assert.match(message, /\*Partial pressure:\* 1 cluster \| 1 not logged/)
+  assert.match(message, /\*Oldest Open\*/)
   assert.match(message, /NLD #101 \| NLD 1 \| 45 subs \| 5\.3h/)
-  assert.match(message, /NLD closures since last digest: NLD 1 \| Backhaul 1 \| Major outage 1/)
+  assert.match(message, /\*Resolved since last digest\*\nNLD 1 \| Backhaul 1 \| Major Outage 1/)
   assert.doesNotMatch(message, /https:\/\//)
   assert.doesNotMatch(message, /Use the Ops Hub/)
 })

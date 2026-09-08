@@ -137,7 +137,7 @@ function buildDefaultConfig() {
       templates: {
         recentTitle: 'NLD outage logged',
         breachTitle: 'NLD outage aging breach',
-        resolvedTitle: 'NLD outage resolved',
+        resolvedTitle: 'Resolved since last digest',
         digestTitle: 'Operations position',
         partialClusterTitle: 'Partial NLD cluster detected',
         partialNotLoggedTitle: 'Partial NLD not linked to outage',
