@@ -152,6 +152,7 @@ function buildBreachAlertMessage(tickets, thresholdHours, templates) {
 
 let watcherStarted = false
 let nextTimer = null
+let whatsappUnavailableWarned = false
 
 async function shouldSendAlert(cache, details) {
   if (cache.has(details.dedupeKey)) return false
@@ -175,7 +176,7 @@ function describeGroups(groupIds) {
   return `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} | ${groupIds.join(', ')}`
 }
 
-export function startMajorOutageWatcher(sendSlaAlert) {
+export function startMajorOutageWatcher(sendSlaAlert, isWhatsAppReady = () => true) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[MAJOR OUTAGE WATCHER] Not starting - Zendesk config missing')
     return
@@ -210,6 +211,16 @@ export function startMajorOutageWatcher(sendSlaAlert) {
       scheduleNext(run, config.pollMs)
       return
     }
+
+    if (!isWhatsAppReady()) {
+      if (!whatsappUnavailableWarned) {
+        console.warn('[MAJOR OUTAGE WATCHER] WhatsApp is not linked; deferring alert processing without recording dedupe state')
+        whatsappUnavailableWarned = true
+      }
+      scheduleNext(run, config.pollMs)
+      return
+    }
+    whatsappUnavailableWarned = false
 
     const sendMajorOutage = async (message) => {
       try {

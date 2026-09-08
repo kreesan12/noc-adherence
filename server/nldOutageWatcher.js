@@ -364,6 +364,7 @@ function buildPartialNotLoggedMsg(events, { title, action }) {
 let watcherStarted = false
 let nextTimer = null
 let lastDigestBucket = null
+let whatsappUnavailableWarned = false
 
 async function shouldSendAlert(cache, details) {
   if (cache.has(details.dedupeKey)) return false
@@ -387,7 +388,7 @@ function describeGroups(groupIds) {
   return `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} | ${groupIds.join(', ')}`
 }
 
-export function startNldOutageWatcher(sendSlaAlert) {
+export function startNldOutageWatcher(sendSlaAlert, isWhatsAppReady = () => true) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[NLD WATCHER] Not starting - Zendesk config missing')
     return
@@ -427,6 +428,16 @@ export function startNldOutageWatcher(sendSlaAlert) {
       scheduleNext(run, config.pollMs)
       return
     }
+
+    if (!isWhatsAppReady()) {
+      if (!whatsappUnavailableWarned) {
+        console.warn('[NLD WATCHER] WhatsApp is not linked; deferring alert processing without recording dedupe state')
+        whatsappUnavailableWarned = true
+      }
+      scheduleNext(run, config.pollMs)
+      return
+    }
+    whatsappUnavailableWarned = false
 
     const sendNld = async (message, { mention = true } = {}) => {
       await sendSlaAlert(message, {

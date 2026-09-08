@@ -112,6 +112,7 @@ function buildBreachAlertMessage(tickets, thresholdHours, templates) {
 
 let watcherStarted = false
 let nextTimer = null
+let whatsappUnavailableWarned = false
 
 async function shouldSendAlert(cache, details) {
   if (cache.has(details.dedupeKey)) return false
@@ -135,7 +136,7 @@ function describeGroups(groupIds) {
   return `${groupIds.length} group${groupIds.length === 1 ? '' : 's'} | ${groupIds.join(', ')}`
 }
 
-export function startBackhaulWatcher(sendSlaAlert) {
+export function startBackhaulWatcher(sendSlaAlert, isWhatsAppReady = () => true) {
   if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
     console.warn('[BACKHAUL WATCHER] Not starting - Zendesk config missing')
     return
@@ -170,6 +171,16 @@ export function startBackhaulWatcher(sendSlaAlert) {
       scheduleNext(run, config.pollMs)
       return
     }
+
+    if (!isWhatsAppReady()) {
+      if (!whatsappUnavailableWarned) {
+        console.warn('[BACKHAUL WATCHER] WhatsApp is not linked; deferring alert processing without recording dedupe state')
+        whatsappUnavailableWarned = true
+      }
+      scheduleNext(run, config.pollMs)
+      return
+    }
+    whatsappUnavailableWarned = false
 
     if (!config.tag) {
       console.warn('[BACKHAUL WATCHER] Skipping tick - backhaul tag is empty')

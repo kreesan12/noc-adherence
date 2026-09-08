@@ -2,7 +2,7 @@ import { loadServerEnv } from '../lib/loadEnv.js'
 
 loadServerEnv()
 
-const { initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
+const { getStatus, initWhatsApp, sendSlaAlert } = await import('../whatsappClient.js')
 const { startBackhaulWatcher } = await import('../backhaulWatcher.js')
 const { startWhatsAppGroupDirectorySync } = await import('../groupDirectorySync.js')
 const { startMajorOutageWatcher } = await import('../majorOutageWatcher.js')
@@ -28,25 +28,25 @@ try {
 }
 
 try {
-  startNldOutageWatcher(sendSlaAlert)
+  startNldOutageWatcher(sendSlaAlert, () => getStatus().ready)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start NLD watcher:', err?.message || err)
 }
 
 try {
-  startBackhaulWatcher(sendSlaAlert)
+  startBackhaulWatcher(sendSlaAlert, () => getStatus().ready)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start backhaul watcher:', err?.message || err)
 }
 
 try {
-  startMajorOutageWatcher(sendSlaAlert)
+  startMajorOutageWatcher(sendSlaAlert, () => getStatus().ready)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start major outage watcher:', err?.message || err)
 }
 
 try {
-  startVipTicketWatcher(sendSlaAlert)
+  startVipTicketWatcher(sendSlaAlert, () => getStatus().ready)
 } catch (err) {
   console.error('[AUTOMATION] Failed to start VIP watcher:', err?.message || err)
 }
