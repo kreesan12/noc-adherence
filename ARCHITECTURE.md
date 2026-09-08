@@ -89,6 +89,8 @@
   - watcher timing, routing groups, tags, and alert wording are now read from shared database config
   - config changes are applied on the next poll cycle without restarting `noc-automation`
   - watcher admin also exposes queue-level dispatch history so test sends can be checked without SSH access
+  - NLD operations delivery is exception-led: new events, the first SLA breach, and partial-NLD risk remain immediate; repeat aging and routine closures are carried by a scheduled digest
+  - the NLD digest runs hourly by default, is sent without mentions, and combines NLD, backhaul, and major-outage open position, aging, impact, partial pressure, and recent closures
 
 ### Database
 
@@ -110,8 +112,9 @@
 - WhatsApp watcher support tables:
   - `automation_settings`
     - stores admin-edited watcher config
-  - `watcher_alert_log`
+- `watcher_alert_log`
     - stores persistent dedupe keys for sent watcher alerts so restarts do not replay old messages
+    - also stores one key per completed NLD digest interval so a restart cannot resend the same position update
   - `watcher_dispatch_request`
     - stores queued manual/test dispatch jobs, target groups, mention targets, and worker results
 

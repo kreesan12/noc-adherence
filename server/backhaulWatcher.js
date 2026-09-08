@@ -28,7 +28,6 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
 const TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000
 const warnedNew = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedBreach = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
-const warnedResolved = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 
 function makeHeaders() {
   return {
@@ -37,7 +36,7 @@ function makeHeaders() {
   }
 }
 
-async function fetchActiveBackhaulTickets(tag) {
+export async function fetchActiveBackhaulTickets(tag) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set('query', `type:ticket status<solved tags:${tag}`)
   url.searchParams.set('filter[type]', 'ticket')
@@ -47,7 +46,7 @@ async function fetchActiveBackhaulTickets(tag) {
   return data.results || []
 }
 
-async function fetchRecentlyUpdatedBackhaulTickets(tag, resolvedLookbackHours) {
+export async function fetchRecentlyUpdatedBackhaulTickets(tag, resolvedLookbackHours) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set('query', `type:ticket tags:${tag} updated>${resolvedLookbackHours}hours`)
   url.searchParams.set('filter[type]', 'ticket')
@@ -57,7 +56,7 @@ async function fetchRecentlyUpdatedBackhaulTickets(tag, resolvedLookbackHours) {
   return data.results || []
 }
 
-function buildTicketSummary(ticket, now) {
+export function buildTicketSummary(ticket, now) {
   const created = dayjs(ticket.created_at)
   const updated = dayjs(ticket.updated_at)
   const ageHours = created.isValid() ? now.diff(created, 'hour', true) : NaN
@@ -104,22 +103,6 @@ function buildBreachAlertMessage(tickets, thresholdHours, templates) {
     if (ticket.subject) lines.push(`Subject: ${ticket.subject}`)
     lines.push(`Last update: ${formatTimestamp(ticket.updated_at)}`)
     if (templates.breachAction) lines.push(`Action: ${templates.breachAction}`)
-    lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
-    lines.push('')
-  })
-
-  return lines.join('\n')
-}
-
-function buildResolvedAlertMessage(tickets, templates) {
-  if (!tickets.length) return null
-
-  const lines = [`${templates.resolvedTitle} | ${formatPlural(tickets.length, 'cleared item')}`, '']
-
-  tickets.forEach((ticket) => {
-    lines.push(`#${ticket.id} | ${ticket.status} | ${formatAgeHours(ticket.totalHours)} total`)
-    if (ticket.subject) lines.push(`Subject: ${ticket.subject}`)
-    lines.push(`Last update: ${formatTimestamp(ticket.updated_at)}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
   })
@@ -209,8 +192,8 @@ export function startBackhaulWatcher(sendSlaAlert) {
       const now = dayjs()
       const activeTickets = await fetchActiveBackhaulTickets(config.tag)
       const fresh = []
-      const breachesByThreshold = new Map()
-      config.breachThresholdsHours.forEach((threshold) => breachesByThreshold.set(threshold, []))
+      const immediateBreachHours = config.breachThresholdsHours[0] || 4
+      const immediateBreaches = []
 
       for (const ticket of activeTickets) {
         const summary = buildTicketSummary(ticket, now)
@@ -229,18 +212,16 @@ export function startBackhaulWatcher(sendSlaAlert) {
           }
         }
 
-        for (const threshold of config.breachThresholdsHours) {
-          if (summary.ageHours >= threshold) {
-            const key = `backhaul-breach-${threshold}-${ticket.id}`
-            if (await shouldSendAlert(warnedBreach, {
-              dedupeKey: key,
-              watcherKey: 'backhaul',
-              alertType: `breach_${threshold}h`,
-              entityId: ticket.id,
-              payload: { status: summary.status, updatedAt: summary.updated_at }
-            })) {
-              breachesByThreshold.get(threshold).push(summary)
-            }
+        if (summary.ageHours >= immediateBreachHours) {
+          const key = `backhaul-breach-${immediateBreachHours}-${ticket.id}`
+          if (await shouldSendAlert(warnedBreach, {
+            dedupeKey: key,
+            watcherKey: 'backhaul',
+            alertType: `breach_${immediateBreachHours}h`,
+            entityId: ticket.id,
+            payload: { status: summary.status, updatedAt: summary.updated_at }
+          })) {
+            immediateBreaches.push(summary)
           }
         }
       }
@@ -251,37 +232,10 @@ export function startBackhaulWatcher(sendSlaAlert) {
         await sendBackhaul(newMessage)
       }
 
-      for (const threshold of config.breachThresholdsHours) {
-        const message = buildBreachAlertMessage(breachesByThreshold.get(threshold) || [], threshold, config.templates)
-        if (message) {
-          console.log(`[BACKHAUL WATCHER] Sending WhatsApp backhaul breach ${threshold}h alert`)
-          await sendBackhaul(message)
-        }
-      }
-
-      const updatedTickets = await fetchRecentlyUpdatedBackhaulTickets(config.tag, config.resolvedLookbackHours)
-      const resolved = []
-
-      for (const ticket of updatedTickets) {
-        if (!isSolvedStatus(ticket.status)) continue
-
-        const summary = buildTicketSummary(ticket, now)
-        const key = `backhaul-resolved-${ticket.id}-solved`
-        const shouldSend = await shouldSendAlert(warnedResolved, {
-          dedupeKey: key,
-          watcherKey: 'backhaul',
-          alertType: 'resolved',
-          entityId: ticket.id,
-          payload: { status: summary.status, updatedAt: summary.updated_at }
-        })
-        if (!shouldSend) continue
-        resolved.push(summary)
-      }
-
-      const resolvedMessage = buildResolvedAlertMessage(resolved, config.templates)
-      if (resolvedMessage) {
-        console.log('[BACKHAUL WATCHER] Sending WhatsApp resolved backhaul alert')
-        await sendBackhaul(resolvedMessage)
+      const breachMessage = buildBreachAlertMessage(immediateBreaches, immediateBreachHours, config.templates)
+      if (breachMessage) {
+        console.log(`[BACKHAUL WATCHER] Sending WhatsApp backhaul breach ${immediateBreachHours}h alert`)
+        await sendBackhaul(breachMessage)
       }
     } catch (error) {
       console.error('[BACKHAUL WATCHER] Tick error:', error?.message || error)

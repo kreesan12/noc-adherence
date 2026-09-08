@@ -827,6 +827,11 @@ export default function WhatsAppWatchersPage() {
                       label={`${draft.nld.mentionJids?.length || 0} mention target(s)`}
                     />
                     <Chip size="small" variant="outlined" label={`Poll ${compactDelay(draft.nld.pollMs)}`} />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={draft.nld.digestEnabled === false ? 'Digest off' : `Digest ${draft.nld.digestIntervalMinutes || 60}m`}
+                    />
                   </FilterStrip>
 
                   <Typography variant="caption" color="text.secondary">
@@ -924,6 +929,31 @@ export default function WhatsAppWatchersPage() {
                           value={draft.nld.resolvedLookbackHours}
                           onChange={(event) => setSectionField('nld', 'resolvedLookbackHours', toWholeNumber(event.target.value, 24))}
                         />
+                        <FormControlLabel
+                          control={(
+                            <Switch
+                              checked={draft.nld.digestEnabled !== false}
+                              onChange={(event) => setSectionField('nld', 'digestEnabled', event.target.checked)}
+                            />
+                          )}
+                          label="Send scheduled NLD position digest"
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Digest interval (minutes)"
+                          value={draft.nld.digestIntervalMinutes || 60}
+                          onChange={(event) => setSectionField('nld', 'digestIntervalMinutes', toWholeNumber(event.target.value, 60))}
+                          helperText="Default: hourly. Includes unresolved aging, impact, partial pressure, and recent closures."
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Digest top-items cap"
+                          value={draft.nld.digestMaxItems || 5}
+                          onChange={(event) => setSectionField('nld', 'digestMaxItems', toWholeNumber(event.target.value, 5))}
+                          helperText="Maximum oldest open and recent resolved rows included in the digest."
+                        />
                       </SectionFieldGrid>
 
                       <WatcherGroupChips
@@ -953,9 +983,15 @@ export default function WhatsAppWatchersPage() {
                     />
                     <TextField
                       size="small"
-                      label="Resolved alert title"
+                      label="Closure summary label"
                       value={draft.nld.templates.resolvedTitle}
                       onChange={(event) => setTemplateField('nld', 'resolvedTitle', event.target.value)}
+                    />
+                    <TextField
+                      size="small"
+                      label="Scheduled digest title"
+                      value={draft.nld.templates.digestTitle || ''}
+                      onChange={(event) => setTemplateField('nld', 'digestTitle', event.target.value)}
                     />
                     <TextField
                       size="small"

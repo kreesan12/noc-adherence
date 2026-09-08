@@ -14,6 +14,17 @@ import {
 import { recordWatcherAlert } from './lib/watcherAlertLog.js'
 import { getWhatsappWatcherConfig } from './lib/whatsappWatcherConfig.js'
 import {
+  buildTicketSummary as buildBackhaulSummary,
+  fetchActiveBackhaulTickets,
+  fetchRecentlyUpdatedBackhaulTickets
+} from './backhaulWatcher.js'
+import {
+  buildSummary as buildMajorOutageSummary,
+  fetchActiveMajorOutages,
+  fetchRecentlyUpdatedMajorOutages,
+  isMajorOutageTicket
+} from './majorOutageWatcher.js'
+import {
   buildOutageRouteIndex,
   findPartialClusters,
   findPartialNotLogged,
@@ -35,7 +46,7 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
 const TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000
 const warnedRecent = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedBreach = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
-const warnedResolved = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
+const warnedDigest = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedPartialClusters = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedPartialNotLogged = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 
@@ -158,21 +169,148 @@ function buildBreachMsg(tickets, breachHours, templates) {
   return lines.join('\n')
 }
 
-function buildResolvedMsg(tickets, templates) {
-  if (!tickets.length) return null
+export function getDigestWindow(now, intervalMinutes) {
+  const intervalMs = Math.max(15, Number(intervalMinutes) || 60) * 60 * 1000
+  const currentBucket = Math.floor(now.valueOf() / intervalMs)
+  const completedBucket = currentBucket - 1
 
-  const lines = [`${templates.resolvedTitle} | ${formatPlural(tickets.length, 'cleared item')}`, '']
+  return {
+    bucket: completedBucket,
+    startMs: completedBucket * intervalMs,
+    endMs: currentBucket * intervalMs
+  }
+}
 
-  tickets.forEach((ticket) => {
-    lines.push(
-      `#${ticket.id} | ${ticket.nld || 'Route unknown'} | ${ticket.subscriberImpact} subs | ${formatAgeHours(ticket.totalHours)} total`
-    )
-    lines.push(`Last update: ${formatLastUpdate(ticket)}`)
-    if (ticket.subject) lines.push(`Subject: ${compactText(ticket.subject)}`)
-    lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
-    lines.push('')
+function buildAgeBuckets(openOutages, breachHours) {
+  const buckets = { underOne: 0, oneToTwo: 0, twoToBreach: 0, breached: 0 }
+
+  for (const outage of openOutages) {
+    const age = Number(outage.ageHours)
+    if (!Number.isFinite(age) || age < 1) buckets.underOne += 1
+    else if (age < 2) buckets.oneToTwo += 1
+    else if (age < breachHours) buckets.twoToBreach += 1
+    else buckets.breached += 1
+  }
+
+  return buckets
+}
+
+function countBreachRows(rows, breachHours) {
+  return rows.filter((row) => Number(row.ageHours) >= breachHours).length
+}
+
+function totalSubscriberImpact(rows) {
+  return rows.reduce((sum, row) => sum + (Number(row.subscriberImpact) || 0), 0)
+}
+
+function asDigestLaneRows(rows, lane, getLabel) {
+  return rows.map((row) => ({
+    ...row,
+    lane,
+    laneLabel: getLabel(row),
+    ageMinutes: Number(row.ageHours) * 60
+  }))
+}
+
+async function collectOperationsDigestLanes(now, digestWindow, watcherConfig) {
+  const backhaulConfig = watcherConfig.backhaul || {}
+  const majorConfig = watcherConfig.majorOutage || {}
+  const results = await Promise.allSettled([
+    backhaulConfig.enabled !== false && backhaulConfig.tag
+      ? fetchActiveBackhaulTickets(backhaulConfig.tag)
+      : Promise.resolve([]),
+    majorConfig.enabled !== false
+      ? fetchActiveMajorOutages()
+      : Promise.resolve([]),
+    backhaulConfig.enabled !== false && backhaulConfig.tag
+      ? fetchRecentlyUpdatedBackhaulTickets(backhaulConfig.tag, backhaulConfig.resolvedLookbackHours || 24)
+      : Promise.resolve([]),
+    majorConfig.enabled !== false
+      ? fetchRecentlyUpdatedMajorOutages(majorConfig.resolvedLookbackHours || 24)
+      : Promise.resolve([])
+  ])
+  const [activeBackhaul, activeMajorOutages, updatedBackhaul, updatedMajorOutages] = results.map((result, index) => {
+    if (result.status === 'fulfilled') return result.value
+    const lane = ['backhaul open', 'major outage open', 'backhaul closures', 'major outage closures'][index]
+    console.warn(`[NLD WATCHER] Digest ${lane} query failed; continuing with available lanes:`, result.reason?.message || result.reason)
+    return []
   })
+  const wasUpdatedInWindow = (ticket) => {
+    const updatedAtMs = dayjs(ticket.updated_at).valueOf()
+    return updatedAtMs >= digestWindow.startMs && updatedAtMs < digestWindow.endMs
+  }
 
+  return {
+    backhaulOpen: activeBackhaul.map((ticket) => buildBackhaulSummary(ticket, now)),
+    majorOutageOpen: activeMajorOutages
+      .filter(isMajorOutageTicket)
+      .map((ticket) => buildMajorOutageSummary(ticket, now)),
+    backhaulResolved: updatedBackhaul
+      .filter((ticket) => isSolvedStatus(ticket.status) && wasUpdatedInWindow(ticket))
+      .map((ticket) => buildBackhaulSummary(ticket, now)),
+    majorOutageResolved: updatedMajorOutages
+      .filter((ticket) => isMajorOutageTicket(ticket) && isSolvedStatus(ticket.status) && wasUpdatedInWindow(ticket))
+      .map((ticket) => buildMajorOutageSummary(ticket, now))
+  }
+}
+
+export function buildDigestMsg({
+  openOutages,
+  resolvedOutages,
+  clusters,
+  notLogged,
+  now,
+  config,
+  backhaulOpen = [],
+  majorOutageOpen = [],
+  backhaulResolved = [],
+  majorOutageResolved = []
+}) {
+  const templates = config.templates || {}
+  const breachHours = config.breachThresholdsHours[0] || 4
+  const allOpen = [
+    ...asDigestLaneRows(openOutages, 'NLD', (row) => row.nld || 'Route unknown'),
+    ...asDigestLaneRows(backhaulOpen, 'Backhaul', (row) => row.subject || 'Backhaul ticket'),
+    ...asDigestLaneRows(majorOutageOpen, 'Outage', (row) => row.region || row.subject || 'Major outage')
+  ]
+  const buckets = buildAgeBuckets(allOpen, breachHours)
+  const cap = Math.max(1, Number(config.digestMaxItems) || 5)
+  const oldest = [...allOpen]
+    .sort((left, right) => (Number(right.ageMinutes) || 0) - (Number(left.ageMinutes) || 0))
+    .slice(0, cap)
+  const recentlyResolved = [...resolvedOutages]
+    .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
+    .slice(0, cap)
+
+  const lines = [
+    `${templates.digestTitle || 'NLD operations position'} | ${now.format('HH:mm')}`,
+    '',
+    `NLD: ${openOutages.length} open | ${totalSubscriberImpact(openOutages)} subs | ${countBreachRows(openOutages, breachHours)} over ${breachHours}h`,
+    `Backhaul: ${backhaulOpen.length} open | ${countBreachRows(backhaulOpen, breachHours)} over ${breachHours}h | Major outage: ${majorOutageOpen.length} open | ${totalSubscriberImpact(majorOutageOpen)} subs | ${countBreachRows(majorOutageOpen, breachHours)} over ${breachHours}h`,
+    `All live aging: <1h ${buckets.underOne} | 1-2h ${buckets.oneToTwo} | 2-${breachHours}h ${buckets.twoToBreach} | ${breachHours}h+ ${buckets.breached}`,
+    `Partial pressure: ${clusters.length} cluster${clusters.length === 1 ? '' : 's'} | ${notLogged.length} not logged`,
+    ''
+  ]
+
+  if (oldest.length) {
+    lines.push('Oldest open')
+    oldest.forEach((outage) => {
+      const impact = Number(outage.subscriberImpact) ? ` | ${outage.subscriberImpact} subs` : ''
+      lines.push(`${outage.lane} #${outage.id} | ${outage.laneLabel}${impact} | ${formatAgeHours(outage.ageHours)}`)
+    })
+    lines.push('')
+  }
+
+  const closureSummary = `NLD ${resolvedOutages.length} | Backhaul ${backhaulResolved.length} | Major outage ${majorOutageResolved.length}`
+  if (recentlyResolved.length || backhaulResolved.length || majorOutageResolved.length) {
+    lines.push(`${templates.resolvedTitle || 'NLD closures'} since last digest: ${closureSummary}`)
+    recentlyResolved.forEach((outage) => {
+      lines.push(`#${outage.id} | ${outage.nld || 'Route unknown'} | ${outage.subscriberImpact} subs | ${formatAgeHours(outage.totalHours)} total`)
+    })
+    lines.push('')
+  }
+
+  lines.push('Use the Ops Hub for the full live workbench and ticket links.')
   return lines.join('\n')
 }
 
@@ -225,6 +363,7 @@ function buildPartialNotLoggedMsg(events, { title, action }) {
 
 let watcherStarted = false
 let nextTimer = null
+let lastDigestBucket = null
 
 async function shouldSendAlert(cache, details) {
   if (cache.has(details.dedupeKey)) return false
@@ -260,9 +399,9 @@ export function startNldOutageWatcher(sendSlaAlert) {
     const baseline = nld.breachThresholdsHours[0] || 4
     const groupLabel = describeGroups(nld.groupIds)
     console.log(
-      `[NLD WATCHER] Starting - window ${nld.windowMinutes} min, breach baseline ${baseline} h, poll ${Math.round(nld.pollMs / 1000)}s, group ${groupLabel}`
+      `[NLD WATCHER] Starting - window ${nld.windowMinutes} min, immediate breach ${baseline} h, poll ${Math.round(nld.pollMs / 1000)}s, group ${groupLabel}`
     )
-    console.log(`[NLD WATCHER] Breach tiers - ${nld.breachThresholdsHours.join(', ')} hours`)
+    console.log(`[NLD WATCHER] Aging tiers - ${nld.breachThresholdsHours.join(', ')} hours; digest ${nld.digestEnabled === false ? 'off' : `every ${nld.digestIntervalMinutes || 60}m`}`)
     console.log(
       `[NLD WATCHER] Partial - lookback ${nld.partialLookbackHours}h, cluster ${nld.clusterMinEvents} events / ${nld.clusterWindowHours}h, not-logged >= ${nld.notLoggedMinutes} min`
     )
@@ -272,9 +411,11 @@ export function startNldOutageWatcher(sendSlaAlert) {
 
   const run = async () => {
     let config
+    let watcherConfig
 
     try {
       const stored = await getWhatsappWatcherConfig()
+      watcherConfig = stored
       config = stored.nld
     } catch (error) {
       console.error('[NLD WATCHER] Config load failed:', error?.message || error)
@@ -287,10 +428,10 @@ export function startNldOutageWatcher(sendSlaAlert) {
       return
     }
 
-    const sendNld = async (message) => {
+    const sendNld = async (message, { mention = true } = {}) => {
       await sendSlaAlert(message, {
         ...(config.groupIds?.length ? { groupIds: config.groupIds } : {}),
-        ...(config.mentionJids?.length ? { mentionJids: config.mentionJids } : {})
+        ...(mention && config.mentionJids?.length ? { mentionJids: config.mentionJids } : {})
       })
     }
 
@@ -300,8 +441,9 @@ export function startNldOutageWatcher(sendSlaAlert) {
 
       const recent = []
       const openOutages = []
-      const breachesByThreshold = new Map()
-      config.breachThresholdsHours.forEach((threshold) => breachesByThreshold.set(threshold, []))
+      const immediateBreachHours = config.breachThresholdsHours[0] || 4
+      const immediateBreaches = []
+      const digestWindow = getDigestWindow(now, config.digestIntervalMinutes)
 
       for (const ticket of rawOutages) {
         if (!isNldTicket(ticket)) continue
@@ -322,20 +464,16 @@ export function startNldOutageWatcher(sendSlaAlert) {
           }
         }
 
-        if (outage.ageMinutes > config.windowMinutes) {
-          for (const threshold of config.breachThresholdsHours) {
-            if (outage.ageHours >= threshold) {
-              const key = `breach-${threshold}-${ticket.id}`
-              if (await shouldSendAlert(warnedBreach, {
-                dedupeKey: key,
-                watcherKey: 'nld',
-                alertType: `breach_${threshold}h`,
-                entityId: ticket.id,
-                payload: { status: outage.status, updatedAt: outage.updated_at }
-              })) {
-                breachesByThreshold.get(threshold).push(outage)
-              }
-            }
+        if (outage.ageMinutes > config.windowMinutes && outage.ageHours >= immediateBreachHours) {
+          const key = `breach-${immediateBreachHours}-${ticket.id}`
+          if (await shouldSendAlert(warnedBreach, {
+            dedupeKey: key,
+            watcherKey: 'nld',
+            alertType: `breach_${immediateBreachHours}h`,
+            entityId: ticket.id,
+            payload: { status: outage.status, updatedAt: outage.updated_at }
+          })) {
+            immediateBreaches.push(outage)
           }
         }
       }
@@ -346,37 +484,23 @@ export function startNldOutageWatcher(sendSlaAlert) {
         await sendNld(recentMsg)
       }
 
-      for (const threshold of config.breachThresholdsHours) {
-        const message = buildBreachMsg(breachesByThreshold.get(threshold) || [], threshold, config.templates)
-        if (message) {
-          console.log(`[NLD WATCHER] Sending WhatsApp NLD BREACH ${threshold}h alert`)
-          await sendNld(message)
-        }
+      const breachMessage = buildBreachMsg(immediateBreaches, immediateBreachHours, config.templates)
+      if (breachMessage) {
+        console.log(`[NLD WATCHER] Sending WhatsApp NLD BREACH ${immediateBreachHours}h alert`)
+        await sendNld(breachMessage)
       }
 
       const updatedOutages = await fetchRecentlyUpdatedOutages(config.resolvedLookbackHours)
-      const resolved = []
+      const resolvedForDigest = []
 
       for (const ticket of updatedOutages) {
         if (!isNldTicket(ticket) || !isSolvedStatus(ticket.status)) continue
 
         const outage = enrichOutageTicket(ticket, now)
-        const key = `resolved-${ticket.id}-solved`
-        const shouldSend = await shouldSendAlert(warnedResolved, {
-          dedupeKey: key,
-          watcherKey: 'nld',
-          alertType: 'resolved',
-          entityId: ticket.id,
-          payload: { status: outage.status, updatedAt: outage.updated_at }
-        })
-        if (!shouldSend) continue
-        resolved.push(outage)
-      }
-
-      const resolvedMsg = buildResolvedMsg(resolved, config.templates)
-      if (resolvedMsg) {
-        console.log('[NLD WATCHER] Sending WhatsApp NLD resolved alert')
-        await sendNld(resolvedMsg)
+        const updatedAtMs = dayjs(outage.updated_at).valueOf()
+        if (updatedAtMs >= digestWindow.startMs && updatedAtMs < digestWindow.endMs) {
+          resolvedForDigest.push(outage)
+        }
       }
 
       const outageIndex = buildOutageRouteIndex(openOutages)
@@ -441,6 +565,48 @@ export function startNldOutageWatcher(sendSlaAlert) {
       if (notLoggedMsg) {
         console.log('[NLD WATCHER] Sending WhatsApp PARTIAL NLD NOT-LOGGED alert')
         await sendNld(notLoggedMsg)
+      }
+
+      if (config.digestEnabled !== false) {
+        if (lastDigestBucket == null) {
+          lastDigestBucket = digestWindow.bucket
+          console.log('[NLD WATCHER] Digest schedule primed; first NLD position update will send after the next completed interval')
+        } else if (digestWindow.bucket > lastDigestBucket) {
+          lastDigestBucket = digestWindow.bucket
+          const operations = await collectOperationsDigestLanes(now, digestWindow, watcherConfig)
+          const dedupeKey = `nld-digest-${digestWindow.bucket}`
+          const shouldSend = await shouldSendAlert(warnedDigest, {
+            dedupeKey,
+            watcherKey: 'nld',
+            alertType: 'digest',
+            entityId: String(digestWindow.bucket),
+            payload: {
+              openCount: openOutages.length,
+              resolvedCount: resolvedForDigest.length,
+              backhaulOpenCount: operations.backhaulOpen.length,
+              backhaulResolvedCount: operations.backhaulResolved.length,
+              majorOutageOpenCount: operations.majorOutageOpen.length,
+              majorOutageResolvedCount: operations.majorOutageResolved.length,
+              partialClusters: rawClusters.length,
+              partialNotLogged: rawNotLogged.length,
+              windowStart: new Date(digestWindow.startMs).toISOString(),
+              windowEnd: new Date(digestWindow.endMs).toISOString()
+            }
+          })
+
+          if (shouldSend) {
+            console.log('[NLD WATCHER] Sending scheduled WhatsApp NLD position digest')
+            await sendNld(buildDigestMsg({
+              openOutages,
+              resolvedOutages: resolvedForDigest,
+              clusters: rawClusters,
+              notLogged: rawNotLogged,
+              now,
+              config,
+              ...operations
+            }), { mention: false })
+          }
+        }
       }
     } catch (error) {
       console.error('[NLD WATCHER] Tick error:', error?.message || error)

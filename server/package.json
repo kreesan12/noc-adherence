@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "test": "node --test tests/publicRatingGateway.test.js",
+    "test": "node --test tests/publicRatingGateway.test.js tests/nldOutageWatcher.test.js",
     "start:automation": "node scripts/startBackgroundAutomation.js",
     "migrate": "prisma migrate deploy",
     "generate": "prisma generate",

@@ -34,7 +34,6 @@ if (!ZENDESK_SUBDOMAIN || !ZENDESK_EMAIL || !ZENDESK_API_TOKEN) {
 const TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000
 const warnedNew = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 const warnedBreach = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
-const warnedResolved = makeTtlCache(TTL_MS, CACHE_MAX_KEYS)
 
 function cf(ticket, id) {
   const field = (ticket.custom_fields || []).find((item) => String(item.id) === String(id))
@@ -56,11 +55,11 @@ function isNldTicket(ticket) {
   return !!String(cf(ticket, NLD_FIELD_ID) || '').trim()
 }
 
-function isMajorOutageTicket(ticket) {
+export function isMajorOutageTicket(ticket) {
   return !isNldTicket(ticket)
 }
 
-async function fetchActiveMajorOutages() {
+export async function fetchActiveMajorOutages() {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set('query', `group:${OUTAGE_GROUP_ID} form:"${OUTAGE_FORM_NAME}" status<solved`)
   url.searchParams.set('filter[type]', 'ticket')
@@ -70,7 +69,7 @@ async function fetchActiveMajorOutages() {
   return data.results || []
 }
 
-async function fetchRecentlyUpdatedMajorOutages(resolvedLookbackHours) {
+export async function fetchRecentlyUpdatedMajorOutages(resolvedLookbackHours) {
   const url = new URL(`https://${ZENDESK_SUBDOMAIN}.zendesk.com/api/v2/search/export.json`)
   url.searchParams.set(
     'query',
@@ -83,7 +82,7 @@ async function fetchRecentlyUpdatedMajorOutages(resolvedLookbackHours) {
   return data.results || []
 }
 
-function buildSummary(ticket, now) {
+export function buildSummary(ticket, now) {
   const created = dayjs(ticket.created_at)
   const updated = dayjs(ticket.updated_at)
   const ageHours = created.isValid() ? now.diff(created, 'hour', true) : NaN
@@ -144,25 +143,6 @@ function buildBreachAlertMessage(tickets, thresholdHours, templates) {
     if (ticket.serviceType) lines.push(`Service type: ${ticket.serviceType}`)
     lines.push(`Last update: ${formatLastUpdate(ticket)}`)
     if (templates.breachAction) lines.push(`Action: ${templates.breachAction}`)
-    lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
-    lines.push('')
-  })
-
-  return lines.join('\n')
-}
-
-function buildResolvedAlertMessage(tickets, templates) {
-  if (!tickets.length) return null
-
-  const lines = [`${templates.resolvedTitle} | ${formatPlural(tickets.length, 'cleared item')}`, '']
-
-  tickets.forEach((ticket) => {
-    lines.push(
-      `#${ticket.id} | ${ticket.region} | ${ticket.subscriberImpact} subs | ${formatAgeHours(ticket.totalHours)} total`
-    )
-    if (ticket.subject) lines.push(`Subject: ${ticket.subject}`)
-    if (ticket.serviceType) lines.push(`Service type: ${ticket.serviceType}`)
-    lines.push(`Last update: ${formatLastUpdate(ticket)}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
   })
@@ -246,8 +226,8 @@ export function startMajorOutageWatcher(sendSlaAlert) {
       const now = dayjs()
       const activeTickets = await fetchActiveMajorOutages()
       const fresh = []
-      const breachesByThreshold = new Map()
-      config.breachThresholdsHours.forEach((threshold) => breachesByThreshold.set(threshold, []))
+      const immediateBreachHours = config.breachThresholdsHours[0] || 4
+      const immediateBreaches = []
 
       for (const ticket of activeTickets) {
         if (!isMajorOutageTicket(ticket)) continue
@@ -268,18 +248,16 @@ export function startMajorOutageWatcher(sendSlaAlert) {
           }
         }
 
-        for (const threshold of config.breachThresholdsHours) {
-          if (summary.ageHours >= threshold) {
-            const key = `major-outage-breach-${threshold}-${ticket.id}`
-            if (await shouldSendAlert(warnedBreach, {
-              dedupeKey: key,
-              watcherKey: 'major_outage',
-              alertType: `breach_${threshold}h`,
-              entityId: ticket.id,
-              payload: { status: summary.status, updatedAt: summary.updated_at, region: summary.region }
-            })) {
-              breachesByThreshold.get(threshold).push(summary)
-            }
+        if (summary.ageHours >= immediateBreachHours) {
+          const key = `major-outage-breach-${immediateBreachHours}-${ticket.id}`
+          if (await shouldSendAlert(warnedBreach, {
+            dedupeKey: key,
+            watcherKey: 'major_outage',
+            alertType: `breach_${immediateBreachHours}h`,
+            entityId: ticket.id,
+            payload: { status: summary.status, updatedAt: summary.updated_at, region: summary.region }
+          })) {
+            immediateBreaches.push(summary)
           }
         }
       }
@@ -290,37 +268,10 @@ export function startMajorOutageWatcher(sendSlaAlert) {
         await sendMajorOutage(newMessage)
       }
 
-      for (const threshold of config.breachThresholdsHours) {
-        const message = buildBreachAlertMessage(breachesByThreshold.get(threshold) || [], threshold, config.templates)
-        if (message) {
-          console.log(`[MAJOR OUTAGE WATCHER] Sending WhatsApp major outage breach ${threshold}h alert`)
-          await sendMajorOutage(message)
-        }
-      }
-
-      const updatedTickets = await fetchRecentlyUpdatedMajorOutages(config.resolvedLookbackHours)
-      const resolved = []
-
-      for (const ticket of updatedTickets) {
-        if (!isMajorOutageTicket(ticket) || !isSolvedStatus(ticket.status)) continue
-
-        const summary = buildSummary(ticket, now)
-        const key = `major-outage-resolved-${ticket.id}-solved`
-        const shouldSend = await shouldSendAlert(warnedResolved, {
-          dedupeKey: key,
-          watcherKey: 'major_outage',
-          alertType: 'resolved',
-          entityId: ticket.id,
-          payload: { status: summary.status, updatedAt: summary.updated_at, region: summary.region }
-        })
-        if (!shouldSend) continue
-        resolved.push(summary)
-      }
-
-      const resolvedMessage = buildResolvedAlertMessage(resolved, config.templates)
-      if (resolvedMessage) {
-        console.log('[MAJOR OUTAGE WATCHER] Sending WhatsApp resolved major outage alert')
-        await sendMajorOutage(resolvedMessage)
+      const breachMessage = buildBreachAlertMessage(immediateBreaches, immediateBreachHours, config.templates)
+      if (breachMessage) {
+        console.log(`[MAJOR OUTAGE WATCHER] Sending WhatsApp major outage breach ${immediateBreachHours}h alert`)
+        await sendMajorOutage(breachMessage)
       }
     } catch (error) {
       console.error('[MAJOR OUTAGE WATCHER] Tick error:', error?.message || error)

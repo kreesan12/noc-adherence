@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-09-08
+
+### WhatsApp NLD Operations Delivery
+
+- Reworked the NLD-group WhatsApp flow around exceptions and one scheduled position digest instead of a continuous stream of aging and closure messages.
+- Immediate NLD, backhaul, and major-outage messages now focus on:
+  - newly logged work
+  - the first configured SLA breach (normally four hours)
+  - partial-NLD clusters and partial events not linked to an outage
+- Suppressed repeated `8h`, `12h`, and `24h` aging notifications and individual routine closure messages for those operational lanes.
+- Added a database-configured NLD operations digest, hourly by default, combining:
+  - open NLD, backhaul, and major-outage counts
+  - impact and four-hour breach counts
+  - all-lane aging buckets
+  - partial-NLD pressure
+  - a capped oldest-open list
+  - closure counts for the completed interval
+- Digest messages intentionally do not mention/tag group members. NLD admin controls now expose digest enablement, interval, item cap, and wording.
+
 ## 2026-08-21
 
 ### Public Rating Gateway
