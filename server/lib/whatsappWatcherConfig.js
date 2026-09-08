@@ -140,10 +140,7 @@ function buildDefaultConfig() {
         resolvedTitle: 'Resolved since last digest',
         digestTitle: 'Operations position',
         partialClusterTitle: 'Partial NLD cluster detected',
-        partialNotLoggedTitle: 'Partial NLD not linked to outage',
-        breachAction: 'escalate and request outage update',
-        partialClusterAction: 'validate common cause and log or link outage if needed',
-        partialNotLoggedAction: 'log outage or link to existing outage'
+        partialNotLoggedTitle: 'Partial NLD not linked to outage'
       }
     },
     backhaul: {
@@ -164,9 +161,7 @@ function buildDefaultConfig() {
       templates: {
         newTitle: 'Backhaul alert',
         breachTitle: 'Backhaul aging breach',
-        resolvedTitle: 'Backhaul resolved',
-        newAction: 'validate backhaul impact and update stakeholders',
-        breachAction: 'chase update or escalate carrier follow-up'
+        resolvedTitle: 'Backhaul resolved'
       }
     },
     majorOutage: {
@@ -186,9 +181,7 @@ function buildDefaultConfig() {
       templates: {
         newTitle: 'Major outage logged',
         breachTitle: 'Major outage aging breach',
-        resolvedTitle: 'Major outage resolved',
-        newAction: 'validate customer impact and keep stakeholders updated',
-        breachAction: 'chase outage update or escalate restoration actions'
+        resolvedTitle: 'Major outage resolved'
       }
     },
     vip: {
@@ -253,10 +246,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
         resolvedTitle: parseOptionalString(source.nld?.templates?.resolvedTitle, defaults.nld.templates.resolvedTitle, 180),
         digestTitle: parseOptionalString(source.nld?.templates?.digestTitle, defaults.nld.templates.digestTitle, 180),
         partialClusterTitle: parseOptionalString(source.nld?.templates?.partialClusterTitle, defaults.nld.templates.partialClusterTitle, 180),
-        partialNotLoggedTitle: parseOptionalString(source.nld?.templates?.partialNotLoggedTitle, defaults.nld.templates.partialNotLoggedTitle, 180),
-        breachAction: parseOptionalString(source.nld?.templates?.breachAction, defaults.nld.templates.breachAction, 220),
-        partialClusterAction: parseOptionalString(source.nld?.templates?.partialClusterAction, defaults.nld.templates.partialClusterAction, 220),
-        partialNotLoggedAction: parseOptionalString(source.nld?.templates?.partialNotLoggedAction, defaults.nld.templates.partialNotLoggedAction, 220)
+        partialNotLoggedTitle: parseOptionalString(source.nld?.templates?.partialNotLoggedTitle, defaults.nld.templates.partialNotLoggedTitle, 180)
       }
     },
     backhaul: {
@@ -271,9 +261,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
       templates: {
         newTitle: parseOptionalString(source.backhaul?.templates?.newTitle, defaults.backhaul.templates.newTitle, 180),
         breachTitle: parseOptionalString(source.backhaul?.templates?.breachTitle, defaults.backhaul.templates.breachTitle, 180),
-        resolvedTitle: parseOptionalString(source.backhaul?.templates?.resolvedTitle, defaults.backhaul.templates.resolvedTitle, 180),
-        newAction: parseOptionalString(source.backhaul?.templates?.newAction, defaults.backhaul.templates.newAction, 220),
-        breachAction: parseOptionalString(source.backhaul?.templates?.breachAction, defaults.backhaul.templates.breachAction, 220)
+        resolvedTitle: parseOptionalString(source.backhaul?.templates?.resolvedTitle, defaults.backhaul.templates.resolvedTitle, 180)
       }
     },
     majorOutage: {
@@ -287,9 +275,7 @@ function sanitizeConfig(input = {}, defaults = buildDefaultConfig()) {
       templates: {
         newTitle: parseOptionalString(source.majorOutage?.templates?.newTitle, defaults.majorOutage.templates.newTitle, 180),
         breachTitle: parseOptionalString(source.majorOutage?.templates?.breachTitle, defaults.majorOutage.templates.breachTitle, 180),
-        resolvedTitle: parseOptionalString(source.majorOutage?.templates?.resolvedTitle, defaults.majorOutage.templates.resolvedTitle, 180),
-        newAction: parseOptionalString(source.majorOutage?.templates?.newAction, defaults.majorOutage.templates.newAction, 220),
-        breachAction: parseOptionalString(source.majorOutage?.templates?.breachAction, defaults.majorOutage.templates.breachAction, 220)
+        resolvedTitle: parseOptionalString(source.majorOutage?.templates?.resolvedTitle, defaults.majorOutage.templates.resolvedTitle, 180)
       }
     },
     vip: {
@@ -378,7 +364,7 @@ export async function saveWhatsappWatcherConfig(input, updatedBy = null) {
 export const WHATSAPP_WATCHER_CONFIG_META = {
   key: CONFIG_KEY,
   refreshBehavior: 'Changes apply on the next watcher poll on the automation server.',
-  templateScope: 'Template fields currently control alert titles, reasons, and action lines while keeping the body layout standardized for readability.',
+  templateScope: 'Template fields control watcher headings and wording while keeping the body layout standardized for readability.',
   routingScope: 'Each watcher can route to one or more WhatsApp groups. Paste one JID per line or use the live group directory below.',
   defaultGroupId: DEFAULT_ROUTE_GROUP_ID,
   defaultGroupNote: 'If a watcher has no explicit group list configured, WhatsApp sends fall back to this default route.'

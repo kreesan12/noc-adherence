@@ -162,7 +162,6 @@ function buildBreachMsg(tickets, breachHours, templates) {
     if (ticket.subject) lines.push(`Subject: ${compactText(ticket.subject)}`)
     const liquid = buildLiquidSummary(ticket)
     if (liquid) lines.push(`Liquid: ${liquid}`)
-    if (templates.breachAction) lines.push(`Action: ${templates.breachAction}`)
     lines.push(`Link: ${zendeskAgentTicketLink(ZENDESK_SUBDOMAIN, ticket.id)}`)
     lines.push('')
   })
@@ -394,7 +393,7 @@ export async function buildCurrentNldOperationsDigest({ now = dayjs(), watcherCo
   }
 }
 
-function buildPartialClusterMsg(clusters, { title, clusterWindowHours, action }) {
+function buildPartialClusterMsg(clusters, { title, clusterWindowHours }) {
   if (!clusters.length) return null
 
   const lines = [`${title} | ${formatPlural(clusters.length, 'route')}`, '']
@@ -404,7 +403,6 @@ function buildPartialClusterMsg(clusters, { title, clusterWindowHours, action })
     lines.push(cluster.routeKey)
     lines.push(`Events: ${cluster.events.length} in ${clusterWindowHours}h | Unique circuits: ${circuitCount}`)
     lines.push(`Latest ticket: #${cluster.last.ticketId} | ${formatTimestamp(cluster.last.created_at)}`)
-    if (action) lines.push(`Action: ${action}`)
     lines.push(`Link: ${cluster.last.ticketUrl}`)
     lines.push('')
   })
@@ -412,7 +410,7 @@ function buildPartialClusterMsg(clusters, { title, clusterWindowHours, action })
   return lines.join('\n')
 }
 
-function buildPartialNotLoggedMsg(events, { title, action }) {
+function buildPartialNotLoggedMsg(events, { title }) {
   if (!events.length) return null
 
   const lines = [`${title} | ${formatPlural(events.length, 'active item')}`, '']
@@ -420,7 +418,6 @@ function buildPartialNotLoggedMsg(events, { title, action }) {
   events.forEach((event) => {
     lines.push(`#${event.ticketId} | ${event.eventGroup} | ${event.nldRoute || event.partialCircuit || 'Route unknown'}`)
     lines.push(`Age: ${formatAgeMinutes(event.ageMinutes)} | Circuit: ${event.circuit}`)
-    if (action) lines.push(`Action: ${action}`)
     lines.push(`Link: ${event.ticketUrl}`)
     lines.push('')
   })
@@ -609,8 +606,7 @@ export function startNldOutageWatcher(sendSlaAlert, isWhatsAppReady = () => true
 
       const clusterMsg = buildPartialClusterMsg(clusters, {
         title: config.templates.partialClusterTitle,
-        clusterWindowHours: config.clusterWindowHours,
-        action: config.templates.partialClusterAction
+        clusterWindowHours: config.clusterWindowHours
       })
 
       if (clusterMsg) {
@@ -636,8 +632,7 @@ export function startNldOutageWatcher(sendSlaAlert, isWhatsAppReady = () => true
       }
 
       const notLoggedMsg = buildPartialNotLoggedMsg(notLogged, {
-        title: config.templates.partialNotLoggedTitle,
-        action: config.templates.partialNotLoggedAction
+        title: config.templates.partialNotLoggedTitle
       })
 
       if (notLoggedMsg) {

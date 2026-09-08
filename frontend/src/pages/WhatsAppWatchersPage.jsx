@@ -1034,24 +1034,6 @@ export default function WhatsAppWatchersPage() {
                       value={draft.nld.templates.partialNotLoggedTitle}
                       onChange={(event) => setTemplateField('nld', 'partialNotLoggedTitle', event.target.value)}
                     />
-                    <TextField
-                      size="small"
-                      label="Breach action line"
-                      value={draft.nld.templates.breachAction}
-                      onChange={(event) => setTemplateField('nld', 'breachAction', event.target.value)}
-                    />
-                    <TextField
-                      size="small"
-                      label="Cluster action line"
-                      value={draft.nld.templates.partialClusterAction}
-                      onChange={(event) => setTemplateField('nld', 'partialClusterAction', event.target.value)}
-                    />
-                    <TextField
-                      size="small"
-                      label="Not-logged action line"
-                      value={draft.nld.templates.partialNotLoggedAction}
-                      onChange={(event) => setTemplateField('nld', 'partialNotLoggedAction', event.target.value)}
-                    />
                       </TemplateGrid>
                     </Stack>
                   </Collapse>
@@ -1217,18 +1199,6 @@ export default function WhatsAppWatchersPage() {
                       value={draft.backhaul.templates.resolvedTitle}
                       onChange={(event) => setTemplateField('backhaul', 'resolvedTitle', event.target.value)}
                     />
-                    <TextField
-                      size="small"
-                      label="New alert action line"
-                      value={draft.backhaul.templates.newAction}
-                      onChange={(event) => setTemplateField('backhaul', 'newAction', event.target.value)}
-                    />
-                    <TextField
-                      size="small"
-                      label="Breach action line"
-                      value={draft.backhaul.templates.breachAction}
-                      onChange={(event) => setTemplateField('backhaul', 'breachAction', event.target.value)}
-                    />
                       </TemplateGrid>
                     </Stack>
                   </Collapse>
@@ -1386,18 +1356,6 @@ export default function WhatsAppWatchersPage() {
                       label="Resolved alert title"
                       value={draft.majorOutage.templates.resolvedTitle}
                       onChange={(event) => setTemplateField('majorOutage', 'resolvedTitle', event.target.value)}
-                    />
-                    <TextField
-                      size="small"
-                      label="New alert action line"
-                      value={draft.majorOutage.templates.newAction}
-                      onChange={(event) => setTemplateField('majorOutage', 'newAction', event.target.value)}
-                    />
-                    <TextField
-                      size="small"
-                      label="Breach action line"
-                      value={draft.majorOutage.templates.breachAction}
-                      onChange={(event) => setTemplateField('majorOutage', 'breachAction', event.target.value)}
                     />
                       </TemplateGrid>
                     </Stack>
