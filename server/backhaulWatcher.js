@@ -40,7 +40,10 @@ function makeHeaders() {
 // records belong in the Major Outage/NLD lanes, not as a second backhaul item.
 export function isStandaloneBackhaulTicket(ticket) {
   const tags = new Set((ticket?.tags || []).map((tag) => String(tag || '').toLowerCase()))
-  return !tags.has('outage_new_internal') && !tags.has('outage_new_external')
+  const subject = String(ticket?.subject || '').toUpperCase()
+  const isFlappingOrIntermittent = subject.includes('FLAP') || subject.includes('INTERMITTENT')
+
+  return !tags.has('outage_new_internal') && !tags.has('outage_new_external') && !isFlappingOrIntermittent
 }
 
 export async function fetchActiveBackhaulTickets(tag) {

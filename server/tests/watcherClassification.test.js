@@ -17,3 +17,9 @@ test('ordinary NLD and standalone backhaul tickets remain separated', () => {
   assert.equal(isMajorOutageTicket({ subject: 'NLD | CPT | Route Down', tags: [] }), false)
   assert.equal(isStandaloneBackhaulTicket({ subject: 'Backhaul down', tags: ['iris_backhaul_down'] }), true)
 })
+
+test('backhaul watcher excludes flap and intermittent ticket subjects', () => {
+  assert.equal(isStandaloneBackhaulTicket({ subject: 'Backhaul FLAP at JHB', tags: ['iris_backhaul_down'] }), false)
+  assert.equal(isStandaloneBackhaulTicket({ subject: 'CPT backhaul intermittent loss', tags: ['iris_backhaul_down'] }), false)
+  assert.equal(isStandaloneBackhaulTicket({ subject: 'Backhaul down', tags: ['iris_backhaul_down'] }), true)
+})
