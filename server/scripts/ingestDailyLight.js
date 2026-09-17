@@ -551,14 +551,18 @@ async function run() {
     console.log(`Upserted ${inserted} rows from ${filename}.`)
     console.log(`Skipped: blank_rx=${skippedBlank}, no_code=${skippedNoCode}, no_circuit=${skippedNoCircuit}, ambiguous_side=${skippedAmbiguous}`)
 
-    try {
-      const ticketSummary = await syncStagedZendeskTickets(prisma)
-      console.log(
-        `Ticket staging synced: created=${ticketSummary.created}, escalated=${ticketSummary.escalated}, ` +
-        `updated=${ticketSummary.updated}, skipped=${ticketSummary.skipped}`
-      )
-    } catch (ticketErr) {
-      console.warn('Ticket staging sync failed after daily light ingest:', ticketErr?.message || ticketErr)
+    if (process.env.SKIP_TICKET_STAGING === '1') {
+      console.log('Ticket staging skipped for backfill run.')
+    } else {
+      try {
+        const ticketSummary = await syncStagedZendeskTickets(prisma)
+        console.log(
+          `Ticket staging synced: created=${ticketSummary.created}, escalated=${ticketSummary.escalated}, ` +
+          `updated=${ticketSummary.updated}, skipped=${ticketSummary.skipped}`
+        )
+      } catch (ticketErr) {
+        console.warn('Ticket staging sync failed after daily light ingest:', ticketErr?.message || ticketErr)
+      }
     }
   } catch (err) {
     await cx.query('ROLLBACK')
