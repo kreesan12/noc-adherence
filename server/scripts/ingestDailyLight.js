@@ -196,6 +196,16 @@ const RX_PATTERNS = [
   /FRG[A-Z0-9_-]+/gi        // FRG... (loose)
 ]
 
+// A small number of physical links share a single source circuit code. Their
+// ADVA service class is the stable discriminator in the daily report. Keep
+// this routing explicit so the normal code lookup remains unchanged elsewhere.
+const DEVICE_SPLIT_CIRCUITS = {
+  '027PORT292013461681': {
+    high: '027PORT292013461681 - 1',
+    med: '027PORT292013461681 - 2'
+  }
+}
+
 function extractCodesFromText(text) {
   const s = String(text || '')
     // remove parenthetical suffixes like (Pair2)
@@ -216,6 +226,16 @@ function extractCodesFromText(text) {
     }
   }
   return Array.from(found)
+}
+
+function getDeviceSplitCircuitId(rowCodes, mnemonic = '', router = '') {
+  const sharedCode = rowCodes.find(code => DEVICE_SPLIT_CIRCUITS[code])
+  if (!sharedCode) return null
+
+  const sourceText = `${mnemonic} ${router}`.toUpperCase()
+  if (/\(V-HIGH\)|\(HIGH\)/.test(sourceText)) return DEVICE_SPLIT_CIRCUITS[sharedCode].high
+  if (/\(MED\)/.test(sourceText)) return DEVICE_SPLIT_CIRCUITS[sharedCode].med
+  return null
 }
 
 const norm = (s) => (s || '')
@@ -451,7 +471,13 @@ async function run() {
 
       // Find first code that maps to a circuit
       let circuit = null, matchedCode = null
+      const deviceSplitCircuitId = getDeviceSplitCircuitId(rowCodes, mnemonic, router)
+      if (deviceSplitCircuitId) {
+        circuit = byIdOrCode.get(deviceSplitCircuitId) || null
+        matchedCode = rowCodes.find(code => DEVICE_SPLIT_CIRCUITS[code]) || null
+      }
       for (const code of rowCodes) {
+        if (circuit) break
         const c = byIdOrCode.get(code) || byIdOrCode.get(String(code).toUpperCase())
         if (c) { circuit = c; matchedCode = code; break }
       }
