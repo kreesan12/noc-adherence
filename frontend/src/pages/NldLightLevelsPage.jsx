@@ -1,10 +1,10 @@
 // frontend/src/pages/NldLightLevelsPage.jsx
-import { useEffect, useState, useMemo } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import dayjs from 'dayjs'
 import {
   Box, Paper, Typography, IconButton, Tooltip, Stack,
   TextField, Button, Drawer, Accordion, AccordionSummary,
-  AccordionDetails, Chip, Divider
+  AccordionDetails, Alert, Chip, CircularProgress, Divider
 } from '@mui/material'
 import { DataGrid, GridToolbar } from '@mui/x-data-grid'
 import EditNoteIcon from '@mui/icons-material/EditNote'
@@ -17,6 +17,10 @@ import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import {
+  CartesianGrid, Legend, Line, LineChart, ReferenceLine,
+  ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis
+} from 'recharts'
 import { useAuth } from '../context/AuthContext'
 import { canAccessEngineering } from '../utils/access'
 import api from '../api'
@@ -134,15 +138,220 @@ function orderCircuitsChain(list) {
   return result
 }
 
+const asNumber = (value) => {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+const formatLevel = (value) => value == null || !Number.isFinite(Number(value))
+  ? '—'
+  : `${Number(value).toFixed(1)} dBm`
+
+const formatWhen = (value, fallback = 'Not recorded') => value
+  ? dayjs(value).format('DD MMM YYYY, HH:mm')
+  : fallback
+
+function DetailMetric({ label, value, accent = '#2563eb', helper }) {
+  return (
+    <Box sx={{ border: '1px solid', borderColor: 'divider', borderTop: `3px solid ${accent}`, borderRadius: 1.5, p: 1.1, minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {label}
+      </Typography>
+      <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.3, overflowWrap: 'anywhere' }}>{value}</Typography>
+      {helper && <Typography variant="caption" color="text.secondary">{helper}</Typography>}
+    </Box>
+  )
+}
+
+const InitialValuesDrawer = memo(function InitialValuesDrawer({ circuit, onClose, onSave }) {
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!circuit) return
+    setForm({
+      id: circuit.id,
+      circuitId: circuit.circuitId,
+      rxA: circuit.initRxSiteA ?? circuit.initial?.rxSiteA ?? '',
+      rxB: circuit.initRxSiteB ?? circuit.initial?.rxSiteB ?? '',
+      reason: '',
+      changedAt: dayjs()
+    })
+  }, [circuit])
+
+  const setField = (field, value) => setForm(current => ({ ...current, [field]: value }))
+  const save = async () => {
+    if (!form || saving) return
+    setSaving(true)
+    try {
+      await onSave(form)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Drawer anchor="right" open={Boolean(circuit)} onClose={onClose} ModalProps={{ sx: { zIndex: 2400 } }} slotProps={{ paper: { sx: { width: { xs: '100vw', sm: 370 }, pt: 6 } } }}>
+      <Box p={2.5}>
+        <Typography variant="subtitle1" fontWeight={800} mb={0.5}>Edit Initial Values</Typography>
+        <Typography variant="body2" sx={{ mb: 2, opacity: 0.75, overflowWrap: 'anywhere' }}>{form?.circuitId || ''}</Typography>
+        <Alert severity="info" sx={{ mb: 2, fontSize: 12 }}>Edits are kept locally while you type, so the large circuit tables do not re-render on each keystroke.</Alert>
+        <Stack spacing={1.5}>
+          <TextField label="Initial Rx A (dBm)" value={form?.rxA ?? ''} onChange={event => setField('rxA', event.target.value)} inputProps={{ inputMode: 'decimal' }} autoFocus />
+          <TextField label="Initial Rx B (dBm)" value={form?.rxB ?? ''} onChange={event => setField('rxB', event.target.value)} inputProps={{ inputMode: 'decimal' }} />
+          <TextField label="Reason" value={form?.reason ?? ''} onChange={event => setField('reason', event.target.value)} multiline minRows={2} placeholder="e.g. corrected baseline after validation" />
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DateTimePicker label="Changed at" value={form?.changedAt ?? null} onChange={value => setField('changedAt', value)} slotProps={{ textField: { helperText: 'Timestamp to store for the baseline override' } }} />
+          </LocalizationProvider>
+          <Stack direction="row" spacing={1}>
+            <Button variant="contained" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+            <Button onClick={onClose} disabled={saving}>Cancel</Button>
+          </Stack>
+        </Stack>
+      </Box>
+    </Drawer>
+  )
+})
+
+const ManualEventDrawer = memo(function ManualEventDrawer({ circuit, onClose, onSave }) {
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!circuit) return
+    const currA = circuit.displayRxA ?? circuit.currentRxSiteA ?? ''
+    const currB = circuit.displayRxB ?? circuit.currentRxSiteB ?? ''
+    setForm({ id: circuit.id, circuitId: circuit.circuitId, ticketId: '', impactType: 'Manual', impactHours: '', eventDate: dayjs(), sideAPrev: currA, sideACurr: currA, sideBPrev: currB, sideBCurr: currB, reason: 'manual light event' })
+  }, [circuit])
+
+  const setField = (field, value) => setForm(current => ({ ...current, [field]: value }))
+  const save = async () => {
+    if (!form || saving) return
+    setSaving(true)
+    try {
+      await onSave(form)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Drawer anchor="right" open={Boolean(circuit)} onClose={onClose} ModalProps={{ sx: { zIndex: 2400 } }} slotProps={{ paper: { sx: { width: { xs: '100vw', sm: 390 }, pt: 6 } } }}>
+      <Box p={2.5}>
+        <Typography variant="subtitle1" fontWeight={800} mb={0.5}>Insert Manual Event</Typography>
+        <Typography variant="body2" sx={{ mb: 2, opacity: 0.75, overflowWrap: 'anywhere' }}>{form?.circuitId || ''}</Typography>
+        <Stack spacing={1.5}>
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DateTimePicker label="Event date/time" value={form?.eventDate ?? null} onChange={value => setField('eventDate', value)} />
+          </LocalizationProvider>
+          <TextField label="Ticket ID (optional)" value={form?.ticketId ?? ''} onChange={event => setField('ticketId', event.target.value)} inputProps={{ inputMode: 'numeric' }} />
+          <TextField label="Impact type" value={form?.impactType ?? ''} onChange={event => setField('impactType', event.target.value)} />
+          <TextField label="Impact hours (optional)" value={form?.impactHours ?? ''} onChange={event => setField('impactHours', event.target.value)} inputProps={{ inputMode: 'decimal' }} />
+          <Stack direction="row" spacing={1}><TextField label="Side A before" value={form?.sideAPrev ?? ''} onChange={event => setField('sideAPrev', event.target.value)} fullWidth /><TextField label="Side A after" value={form?.sideACurr ?? ''} onChange={event => setField('sideACurr', event.target.value)} fullWidth /></Stack>
+          <Stack direction="row" spacing={1}><TextField label="Side B before" value={form?.sideBPrev ?? ''} onChange={event => setField('sideBPrev', event.target.value)} fullWidth /><TextField label="Side B after" value={form?.sideBCurr ?? ''} onChange={event => setField('sideBCurr', event.target.value)} fullWidth /></Stack>
+          <TextField label="Reason" value={form?.reason ?? ''} onChange={event => setField('reason', event.target.value)} multiline minRows={2} />
+          <Stack direction="row" spacing={1}><Button variant="contained" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save event'}</Button><Button onClick={onClose} disabled={saving}>Cancel</Button></Stack>
+        </Stack>
+      </Box>
+    </Drawer>
+  )
+})
+
+function buildHistoryChartData(data) {
+  const points = new Map()
+  const getPoint = (value) => {
+    const timestamp = dayjs(value).valueOf()
+    if (!Number.isFinite(timestamp)) return null
+    if (!points.has(timestamp)) points.set(timestamp, { timestamp })
+    return points.get(timestamp)
+  }
+
+  for (const row of data?.dailyLevels || []) {
+    const point = getPoint(row.sampleTime)
+    if (point) point[String(row.side || '').toUpperCase() === 'A' ? 'dailyA' : 'dailyB'] = asNumber(row.rx)
+  }
+  for (const row of data?.levelHistory || []) {
+    const point = getPoint(row.changedAt)
+    if (point) {
+      point.baselineA = asNumber(row.rxSiteA)
+      point.baselineB = asNumber(row.rxSiteB)
+    }
+  }
+  for (const row of data?.lightEvents || []) {
+    const point = getPoint(row.eventDate)
+    if (point) {
+      point.eventA = asNumber(row.sideACurr)
+      point.eventB = asNumber(row.sideBCurr)
+      point.event = row
+    }
+  }
+  return [...points.values()].sort((a, b) => a.timestamp - b.timestamp)
+}
+
+function HistoryDrawer({ history, onClose }) {
+  const loading = Boolean(history?.loading)
+  const circuit = history?.circuit
+  const data = history?.data
+  const chartData = useMemo(() => buildHistoryChartData(data), [data])
+  const daily = data?.dailyLevels || []
+  const adjustments = [...(data?.levelHistory || [])].sort((a, b) => dayjs(b.changedAt).valueOf() - dayjs(a.changedAt).valueOf())
+  const events = [...(data?.lightEvents || [])].sort((a, b) => dayjs(b.eventDate).valueOf() - dayjs(a.eventDate).valueOf())
+  const initial = adjustments.find(row => row.reason === 'initial import') || adjustments.find(row => row.source === 'initial-values-ui') || adjustments[adjustments.length - 1]
+  const latest = chartData[chartData.length - 1]
+  const latestA = latest?.dailyA ?? latest?.eventA ?? latest?.baselineA ?? null
+  const latestB = latest?.dailyB ?? latest?.eventB ?? latest?.baselineB ?? null
+  const deltaA = asNumber(latestA) == null || asNumber(initial?.rxSiteA) == null ? null : asNumber(latestA) - asNumber(initial.rxSiteA)
+  const deltaB = asNumber(latestB) == null || asNumber(initial?.rxSiteB) == null ? null : asNumber(latestB) - asNumber(initial.rxSiteB)
+
+  return (
+    <Drawer anchor="right" open={Boolean(history)} onClose={onClose} ModalProps={{ sx: { zIndex: 2400 } }} slotProps={{ paper: { sx: { width: { xs: '100vw', md: 920 }, maxWidth: '100vw', pt: 6, bgcolor: '#f8fafc' } } }}>
+      <Box sx={{ p: { xs: 1.5, md: 2.5 }, overflowY: 'auto' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ mb: 2 }}>
+          <Box><Typography variant="h6" fontWeight={850}>Circuit level story</Typography><Typography color="text.secondary" variant="body2">{circuit ? `${circuit.circuitId} · ${circuit.nodeA} → ${circuit.nodeB}` : 'Loading circuit history…'}</Typography></Box>
+          {circuit?.nldGroup && <Chip label={circuit.nldGroup} color="primary" variant="outlined" sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }} />}
+        </Stack>
+
+        {loading && <Stack alignItems="center" spacing={1} sx={{ py: 8 }}><CircularProgress /><Typography color="text.secondary">Loading levels, events, and daily tracking…</Typography></Stack>}
+        {!loading && history?.error && <Alert severity="error">{history.error}</Alert>}
+        {!loading && data && <>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1, mb: 2 }}>
+            <DetailMetric label="Initial A" value={formatLevel(initial?.rxSiteA)} accent="#64748b" helper={formatWhen(initial?.changedAt)} />
+            <DetailMetric label="Latest A" value={formatLevel(latestA)} accent="#16a34a" helper={deltaA == null ? 'No comparable baseline' : `${deltaA >= 0 ? '+' : ''}${deltaA.toFixed(1)} dBm from initial`} />
+            <DetailMetric label="Initial B" value={formatLevel(initial?.rxSiteB)} accent="#64748b" helper={formatWhen(initial?.changedAt)} />
+            <DetailMetric label="Latest B" value={formatLevel(latestB)} accent="#2563eb" helper={deltaB == null ? 'No comparable baseline' : `${deltaB >= 0 ? '+' : ''}${deltaB.toFixed(1)} dBm from initial`} />
+          </Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1, mb: 2 }}>
+            <DetailMetric label="Daily samples" value={daily.length} accent="#0ea5e9" helper={daily.length ? `Latest ${formatWhen(daily[0]?.sampleTime)}` : 'No daily imports'} />
+            <DetailMetric label="Recorded events" value={events.length} accent="#f97316" helper={events[0] ? formatWhen(events[0].eventDate) : 'No events'} />
+            <DetailMetric label="Baseline changes" value={adjustments.length} accent="#8b5cf6" helper={adjustments[0] ? formatWhen(adjustments[0].changedAt) : 'No edits'} />
+            <DetailMetric label="Tracking window" value={chartData.length ? `${dayjs(chartData[0].timestamp).format('DD MMM')} – ${dayjs(chartData[chartData.length - 1].timestamp).format('DD MMM YYYY')}` : 'No readings'} accent="#0f766e" helper="Daily, baseline and event records" />
+          </Box>
+
+          <Paper variant="outlined" sx={{ p: { xs: 1, md: 1.5 }, mb: 2, bgcolor: '#fff' }}>
+            <Typography fontWeight={800} variant="subtitle1">Level tracking</Typography>
+            <Typography variant="caption" color="text.secondary">Solid lines are daily readings. Dashed points are baseline or manual adjustments; dotted points mark event levels.</Typography>
+            {chartData.length ? <Box sx={{ height: 350, mt: 1 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 8, right: 18, bottom: 5, left: -12 }}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={value => dayjs(value).format('DD MMM')} minTickGap={55} /><YAxis tickFormatter={value => `${value} dB`} width={58} /><RechartsTooltip labelFormatter={value => formatWhen(value)} formatter={value => formatLevel(value)} /><Legend /><Line type="monotone" dataKey="dailyA" name="Daily A" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls /><Line type="monotone" dataKey="dailyB" name="Daily B" stroke="#2563eb" strokeWidth={2} dot={false} connectNulls /><Line dataKey="baselineA" name="Baseline A" stroke="#64748b" strokeDasharray="5 4" dot={{ r: 4 }} connectNulls={false} /><Line dataKey="baselineB" name="Baseline B" stroke="#94a3b8" strokeDasharray="5 4" dot={{ r: 4 }} connectNulls={false} /><Line dataKey="eventA" name="Event A" stroke="#f97316" strokeDasharray="2 3" dot={{ r: 4 }} connectNulls={false} /><Line dataKey="eventB" name="Event B" stroke="#ef4444" strokeDasharray="2 3" dot={{ r: 4 }} connectNulls={false} />{initial?.changedAt && <ReferenceLine x={dayjs(initial.changedAt).valueOf()} stroke="#8b5cf6" strokeDasharray="4 4" label="Initial" />}</LineChart></ResponsiveContainer></Box> : <Alert severity="info" sx={{ mt: 1 }}>No level data has been recorded for this circuit yet.</Alert>}
+          </Paper>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+            <Paper variant="outlined" sx={{ p: 1.5, bgcolor: '#fff' }}><Typography fontWeight={800} mb={1}>Events & impact</Typography>{events.length ? <Stack spacing={1}>{events.map(event => <Box key={event.id} sx={{ borderLeft: '3px solid #f97316', pl: 1 }}><Stack direction="row" justifyContent="space-between" spacing={1}><Typography variant="body2" fontWeight={700}>{event.impactType || 'Light-level event'}</Typography><Typography variant="caption" color="text.secondary">{formatWhen(event.eventDate)}</Typography></Stack><Typography variant="body2">A {formatLevel(event.sideAPrev)} → {formatLevel(event.sideACurr)} · B {formatLevel(event.sideBPrev)} → {formatLevel(event.sideBCurr)}</Typography><Stack direction="row" spacing={0.75} flexWrap="wrap" mt={0.5}>{event.ticketId != null && <Chip size="small" component="a" href={`https://frogfoot.zendesk.com/agent/tickets/${event.ticketId}`} target="_blank" rel="noopener noreferrer" clickable label={`Ticket #${event.ticketId}`} />}{event.impactHours != null && <Chip size="small" label={`${event.impactHours} h impact`} />}{asNumber(event.sideADelta) != null && <Chip size="small" variant="outlined" label={`ΔA ${asNumber(event.sideADelta).toFixed(1)}`} />}{asNumber(event.sideBDelta) != null && <Chip size="small" variant="outlined" label={`ΔB ${asNumber(event.sideBDelta).toFixed(1)}`} />}</Stack></Box>)}</Stack> : <Typography variant="body2" color="text.secondary">No circuit events are recorded.</Typography>}</Paper>
+            <Paper variant="outlined" sx={{ p: 1.5, bgcolor: '#fff' }}><Typography fontWeight={800} mb={1}>Baseline & adjustment trail</Typography>{adjustments.length ? <Stack spacing={1}>{adjustments.map(row => <Box key={row.id} sx={{ borderLeft: `3px solid ${row.reason === 'initial import' ? '#64748b' : '#8b5cf6'}`, pl: 1 }}><Stack direction="row" justifyContent="space-between" spacing={1}><Typography variant="body2" fontWeight={700}>{row.reason || 'Level record'}</Typography><Typography variant="caption" color="text.secondary">{formatWhen(row.changedAt)}</Typography></Stack><Typography variant="body2">A {formatLevel(row.rxSiteA)} · B {formatLevel(row.rxSiteB)}</Typography><Typography variant="caption" color="text.secondary">Source: {row.source || 'Unknown'}</Typography></Box>)}</Stack> : <Typography variant="body2" color="text.secondary">No baseline or adjustment records are available.</Typography>}</Paper>
+          </Box>
+        </>}
+      </Box>
+    </Drawer>
+  )
+}
+
 export default function NldLightLevelsPage () {
   const { user } = useAuth()
   const canEditLevels = canAccessEngineering(user?.role)
 
   /* ── state ─────────────────────────────────────────── */
   const [rows, setRows] = useState([])
-  const [edit, setEdit] = useState(null)   // { id, circuitId, rxA, rxB, reason, changedAt }
-  const [hist, setHist] = useState(null)   // [{...levelHistory, event?:{ticketId,impactType,impactHours}}]
-  const [manualEvent, setManualEvent] = useState(null)
+  const [editCircuit, setEditCircuit] = useState(null)
+  const [hist, setHist] = useState(null)
+  const [manualEventCircuit, setManualEventCircuit] = useState(null)
   const [filters, setFilters] = useState({ nld: '', circuit: '', worseDelta: '' })
 
   /* ── helpers ──────────────────────────────────────── */
@@ -240,38 +449,23 @@ export default function NldLightLevelsPage () {
     })()
   }, [])
 
-  async function openHist (id) {
-    const { data } = await api.get(`/engineering/circuit/${id}`)
-    // Join history with lightEvents by timestamp first, then by date fallback
-    const byTs = Object.fromEntries(
-      (data.lightEvents || []).map(e => [dayjs(e.eventDate).toISOString(), e])
-    )
-    const byDate = Object.fromEntries(
-      (data.lightEvents || []).map(e => [dayjs(e.eventDate).format('YYYY-MM-DD'), e])
-    )
-    const enriched = (data.levelHistory || []).map(h => ({
-      ...h,
-      event:
-        byTs[dayjs(h.changedAt).toISOString()] ??
-        byDate[dayjs(h.changedAt).format('YYYY-MM-DD')]
-    }))
-    setHist(enriched)
+  async function openHist (circuit) {
+    setHist({ circuit, loading: true, data: null })
+    try {
+      const { data } = await api.get(`/engineering/circuit/${circuit.id}`)
+      setHist({ circuit: data, loading: false, data })
+    } catch (error) {
+      setHist({ circuit, loading: false, data: null, error: error?.message || 'Unable to load circuit history' })
+    }
   }
 
   function startEditInitialValues (r) {
-    setEdit({
-      id: r.id,
-      circuitId: r.circuitId,
-      rxA: r.initRxSiteA ?? r.initial?.rxSiteA ?? '',
-      rxB: r.initRxSiteB ?? r.initial?.rxSiteB ?? '',
-      reason: '',
-      changedAt: dayjs()
-    })
+    setEditCircuit(r)
   }
 
   const toNumOrNull = (v) => (v === '' || v == null) ? null : +v
 
-  async function saveInitialValues () {
+  async function saveInitialValues (edit) {
     await api.post(`/engineering/circuit/${edit.id}/initial-values`, {
       initialRxSiteA: toNumOrNull(edit.rxA),
       initialRxSiteB: toNumOrNull(edit.rxB),
@@ -280,28 +474,14 @@ export default function NldLightLevelsPage () {
     })
     const { data } = await api.get('/engineering/circuits')
     setRows(deriveRows(data))
-    setEdit(null)
+    setEditCircuit(null)
   }
 
   function startManualEvent (r) {
-    const currA = r.displayRxA ?? r.currentRxSiteA ?? ''
-    const currB = r.displayRxB ?? r.currentRxSiteB ?? ''
-    setManualEvent({
-      id: r.id,
-      circuitId: r.circuitId,
-      ticketId: '',
-      impactType: 'Manual',
-      impactHours: '',
-      eventDate: dayjs(),
-      sideAPrev: currA,
-      sideACurr: currA,
-      sideBPrev: currB,
-      sideBCurr: currB,
-      reason: 'manual light event'
-    })
+    setManualEventCircuit(r)
   }
 
-  async function saveManualEvent () {
+  async function saveManualEvent (manualEvent) {
     await api.post(`/engineering/circuit/${manualEvent.id}/light-event`, {
       ticketId: manualEvent.ticketId === '' ? null : Number(manualEvent.ticketId),
       impactType: manualEvent.impactType || 'Manual',
@@ -315,7 +495,7 @@ export default function NldLightLevelsPage () {
     })
     const { data } = await api.get('/engineering/circuits')
     setRows(deriveRows(data))
-    setManualEvent(null)
+    setManualEventCircuit(null)
   }
 
   const calcDelta = (init, curr) => {
@@ -636,7 +816,7 @@ export default function NldLightLevelsPage () {
           )}
           <Tooltip title="View history">
             <Stack direction="row" spacing={0.6} alignItems="center">
-              <IconButton size="small" onClick={() => openHist(p.row.id)}>
+              <IconButton size="small" onClick={() => openHist(p.row)}>
                 <HistoryIcon fontSize="inherit" />
               </IconButton>
               <Chip
@@ -754,7 +934,8 @@ export default function NldLightLevelsPage () {
         )
       })}
 
-      {/* ---------- Edit drawer ---------- */}
+      {false && <>
+      {/* Legacy drawers retained temporarily below while the isolated drawers render. */}
       <Drawer anchor="right" open={Boolean(edit)} onClose={() => setEdit(null)} ModalProps={{ sx: { zIndex: 2400 } }}>
         <Box p={2} width={300}>
           <Typography variant="subtitle1" fontWeight={800} mb={0.5}>Edit Initial Values</Typography>
@@ -950,6 +1131,11 @@ export default function NldLightLevelsPage () {
           ))}
         </Box>
       </Drawer>
+      </>}
+
+      <InitialValuesDrawer circuit={editCircuit} onClose={() => setEditCircuit(null)} onSave={saveInitialValues} />
+      <ManualEventDrawer circuit={manualEventCircuit} onClose={() => setManualEventCircuit(null)} onSave={saveManualEvent} />
+      <HistoryDrawer history={hist} onClose={() => setHist(null)} />
     </Box>
   )
 }

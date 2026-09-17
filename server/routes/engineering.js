@@ -28,8 +28,11 @@ r.get('/circuit/:id', async (req, res) => {
   const c = await prisma.circuit.findUnique({
     where: { id },
     include: {
-      levelHistory: { orderBy: { changedAt: 'desc' }, take: 20 },
-      lightEvents: { orderBy: { eventDate: 'asc' }, take: 20 } // order any way you prefer
+      // This endpoint is opened on demand by the history drawer. Keep enough
+      // samples for a useful circuit timeline without loading them for the grid.
+      levelHistory: { orderBy: { changedAt: 'desc' }, take: 100 },
+      lightEvents: { orderBy: { eventDate: 'asc' }, take: 100 },
+      dailyLevels: { orderBy: { sampleTime: 'desc' }, take: 800 }
     }
   })
   if (!c) return res.sendStatus(404)
