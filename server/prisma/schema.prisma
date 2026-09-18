@@ -252,6 +252,13 @@ model Circuit {
   currentRxSiteA Float?   @map("current_rx_site_a")
   currentRxSiteB Float?   @map("current_rx_site_b")
   nldGroup       String?  @map("nld_group")
+  irisGraphAId     String?   @map("iris_graph_a_id")
+  irisGraphBId     String?   @map("iris_graph_b_id")
+  irisGraphALabel  String?   @map("iris_graph_a_label") @db.Text
+  irisGraphBLabel  String?   @map("iris_graph_b_label") @db.Text
+  irisGraphADevice String?   @map("iris_graph_a_device")
+  irisGraphBDevice String?   @map("iris_graph_b_device")
+  irisMappingUpdatedAt DateTime? @map("iris_mapping_updated_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
