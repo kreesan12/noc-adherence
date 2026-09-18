@@ -31,29 +31,33 @@ function buildSubject(row, metrics, sides, replacementFor) {
 
 export function buildComment(row, metrics, sides, replacementFor) {
   const names = sideNames(row)
+  const worst = Math.max(...sides.map((side) => side === 'A' ? metrics.worseA : metrics.worseB))
+  const affectedSides = sides.map((side) => `Side ${side} - ${escapeHtml(names[side])}`).join(' and ')
   const rows = ['A', 'B'].map((side) => {
     const reference = side === 'A' ? metrics.initA : metrics.initB
     const current = side === 'A' ? metrics.currA : metrics.currB
     const delta = side === 'A' ? metrics.deltaA : metrics.deltaB
     const worse = side === 'A' ? metrics.worseA : metrics.worseB
     const isBreached = sides.includes(side)
-    return `<tr><td><strong>Side ${side}</strong></td><td>${escapeHtml(names[side])}</td><td>${fmt(reference)}</td><td>${fmt(current)}</td><td>${fmtDelta(delta)}${worse ? ` (${worse.toFixed(1)} dBm worse)` : ''}</td><td>${isBreached ? '<strong>BREACHED</strong><br>At least 2.0 dBm worse' : 'Within threshold'}</td></tr>`
+    return `<tr><td><strong>Side ${side}</strong></td><td>${escapeHtml(names[side])}</td><td>${fmt(reference)}</td><td>${fmt(current)}</td><td>${fmtDelta(delta)}${worse ? ` (${worse.toFixed(1)} dBm worse)` : ''}</td><td${isBreached ? ' bgcolor="#FDECEC"' : ' bgcolor="#EAF7EE"'}>${isBreached ? '<strong>BREACHED</strong><br>At least 2.0 dBm worse' : 'Within threshold'}</td></tr>`
   }).join('')
   const replacement = replacementFor
     ? `<p><strong>Linked active ticket:</strong> This replaces <a href="https://frogfoot.zendesk.com/agent/tickets/${replacementFor}">#${replacementFor}</a>, because an additional circuit side has breached. Action both together, update the vendor, then merge the older ticket into this one.</p>`
     : ''
-  const actionSides = sides.map((side) => `Side ${side} - ${escapeHtml(names[side])}`).join(' and ')
   return `<div dir="auto">
 <h2>NLD light-level drift detected</h2>
 <p><strong>Circuit ID:</strong> ${escapeHtml(row.circuitId)}<br>
 <strong>NLD group:</strong> ${escapeHtml(row.nldGroup || 'Unassigned')}<br>
 <strong>Monitoring source:</strong> IRIS OPR daily level feed<br>
 <strong>Measurement time:</strong> ${escapeHtml(row.displayAsOf || 'Not recorded')}</p>
+<table role="presentation" width="100%" cellpadding="9" cellspacing="0" border="0"><tbody><tr><td bgcolor="#FFF3CD"><strong>ACTION REQUIRED</strong><br>${affectedSides} is ${worst.toFixed(1)} dBm worse than its reference level.</td></tr></tbody></table>
+<br>
 <h3>Level comparison</h3>
-<table><thead><tr><th>Side</th><th>Node</th><th>Reference level</th><th>Current level</th><th>Change</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
-${replacement}
+<table width="100%" cellpadding="8" cellspacing="0" border="1"><thead><tr bgcolor="#F3F4F6"><th>Side</th><th>Node</th><th>Reference level</th><th>Current level</th><th>Change</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+${replacement ? `<br>${replacement}` : ''}
+<br>
 <h3>Required action</h3>
-<ol><li>Investigate ${actionSides}.</li><li>Update the relevant vendor with the findings.</li><li>Record the outcome and recovery levels on this ticket.</li></ol>
+<ol><li>Investigate ${affectedSides} and confirm the IRIS reading.</li><br><li>Engage the relevant vendor to improve the optical levels through a logged change control.</li><br><li>Monitor until the change control is logged and executed.</li><br><li>Confirm the levels have improved after the change, then record the outcome and recovery levels on this ticket.</li></ol>
 </div>`
 }
 
