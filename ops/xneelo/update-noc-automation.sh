@@ -16,4 +16,5 @@ sudo install -m 0644 "$SYSTEMD_ROOT/noc-ingest-daily-light.service" /etc/systemd
 sudo install -m 0644 "$SYSTEMD_ROOT/noc-ingest-daily-light.timer" /etc/systemd/system/noc-ingest-daily-light.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now noc-ingest-daily-light.timer
+sudo systemctl restart noc-ingest-daily-light.timer
 sudo systemctl restart noc-automation
