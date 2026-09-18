@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
+import dayjs from 'dayjs'
 import {
   MapContainer,
   TileLayer,
@@ -10,10 +11,13 @@ import {
 } from 'react-leaflet'
 import L from 'leaflet'
 import {
+  Alert,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Divider,
+  Drawer,
   FormControlLabel,
   IconButton,
   InputAdornment,
@@ -26,6 +30,16 @@ import {
   Typography
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis
+} from 'recharts'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
@@ -52,6 +66,79 @@ function haversineKm(a, b) {
 function fmtDbm(value) {
   if (value == null || value === '' || Number.isNaN(Number(value))) return '--'
   return `${Number(value).toFixed(1)} dBm`
+}
+
+function fmtWhen(value) {
+  return value ? dayjs(value).format('DD MMM YYYY, HH:mm') : 'Not recorded'
+}
+
+function buildHistoryPoints(data) {
+  const points = new Map()
+  const pointAt = (value) => {
+    const timestamp = dayjs(value).valueOf()
+    if (!Number.isFinite(timestamp)) return null
+    if (!points.has(timestamp)) points.set(timestamp, { timestamp })
+    return points.get(timestamp)
+  }
+
+  ;(data?.dailyLevels || []).forEach((row) => {
+    const point = pointAt(row.sampleTime)
+    if (point) point[String(row.side || '').toUpperCase() === 'A' ? 'dailyA' : 'dailyB'] = Number(row.rx)
+  })
+  ;(data?.lightEvents || []).forEach((row) => {
+    const point = pointAt(row.eventDate)
+    if (!point) return
+    point.eventA = row.sideACurr == null ? null : Number(row.sideACurr)
+    point.eventB = row.sideBCurr == null ? null : Number(row.sideBCurr)
+  })
+
+  return [...points.values()].sort((a, b) => a.timestamp - b.timestamp)
+}
+
+function MapHistoryDrawer({ history, onClose }) {
+  const circuit = history?.circuit
+  const data = history?.data
+  const points = useMemo(() => buildHistoryPoints(data), [data])
+  const events = [...(data?.lightEvents || [])].sort((a, b) => dayjs(b.eventDate).valueOf() - dayjs(a.eventDate).valueOf())
+  const dailies = data?.dailyLevels || []
+
+  return (
+    <Drawer anchor="right" open={Boolean(history)} onClose={onClose} ModalProps={{ sx: { zIndex: 2400 } }} slotProps={{ paper: { sx: { width: { xs: '100vw', md: 860 }, maxWidth: '100vw', pt: 6, bgcolor: '#f8fafc' } } }}>
+      <Stack spacing={2} sx={{ p: { xs: 1.5, md: 2.5 }, overflowY: 'auto' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
+          <Box>
+            <Typography variant="h6" fontWeight={850}>Circuit level history</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {circuit ? `${circuit.circuitId} · ${circuit.nodeA?.name ?? circuit.nodeA} → ${circuit.nodeB?.name ?? circuit.nodeB}` : 'Loading circuit history…'}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            {circuit?.nldGroup && <Chip label={circuit.nldGroup} color="primary" variant="outlined" />}
+            <Button onClick={onClose}>Close</Button>
+          </Stack>
+        </Stack>
+
+        {history?.loading && <Stack alignItems="center" spacing={1} sx={{ py: 8 }}><CircularProgress /><Typography color="text.secondary">Loading daily levels and events…</Typography></Stack>}
+        {!history?.loading && history?.error && <Alert severity="error">{history.error}</Alert>}
+        {!history?.loading && data && <>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Chip label={`${dailies.length} daily samples`} color="info" variant="outlined" />
+            <Chip label={`${events.length} recorded events`} color="warning" variant="outlined" />
+            <Chip label={dailies[0] ? `Latest sample ${fmtWhen(dailies[0].sampleTime)}` : 'No daily samples'} variant="outlined" />
+          </Stack>
+
+          <Box sx={{ height: 360, border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.25, bgcolor: '#fff' }}>
+            {points.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={points} margin={{ top: 8, right: 18, bottom: 5, left: -12 }}><CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" /><XAxis dataKey="timestamp" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(value) => dayjs(value).format('DD MMM')} minTickGap={55} /><YAxis tickFormatter={(value) => `${value} dBm`} width={62} /><RechartsTooltip labelFormatter={(value) => fmtWhen(value)} formatter={(value) => fmtDbm(value)} /><Legend /><Line type="monotone" dataKey="dailyA" name="Daily A" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls /><Line type="monotone" dataKey="dailyB" name="Daily B" stroke="#2563eb" strokeWidth={2} dot={false} connectNulls /><Line dataKey="eventA" name="Event A" stroke="#f97316" strokeDasharray="2 3" dot={{ r: 4 }} connectNulls={false} /><Line dataKey="eventB" name="Event B" stroke="#ef4444" strokeDasharray="2 3" dot={{ r: 4 }} connectNulls={false} /></LineChart></ResponsiveContainer> : <Alert severity="info">No level data has been recorded for this circuit yet.</Alert>}
+          </Box>
+
+          <Box>
+            <Typography variant="subtitle1" fontWeight={800} mb={0.8}>Recent events</Typography>
+            {events.length ? <Stack spacing={0.75}>{events.slice(0, 12).map((event) => <Box key={event.id} sx={{ borderLeft: '3px solid #f97316', pl: 1 }}><Typography variant="body2" fontWeight={700}>{fmtWhen(event.eventDate)} · {event.impactType || 'Event'}</Typography><Typography variant="caption" color="text.secondary">A {fmtDbm(event.sideACurr)} · B {fmtDbm(event.sideBCurr)}{event.ticketId ? ` · Ticket ${event.ticketId}` : ''}</Typography></Box>)}</Stack> : <Typography variant="body2" color="text.secondary">No events recorded.</Typography>}
+          </Box>
+        </>}
+      </Stack>
+    </Drawer>
+  )
 }
 
 function MapController({ fitBoundsCmd }) {
@@ -93,7 +180,7 @@ function DetailRow({ label, value }) {
   )
 }
 
-function CircuitDetails({ span, colour, onFit, onFitGroup }) {
+function CircuitDetails({ span, colour, onFit, onFitGroup, onOpenHistory }) {
   if (!span) {
     return (
       <Stack spacing={1.1} sx={{ p: 0.15 }}>
@@ -142,10 +229,7 @@ function CircuitDetails({ span, colour, onFit, onFitGroup }) {
         <Button variant="outlined" startIcon={<HubRoundedIcon />} onClick={onFitGroup}>
           Fit Group
         </Button>
-        <Button
-          variant="text"
-          href={`/engineering/nlds?circuit=${encodeURIComponent(span.circuitId ?? '')}&history=1`}
-        >
+        <Button variant="text" onClick={() => onOpenHistory(span)}>
           Open Level History
         </Button>
       </Stack>
@@ -160,6 +244,7 @@ export default function NldMapPage() {
   const [selectedCircuitId, setSelectedCircuitId] = useState(null)
   const [activeGroups, setActiveGroups] = useState(new Set())
   const [fitBoundsCmd, setFitBoundsCmd] = useState(null)
+  const [history, setHistory] = useState(null)
 
   useEffect(() => {
     api.get('/nlds.json')
@@ -179,7 +264,8 @@ export default function NldMapPage() {
     return palette[Math.abs(hash) % palette.length]
   }
 
-  const validLatLon = (node) => Number.isFinite(Number(node?.lat)) && Number.isFinite(Number(node?.lon))
+  const isValidCoordinate = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+  const validLatLon = (node) => isValidCoordinate(node?.lat) && isValidCoordinate(node?.lon)
   const hasBothEnds = (span) => validLatLon(span?.nodeA) && validLatLon(span?.nodeB)
 
   useEffect(() => {
@@ -271,6 +357,21 @@ export default function NldMapPage() {
 
   const setFitSpan = (span) => {
     setFitBoundsCmd({ bounds: boundsForSpan(span), method: 'fly', options: { padding: [60, 60] } })
+  }
+
+  const openHistory = async (span) => {
+    if (!span?.id) {
+      setHistory({ circuit: span, loading: false, data: null, error: 'This circuit record is not available for history yet.' })
+      return
+    }
+
+    setHistory({ circuit: span, loading: true, data: null })
+    try {
+      const { data } = await api.get(`/engineering/circuit/${span.id}`)
+      setHistory({ circuit: span, loading: false, data })
+    } catch (error) {
+      setHistory({ circuit: span, loading: false, data: null, error: error?.message || 'Unable to load circuit history' })
+    }
   }
 
   const fitAll = () => {
@@ -589,10 +690,12 @@ export default function NldMapPage() {
               colour={colour}
               onFit={() => selectedSpan && setFitSpan(selectedSpan)}
               onFitGroup={() => selectedSpan && fitGroup(selectedSpan.nldGroup ?? 'Unassigned')}
+              onOpenHistory={openHistory}
             />
           </SectionCard>
         </Box>
       </Box>
+      <MapHistoryDrawer history={history} onClose={() => setHistory(null)} />
     </PageShell>
   )
 }

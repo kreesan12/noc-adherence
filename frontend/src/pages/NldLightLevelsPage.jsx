@@ -445,17 +445,7 @@ export default function NldLightLevelsPage () {
   useEffect(() => {
     (async () => {
       const { data } = await api.get('/engineering/circuits')
-      const nextRows = deriveRows(data)
-      setRows(nextRows)
-
-      // NLD Map deep-links a selected circuit here. Load its existing level
-      // history drawer once the summary rows are available.
-      const params = new URLSearchParams(window.location.search)
-      const requestedCircuitId = params.get('circuit')
-      if (params.get('history') === '1' && requestedCircuitId) {
-        const circuit = nextRows.find((row) => row.circuitId === requestedCircuitId)
-        if (circuit) openHist(circuit)
-      }
+      setRows(deriveRows(data))
     })()
   }, [])
 

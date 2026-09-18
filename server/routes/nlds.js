@@ -31,6 +31,7 @@ r.get('/nlds.json', async (_req, res, next) => {
       const nb = resolve(circuit.nodeB)
 
       return {
+        id: circuit.id,
         circuitId: circuit.circuitId,
         nldGroup: circuit.nldGroup ?? 'Unassigned',
         techType: circuit.techType,
