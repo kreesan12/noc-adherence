@@ -144,9 +144,9 @@ function CircuitDetails({ span, colour, onFit, onFitGroup }) {
         </Button>
         <Button
           variant="text"
-          href={`/engineering/nlds?circuit=${encodeURIComponent(span.circuitId ?? '')}`}
+          href={`/engineering/nlds?circuit=${encodeURIComponent(span.circuitId ?? '')}&history=1`}
         >
-          Open Levels
+          Open Level History
         </Button>
       </Stack>
     </Stack>
