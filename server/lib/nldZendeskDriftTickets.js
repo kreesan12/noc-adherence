@@ -45,11 +45,11 @@ export function buildComment(row, metrics, sides, replacementFor) {
     ? `<p><strong>Linked active ticket:</strong> This replaces <a href="https://frogfoot.zendesk.com/agent/tickets/${replacementFor}">#${replacementFor}</a>, because an additional circuit side has breached. Action both together, update the vendor, then merge the older ticket into this one.</p>`
     : ''
   return `<div dir="auto">
-<h2>NLD light-level drift detected</h2>
+<h2>NLD light-level drift detected</h2><br>
 <p><strong>Circuit ID:</strong> ${escapeHtml(row.circuitId)}<br>
 <strong>NLD group:</strong> ${escapeHtml(row.nldGroup || 'Unassigned')}<br>
 <strong>Monitoring source:</strong> IRIS OPR daily level feed<br>
-<strong>Measurement time:</strong> ${escapeHtml(row.displayAsOf || 'Not recorded')}</p>
+<strong>Measurement time:</strong> ${escapeHtml(row.displayAsOf || 'Not recorded')}</p><br>
 <table role="presentation" width="100%" cellpadding="9" cellspacing="0" border="0"><tbody><tr><td bgcolor="#FFF3CD"><strong>ACTION REQUIRED</strong><br>${affectedSides} is ${worst.toFixed(1)} dBm worse than its reference level.</td></tr></tbody></table>
 <br>
 <h3>Level comparison</h3>
@@ -80,7 +80,7 @@ async function createTicket(row, metrics, sides, replacementFor = null) {
   const body = buildComment(row, metrics, sides, replacementFor)
   const ticket = {
     subject,
-    comment: { html_body: body, public: false },
+    comment: { html_body: body, public: true },
     ticket_form_id: formId,
     group_id: groupId,
     type: 'task',
@@ -122,7 +122,7 @@ async function recordTicket(prisma, row, metrics, sides, result, replacementFor)
     lastEvaluatedAt: new Date()
   }
   const current = await prisma.stagedZendeskTicket.findUnique({ where: { circuitId: row.id } })
-  const comment = { body: result.body, isPublic: false, eventKind: replacementFor ? 'replacement-created' : 'zendesk-created' }
+  const comment = { body: result.body, isPublic: true, eventKind: replacementFor ? 'replacement-created' : 'zendesk-created' }
   if (!current) return prisma.stagedZendeskTicket.create({ data: { ...data, circuitId: row.id, comments: { create: comment } } })
   return prisma.stagedZendeskTicket.update({ where: { id: current.id }, data: { ...data, comments: { create: comment } } })
 }
