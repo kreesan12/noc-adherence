@@ -7,6 +7,8 @@ import {
   Box,
   Button,
   Chip,
+  Divider,
+  Drawer,
   InputAdornment,
   Snackbar,
   Stack,
@@ -22,7 +24,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import RouteRoundedIcon from '@mui/icons-material/RouteRounded'
 import HubRoundedIcon from '@mui/icons-material/HubRounded'
 import ExploreRoundedIcon from '@mui/icons-material/ExploreRounded'
-import { DataGrid } from '@mui/x-data-grid'
+import SettingsEthernetRoundedIcon from '@mui/icons-material/SettingsEthernetRounded'
+import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
+import { DataGrid, GridActionsCellItem } from '@mui/x-data-grid'
 import api from '../api'
 import { FilterStrip, PageShell, SectionCard } from '../components/ui/PageScaffold'
 
@@ -35,6 +39,11 @@ const toNumberOrNull = (v) => {
 const within = (n, min, max) => n >= min && n <= max
 
 const isFiniteCoordinate = (value) => Number.isFinite(Number(value))
+
+const formatCoordinate = (value) => {
+  if (!isFiniteCoordinate(value)) return 'Not set'
+  return Number(value).toFixed(6)
+}
 
 const validateRow = (row, circuitIndex) => {
   const errors = {}
@@ -74,9 +83,32 @@ const validateRow = (row, circuitIndex) => {
 
 function matchesSearch(row, term) {
   if (!term) return true
-  const haystacks = [row.circuitId, row.nodeA, row.nodeB, row.techType, row.nldGroup]
+  const haystacks = [
+    row.circuitId, row.nodeA, row.nodeB, row.techType, row.nldGroup,
+    row.irisGraphAId, row.irisGraphBId,
+    row.irisGraphALabel, row.irisGraphBLabel,
+    row.irisGraphADevice, row.irisGraphBDevice
+  ]
   return haystacks.some((value) => String(value ?? '').toLowerCase().includes(term))
 }
+
+const irisMappingFields = [
+  'irisGraphAId', 'irisGraphALabel', 'irisGraphADevice',
+  'irisGraphBId', 'irisGraphBLabel', 'irisGraphBDevice'
+]
+
+const blankIrisMapping = {
+  irisGraphAId: '',
+  irisGraphALabel: '',
+  irisGraphADevice: '',
+  irisGraphBId: '',
+  irisGraphBLabel: '',
+  irisGraphBDevice: ''
+}
+
+const normaliseIrisMapping = (mapping) => Object.fromEntries(
+  irisMappingFields.map((field) => [field, String(mapping[field] ?? '').trim() || null])
+)
 
 export default function CircuitEditorPage() {
   const [rows, setRows] = useState([])
@@ -84,6 +116,7 @@ export default function CircuitEditorPage() {
   const [search, setSearch] = useState('')
   const [expandedGroups, setExpandedGroups] = useState({})
   const [snack, setSnack] = useState({ open: false, severity: 'success', msg: '' })
+  const [mappingDrawer, setMappingDrawer] = useState({ open: false, row: null, values: blankIrisMapping })
   const tempIdRef = useRef(-1)
 
   const fetchRows = useCallback(async () => {
@@ -167,6 +200,7 @@ export default function CircuitEditorPage() {
         nodeALon: null,
         nodeBLat: null,
         nodeBLon: null,
+        ...blankIrisMapping,
         _isNew: true
       },
       ...prev
@@ -179,7 +213,8 @@ export default function CircuitEditorPage() {
       'nldGroup',
       'nodeALat', 'nodeALon', 'nodeBLat', 'nodeBLon',
       'currentRxSiteA', 'currentRxSiteB',
-      'circuitId', 'nodeA', 'nodeB', 'techType'
+      'circuitId', 'nodeA', 'nodeB', 'techType',
+      ...irisMappingFields
     ])
     const payload = {}
     Object.keys(newRow).forEach((key) => {
@@ -238,16 +273,100 @@ export default function CircuitEditorPage() {
     setSnack({ open: true, severity: 'error', msg: error?.message || 'Validation or save error' })
   }
 
+  const openMappingDrawer = (row) => {
+    setMappingDrawer({
+      open: true,
+      row,
+      values: Object.fromEntries(irisMappingFields.map((field) => [field, row[field] ?? '']))
+    })
+  }
+
+  const closeMappingDrawer = () => {
+    setMappingDrawer({ open: false, row: null, values: blankIrisMapping })
+  }
+
+  const updateMappingValue = (field, value) => {
+    setMappingDrawer((state) => ({ ...state, values: { ...state.values, [field]: value } }))
+  }
+
+  const saveMapping = async () => {
+    const row = mappingDrawer.row
+    if (!row) return
+
+    const mapping = normaliseIrisMapping(mappingDrawer.values)
+    try {
+      if (row._isNew || row.id < 0) {
+        setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...mapping } : item)))
+        setSnack({ open: true, severity: 'success', msg: 'IRIS mapping added to the new circuit draft' })
+      } else {
+        const { data: updated } = await api.patch(`engineering/circuit/${row.id}`, mapping)
+        setRows((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)))
+        setSnack({ open: true, severity: 'success', msg: `Updated IRIS mapping for ${updated.circuitId}` })
+      }
+      closeMappingDrawer()
+    } catch (error) {
+      console.error(error)
+      setSnack({
+        open: true,
+        severity: 'error',
+        msg: error?.response?.data?.error || 'Could not save the IRIS mapping'
+      })
+    }
+  }
+
   const columns = [
     { field: 'circuitId', headerName: 'Circuit ID', minWidth: 200, flex: 1, editable: true },
-    { field: 'nodeA', headerName: 'Node A', minWidth: 160, flex: 0.78, editable: true },
-    { field: 'nodeB', headerName: 'Node B', minWidth: 160, flex: 0.78, editable: true },
+    {
+      field: 'nodeA',
+      headerName: 'Node A + coordinates',
+      minWidth: 235,
+      flex: 0.9,
+      editable: true,
+      renderCell: (params) => (
+        <Box sx={{ minWidth: 0, py: 0.45, lineHeight: 1.18 }}>
+          <Typography variant="body2" noWrap fontWeight={700}>{params.value || 'Not set'}</Typography>
+          <Typography variant="caption" noWrap color="text.secondary">
+            Lat {formatCoordinate(params.row.nodeALat)} · Lon {formatCoordinate(params.row.nodeALon)}
+          </Typography>
+        </Box>
+      )
+    },
+    {
+      field: 'nodeB',
+      headerName: 'Node B + coordinates',
+      minWidth: 235,
+      flex: 0.9,
+      editable: true,
+      renderCell: (params) => (
+        <Box sx={{ minWidth: 0, py: 0.45, lineHeight: 1.18 }}>
+          <Typography variant="body2" noWrap fontWeight={700}>{params.value || 'Not set'}</Typography>
+          <Typography variant="caption" noWrap color="text.secondary">
+            Lat {formatCoordinate(params.row.nodeBLat)} · Lon {formatCoordinate(params.row.nodeBLon)}
+          </Typography>
+        </Box>
+      )
+    },
     { field: 'techType', headerName: 'Tech Type', minWidth: 125, flex: 0.55, editable: true },
     { field: 'nldGroup', headerName: 'NLD Group', minWidth: 118, flex: 0.5, editable: true },
     { field: 'nodeALat', headerName: 'Node A Lat', type: 'number', minWidth: 128, editable: true, valueParser: toNumberOrNull },
     { field: 'nodeALon', headerName: 'Node A Lon', type: 'number', minWidth: 128, editable: true, valueParser: toNumberOrNull },
     { field: 'nodeBLat', headerName: 'Node B Lat', type: 'number', minWidth: 128, editable: true, valueParser: toNumberOrNull },
-    { field: 'nodeBLon', headerName: 'Node B Lon', type: 'number', minWidth: 128, editable: true, valueParser: toNumberOrNull }
+    { field: 'nodeBLon', headerName: 'Node B Lon', type: 'number', minWidth: 128, editable: true, valueParser: toNumberOrNull },
+    {
+      field: 'irisMapping',
+      type: 'actions',
+      headerName: 'IRIS Mapping',
+      minWidth: 128,
+      getActions: ({ row }) => [
+        <GridActionsCellItem
+          key="iris-mapping"
+          icon={<SettingsEthernetRoundedIcon />}
+          label="Edit IRIS graph mapping"
+          onClick={() => openMappingDrawer(row)}
+          showInMenu={false}
+        />
+      ]
+    }
   ]
 
   const metrics = useMemo(() => {
@@ -284,7 +403,7 @@ export default function CircuitEditorPage() {
     <PageShell
       eyebrow="Engineering"
       title="Circuit Data Cleanup"
-      description="Maintain circuit labels, grouping, and coordinates from one focused admin surface. The layout is tighter now so large NLD groups stay easier to work through at normal zoom."
+      description="Maintain circuit labels, grouping, coordinates, and IRIS graph mappings from one focused admin surface."
       accent="#2563eb"
       actions={(
         <FilterStrip>
@@ -369,7 +488,7 @@ export default function CircuitEditorPage() {
                         pagination: { paginationModel: { pageSize: 12, page: 0 } }
                       }}
                       pageSizeOptions={[12, 24, 50]}
-                      rowHeight={35}
+                      rowHeight={48}
                       sx={{
                         border: 0,
                         '& .MuiDataGrid-columnHeaders': { borderRadius: 0 },
@@ -383,6 +502,97 @@ export default function CircuitEditorPage() {
           })}
         </Stack>
       </SectionCard>
+
+      <Drawer
+        anchor="right"
+        open={mappingDrawer.open}
+        onClose={closeMappingDrawer}
+        PaperProps={{ sx: { width: { xs: '100%', sm: 620 } } }}
+      >
+        <Stack spacing={2.25} sx={{ p: { xs: 2, sm: 3 }, height: '100%', overflowY: 'auto' }}>
+          <Box>
+            <Typography variant="overline" color="primary" fontWeight={800}>
+              IRIS DAILY INGEST
+            </Typography>
+            <Typography variant="h6" fontWeight={800}>
+              IRIS graph mapping
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {mappingDrawer.row?._isNew
+                ? 'These details will be saved when the new circuit is created.'
+                : `Maintain the saved IRIS source details for ${mappingDrawer.row?.circuitId || 'this circuit'}.`}
+            </Typography>
+          </Box>
+
+          <Alert severity="info">
+            The 05:00 SAST IRIS ingest uses the graph IDs. Labels and devices are retained to make each side easy to verify and audit.
+          </Alert>
+
+          <Box>
+            <Typography variant="subtitle1" fontWeight={800} mb={1}>Side A</Typography>
+            <Stack spacing={1.5}>
+              <TextField
+                label="IRIS graph ID"
+                value={mappingDrawer.values.irisGraphAId}
+                onChange={(event) => updateMappingValue('irisGraphAId', event.target.value)}
+                placeholder="e.g. 1192507488005239"
+                fullWidth
+              />
+              <TextField
+                label="IRIS graph label / mnemonic"
+                value={mappingDrawer.values.irisGraphALabel}
+                onChange={(event) => updateMappingValue('irisGraphALabel', event.target.value)}
+                fullWidth
+                multiline
+                minRows={2}
+              />
+              <TextField
+                label="IRIS device"
+                value={mappingDrawer.values.irisGraphADevice}
+                onChange={(event) => updateMappingValue('irisGraphADevice', event.target.value)}
+                fullWidth
+              />
+            </Stack>
+          </Box>
+
+          <Divider />
+
+          <Box>
+            <Typography variant="subtitle1" fontWeight={800} mb={1}>Side B</Typography>
+            <Stack spacing={1.5}>
+              <TextField
+                label="IRIS graph ID"
+                value={mappingDrawer.values.irisGraphBId}
+                onChange={(event) => updateMappingValue('irisGraphBId', event.target.value)}
+                placeholder="e.g. 1192508448005239"
+                fullWidth
+              />
+              <TextField
+                label="IRIS graph label / mnemonic"
+                value={mappingDrawer.values.irisGraphBLabel}
+                onChange={(event) => updateMappingValue('irisGraphBLabel', event.target.value)}
+                fullWidth
+                multiline
+                minRows={2}
+              />
+              <TextField
+                label="IRIS device"
+                value={mappingDrawer.values.irisGraphBDevice}
+                onChange={(event) => updateMappingValue('irisGraphBDevice', event.target.value)}
+                fullWidth
+              />
+            </Stack>
+          </Box>
+
+          <Box sx={{ flexGrow: 1 }} />
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button onClick={closeMappingDrawer}>Cancel</Button>
+            <Button variant="contained" startIcon={<SaveRoundedIcon />} onClick={saveMapping}>
+              Save IRIS Mapping
+            </Button>
+          </Stack>
+        </Stack>
+      </Drawer>
 
       <Snackbar
         open={snack.open}

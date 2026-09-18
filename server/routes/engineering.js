@@ -7,6 +7,18 @@ import {
   loadCircuitMonitoringRows
 } from '../lib/nldCircuitState.js'
 
+const irisMappingFields = [
+  'irisGraphAId', 'irisGraphBId',
+  'irisGraphALabel', 'irisGraphBLabel',
+  'irisGraphADevice', 'irisGraphBDevice'
+]
+
+const optionalText = (value) => {
+  if (value == null) return null
+  const text = String(value).trim()
+  return text || null
+}
+
 function requireEngineering(req, res, next) {
   const role = (req.user?.role || '').toLowerCase()
   if (!['engineering', 'admin', 'manager'].includes(role))
@@ -213,13 +225,14 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
     'nldGroup',
     'nodeALat', 'nodeALon', 'nodeBLat', 'nodeBLon',
     'currentRxSiteA', 'currentRxSiteB',
-    'circuitId', 'nodeA', 'nodeB', 'techType'
+    'circuitId', 'nodeA', 'nodeB', 'techType',
+    ...irisMappingFields
   ]
 
   const data = {}
   for (const k of allowed) {
     if (Object.prototype.hasOwnProperty.call(req.body, k)) {
-      data[k] = req.body[k]
+      data[k] = irisMappingFields.includes(k) ? optionalText(req.body[k]) : req.body[k]
     }
   }
 
@@ -231,11 +244,16 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
     Object.prototype.hasOwnProperty.call(req.body, 'currentRxSiteA') ||
     Object.prototype.hasOwnProperty.call(req.body, 'currentRxSiteB')
 
+  const irisMappingChanged = irisMappingFields.some((field) =>
+    Object.prototype.hasOwnProperty.call(req.body, field)
+  )
+
   try {
     const updated = await prisma.circuit.update({
       where: { id },
       data: {
         ...data,
+        ...(irisMappingChanged ? { irisMappingUpdatedAt: new Date() } : {}),
         ...(addHistory ? {
           levelHistory: {
             create: {
@@ -256,7 +274,11 @@ r.patch('/circuit/:id', verifyToken, requireEngineering, async (req, res) => {
         techType: true,
         nldGroup: true,
         nodeALat: true, nodeALon: true, nodeBLat: true, nodeBLon: true,
-        currentRxSiteA: true, currentRxSiteB: true, updatedAt: true
+        currentRxSiteA: true, currentRxSiteB: true, updatedAt: true,
+        irisGraphAId: true, irisGraphBId: true,
+        irisGraphALabel: true, irisGraphBLabel: true,
+        irisGraphADevice: true, irisGraphBDevice: true,
+        irisMappingUpdatedAt: true
       }
     })
     res.json(updated)
@@ -279,6 +301,9 @@ r.post('/circuits', verifyToken, requireEngineering, async (req, res) => {
     circuitId, nodeA, nodeB, techType = '', nldGroup = '',
     currentRxSiteA = null, currentRxSiteB = null,
     nodeALat = null, nodeALon = null, nodeBLat = null, nodeBLon = null,
+    irisGraphAId, irisGraphBId,
+    irisGraphALabel, irisGraphBLabel,
+    irisGraphADevice, irisGraphBDevice,
   } = req.body || {}
 
   // basic validation
@@ -296,16 +321,32 @@ r.post('/circuits', verifyToken, requireEngineering, async (req, res) => {
   }
 
   try {
+    const irisMapping = {
+      irisGraphAId: optionalText(irisGraphAId),
+      irisGraphBId: optionalText(irisGraphBId),
+      irisGraphALabel: optionalText(irisGraphALabel),
+      irisGraphBLabel: optionalText(irisGraphBLabel),
+      irisGraphADevice: optionalText(irisGraphADevice),
+      irisGraphBDevice: optionalText(irisGraphBDevice)
+    }
+    const hasIrisMapping = Object.values(irisMapping).some(Boolean)
+
     const created = await prisma.circuit.create({
       data: {
         circuitId, nodeA, nodeB, techType, nldGroup,
         currentRxSiteA, currentRxSiteB,
         nodeALat, nodeALon, nodeBLat, nodeBLon,
+        ...irisMapping,
+        ...(hasIrisMapping ? { irisMappingUpdatedAt: new Date() } : {}),
       },
       select: {
         id: true, circuitId: true, nodeA: true, nodeB: true, techType: true, nldGroup: true,
         currentRxSiteA: true, currentRxSiteB: true, updatedAt: true,
         nodeALat: true, nodeALon: true, nodeBLat: true, nodeBLon: true,
+        irisGraphAId: true, irisGraphBId: true,
+        irisGraphALabel: true, irisGraphBLabel: true,
+        irisGraphADevice: true, irisGraphBDevice: true,
+        irisMappingUpdatedAt: true
       }
     })
     res.status(201).json(created)

@@ -91,7 +91,8 @@ function deriveCircuitDisplayRow(circuit) {
 }
 
 export async function loadCircuitMonitoringRows(prisma) {
-  const circuits = await prisma.circuit.findMany({
+  const [circuits, nodes] = await Promise.all([
+    prisma.circuit.findMany({
     select: {
       id: true,
       circuitId: true,
@@ -148,7 +149,34 @@ export async function loadCircuitMonitoringRows(prisma) {
       }
     },
     orderBy: [{ nldGroup: 'asc' }, { circuitId: 'asc' }]
+    }),
+    prisma.node.findMany({
+      select: { code: true, name: true, lat: true, lon: true }
+    })
+  ])
+
+  // Circuit coordinates were introduced after the Node reference table. Prefer
+  // an explicit circuit value, but surface the existing Node coordinates when
+  // a circuit has not yet been backfilled. This keeps the admin grid and map
+  // aligned without hiding known location data from users.
+  const normaliseNodeKey = (value) => String(value ?? '').trim().toLowerCase()
+  const nodesByKey = new Map()
+  nodes.forEach((node) => {
+    nodesByKey.set(normaliseNodeKey(node.code), node)
+    nodesByKey.set(normaliseNodeKey(node.name), node)
   })
 
-  return circuits.map(deriveCircuitDisplayRow)
+  const withNodeCoordinates = circuits.map((circuit) => {
+    const nodeA = nodesByKey.get(normaliseNodeKey(circuit.nodeA))
+    const nodeB = nodesByKey.get(normaliseNodeKey(circuit.nodeB))
+    return {
+      ...circuit,
+      nodeALat: circuit.nodeALat ?? nodeA?.lat ?? null,
+      nodeALon: circuit.nodeALon ?? nodeA?.lon ?? null,
+      nodeBLat: circuit.nodeBLat ?? nodeB?.lat ?? null,
+      nodeBLon: circuit.nodeBLon ?? nodeB?.lon ?? null
+    }
+  })
+
+  return withNodeCoordinates.map(deriveCircuitDisplayRow)
 }
