@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 import { verifyToken } from './auth.js'
-import { syncStagedZendeskTickets } from '../lib/nldTicketStaging.js'
+import { syncZendeskDriftTickets } from '../lib/nldZendeskDriftTickets.js'
 
 const r = Router()
 
@@ -59,7 +59,7 @@ r.get('/engineering/blank-rx-issues', verifyToken, requireEngineering, async (re
 })
 
 r.post('/engineering/staged-zendesk-tickets/sync', verifyToken, requireEngineering, async (_req, res) => {
-  const summary = await syncStagedZendeskTickets(prisma)
+  const summary = await syncZendeskDriftTickets(prisma)
   res.json(summary)
 })
 

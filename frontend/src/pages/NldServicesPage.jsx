@@ -211,7 +211,9 @@ export default function NldServicesPage() {
         const s = r.data || {}
         setToast({
           severity: 'success',
-          message: `Ticket staging synced: ${s.created || 0} created, ${s.escalated || 0} escalated, ${s.updated || 0} updated`
+          message: s.paused
+            ? 'Zendesk drift automation is paused. No tickets were created.'
+            : `Zendesk drift sync: ${s.created || 0} created, ${s.replacementCreated || 0} replacements, ${s.updated || 0} updated`
         })
       }
     } catch (e) {
@@ -223,8 +225,7 @@ export default function NldServicesPage() {
   }
 
   useEffect(() => {
-    if (tab === 2) loadBlankRx()
-    if (tab === 3) loadTickets()
+    if (tab === 2) loadTickets()
   }, [tab])
 
   const setColumnFilter = (key, value) => {
@@ -346,8 +347,7 @@ export default function NldServicesPage() {
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
             <Tab label={`Current (${total})`} />
             <Tab label="Capture New" />
-            <Tab label={`Blank RX (${blankRxTotal})`} />
-            <Tab label={`Ticket Staging (${ticketTotal})`} />
+            <Tab label={`Zendesk Drift (${ticketTotal})`} />
           </Tabs>
         </Paper>
 
@@ -909,7 +909,7 @@ export default function NldServicesPage() {
           )}
 
           {/* ====== Blank RX tab ====== */}
-          {tab === 2 && (
+          {false && tab === 2 && (
             <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
               <Card
                 title="Blank RX Monitor"
@@ -996,11 +996,11 @@ export default function NldServicesPage() {
           )}
 
           {/* ====== Ticket staging tab ====== */}
-          {tab === 3 && (
+          {tab === 2 && (
             <Box sx={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
               <Card
-                title="Zendesk Ticket Staging"
-                subtitle="Preview drift-based ticket payloads before we wire in the real Zendesk API."
+                title="Zendesk NLD Drift"
+                subtitle="Automated ticket creation is currently paused. Existing Zendesk-linked drift records remain visible here."
                 right={
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Chip label={`${ticketRows.length}${ticketRows.length !== ticketTotal ? ` / ${ticketTotal}` : ''} tickets`} size="small" />
