@@ -12,6 +12,9 @@ const sideNames = (row) => ({ A: row.nodeA || 'Node A', B: row.nodeB || 'Node B'
 const breachedSides = (metrics) => ['A', 'B'].filter((side) => (side === 'A' ? metrics.worseA : metrics.worseB) >= 2)
 const circuitTag = (id) => `nld_drift_circuit_${id}`
 const sideTag = (side) => `nld_drift_side_${side.toLowerCase()}`
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[character]))
 
 function headers() {
   const { ZENDESK_SUBDOMAIN, ZENDESK_EMAIL, ZENDESK_API_TOKEN } = process.env
@@ -26,27 +29,32 @@ function buildSubject(row, metrics, sides, replacementFor) {
   return `NLD Light Drift | ${row.circuitId} | ${sideText} | ${worst.toFixed(1)} dBm worse${replacementFor ? ` | replaces #${replacementFor}` : ''}`
 }
 
-function buildComment(row, metrics, sides, replacementFor) {
+export function buildComment(row, metrics, sides, replacementFor) {
   const names = sideNames(row)
-  const lines = [
-    'Automated NLD light-level drift alert.',
-    '',
-    `Circuit ID: ${row.circuitId}`,
-    `NLD Group: ${row.nldGroup || 'Unassigned'}`,
-    'Monitoring source: IRIS OPR daily level feed',
-    `As of: ${row.displayAsOf || 'Not recorded'}`,
-    ''
-  ]
-  for (const side of ['A', 'B']) {
+  const rows = ['A', 'B'].map((side) => {
     const reference = side === 'A' ? metrics.initA : metrics.initB
     const current = side === 'A' ? metrics.currA : metrics.currB
     const delta = side === 'A' ? metrics.deltaA : metrics.deltaB
     const worse = side === 'A' ? metrics.worseA : metrics.worseB
-    lines.push(`Side ${side} - ${names[side]}`, `Reference level: ${fmt(reference)}`, `Current level: ${fmt(current)}`, `Delta from reference: ${fmtDelta(delta)}${worse ? ` (${worse.toFixed(1)} dBm worse)` : ''}`, `Threshold status: ${sides.includes(side) ? 'BREACHED (>= 2.0 dBm worse)' : 'within threshold'}`, '')
-  }
-  if (replacementFor) lines.push(`This ticket replaces active ticket #${replacementFor} because an additional circuit side has breached. Please action both tickets together, update the vendor accordingly, then merge #${replacementFor} into this ticket.`, '')
-  lines.push(`Required action: investigate ${sides.map((side) => `Side ${side} - ${names[side]}`).join(' and ')}, update the relevant vendor, and record the outcome on this ticket.`)
-  return lines.join('\n')
+    const isBreached = sides.includes(side)
+    return `<tr><td><strong>Side ${side}</strong></td><td>${escapeHtml(names[side])}</td><td>${fmt(reference)}</td><td>${fmt(current)}</td><td>${fmtDelta(delta)}${worse ? ` (${worse.toFixed(1)} dBm worse)` : ''}</td><td>${isBreached ? '<strong>BREACHED</strong><br>At least 2.0 dBm worse' : 'Within threshold'}</td></tr>`
+  }).join('')
+  const replacement = replacementFor
+    ? `<p><strong>Linked active ticket:</strong> This replaces <a href="https://frogfoot.zendesk.com/agent/tickets/${replacementFor}">#${replacementFor}</a>, because an additional circuit side has breached. Action both together, update the vendor, then merge the older ticket into this one.</p>`
+    : ''
+  const actionSides = sides.map((side) => `Side ${side} - ${escapeHtml(names[side])}`).join(' and ')
+  return `<div dir="auto">
+<h2>NLD light-level drift detected</h2>
+<p><strong>Circuit ID:</strong> ${escapeHtml(row.circuitId)}<br>
+<strong>NLD group:</strong> ${escapeHtml(row.nldGroup || 'Unassigned')}<br>
+<strong>Monitoring source:</strong> IRIS OPR daily level feed<br>
+<strong>Measurement time:</strong> ${escapeHtml(row.displayAsOf || 'Not recorded')}</p>
+<h3>Level comparison</h3>
+<table><thead><tr><th>Side</th><th>Node</th><th>Reference level</th><th>Current level</th><th>Change</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+${replacement}
+<h3>Required action</h3>
+<ol><li>Investigate ${actionSides}.</li><li>Update the relevant vendor with the findings.</li><li>Record the outcome and recovery levels on this ticket.</li></ol>
+</div>`
 }
 
 async function activeTicketsByCircuit() {
@@ -68,7 +76,7 @@ async function createTicket(row, metrics, sides, replacementFor = null) {
   const body = buildComment(row, metrics, sides, replacementFor)
   const ticket = {
     subject,
-    comment: { body, public: false },
+    comment: { html_body: body, public: false },
     ticket_form_id: formId,
     group_id: groupId,
     type: 'task',
