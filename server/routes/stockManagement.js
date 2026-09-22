@@ -345,7 +345,7 @@ r.put('/template-items/:id/cost', async (req, res) => {
   res.json(dataset.items.find((row) => row.id === id))
 })
 
-r.delete('/template-items/:id', async (req, res) => {
+r.delete('/template-items/:id', requireGeneralStockAdmin, async (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid item id' })
   const existing = await prisma.stockTemplateItem.findUnique({ where: { id } })

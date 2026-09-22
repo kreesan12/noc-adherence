@@ -73,6 +73,7 @@ import {
   updateStockRequiredSpares
 } from '../api/stockManagement'
 import { PageShell } from '../components/ui/PageScaffold'
+import { useAuth } from '../context/AuthContext'
 import {
   AnalyticsMetricCard as Card,
   AnalyticsSectionCard as SectionCard
@@ -272,6 +273,8 @@ function normalizeCompare(value) {
 }
 
 export default function StockManagementPage() {
+  const { user } = useAuth()
+  const canDeleteStockItems = ['admin', 'engineering'].includes(String(user?.role || '').toLowerCase())
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [exportingLowStock, setExportingLowStock] = useState(false)
@@ -381,9 +384,9 @@ export default function StockManagementPage() {
   }, [])
 
   useEffect(() => {
-    if (tab === 5 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
-    if (tab === 6 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
-    if (tab === 7 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
+    if (tab === 4 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
+    if (tab === 5 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
+    if (tab === 6 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
   }, [tab])
 
   useEffect(() => {
@@ -553,7 +556,7 @@ export default function StockManagementPage() {
   }
 
   useEffect(() => {
-    if (tab === 2 && !runRateData && !runRateLoading) {
+    if (tab === 1 && !runRateData && !runRateLoading) {
       loadRunRates().catch(console.error)
     }
   }, [tab, runRateData, runRateLoading])
@@ -1045,7 +1048,6 @@ export default function StockManagementPage() {
             }}
           >
             <Tab label="Master Stock" />
-            <Tab label="Business Units" />
             <Tab label="Run Rates" />
             <Tab label="Match Review" />
             <Tab label="Add Template Item" />
@@ -1065,19 +1067,15 @@ export default function StockManagementPage() {
               background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
             }}
           >
-            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap">
-              <TextField size="small" label="Search Stock" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Description, code, division, matched item..." sx={{ minWidth: 200 }} InputProps={{ startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} /> }} />
-              <TextField size="small" select label="Business Unit / Division" value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} sx={{ minWidth: 122 }}>
-                <MenuItem value="">All Business Units</MenuItem>
-                {divisions.map((division) => <MenuItem key={division} value={division}>{division}</MenuItem>)}
-              </TextField>
+            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap" sx={{ width: '100%' }}>
+              <TextField size="small" label="Search Stock" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Description, code, division, matched item..." sx={{ minWidth: 360, flex: { lg: '1 1 440px' }, maxWidth: { lg: 620 } }} InputProps={{ startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} /> }} />
               <TextField size="small" select label="Stock Status" value={stockFilter} onChange={(e) => setStockFilter(e.target.value)} sx={{ minWidth: 118 }}>
                 <MenuItem value="">All</MenuItem><MenuItem value="low">Below Minimum</MenuItem><MenuItem value="healthy">Above Minimum</MenuItem><MenuItem value="zero">Zero Available</MenuItem><MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
               </TextField>
               <TextField size="small" select label="Match Quality" value={matchFilter} onChange={(e) => setMatchFilter(e.target.value)} sx={{ minWidth: 118 }}>
                 <MenuItem value="">All</MenuItem><MenuItem value="matched">Matched</MenuItem><MenuItem value="review">Needs Review</MenuItem><MenuItem value="unmatched">Unmatched</MenuItem>
               </TextField>
-              <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={doExport} disabled={exporting} sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}>
+              <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={doExport} disabled={exporting} sx={{ minHeight: 30, ml: { lg: 'auto' }, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}>
                 {exporting ? 'Exporting...' : 'Export Master Workbook'}
               </Button>
             </Stack>
@@ -1394,10 +1392,15 @@ export default function StockManagementPage() {
         </Stack>
       ) : null}
 
-      {tab === 1 ? (
+      {tab === 0 ? (
         <SectionCard
           title="Business Units"
           subtitle="Open a business unit to review its own minimum commitments against the shared regional stock pool."
+          action={divisionFilter ? (
+            <Button size="small" variant="outlined" onClick={() => setDivisionFilter('')} sx={{ textTransform: 'none', fontWeight: 800 }}>
+              Show all business units
+            </Button>
+          ) : null}
         >
           <Box
             sx={{
@@ -1410,7 +1413,7 @@ export default function StockManagementPage() {
               <Paper
                 key={businessUnit.division}
                 variant="outlined"
-                sx={{ p: 1, borderRadius: 2.25, display: 'grid', gap: 0.65, borderColor: '#dce7e2' }}
+                sx={{ p: 1, borderRadius: 2.25, display: 'grid', gap: 0.65, borderColor: divisionFilter === businessUnit.division ? '#0f766e' : '#dce7e2', bgcolor: divisionFilter === businessUnit.division ? 'rgba(15, 118, 110, 0.05)' : 'transparent' }}
               >
                 <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
                   <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{businessUnit.division}</Typography>
@@ -1437,7 +1440,7 @@ export default function StockManagementPage() {
                   }}
                   sx={{ justifySelf: 'start', textTransform: 'none', fontWeight: 800 }}
                 >
-                  Open business unit stock
+                  Filter business unit stock
                 </Button>
               </Paper>
             ))}
@@ -1445,7 +1448,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 2 ? (
+      {tab === 1 ? (
         runRateLoading && !runRateData ? (
           <Paper elevation={0} sx={{ p: 3, border: '1px solid #e2e8f0', borderRadius: 2.6 }}>
             <Stack direction="row" spacing={1.2} alignItems="center">
@@ -1677,10 +1680,10 @@ export default function StockManagementPage() {
                 disableGutters
                 expanded={Boolean(divisionExpansion[group.division])}
                 onChange={(_, expanded) => {
-                  setDivisionExpansion((current) => ({
-                    ...current,
-                    [group.division]: expanded
-                  }))
+                  setDivisionExpansion((current) => {
+                    if (!expanded) return { ...current, [group.division]: false }
+                    return Object.fromEntries(divisionGroups.map((entry) => [entry.division, entry.division === group.division]))
+                  })
                 }}
                 sx={{
                   borderRadius: '14px !important',
@@ -1743,11 +1746,18 @@ export default function StockManagementPage() {
                           py: 0.34,
                           px: 0.45,
                           fontSize: 10.6,
-                          whiteSpace: 'nowrap'
+                          whiteSpace: 'nowrap',
+                          verticalAlign: 'middle'
                         },
                         '& .MuiTableHead-root .MuiTableCell-root': {
-                          fontSize: 10.2,
-                          fontWeight: 800
+                          fontSize: 9.8,
+                          lineHeight: 1.05,
+                          fontWeight: 800,
+                          whiteSpace: 'normal',
+                          bgcolor: '#ffffff !important',
+                          backgroundColor: '#ffffff !important',
+                          borderBottom: '1px solid #cbd5e1',
+                          zIndex: 3
                         }
                       }}
                     >
@@ -1780,8 +1790,8 @@ export default function StockManagementPage() {
                           })
                           return (
                             <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
-                              <TableCell sx={MASTER_SECTION_CELL_SX}>{row.sectionName || 'General'}</TableCell>
-                              <TableCell sx={MASTER_SECTION_CELL_SX}>{row.subSectionName || '-'}</TableCell>
+                              <TableCell title={row.sectionName || 'General'} sx={{ ...MASTER_SECTION_CELL_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.sectionName || 'General'}</TableCell>
+                              <TableCell title={row.subSectionName || '-'} sx={{ ...MASTER_SECTION_CELL_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.subSectionName || '-'}</TableCell>
                               <TableCell sx={MASTER_ITEM_CELL_SX}>
                                 <Typography
                                   variant="body2"
@@ -1818,7 +1828,7 @@ export default function StockManagementPage() {
                                   sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.65, fontSize: 9.9 } }}
                                 />
                               </TableCell>
-                              <TableCell sx={MASTER_SECTION_CELL_SX}>{row.division || 'Unassigned'}</TableCell>
+                              <TableCell title={row.division || 'Unassigned'} sx={{ ...MASTER_SECTION_CELL_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.division || 'Unassigned'}</TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.requiredTotal)}</TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
                                 <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
@@ -1878,7 +1888,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 3 ? (
+      {tab === 2 ? (
         <SectionCard
           title="Match Review"
           subtitle="Review low-confidence and unmatched items, then lock in an override so the daily refresh stays stable."
@@ -1948,7 +1958,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 4 ? (
+      {tab === 3 ? (
         <SectionCard
           title="Add Template Item"
           subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
@@ -2180,7 +2190,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 5 ? (
+      {tab === 4 ? (
         <Stack spacing={0.8}>
           <SectionCard
             title="Daily division report"
@@ -2256,7 +2266,7 @@ export default function StockManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {tab === 6 ? (
+      {tab === 5 ? (
         <SectionCard
           title="Redistribution required"
           subtitle="Shared regional stock is compared with confirmed minimums. The daily plan only marks additional quantities since the previous plan as new."
@@ -2278,7 +2288,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 7 ? (
+      {tab === 6 ? (
         <Stack spacing={0.8}>
           <SectionCard title="Stock management administration" subtitle="General stock admins manage division heads, division admins and redistribution recipients here. Division admins can only change stock in their assigned business unit.">
             <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.2fr 1.2fr 1.5fr 1fr auto' } }}>
@@ -2325,7 +2335,9 @@ export default function StockManagementPage() {
                 <Button size="small" variant={editingCost ? 'contained' : 'outlined'} onClick={() => setEditingCost((current) => !current)} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}>
                   {editingCost ? 'Close cost' : 'Edit cost'}
                 </Button>
-                <Button size="small" color="error" variant="outlined" onClick={deleteSelectedStockItem} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}>Delete item</Button>
+                {canDeleteStockItems ? (
+                  <Button size="small" color="error" variant="outlined" onClick={deleteSelectedStockItem} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}>Delete item</Button>
+                ) : null}
               </Stack>
             ) : null}
           </Stack>
