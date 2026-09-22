@@ -102,16 +102,16 @@ const NOT_WH_STATUS_OPTIONS = [
 ]
 
 const MASTER_ITEM_CELL_SX = {
-  width: 248,
-  minWidth: 248,
-  maxWidth: 248,
+  width: 210,
+  minWidth: 210,
+  maxWidth: 210,
   whiteSpace: 'normal'
 }
 
 const MASTER_SECTION_CELL_SX = {
-  width: 112,
-  minWidth: 112,
-  maxWidth: 112,
+  width: 82,
+  minWidth: 82,
+  maxWidth: 82,
   whiteSpace: 'normal'
 }
 
@@ -122,21 +122,24 @@ const MASTER_MATCH_CELL_SX = {
 }
 
 const MASTER_METRIC_CELL_SX = {
-  width: 64,
-  minWidth: 64,
-  maxWidth: 64
+  width: 54,
+  minWidth: 54,
+  maxWidth: 54,
+  whiteSpace: 'normal'
 }
 
 const MASTER_MONEY_CELL_SX = {
-  width: 84,
-  minWidth: 84,
-  maxWidth: 84
+  width: 70,
+  minWidth: 70,
+  maxWidth: 70,
+  whiteSpace: 'normal'
 }
 
 const MASTER_REGION_CELL_SX = {
-  width: 96,
-  minWidth: 96,
-  maxWidth: 96
+  width: 68,
+  minWidth: 68,
+  maxWidth: 68,
+  whiteSpace: 'normal'
 }
 
 function fmtCount(value) {
@@ -1773,7 +1776,7 @@ export default function StockManagementPage() {
                       size="small"
                       stickyHeader
                       sx={{
-                        minWidth: 2050,
+                        minWidth: 1560,
                         tableLayout: 'fixed',
                         '& .MuiTableCell-root': {
                           py: 0.34,
