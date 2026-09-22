@@ -403,7 +403,7 @@ enum StockRedistributionStatus {
 model StockDivisionContact {
   id            Int                      @id @default(autoincrement())
   division      String
-  fullName      String?
+  fullName      String?                  @map("full_name")
   email         String
   role          StockDivisionContactRole
   isActive      Boolean                  @default(true) @map("is_active")
