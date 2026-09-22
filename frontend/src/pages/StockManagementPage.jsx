@@ -1744,9 +1744,11 @@ export default function StockManagementPage() {
                       maxWidth: '100%',
                       minWidth: 0,
                       // Keep the stock grid independently scrollable in both directions.
-                      height: 'clamp(260px, calc(100dvh - 470px), 680px)',
-                      minHeight: 260,
-                      maxHeight: 'calc(100dvh - 470px)',
+                      // Header, controls and business-unit cards occupy the top of the fixed view.
+                      // This must be sized from the actual remaining lower viewport so it never clips.
+                      height: 'clamp(220px, calc(100dvh - 650px), 520px)',
+                      minHeight: 220,
+                      maxHeight: 'calc(100dvh - 650px)',
                       overflow: 'auto',
                       overscrollBehavior: 'contain',
                       scrollbarGutter: 'stable both-edges',
