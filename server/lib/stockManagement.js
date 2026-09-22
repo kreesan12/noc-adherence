@@ -13,7 +13,7 @@ const MINIMUM_STOCK_SHEET = 'Min Stock Master'
 const STOCK_TRACKING_SHEET = 'Montly tracking'
 const STATUS_HEADER_ROW_INDEX = 2
 const TEMPLATE_DATA_ROW_START_INDEX = 2
-const MINIMUM_STOCK_DATA_ROW_START_INDEX = 3
+const MINIMUM_STOCK_DATA_ROW_START_INDEX = 2
 const SUBJECT_PREFIX_RE = /^(?:\s*(?:re|fw|fwd)\s*:\s*)+/i
 
 const REGION_ORDER = ['CPT', 'JHB', 'DBN', 'PEL', 'BFN', 'GEO', 'POL', 'NEL']
@@ -646,12 +646,14 @@ async function parseMinimumStockWorkbook(buffer) {
 
   for (let rowNumber = MINIMUM_STOCK_DATA_ROW_START_INDEX; rowNumber <= sheet.rowCount; rowNumber += 1) {
     const row = sheet.getRow(rowNumber)
-    const sectionName = cleanCell(row.getCell(1).text)
-    const subSectionName = cleanCell(row.getCell(2).text)
-    const stockItem = cleanCell(row.getCell(3).text)
-    const description = cleanCell(row.getCell(4).text)
-    const stockCode = cleanCell(row.getCell(5).text)
-    const division = cleanCell(row.getCell(6).text)
+    // The business-unit master deliberately has one row per division/item minimum.
+    // Physical stock is joined later by stock code and remains a shared regional pool.
+    const division = cleanCell(row.getCell(1).text)
+    const sectionName = cleanCell(row.getCell(2).text)
+    const subSectionName = cleanCell(row.getCell(3).text)
+    const stockItem = cleanCell(row.getCell(4).text)
+    const description = cleanCell(row.getCell(5).text)
+    const stockCode = cleanCell(row.getCell(6).text)
 
     if (!stockItem && !description && !stockCode && !division) continue
 
@@ -940,62 +942,35 @@ export async function importMinimumStockRequirementsWorkbook(prisma, input) {
     throw new Error('No minimum-stock rows were found in the workbook')
   }
 
-  const templateItems = await prisma.stockTemplateItem.findMany({
-    orderBy: [{ rowOrder: 'asc' }, { id: 'asc' }]
-  })
-  const templateIndexes = buildMinimumStockTemplateIndexes(templateItems)
-  const existingItemsById = new Map(templateItems.map((item) => [item.id, item]))
-  const updatesById = new Map()
-  const createsByKey = new Map()
-  const matchMethodCounts = {}
-  let duplicateMatchedRows = 0
-  let duplicateNewRows = 0
-
-  for (const record of records) {
-    const match = chooseTemplateItemForMinimumRecord(record, templateIndexes)
-    matchMethodCounts[match.method] = (matchMethodCounts[match.method] || 0) + 1
-
-    if (match.item) {
-      if (updatesById.has(match.item.id)) {
-        duplicateMatchedRows += 1
-        updatesById.set(match.item.id, mergeMinimumRequirementRecords(updatesById.get(match.item.id), record))
-      } else {
-        updatesById.set(match.item.id, record)
-      }
-      continue
-    }
-
-    const createKey = buildMinimumRequirementCreateKey(record)
-    if (createsByKey.has(createKey)) {
-      duplicateNewRows += 1
-      createsByKey.set(createKey, mergeMinimumRequirementRecords(createsByKey.get(createKey), record))
-    } else {
-      createsByKey.set(createKey, record)
-    }
-  }
-
-  const aggregate = await prisma.stockTemplateItem.aggregate({
-    _max: { rowOrder: true }
-  })
-  let nextRowOrder = Math.max(Number(aggregate._max.rowOrder || 0) + 1, TEMPLATE_DATA_ROW_START_INDEX + 1)
+  const divisions = [...new Set(records.map((record) => cleanCell(record.division)).filter(Boolean))]
+  const masterRows = records.map((record, index) => ({
+    rowOrder: TEMPLATE_DATA_ROW_START_INDEX + index,
+    rowType: 'ITEM',
+    sectionName: record.sectionName || null,
+    subSectionName: record.subSectionName || null,
+    itemDescription: cleanCell(record.stockItem || record.description || record.stockCode) || null,
+    stockCode: record.stockCodeValue || null,
+    unitPriceZar: null,
+    unitPriceUsd: null,
+    division: cleanCell(record.division) || null,
+    manualMatchDescription: cleanCell(record.description) || null,
+    ...buildMinimumRequirementFieldData(record)
+  }))
 
   await prisma.$transaction(async (tx) => {
-    for (const [itemId, record] of updatesById.entries()) {
-      await tx.stockTemplateItem.update({
-        where: { id: itemId },
-        data: buildMinimumRequirementFieldData(record, existingItemsById.get(itemId))
-      })
-    }
-
-    for (const record of createsByKey.values()) {
-      await tx.stockTemplateItem.create({
-        data: {
-          rowOrder: nextRowOrder,
-          ...buildMinimumRequirementCreateData(record)
-        }
-      })
-      nextRowOrder += 1
-    }
+    // This workbook is the new baseline; old minimums, their not-WH workflow,
+    // and old redistribution recommendations must not influence the new model.
+    await tx.stockRedistributionRun.deleteMany()
+    await tx.stockDailyReport.deleteMany()
+    await tx.stockTemplateItem.deleteMany()
+    await tx.stockTemplateItem.createMany({ data: masterRows })
+    await tx.stockDivisionContact.createMany({
+      data: divisions.flatMap((division) => ([
+        { division, fullName: `${division} Division Head`, email: `${division.toLowerCase().replace(/[^a-z0-9]+/g, '.')}.head@example.com`, role: 'DIVISION_HEAD' },
+        { division, fullName: `${division} Stock Admin`, email: `${division.toLowerCase().replace(/[^a-z0-9]+/g, '.')}.admin@example.com`, role: 'DIVISION_ADMIN', receivesRedistribution: division === divisions[0] }
+      ])),
+      skipDuplicates: true
+    })
   }, {
     maxWait: 10_000,
     timeout: 120_000
@@ -1009,12 +984,12 @@ export async function importMinimumStockRequirementsWorkbook(prisma, input) {
     dataset,
     meta: {
       importedRows: records.length,
-      updatedCount: updatesById.size,
-      createdCount: createsByKey.size,
-      duplicateMatchedRows,
-      duplicateNewRows,
+      updatedCount: 0,
+      createdCount: masterRows.length,
+      duplicateMatchedRows: 0,
+      duplicateNewRows: 0,
       unconfirmedImportedRows: records.filter((record) => REGION_ORDER.some((region) => record.requiredConfirmedByRegion?.[region] === false)).length,
-      matchMethodCounts
+      divisions
     }
   }
 }
@@ -1305,6 +1280,10 @@ function buildProjectedItem(templateItem, indexes) {
   const isLowConfidence = isMatched && match.score < MATCH_REVIEW_THRESHOLD
   const unitCost = totalQtyOnHand > 0 ? Number((totalValuation / totalQtyOnHand).toFixed(2)) : 0
   const gapCost = Number((shortage * unitCost).toFixed(2))
+  const normalizedCode = normalizeCode(templateItem.stockCode || '')
+  const poolKey = normalizedCode
+    ? `code:${normalizedCode}`
+    : (match.group?.itemNo ? `item:${normalizeCode(match.group.itemNo)}` : `template:${templateItem.id}`)
 
   return {
     id: templateItem.id,
@@ -1316,6 +1295,8 @@ function buildProjectedItem(templateItem, indexes) {
     unitPriceZar: templateItem.unitPriceZar,
     unitPriceUsd: templateItem.unitPriceUsd,
     division: templateItem.division,
+    subSectionName: templateItem.subSectionName || null,
+    poolKey,
     requiredByRegion,
     requiredConfirmedByRegion,
     requiredTotal,
@@ -1342,6 +1323,113 @@ function buildProjectedItem(templateItem, indexes) {
   }
 }
 
+function buildSharedStockPools(itemRows) {
+  const pools = new Map()
+
+  for (const row of itemRows) {
+    const current = pools.get(row.poolKey) || {
+      poolKey: row.poolKey,
+      id: row.id,
+      itemDescription: row.itemDescription,
+      stockCode: row.stockCode,
+      matchedItemNo: row.matchedItemNo,
+      matchedItemDescription: row.matchedItemDescription,
+      matchMethod: row.matchMethod,
+      matchScore: row.matchScore,
+      unitCost: Number(row.unitPriceZar || row.unitCost || 0),
+      requiredByRegion: Object.fromEntries(REGION_ORDER.map((region) => [region, 0])),
+      confirmedRequiredByRegion: Object.fromEntries(REGION_ORDER.map((region) => [region, 0])),
+      unconfirmedRequiredByRegion: Object.fromEntries(REGION_ORDER.map((region) => [region, 0])),
+      regionAvailable: Object.fromEntries(REGION_ORDER.map((region) => [region, 0])),
+      regionFieldAvailable: Object.fromEntries(REGION_ORDER.map((region) => [region, 0])),
+      divisions: [],
+      cptWarehousePrimary: 0,
+      cptWarehouseSecondary: 0,
+      jhbWarehousePrimary: 0,
+      jhbWarehouseSecondary: 0,
+      dbnWarehousePrimary: 0,
+      pelWarehousePrimary: 0,
+      pelWarehouseSecondary: 0,
+      bfnWarehousePrimary: 0,
+      geoWarehousePrimary: 0,
+      polWarehousePrimary: 0,
+      nelWarehousePrimary: 0,
+      orderedStock: 0,
+      notInWarehouses: 0,
+      totalQtyOnHand: 0,
+      totalValuation: 0,
+      availableTotal: 0,
+      allAvailableTotal: 0,
+      siteBreakdown: []
+    }
+
+    current.divisions.push(row.division || 'Unassigned')
+    for (const region of REGION_ORDER) {
+      const requirement = Number(row.requiredByRegion?.[region] || 0)
+      current.requiredByRegion[region] += requirement
+      if (row.requiredConfirmedByRegion?.[region] === false) {
+        current.unconfirmedRequiredByRegion[region] += requirement
+      } else {
+        current.confirmedRequiredByRegion[region] += requirement
+      }
+    }
+
+    // All rows in a pool point at the same physical stock. Use it once rather
+    // than multiplying physical quantities when a stock code is shared by divisions.
+    if (!pools.has(row.poolKey)) {
+      for (const region of REGION_ORDER) {
+        const regionKey = region.toLowerCase()
+        current.regionAvailable[region] = Number(row[`${regionKey}Total`] || 0)
+        current.regionFieldAvailable[region] = Number(row.regionFieldTotals?.[region] || 0)
+      }
+      for (const field of Object.keys(WAREHOUSE_FIELD_CONFIG)) current[field] = Number(row[field] || 0)
+      current.orderedStock = Number(row.orderedStock || 0)
+      current.notInWarehouses = Number(row.notInWarehouses || 0)
+      current.totalQtyOnHand = Number(row.totalQtyOnHand || 0)
+      current.totalValuation = Number(row.totalValuation || 0)
+      current.availableTotal = Number(row.availableTotal || 0)
+      current.allAvailableTotal = Number(row.allAvailableTotal || 0)
+      current.siteBreakdown = row.siteBreakdown || []
+    }
+    pools.set(row.poolKey, current)
+  }
+
+  return [...pools.values()].map((pool) => {
+    pool.divisions = [...new Set(pool.divisions)].sort()
+    pool.requiredTotal = REGION_ORDER.reduce((sum, region) => sum + pool.requiredByRegion[region], 0)
+    pool.confirmedRequiredTotal = REGION_ORDER.reduce((sum, region) => sum + pool.confirmedRequiredByRegion[region], 0)
+    pool.unconfirmedRequiredTotal = REGION_ORDER.reduce((sum, region) => sum + pool.unconfirmedRequiredByRegion[region], 0)
+    pool.gapByRegion = Object.fromEntries(REGION_ORDER.map((region) => [region, Math.max(pool.requiredByRegion[region] - pool.regionAvailable[region], 0)]))
+    pool.confirmedGapByRegion = Object.fromEntries(REGION_ORDER.map((region) => [region, Math.max(pool.confirmedRequiredByRegion[region] - pool.regionAvailable[region], 0)]))
+    pool.shortage = REGION_ORDER.reduce((sum, region) => sum + pool.gapByRegion[region], 0)
+    pool.gapCost = Number((pool.shortage * Number(pool.unitCost || 0)).toFixed(2))
+    pool.hasUnconfirmedRequirements = pool.unconfirmedRequiredTotal > 0
+    pool.unconfirmedRegions = REGION_ORDER.filter((region) => pool.unconfirmedRequiredByRegion[region] > 0)
+    pool.belowMinimum = pool.shortage > 0
+    pool.zeroAvailable = pool.availableTotal === 0
+    return pool
+  })
+}
+
+function buildPhysicalTemplateItems(templateItems) {
+  const pools = new Map()
+  for (const item of templateItems) {
+    const code = normalizeCode(item.stockCode || '')
+    const key = code ? `code:${code}` : `template:${item.id}`
+    const current = pools.get(key) || {
+      ...item,
+      division: 'Shared stock pool',
+      requiredCpt: 0, requiredJhb: 0, requiredDbn: 0, requiredPel: 0,
+      requiredBfn: 0, requiredGeo: 0, requiredPol: 0, requiredNel: 0
+    }
+    for (const { valueField } of REGION_REQUIREMENT_FIELDS) {
+      current[valueField] += Number(item[valueField] || 0)
+    }
+    pools.set(key, current)
+  }
+  return [...pools.values()]
+}
+
 function buildRegionWatchlistRows(itemRows) {
   return REGION_ORDER.map((region) => {
     const regionKey = region.toLowerCase()
@@ -1349,8 +1437,8 @@ function buildRegionWatchlistRows(itemRows) {
       .map((row) => {
         const required = Number(row.requiredByRegion?.[region] || 0)
         const requiredConfirmed = required > 0 ? row.requiredConfirmedByRegion?.[region] !== false : true
-        const warehouseAvailable = Number(row[`${regionKey}Total`] || 0)
-        const notWh = Number(row.regionFieldTotals?.[region] || 0)
+        const warehouseAvailable = Number(row.regionAvailable?.[region] ?? row[`${regionKey}Total`] ?? 0)
+        const notWh = Number(row.regionFieldAvailable?.[region] ?? row.regionFieldTotals?.[region] ?? 0)
         const gap = Math.max(required - warehouseAvailable, 0)
         return {
           id: row.id,
@@ -1363,7 +1451,9 @@ function buildRegionWatchlistRows(itemRows) {
           sectionName: row.sectionName,
           division: row.division,
           required,
-          requiredConfirmed,
+          requiredConfirmed: row.confirmedRequiredByRegion
+            ? Number(row.unconfirmedRequiredByRegion?.[region] || 0) === 0
+            : requiredConfirmed,
           warehouseAvailable,
           notWh,
           gap,
@@ -1397,15 +1487,43 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     .map((item) => buildProjectedItem(item, indexes))
 
   const itemRows = projectedRows.filter((row) => row.rowType === 'ITEM')
-  const matchedRows = itemRows.filter((row) => row.matchMethod !== 'unmatched')
-  const lowConfidenceRows = itemRows.filter((row) => row.isLowConfidence)
-  const unresolvedRows = itemRows.filter((row) => row.matchMethod === 'unmatched')
-  const lowStockRows = itemRows
+  const sharedPools = buildSharedStockPools(itemRows)
+  const poolByKey = new Map(sharedPools.map((pool) => [pool.poolKey, pool]))
+  const displayItemRows = itemRows.map((row) => {
+    const pool = poolByKey.get(row.poolKey)
+    const regionalPosition = Object.fromEntries(REGION_ORDER.map((region) => [region, {
+      available: Number(pool?.regionAvailable?.[region] || 0),
+      minimum: Number(row.requiredByRegion?.[region] || 0),
+      aggregateMinimum: Number(pool?.requiredByRegion?.[region] || 0),
+      gap: Number(pool?.gapByRegion?.[region] || 0),
+      confirmed: row.requiredConfirmedByRegion?.[region] !== false
+    }]))
+    return {
+      ...row,
+      regionalPosition,
+      aggregateRequiredByRegion: pool?.requiredByRegion || row.requiredByRegion,
+      aggregateRequiredTotal: Number(pool?.requiredTotal || row.requiredTotal || 0),
+      availableTotal: Number(pool?.availableTotal || 0),
+      allAvailableTotal: Number(pool?.allAvailableTotal || 0),
+      orderedStock: Number(pool?.orderedStock || 0),
+      notInWarehouses: Number(pool?.notInWarehouses || 0),
+      shortage: Number(pool?.shortage || 0),
+      gapCost: Number(pool?.gapCost || 0),
+      belowMinimum: Boolean(pool?.belowMinimum),
+      zeroAvailable: Boolean(pool?.zeroAvailable),
+      unitCost: Number(pool?.unitCost || row.unitCost || 0),
+      sharedPool: true
+    }
+  })
+  const matchedRows = displayItemRows.filter((row) => row.matchMethod !== 'unmatched')
+  const lowConfidenceRows = displayItemRows.filter((row) => row.isLowConfidence)
+  const unresolvedRows = displayItemRows.filter((row) => row.matchMethod === 'unmatched')
+  const lowStockRows = sharedPools
     .filter((row) => row.belowMinimum)
     .sort((left, right) => right.shortage - left.shortage || right.gapCost - left.gapCost || String(left.itemDescription || '').localeCompare(String(right.itemDescription || '')))
-  const regionWatchlist = buildRegionWatchlistRows(itemRows)
+  const regionWatchlist = buildRegionWatchlistRows(sharedPools)
 
-  const notWarehouseItems = itemRows
+  const notWarehouseItems = sharedPools
     .flatMap((row) => (row.siteBreakdown || [])
       .filter((site) => !site.warehouseField && Number(site.qtyAvailable || 0) > 0)
       .map((site) => {
@@ -1415,7 +1533,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
           templateItemId: row.id,
           itemDescription: row.itemDescription,
           stockCode: row.stockCode,
-          division: row.division,
+          division: row.divisions?.join(', ') || 'Shared',
           siteId: site.siteId,
           region: site.region,
           qtyAvailable: Number(site.qtyAvailable || 0),
@@ -1431,14 +1549,10 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     .sort((left, right) => right.qtyAvailable - left.qtyAvailable || String(left.itemDescription || '').localeCompare(String(right.itemDescription || '')))
 
   const regionSummary = REGION_ORDER.map((region) => {
-    const regionKey = region.toLowerCase()
-    const requiredTotal = itemRows.reduce((sum, row) => sum + Number(row.requiredByRegion?.[region] || 0), 0)
-    const unconfirmedRequiredTotal = itemRows.reduce((sum, row) => {
-      const value = Number(row.requiredByRegion?.[region] || 0)
-      return row.requiredConfirmedByRegion?.[region] === false ? sum + value : sum
-    }, 0)
-    const warehouseTotal = itemRows.reduce((sum, row) => sum + Number(row[`${regionKey}Total`] || 0), 0)
-    const fieldTotal = itemRows.reduce((sum, row) => sum + Number(row.regionFieldTotals?.[region] || 0), 0)
+    const requiredTotal = sharedPools.reduce((sum, row) => sum + Number(row.requiredByRegion?.[region] || 0), 0)
+    const unconfirmedRequiredTotal = sharedPools.reduce((sum, row) => sum + Number(row.unconfirmedRequiredByRegion?.[region] || 0), 0)
+    const warehouseTotal = sharedPools.reduce((sum, row) => sum + Number(row.regionAvailable?.[region] || 0), 0)
+    const fieldTotal = sharedPools.reduce((sum, row) => sum + Number(row.regionFieldAvailable?.[region] || 0), 0)
     return {
       region,
       requiredTotal,
@@ -1453,7 +1567,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
   })
 
   const divisionMap = new Map()
-  for (const row of itemRows) {
+  for (const row of displayItemRows) {
     const key = cleanCell(row.division) || 'Unassigned'
     const current = divisionMap.get(key) || {
       division: key,
@@ -1468,11 +1582,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     }
     current.itemCount += 1
     if (row.belowMinimum) current.lowStockCount += 1
-    current.availableTotal += Number(row.availableTotal || 0)
-    current.allAvailableTotal += Number(row.allAvailableTotal || 0)
     current.requiredTotal += Number(row.requiredTotal || 0)
-    current.orderedStock += Number(row.orderedStock || 0)
-      current.notInWarehouseTotal += Number(row.notInWarehouses || 0)
       current.gapCostTotal += Number(row.gapCost || 0)
       current.unconfirmedRequirementCount = Number(current.unconfirmedRequirementCount || 0) + (row.hasUnconfirmedRequirements ? 1 : 0)
       divisionMap.set(key, current)
@@ -1483,21 +1593,22 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     latestImport,
     importHistory,
     summary: {
-      templateItemCount: itemRows.length,
+      templateItemCount: displayItemRows.length,
+      sharedStockPoolCount: sharedPools.length,
       matchedItemCount: matchedRows.length,
       lowConfidenceCount: lowConfidenceRows.length,
       unresolvedItemCount: unresolvedRows.length,
       lowStockCount: lowStockRows.length,
-      orderedStockTotal: itemRows.reduce((sum, row) => sum + Number(row.orderedStock || 0), 0),
-      notInWarehouseTotal: itemRows.reduce((sum, row) => sum + Number(row.notInWarehouses || 0), 0),
-      availableTotal: itemRows.reduce((sum, row) => sum + Number(row.availableTotal || 0), 0),
-      allAvailableTotal: itemRows.reduce((sum, row) => sum + Number(row.allAvailableTotal || 0), 0),
-      requiredTotal: itemRows.reduce((sum, row) => sum + Number(row.requiredTotal || 0), 0),
-      unconfirmedRequiredTotal: itemRows.reduce((sum, row) => sum + Number(row.unconfirmedRequiredTotal || 0), 0),
-      unconfirmedRequirementItemCount: itemRows.filter((row) => row.hasUnconfirmedRequirements).length,
+      orderedStockTotal: sharedPools.reduce((sum, row) => sum + Number(row.orderedStock || 0), 0),
+      notInWarehouseTotal: sharedPools.reduce((sum, row) => sum + Number(row.notInWarehouses || 0), 0),
+      availableTotal: sharedPools.reduce((sum, row) => sum + Number(row.availableTotal || 0), 0),
+      allAvailableTotal: sharedPools.reduce((sum, row) => sum + Number(row.allAvailableTotal || 0), 0),
+      requiredTotal: sharedPools.reduce((sum, row) => sum + Number(row.requiredTotal || 0), 0),
+      unconfirmedRequiredTotal: sharedPools.reduce((sum, row) => sum + Number(row.unconfirmedRequiredTotal || 0), 0),
+      unconfirmedRequirementItemCount: displayItemRows.filter((row) => row.hasUnconfirmedRequirements).length,
       unconfirmedLowStockItemCount: lowStockRows.filter((row) => row.hasUnconfirmedRequirements).length,
-      gapCostTotal: Number(itemRows.reduce((sum, row) => sum + Number(row.gapCost || 0), 0).toFixed(2)),
-      unknownSiteQtyTotal: itemRows.reduce((sum, row) => sum + Number(row.unknownSiteQty || 0), 0),
+      gapCostTotal: Number(sharedPools.reduce((sum, row) => sum + Number(row.gapCost || 0), 0).toFixed(2)),
+      unknownSiteQtyTotal: sharedPools.reduce((sum, row) => sum + Number(row.unknownSiteQty || 0), 0),
       matchCoveragePct: itemRows.length ? Number(((matchedRows.length / itemRows.length) * 100).toFixed(2)) : 0
     },
     regionSummary,
@@ -1506,7 +1617,7 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
     regionWatchlist,
     sectionOptions: Array.from(new Set([
       ...templateItems.filter((row) => row.rowType === 'SECTION').map((row) => row.itemDescription || row.sectionName),
-      ...itemRows.map((row) => row.sectionName)
+      ...displayItemRows.map((row) => row.sectionName)
     ].filter(Boolean))).sort((left, right) => String(left).localeCompare(String(right))),
     matchReviewItems: [...lowConfidenceRows, ...unresolvedRows].sort((left, right) => {
       if (left.matchMethod === 'unmatched' && right.matchMethod !== 'unmatched') return -1
@@ -1514,7 +1625,8 @@ function buildCurrentDataset(templateItems, statusRows, latestImport, importHist
       return String(left.itemDescription || '').localeCompare(String(right.itemDescription || ''))
     }),
     notWarehouseItems,
-    items: projectedRows
+    stockPools: sharedPools,
+    items: [...projectedRows.filter((row) => row.rowType !== 'ITEM'), ...displayItemRows]
   }
 }
 
@@ -1551,6 +1663,171 @@ export async function getCurrentStockDataset(prisma, { forceFresh = false } = {}
   projectionCache.value = dataset
   projectionCache.createdAt = Date.now()
   return dataset
+}
+
+function buildRedistributionLegs(stockPools = []) {
+  const legs = []
+  for (const pool of stockPools) {
+    const sources = REGION_ORDER
+      .map((region) => ({ region, qty: Math.max(Number(pool.regionAvailable?.[region] || 0) - Number(pool.confirmedRequiredByRegion?.[region] || 0), 0) }))
+      .filter((entry) => entry.qty > 0)
+    const destinations = REGION_ORDER
+      .map((region) => ({ region, qty: Math.max(Number(pool.confirmedRequiredByRegion?.[region] || 0) - Number(pool.regionAvailable?.[region] || 0), 0) }))
+      .filter((entry) => entry.qty > 0)
+
+    for (const destination of destinations) {
+      let remaining = destination.qty
+      for (const source of sources) {
+        if (!remaining || !source.qty) continue
+        const quantity = Math.min(source.qty, remaining)
+        legs.push({
+          poolKey: pool.poolKey,
+          stockCode: pool.stockCode,
+          itemDescription: pool.itemDescription,
+          fromRegion: source.region,
+          toRegion: destination.region,
+          recommendedQty: quantity,
+          unitCost: Number(pool.unitCost || 0)
+        })
+        source.qty -= quantity
+        remaining -= quantity
+      }
+    }
+  }
+  return legs
+}
+
+export async function generateStockRedistributionPlan(prisma, { source = 'daily' } = {}) {
+  const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
+  const currentLegs = buildRedistributionLegs(dataset.stockPools || [])
+  const previousRun = await prisma.stockRedistributionRun.findFirst({
+    orderBy: { generatedAt: 'desc' },
+    include: { recommendations: true }
+  })
+  const previousByLeg = new Map((previousRun?.recommendations || []).map((row) => [
+    `${row.poolKey}::${row.fromRegion}::${row.toRegion}`,
+    Number(row.recommendedQty || 0)
+  ]))
+  const recommendations = currentLegs.map((leg) => {
+    const key = `${leg.poolKey}::${leg.fromRegion}::${leg.toRegion}`
+    return { ...leg, deltaQty: Math.max(leg.recommendedQty - Number(previousByLeg.get(key) || 0), 0) }
+  })
+  const run = await prisma.stockRedistributionRun.create({
+    data: {
+      source,
+      summary: {
+        legCount: recommendations.length,
+        totalRecommendedQty: recommendations.reduce((sum, row) => sum + row.recommendedQty, 0),
+        totalNewQty: recommendations.reduce((sum, row) => sum + row.deltaQty, 0)
+      },
+      recommendations: { create: recommendations }
+    },
+    include: { recommendations: { orderBy: [{ fromRegion: 'asc' }, { toRegion: 'asc' }, { stockCode: 'asc' }] } }
+  })
+  return run
+}
+
+export async function getLatestStockRedistributionPlan(prisma) {
+  return prisma.stockRedistributionRun.findFirst({
+    orderBy: { generatedAt: 'desc' },
+    include: { recommendations: { orderBy: [{ fromRegion: 'asc' }, { toRegion: 'asc' }, { stockCode: 'asc' }] } }
+  })
+}
+
+function encodeStockEmail(recipients, subject, html) {
+  return Buffer.from([
+    'Content-Type: text/html; charset=utf-8',
+    'MIME-Version: 1.0',
+    `To: ${recipients.join(', ')}`,
+    `Subject: ${subject}`,
+    '',
+    html
+  ].join('\r\n')).toString('base64url')
+}
+
+async function sendStockEmail({ recipients, subject, html }) {
+  const { CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN, GMAIL_SENDER_EMAIL } = process.env
+  if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) throw new Error('Gmail OAuth is not configured for stock reports')
+  const oauth = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET)
+  oauth.setCredentials({ refresh_token: REFRESH_TOKEN })
+  const gmail = google.gmail({ version: 'v1', auth: oauth })
+  const to = recipients.filter(Boolean).join(', ')
+  if (!to) throw new Error('No stock report recipients are configured')
+  await gmail.users.messages.send({
+    userId: GMAIL_SENDER_EMAIL || 'me',
+    requestBody: { raw: encodeStockEmail(recipients, subject, html) }
+  })
+}
+
+function buildDailyReportHtml(division, report) {
+  const table = (rows, columns) => rows.length
+    ? `<table border="1" cellpadding="6" cellspacing="0"><thead><tr>${columns.map((column) => `<th>${column}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${cleanCell(value)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+    : '<p>None.</p>'
+  return `<h2>Daily Stock Report - ${cleanCell(division)}</h2>
+<h3>Below minimum</h3>${table(report.belowMinimum.map((row) => [row.itemDescription, row.stockCode || 'No code', row.shortage]), ['Item', 'Stock code', 'Shared gap'])}
+<h3>Minimums requiring confirmation</h3>${table(report.unconfirmed.map((row) => [row.itemDescription, row.stockCode || 'No code', row.unconfirmedRegions.join(', ')]), ['Item', 'Stock code', 'Regions'])}
+<h3>Stock at zero</h3>${table(report.zeroStock.map((row) => [row.itemDescription, row.stockCode || 'No code']), ['Item', 'Stock code'])}
+<h3>Redistribution to review</h3>${table(report.redistribution.map((row) => [row.stockCode || row.itemDescription, row.fromRegion, row.toRegion, row.deltaQty]), ['Item', 'From', 'To', 'New quantity'])}`
+}
+
+export async function getStockDailyReportDataset(prisma) {
+  const [dataset, plan, contacts] = await Promise.all([
+    getCurrentStockDataset(prisma, { forceFresh: true }),
+    getLatestStockRedistributionPlan(prisma),
+    prisma.stockDivisionContact.findMany({ where: { isActive: true }, orderBy: [{ division: 'asc' }, { email: 'asc' }] })
+  ])
+  const divisions = [...new Set((dataset.items || []).filter((row) => row.rowType === 'ITEM').map((row) => row.division).filter(Boolean))]
+  const reports = divisions.map((division) => {
+    const rows = dataset.items.filter((row) => row.rowType === 'ITEM' && row.division === division)
+    const poolKeys = new Set(rows.map((row) => row.poolKey))
+    return {
+      division,
+      recipients: contacts.filter((contact) => contact.division === division && contact.role === 'DIVISION_HEAD').map((contact) => contact.email),
+      belowMinimum: rows.filter((row) => row.belowMinimum),
+      unconfirmed: rows.filter((row) => row.hasUnconfirmedRequirements),
+      zeroStock: rows.filter((row) => row.zeroAvailable && Number(row.requiredTotal || 0) > 0),
+      redistribution: (plan?.recommendations || []).filter((row) => poolKeys.has(row.poolKey) && Number(row.deltaQty || 0) > 0)
+    }
+  })
+  return { generatedAt: new Date().toISOString(), reports, redistributionPlan: plan, contacts }
+}
+
+export async function sendStockDailyReports(prisma, { sentBy = 'stock-admin' } = {}) {
+  const reportDataset = await getStockDailyReportDataset(prisma)
+  const sent = []
+  for (const report of reportDataset.reports) {
+    if (!report.recipients.length) continue
+    const html = buildDailyReportHtml(report.division, report)
+    await sendStockEmail({ recipients: report.recipients, subject: `Daily Stock Report | ${report.division}`, html })
+    const saved = await prisma.stockDailyReport.create({
+      data: { division: report.division, recipients: report.recipients, reportData: report, sentAt: new Date(), sentBy }
+    })
+    sent.push({ division: report.division, reportId: saved.id, recipients: report.recipients })
+  }
+  return { sent, skipped: reportDataset.reports.length - sent.length }
+}
+
+export async function sendStockRedistributionPlan(prisma, runId, { sentBy = 'stock-admin' } = {}) {
+  const plan = await prisma.stockRedistributionRun.findUnique({ where: { id: Number(runId) }, include: { recommendations: true } })
+  if (!plan) throw new Error('Redistribution plan not found')
+  const actionable = plan.recommendations.filter((row) => row.status === 'DRAFT' && Number(row.deltaQty || 0) > 0)
+  if (!actionable.length) return { sent: 0, message: 'No new redistribution movement is waiting to be sent' }
+  const contacts = await prisma.stockDivisionContact.findMany({ where: { isActive: true, receivesRedistribution: true } })
+  const recipients = contacts.map((row) => row.email)
+  const groups = new Map()
+  actionable.forEach((row) => {
+    const key = `${row.fromRegion} to ${row.toRegion}`
+    const current = groups.get(key) || []
+    current.push(row)
+    groups.set(key, current)
+  })
+  const html = `<h2>Stock redistribution required</h2>${[...groups.entries()].map(([route, rows]) => `<h3>${route}</h3><ul>${rows.map((row) => `<li>Send <strong>${row.deltaQty}</strong> of ${cleanCell(row.stockCode || row.itemDescription)} (${cleanCell(row.itemDescription)})</li>`).join('')}</ul>`).join('')}`
+  await sendStockEmail({ recipients, subject: 'Stock Redistribution Required', html })
+  await prisma.stockRedistributionRecommendation.updateMany({
+    where: { id: { in: actionable.map((row) => row.id) } },
+    data: { status: 'SENT', sentAt: new Date(), sentBy }
+  })
+  return { sent: actionable.length, recipients }
 }
 
 async function ensureLatestStockHistoryBackfill(prisma) {
@@ -1617,7 +1894,7 @@ async function buildStockRunRateDataset(prisma) {
   const seededCurrentSnapshot = await ensureLatestStockHistoryBackfill(prisma)
   const cutoffDate = dayjs().subtract(400, 'day').toDate()
 
-  const [templateItems, importRuns] = await Promise.all([
+  const [templateItemRows, importRuns] = await Promise.all([
     prisma.stockTemplateItem.findMany({
       where: { rowType: 'ITEM' },
       orderBy: { rowOrder: 'asc' }
@@ -1632,6 +1909,8 @@ async function buildStockRunRateDataset(prisma) {
       orderBy: { createdAt: 'asc' }
     })
   ])
+
+  const templateItems = buildPhysicalTemplateItems(templateItemRows)
 
   if (!importRuns.length || !templateItems.length) {
     return buildEmptyRunRateDataset({ seededCurrentSnapshot })
@@ -2039,10 +2318,10 @@ export async function applyStockTemplateReviewChanges(prisma, templateItemId, { 
   }
 }
 
-async function assertTemplateItemNotDuplicate(prisma, { stockCode, itemDescription, excludeId = null }) {
+async function assertTemplateItemNotDuplicate(prisma, { stockCode, itemDescription, division, excludeId = null }) {
   const existingItems = await prisma.stockTemplateItem.findMany({
     where: { rowType: 'ITEM' },
-    select: { id: true, stockCode: true, itemDescription: true }
+    select: { id: true, stockCode: true, itemDescription: true, division: true }
   })
 
   const nextCode = normalizeCode(stockCode || '')
@@ -2050,6 +2329,7 @@ async function assertTemplateItemNotDuplicate(prisma, { stockCode, itemDescripti
 
   const duplicate = existingItems.find((row) => {
     if (excludeId && row.id === excludeId) return false
+    if (normalizeDescription(row.division) !== normalizeDescription(division)) return false
     const codeMatch = nextCode && normalizeCode(row.stockCode || '') === nextCode
     const descriptionMatch = nextDescription && normalizeDescription(row.itemDescription || '') === nextDescription
     return codeMatch || descriptionMatch
@@ -2063,7 +2343,8 @@ async function assertTemplateItemNotDuplicate(prisma, { stockCode, itemDescripti
 export async function createStockTemplateItem(prisma, data) {
   await assertTemplateItemNotDuplicate(prisma, {
     stockCode: data.stockCode,
-    itemDescription: data.itemDescription
+    itemDescription: data.itemDescription,
+    division: data.division
   })
 
   const aggregate = await prisma.stockTemplateItem.aggregate({
@@ -2076,6 +2357,7 @@ export async function createStockTemplateItem(prisma, data) {
       rowOrder: nextRowOrder,
       rowType: 'ITEM',
       sectionName: cleanCell(data.sectionName) || null,
+      subSectionName: cleanCell(data.subSectionName) || null,
       itemDescription: cleanCell(data.itemDescription) || null,
       stockCode: cleanCell(data.stockCode) || null,
       unitPriceZar: cleanCell(data.unitPriceZar) || null,

@@ -53,14 +53,24 @@ import {
 } from 'recharts'
 import {
   applyStockReviewActions,
+  createStockDivisionContact,
   createStockTemplateItem,
+  deleteStockTemplateItem,
   exportLowStockWatchlistWorkbook,
   exportRegionalWatchlistWorkbook,
   exportStockTemplateWorkbook,
   fetchStockDashboard,
+  fetchStockDailyReport,
+  fetchStockDivisionContacts,
+  fetchStockRedistributionPlan,
+  generateStockRedistributionPlan,
   fetchStockRunRates,
   refreshStockDashboard,
+  sendStockDailyReport,
+  sendStockRedistributionPlan,
+  updateStockDivisionContact,
   updateStockNotWarehouseAction,
+  updateStockUnitCost,
   updateStockMatchOverride,
   updateStockRequiredSpares
 } from '../api/stockManagement'
@@ -126,9 +136,9 @@ const MASTER_MONEY_CELL_SX = {
 }
 
 const MASTER_REGION_CELL_SX = {
-  width: 38,
-  minWidth: 38,
-  maxWidth: 38
+  width: 96,
+  minWidth: 96,
+  maxWidth: 96
 }
 
 function fmtCount(value) {
@@ -232,6 +242,7 @@ function buildRequiredSpareForm(item) {
 function createTemplateFormState() {
   return {
     sectionName: '',
+    subSectionName: '',
     itemDescription: '',
     stockCode: '',
     unitPriceZar: '',
@@ -276,7 +287,7 @@ export default function StockManagementPage() {
   const [runRateMonth, setRunRateMonth] = useState('')
   const [runRateRegionFilter, setRunRateRegionFilter] = useState('')
   const [runRateSearch, setRunRateSearch] = useState('')
-  const [tab, setTab] = useState(0)
+  const [tab, setTab] = useState(2)
   const [search, setSearch] = useState('')
   const [divisionFilter, setDivisionFilter] = useState('')
   const [stockFilter, setStockFilter] = useState('')
@@ -287,6 +298,9 @@ export default function StockManagementPage() {
   const [applyingReviewChanges, setApplyingReviewChanges] = useState(false)
   const [editingMinimums, setEditingMinimums] = useState(false)
   const [savingMinimums, setSavingMinimums] = useState(false)
+  const [editingCost, setEditingCost] = useState(false)
+  const [savingCost, setSavingCost] = useState(false)
+  const [costDraft, setCostDraft] = useState('')
   const [minimumForm, setMinimumForm] = useState(buildRequiredSpareForm(null))
   const [reviewSelections, setReviewSelections] = useState({})
   const [deleteReviewItem, setDeleteReviewItem] = useState(false)
@@ -297,6 +311,14 @@ export default function StockManagementPage() {
   const [notWhDrafts, setNotWhDrafts] = useState({})
   const [savingNotWhKey, setSavingNotWhKey] = useState('')
   const [toast, setToast] = useState(null)
+  const [redistributionPlan, setRedistributionPlan] = useState(null)
+  const [redistributionLoading, setRedistributionLoading] = useState(false)
+  const [dailyReport, setDailyReport] = useState(null)
+  const [dailyReportLoading, setDailyReportLoading] = useState(false)
+  const [sendingDailyReport, setSendingDailyReport] = useState(false)
+  const [divisionContacts, setDivisionContacts] = useState([])
+  const [contactsLoading, setContactsLoading] = useState(false)
+  const [contactForm, setContactForm] = useState({ division: '', fullName: '', email: '', role: 'DIVISION_HEAD', receivesRedistribution: false })
 
   const loadData = async ({ showLoading = true } = {}) => {
     if (showLoading) setLoading(true)
@@ -314,9 +336,57 @@ export default function StockManagementPage() {
     }
   }
 
+  const loadRedistribution = async () => {
+    setRedistributionLoading(true)
+    try {
+      const next = await fetchStockRedistributionPlan()
+      setRedistributionPlan(next)
+      return next
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to load redistribution plan' })
+      throw err
+    } finally {
+      setRedistributionLoading(false)
+    }
+  }
+
+  const loadDailyReport = async () => {
+    setDailyReportLoading(true)
+    try {
+      const next = await fetchStockDailyReport()
+      setDailyReport(next)
+      return next
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to load daily report' })
+      throw err
+    } finally {
+      setDailyReportLoading(false)
+    }
+  }
+
+  const loadContacts = async () => {
+    setContactsLoading(true)
+    try {
+      const next = await fetchStockDivisionContacts()
+      setDivisionContacts(next)
+      return next
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'General stock admin access is required to manage contacts' })
+      throw err
+    } finally {
+      setContactsLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadData({ showLoading: true }).catch(console.error)
   }, [])
+
+  useEffect(() => {
+    if (tab === 6 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
+    if (tab === 7 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
+    if (tab === 8 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
+  }, [tab])
 
   useEffect(() => {
     if (!selectedItem) {
@@ -326,6 +396,7 @@ export default function StockManagementPage() {
     }
 
     setMinimumForm(buildRequiredSpareForm(selectedItem))
+    setCostDraft(String(selectedItem.unitCost ?? 0))
   }, [selectedItem])
 
   useEffect(() => {
@@ -508,6 +579,56 @@ export default function StockManagementPage() {
     }
   }
 
+  const generateRedistribution = async () => {
+    setRedistributionLoading(true)
+    try {
+      const next = await generateStockRedistributionPlan()
+      setRedistributionPlan(next)
+      setToast({ severity: 'success', message: `Redistribution plan created with ${fmtCount(next?.recommendations?.length)} movement lines` })
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to generate redistribution plan' })
+    } finally {
+      setRedistributionLoading(false)
+    }
+  }
+
+  const sendRedistribution = async () => {
+    if (!redistributionPlan?.id) return
+    setRedistributionLoading(true)
+    try {
+      const result = await sendStockRedistributionPlan(redistributionPlan.id)
+      await loadRedistribution()
+      setToast({ severity: 'success', message: result.sent ? `${fmtCount(result.sent)} new redistribution lines emailed` : result.message || 'No new movement to send' })
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to send redistribution plan' })
+    } finally {
+      setRedistributionLoading(false)
+    }
+  }
+
+  const sendDailyReports = async () => {
+    setSendingDailyReport(true)
+    try {
+      const result = await sendStockDailyReport()
+      setToast({ severity: 'success', message: `Daily reports sent for ${fmtCount(result.sent?.length)} divisions` })
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to send daily reports' })
+    } finally {
+      setSendingDailyReport(false)
+    }
+  }
+
+  const saveDivisionContact = async () => {
+    try {
+      await createStockDivisionContact(contactForm)
+      setContactForm({ division: '', fullName: '', email: '', role: 'DIVISION_HEAD', receivesRedistribution: false })
+      await loadContacts()
+      setToast({ severity: 'success', message: 'Stock-management contact saved' })
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to save stock contact' })
+    }
+  }
+
   const doExport = async () => {
     setExporting(true)
     try {
@@ -603,6 +724,34 @@ export default function StockManagementPage() {
       })
     } finally {
       setSavingMinimums(false)
+    }
+  }
+
+  const saveUnitCost = async () => {
+    if (!selectedItem) return
+    setSavingCost(true)
+    try {
+      const updated = await updateStockUnitCost(selectedItem.id, Number(costDraft || 0))
+      const next = await loadData({ showLoading: false })
+      setSelectedItem(next?.items?.find((row) => row.id === updated.id) || updated)
+      setEditingCost(false)
+      setToast({ severity: 'success', message: `Unit cost updated for ${selectedItem.itemDescription}` })
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to update unit cost' })
+    } finally {
+      setSavingCost(false)
+    }
+  }
+
+  const deleteSelectedStockItem = async () => {
+    if (!selectedItem || !window.confirm(`Delete ${selectedItem.itemDescription}? This removes its minimum-stock configuration, not the source stock-history records.`)) return
+    try {
+      await deleteStockTemplateItem(selectedItem.id)
+      setSelectedItem(null)
+      await loadData({ showLoading: false })
+      setToast({ severity: 'success', message: 'Stock item deleted' })
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to delete stock item' })
     }
   }
 
@@ -868,12 +1017,12 @@ export default function StockManagementPage() {
           <TextField
             size="small"
             select
-            label="Division"
+            label="Business Unit / Division"
             value={divisionFilter}
             onChange={(e) => setDivisionFilter(e.target.value)}
             sx={{ minWidth: 126 }}
           >
-            <MenuItem value="">All Divisions</MenuItem>
+            <MenuItem value="">All Business Units</MenuItem>
             {divisions.map((division) => (
               <MenuItem key={division} value={division}>{division}</MenuItem>
             ))}
@@ -987,12 +1136,12 @@ export default function StockManagementPage() {
             <TextField
               size="small"
               select
-              label="Division"
+              label="Business Unit / Division"
               value={divisionFilter}
               onChange={(e) => setDivisionFilter(e.target.value)}
               sx={{ minWidth: 122 }}
             >
-              <MenuItem value="">All Divisions</MenuItem>
+              <MenuItem value="">All Business Units</MenuItem>
               {divisions.map((division) => (
                 <MenuItem key={division} value={division}>{division}</MenuItem>
               ))}
@@ -1088,6 +1237,9 @@ export default function StockManagementPage() {
             <Tab label="Match Review" />
             <Tab label="Add Template Item" />
             <Tab label="Not WH Workflow" />
+            <Tab label="Daily Report" />
+            <Tab label="Redistribution" />
+            <Tab label="Stock Admin" />
           </Tabs>
         </Paper>
 
@@ -1668,7 +1820,7 @@ export default function StockManagementPage() {
                     <Table
                       size="small"
                       sx={{
-                        minWidth: 1254,
+                        minWidth: 2050,
                         tableLayout: 'fixed',
                         '& .MuiTableCell-root': {
                           py: 0.34,
@@ -1684,31 +1836,35 @@ export default function StockManagementPage() {
                     >
                       <TableHead>
                         <TableRow>
-                          <TableCell sx={MASTER_ITEM_CELL_SX}>Item</TableCell>
-                          <TableCell sx={MASTER_SECTION_CELL_SX}>Section</TableCell>
-                          <TableCell sx={MASTER_MATCH_CELL_SX}>Match</TableCell>
-                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Required</TableCell>
-                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>WH Avail</TableCell>
+                          <TableCell sx={MASTER_SECTION_CELL_SX}>Stock Section</TableCell>
+                          <TableCell sx={MASTER_SECTION_CELL_SX}>Sub Section</TableCell>
+                          <TableCell sx={MASTER_ITEM_CELL_SX}>Stock Item</TableCell>
+                          <TableCell sx={MASTER_SECTION_CELL_SX}>Stock Code</TableCell>
+                          <TableCell sx={MASTER_SECTION_CELL_SX}>Business Unit</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Req.</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Avail.</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>WH Avail.</TableCell>
                           <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Not WH</TableCell>
-                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Ord.</TableCell>
-                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Gap</TableCell>
+                          <TableCell align="center" sx={MASTER_METRIC_CELL_SX}>Order Placed</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Order Qty</TableCell>
+                          <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Gap</TableCell>
                           <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>Unit Cost</TableCell>
-                          <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>Gap Cost</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>CPT</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>JHB</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>DBN</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>PEL</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>BFN</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>GEO</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>POL</TableCell>
-                          <TableCell align="right" sx={MASTER_REGION_CELL_SX}>NEL</TableCell>
+                          <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>Total Cost</TableCell>
+                          {STOCK_REGIONS.map((region) => <TableCell key={region} align="center" sx={MASTER_REGION_CELL_SX}>{region} Av / Min / Gap</TableCell>)}
+                          <TableCell align="center" sx={MASTER_SECTION_CELL_SX}>Redistribution Required</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {group.rows.map((row) => {
                           const tone = statusTone(row)
+                          const redistributionRequired = Number(row.shortage || 0) > 0 && STOCK_REGIONS.some((region) => {
+                            const position = row.regionalPosition?.[region]
+                            return Number(position?.available || 0) > Number(position?.aggregateMinimum || 0)
+                          })
                           return (
                             <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
+                              <TableCell sx={MASTER_SECTION_CELL_SX}>{row.sectionName || 'General'}</TableCell>
+                              <TableCell sx={MASTER_SECTION_CELL_SX}>{row.subSectionName || '-'}</TableCell>
                               <TableCell sx={MASTER_ITEM_CELL_SX}>
                                 <Typography
                                   variant="body2"
@@ -1727,19 +1883,6 @@ export default function StockManagementPage() {
                                   {row.itemDescription}
                                 </Typography>
                                 <Stack direction="row" spacing={0.35} useFlexGap flexWrap="wrap" sx={{ mt: 0.2 }}>
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      opacity: 0.72,
-                                      fontSize: 9.7,
-                                      lineHeight: 1.06,
-                                      display: 'block',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis'
-                                    }}
-                                  >
-                                    {row.stockCode || 'No stock code'}
-                                  </Typography>
                                   {row.hasUnconfirmedRequirements ? (
                                     <Chip
                                       size="small"
@@ -1750,23 +1893,7 @@ export default function StockManagementPage() {
                                 </Stack>
                               </TableCell>
                               <TableCell sx={MASTER_SECTION_CELL_SX}>
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    fontSize: 10.1,
-                                    lineHeight: 1.1,
-                                    whiteSpace: 'normal',
-                                    wordBreak: 'break-word',
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden'
-                                  }}
-                                >
-                                  {row.sectionName || 'General'}
-                                </Typography>
-                              </TableCell>
-                              <TableCell sx={MASTER_MATCH_CELL_SX}>
+                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>{row.stockCode || 'No stock code'}</Typography>
                                 <Chip
                                   size="small"
                                   label={row.matchStatus}
@@ -1774,13 +1901,20 @@ export default function StockManagementPage() {
                                   sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.65, fontSize: 9.9 } }}
                                 />
                               </TableCell>
+                              <TableCell sx={MASTER_SECTION_CELL_SX}>{row.division || 'Unassigned'}</TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.requiredTotal)}</TableCell>
+                              <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
+                                <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
+                                  {fmtCount(row.allAvailableTotal)}
+                                </Typography>
+                              </TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
                                 <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
                                   {fmtCount(row.availableTotal)}
                                 </Typography>
                               </TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.notInWarehouses)}</TableCell>
+                              <TableCell align="center" sx={MASTER_METRIC_CELL_SX}>{Number(row.orderedStock || 0) > 0 ? 'Yes' : 'No'}</TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.orderedStock)}</TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
                                 <Typography
@@ -1804,14 +1938,16 @@ export default function StockManagementPage() {
                               </TableCell>
                               <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>{fmtMoney(row.unitCost)}</TableCell>
                               <TableCell align="right" sx={MASTER_MONEY_CELL_SX}>{fmtMoney(row.gapCost)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.cptTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.jhbTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.dbnTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.pelTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.bfnTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.geoTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.polTotal)}</TableCell>
-                              <TableCell align="right" sx={MASTER_REGION_CELL_SX}>{fmtCount(row.nelTotal)}</TableCell>
+                              {STOCK_REGIONS.map((region) => {
+                                const position = row.regionalPosition?.[region] || {}
+                                const hasGap = Number(position.gap || 0) > 0
+                                return <TableCell key={region} align="center" sx={{ ...MASTER_REGION_CELL_SX, bgcolor: hasGap ? '#fff7ed' : 'transparent' }}>
+                                  <Typography variant="caption" sx={{ display: 'block', fontWeight: 800 }}>Av {fmtCount(position.available)}</Typography>
+                                  <Typography variant="caption" sx={{ display: 'block' }}>Min {fmtCount(position.minimum)}</Typography>
+                                  <Typography variant="caption" sx={{ display: 'block', color: hasGap ? '#b91c1c' : '#166534', fontWeight: 800 }}>Gap {fmtCount(position.gap)}</Typography>
+                                </TableCell>
+                              })}
+                              <TableCell align="center" sx={MASTER_SECTION_CELL_SX}><Chip size="small" color={redistributionRequired ? 'warning' : 'default'} label={redistributionRequired ? 'Yes' : 'No'} /></TableCell>
                             </TableRow>
                           )
                         })}
@@ -1927,7 +2063,13 @@ export default function StockManagementPage() {
               />
               <TextField
                 size="small"
-                label="Division"
+                label="Sub Section"
+                value={createForm.subSectionName}
+                onChange={(event) => updateCreateFormField('subSectionName', event.target.value)}
+              />
+              <TextField
+                size="small"
+                label="Business Unit / Division"
                 value={createForm.division}
                 onChange={(event) => updateCreateFormField('division', event.target.value)}
                 placeholder="Assurance / Engineering ..."
@@ -2121,6 +2263,85 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
+      {tab === 6 ? (
+        <Stack spacing={0.8}>
+          <SectionCard
+            title="Daily division report"
+            subtitle="Review exactly what each division head will receive. Sending stays manual until the contact list is confirmed."
+            action={(
+              <Stack direction="row" spacing={0.6}>
+                <Button size="small" variant="outlined" onClick={() => loadDailyReport().catch(() => {})} disabled={dailyReportLoading}>Refresh</Button>
+                <Button size="small" variant="contained" onClick={sendDailyReports} disabled={sendingDailyReport || dailyReportLoading}>
+                  {sendingDailyReport ? 'Sending...' : 'Send all division reports'}
+                </Button>
+              </Stack>
+            )}
+          >
+            {dailyReportLoading && !dailyReport ? <CircularProgress size={22} /> : (
+              <Stack spacing={0.75}>
+                {(dailyReport?.reports || []).map((report) => (
+                  <Paper key={report.division} variant="outlined" sx={{ p: 1, borderRadius: 2 }}>
+                    <Stack spacing={0.55}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" useFlexGap flexWrap="wrap">
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{report.division}</Typography>
+                        <Typography variant="caption">To: {report.recipients.join(', ') || 'No division head configured'}</Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                        <Chip size="small" color="error" label={`${fmtCount(report.belowMinimum.length)} below minimum`} />
+                        <Chip size="small" color="warning" label={`${fmtCount(report.unconfirmed.length)} unconfirmed`} />
+                        <Chip size="small" label={`${fmtCount(report.zeroStock.length)} at zero`} />
+                        <Chip size="small" color="info" label={`${fmtCount(report.redistribution.length)} new redistribution lines`} />
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </SectionCard>
+        </Stack>
+      ) : null}
+
+      {tab === 7 ? (
+        <SectionCard
+          title="Redistribution required"
+          subtitle="Shared regional stock is compared with confirmed minimums. The daily plan only marks additional quantities since the previous plan as new."
+          action={(
+            <Stack direction="row" spacing={0.6}>
+              <Button size="small" variant="outlined" onClick={() => loadRedistribution().catch(() => {})} disabled={redistributionLoading}>Refresh</Button>
+              <Button size="small" variant="contained" onClick={generateRedistribution} disabled={redistributionLoading}>Generate plan</Button>
+              <Button size="small" variant="contained" color="warning" onClick={sendRedistribution} disabled={redistributionLoading || !(redistributionPlan?.recommendations || []).some((row) => Number(row.deltaQty || 0) > 0 && row.status === 'DRAFT')}>Send new movements</Button>
+            </Stack>
+          )}
+        >
+          {!redistributionPlan ? <Alert severity="info">Generate the first redistribution plan once the minimum-stock import and current stock feed are ready.</Alert> : (
+            <TableContainer sx={{ maxHeight: '62vh' }}><Table size="small" stickyHeader><TableHead><TableRow>
+              <TableCell>From</TableCell><TableCell>To</TableCell><TableCell>Stock Code</TableCell><TableCell>Item</TableCell><TableCell align="right">Plan Qty</TableCell><TableCell align="right">New Qty</TableCell><TableCell>Status</TableCell>
+            </TableRow></TableHead><TableBody>
+              {(redistributionPlan.recommendations || []).map((row) => <TableRow key={row.id}><TableCell>{row.fromRegion}</TableCell><TableCell>{row.toRegion}</TableCell><TableCell>{row.stockCode || 'N/A'}</TableCell><TableCell>{row.itemDescription}</TableCell><TableCell align="right">{fmtCount(row.recommendedQty)}</TableCell><TableCell align="right"><Chip size="small" color={row.deltaQty ? 'warning' : 'default'} label={fmtCount(row.deltaQty)} /></TableCell><TableCell>{row.status}</TableCell></TableRow>)}
+            </TableBody></Table></TableContainer>
+          )}
+        </SectionCard>
+      ) : null}
+
+      {tab === 8 ? (
+        <Stack spacing={0.8}>
+          <SectionCard title="Stock management administration" subtitle="General stock admins manage division heads, division admins and redistribution recipients here. Division admins can only change stock in their assigned business unit.">
+            <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.2fr 1.2fr 1.5fr 1fr auto' } }}>
+              <TextField size="small" select label="Business Unit" value={contactForm.division} onChange={(event) => setContactForm((state) => ({ ...state, division: event.target.value }))}><MenuItem value="">Choose</MenuItem>{divisions.map((division) => <MenuItem key={division} value={division}>{division}</MenuItem>)}</TextField>
+              <TextField size="small" label="Full name" value={contactForm.fullName} onChange={(event) => setContactForm((state) => ({ ...state, fullName: event.target.value }))} />
+              <TextField size="small" label="Email" value={contactForm.email} onChange={(event) => setContactForm((state) => ({ ...state, email: event.target.value }))} />
+              <TextField size="small" select label="Access" value={contactForm.role} onChange={(event) => setContactForm((state) => ({ ...state, role: event.target.value }))}><MenuItem value="DIVISION_HEAD">Division head</MenuItem><MenuItem value="DIVISION_ADMIN">Division admin</MenuItem></TextField>
+              <Button variant="contained" onClick={saveDivisionContact}>Add user</Button>
+            </Box>
+          </SectionCard>
+          <SectionCard title="Configured stock users" action={<Button size="small" onClick={() => loadContacts().catch(() => {})} disabled={contactsLoading}>Refresh</Button>}>
+            <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Business Unit</TableCell><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Role</TableCell><TableCell>Active</TableCell><TableCell>Redistribution recipient</TableCell></TableRow></TableHead><TableBody>
+              {divisionContacts.map((contact) => <TableRow key={contact.id}><TableCell>{contact.division}</TableCell><TableCell>{contact.fullName || '-'}</TableCell><TableCell>{contact.email}</TableCell><TableCell>{contact.role === 'DIVISION_ADMIN' ? 'Division admin' : 'Division head'}</TableCell><TableCell>{contact.isActive ? 'Yes' : 'No'}</TableCell><TableCell>{contact.receivesRedistribution ? 'Yes' : 'No'}</TableCell></TableRow>)}
+            </TableBody></Table></TableContainer>
+          </SectionCard>
+        </Stack>
+      ) : null}
+
       <Dialog
         open={Boolean(selectedItem)}
         onClose={() => setSelectedItem(null)}
@@ -2133,18 +2354,24 @@ export default function StockManagementPage() {
               {selectedItem?.itemDescription || 'Stock item details'}
             </Typography>
             {selectedItem?.rowType === 'ITEM' ? (
-              <Button
-                size="small"
-                variant={editingMinimums ? 'contained' : 'outlined'}
-                startIcon={<EditOutlinedIcon />}
-                onClick={() => {
-                  setMinimumForm(buildRequiredSpareForm(selectedItem))
-                  setEditingMinimums((current) => !current)
-                }}
-                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}
-              >
-                {editingMinimums ? 'Close editor' : 'Edit minimum spares'}
-              </Button>
+              <Stack direction="row" spacing={0.6}>
+                <Button
+                  size="small"
+                  variant={editingMinimums ? 'contained' : 'outlined'}
+                  startIcon={<EditOutlinedIcon />}
+                  onClick={() => {
+                    setMinimumForm(buildRequiredSpareForm(selectedItem))
+                    setEditingMinimums((current) => !current)
+                  }}
+                  sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}
+                >
+                  {editingMinimums ? 'Close minimums' : 'Edit minimums'}
+                </Button>
+                <Button size="small" variant={editingCost ? 'contained' : 'outlined'} onClick={() => setEditingCost((current) => !current)} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}>
+                  {editingCost ? 'Close cost' : 'Edit cost'}
+                </Button>
+                <Button size="small" color="error" variant="outlined" onClick={deleteSelectedStockItem} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}>Delete item</Button>
+              </Stack>
             ) : null}
           </Stack>
         </DialogTitle>
@@ -2171,6 +2398,12 @@ export default function StockManagementPage() {
                 <Chip label={`Unit cost ${fmtMoney(selectedItem.unitCost)}`} />
                 <Chip label={`Gap cost ${fmtMoney(selectedItem.gapCost)}`} />
               </Stack>
+              {editingCost ? (
+                <Stack direction="row" spacing={0.7} alignItems="center">
+                  <TextField size="small" label="Unit cost (ZAR)" value={costDraft} onChange={(event) => setCostDraft(event.target.value)} inputProps={{ inputMode: 'decimal' }} sx={{ maxWidth: 180 }} />
+                  <Button size="small" variant="contained" onClick={saveUnitCost} disabled={savingCost}>{savingCost ? 'Saving...' : 'Save cost'}</Button>
+                </Stack>
+              ) : null}
               <Paper variant="outlined" sx={{ p: 1.1, borderRadius: 2.5 }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                   <Box sx={{ minWidth: 0 }}>

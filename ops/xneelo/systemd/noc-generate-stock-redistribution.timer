@@ -1,0 +1,10 @@
+[Unit]
+Description=Generate daily stock redistribution recommendations after stock ingest
+
+[Timer]
+OnCalendar=*-*-* 07:35:00 Africa/Johannesburg
+Persistent=true
+Unit=noc-generate-stock-redistribution.service
+
+[Install]
+WantedBy=timers.target

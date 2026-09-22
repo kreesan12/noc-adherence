@@ -51,7 +51,7 @@ export default function authRoutesFactory(prisma) {
     }
 
     const token = jwt.sign(
-      { id: user.id, name: user.fullName, role: user.role, kind: sup ? 'supervisor' : 'manager' },
+      { id: user.id, name: user.fullName, email: user.email, role: user.role, kind: sup ? 'supervisor' : 'manager' },
       getJwtSecret(),
       { expiresIn: '8h' }
     )

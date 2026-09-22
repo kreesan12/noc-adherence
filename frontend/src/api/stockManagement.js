@@ -60,3 +60,52 @@ export async function updateStockNotWarehouseAction(payload) {
   const { data } = await api.put('/stock-management/not-wh-actions', payload)
   return data
 }
+
+export async function updateStockUnitCost(id, unitCost) {
+  const { data } = await api.put(`/stock-management/template-items/${id}/cost`, { unitCost })
+  return data
+}
+
+export async function deleteStockTemplateItem(id) {
+  await api.delete(`/stock-management/template-items/${id}`)
+}
+
+export async function fetchStockRedistributionPlan() {
+  const { data } = await api.get('/stock-management/redistribution/latest')
+  return data
+}
+
+export async function generateStockRedistributionPlan() {
+  const { data } = await api.post('/stock-management/redistribution/generate')
+  return data
+}
+
+export async function sendStockRedistributionPlan(runId) {
+  const { data } = await api.post(`/stock-management/redistribution/${runId}/send`)
+  return data
+}
+
+export async function fetchStockDailyReport() {
+  const { data } = await api.get('/stock-management/daily-report')
+  return data
+}
+
+export async function sendStockDailyReport() {
+  const { data } = await api.post('/stock-management/daily-report/send')
+  return data
+}
+
+export async function fetchStockDivisionContacts() {
+  const { data } = await api.get('/stock-management/admin/contacts')
+  return data
+}
+
+export async function createStockDivisionContact(payload) {
+  const { data } = await api.post('/stock-management/admin/contacts', payload)
+  return data
+}
+
+export async function updateStockDivisionContact(id, payload) {
+  const { data } = await api.put(`/stock-management/admin/contacts/${id}`, payload)
+  return data
+}

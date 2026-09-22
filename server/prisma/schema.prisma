@@ -356,6 +356,7 @@ model StockTemplateItem {
   rowOrder               Int                  @unique @map("row_order")
   rowType                StockTemplateRowType @map("row_type")
   sectionName            String?              @map("section_name")
+  subSectionName         String?              @map("sub_section_name")
   itemDescription        String?              @map("item_description")
   stockCode              String?              @map("stock_code")
   unitPriceZar           String?              @map("unit_price_zar")
@@ -386,6 +387,83 @@ model StockTemplateItem {
   @@index([rowType], map: "idx_stock_template_item_row_type")
   @@index([division], map: "idx_stock_template_item_division")
   @@map("stock_template_item")
+}
+
+enum StockDivisionContactRole {
+  DIVISION_HEAD
+  DIVISION_ADMIN
+}
+
+enum StockRedistributionStatus {
+  DRAFT
+  SENT
+  SUPERSEDED
+}
+
+model StockDivisionContact {
+  id            Int                      @id @default(autoincrement())
+  division      String
+  fullName      String?
+  email         String
+  role          StockDivisionContactRole
+  isActive      Boolean                  @default(true) @map("is_active")
+  receivesRedistribution Boolean         @default(false) @map("receives_redistribution")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([division, email, role], map: "uq_stock_division_contact")
+  @@index([email, isActive], map: "idx_stock_division_contact_email_active")
+  @@index([division, role, isActive], map: "idx_stock_division_contact_division_role")
+  @@map("stock_division_contact")
+}
+
+model StockRedistributionRun {
+  id          Int                              @id @default(autoincrement())
+  generatedAt DateTime                         @default(now()) @map("generated_at")
+  source      String                           @default("daily")
+  summary     Json?
+  createdAt   DateTime                         @default(now()) @map("created_at")
+  recommendations StockRedistributionRecommendation[]
+
+  @@index([generatedAt], map: "idx_stock_redistribution_run_generated_at")
+  @@map("stock_redistribution_run")
+}
+
+model StockRedistributionRecommendation {
+  id              Int                       @id @default(autoincrement())
+  runId           Int                       @map("run_id")
+  run             StockRedistributionRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  poolKey         String                    @map("pool_key")
+  stockCode       String?                   @map("stock_code")
+  itemDescription String?                   @map("item_description")
+  fromRegion      String                    @map("from_region")
+  toRegion        String                    @map("to_region")
+  recommendedQty  Int                       @map("recommended_qty")
+  deltaQty        Int                       @default(0) @map("delta_qty")
+  unitCost        Float                     @default(0) @map("unit_cost")
+  status          StockRedistributionStatus @default(DRAFT)
+  sentAt          DateTime?                 @map("sent_at")
+  sentBy          String?                   @map("sent_by")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+
+  @@unique([runId, poolKey, fromRegion, toRegion], map: "uq_stock_redistribution_run_leg")
+  @@index([status, createdAt], map: "idx_stock_redistribution_status_created")
+  @@index([poolKey, fromRegion, toRegion], map: "idx_stock_redistribution_pool_leg")
+  @@map("stock_redistribution_recommendation")
+}
+
+model StockDailyReport {
+  id          Int      @id @default(autoincrement())
+  division    String?
+  recipients  String[] @default([])
+  reportData  Json     @map("report_data")
+  sentAt      DateTime? @map("sent_at")
+  sentBy      String?   @map("sent_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([division, createdAt], map: "idx_stock_daily_report_division_created")
+  @@map("stock_daily_report")
 }
 
 model StockNotWarehouseAction {

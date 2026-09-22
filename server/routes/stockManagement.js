@@ -7,27 +7,64 @@ import {
   buildRegionalWatchlistWorkbookBuffer,
   buildStockTemplateWorkbookBuffer,
   createStockTemplateItem,
+  generateStockRedistributionPlan,
   getCurrentStockDataset,
+  getLatestStockRedistributionPlan,
+  getStockDailyReportDataset,
   getStockRunRateDataset,
   importCurrentStockStatusWorkbook,
   importStockStatusFromGmail,
   importStockTemplateWorkbook,
   invalidateStockManagementCache,
   rebuildStoredStockRunRateDataset,
+  sendStockDailyReports,
+  sendStockRedistributionPlan,
   upsertStockNotWarehouseAction
 } from '../lib/stockManagement.js'
 
-function requireEngineering(req, res, next) {
+async function resolveStockAccess(req, res, next) {
   const role = String(req.user?.role || '').toLowerCase()
-  if (!['engineering', 'admin', 'manager'].includes(role)) {
-    return res.status(403).json({ error: 'Engineering, admin, or manager role required' })
+  if (['engineering', 'admin'].includes(role)) {
+    req.stockAccess = { all: true, divisions: [] }
+    return next()
+  }
+  const email = String(req.user?.email || '').trim().toLowerCase()
+  if (!email) return res.status(403).json({ error: 'Sign in again before accessing stock management' })
+  const contacts = await prisma.stockDivisionContact.findMany({
+    where: { email, isActive: true },
+    select: { division: true, role: true }
+  })
+  if (!contacts.length) return res.status(403).json({ error: 'No stock-management division access is assigned to this user' })
+  req.stockAccess = {
+    all: false,
+    divisions: [...new Set(contacts.map((row) => row.division))],
+    adminDivisions: [...new Set(contacts.filter((row) => row.role === 'DIVISION_ADMIN').map((row) => row.division))]
   }
   next()
 }
 
+const canManageDivision = (req, division) => Boolean(req.stockAccess?.all || req.stockAccess?.adminDivisions?.includes(division))
+const requireGeneralStockAdmin = (req, res, next) => req.stockAccess?.all ? next() : res.status(403).json({ error: 'General stock admin access required' })
+
+function applyStockScope(dataset, access) {
+  if (access?.all) return dataset
+  const divisions = new Set(access?.divisions || [])
+  const items = (dataset.items || []).filter((row) => row.rowType !== 'ITEM' || divisions.has(row.division))
+  const poolKeys = new Set(items.filter((row) => row.rowType === 'ITEM').map((row) => row.poolKey))
+  return {
+    ...dataset,
+    items,
+    divisionSummary: (dataset.divisionSummary || []).filter((row) => divisions.has(row.division)),
+    lowStockItems: (dataset.lowStockItems || []).filter((row) => poolKeys.has(row.poolKey)),
+    matchReviewItems: (dataset.matchReviewItems || []).filter((row) => divisions.has(row.division)),
+    notWarehouseItems: (dataset.notWarehouseItems || []).filter((row) => divisions.has(row.division)),
+    stockPools: (dataset.stockPools || []).filter((row) => poolKeys.has(row.poolKey))
+  }
+}
+
 const r = Router()
 
-r.use(verifyToken, requireEngineering)
+r.use(verifyToken, resolveStockAccess)
 
 const NOT_WH_STATUSES = new Set([
   'PENDING_REVIEW',
@@ -62,9 +99,9 @@ function parseBooleanFlag(value, defaultValue = true) {
   return defaultValue
 }
 
-r.get('/current', async (_req, res) => {
+r.get('/current', async (req, res) => {
   const dataset = await getCurrentStockDataset(prisma)
-  res.json(dataset)
+  res.json(applyStockScope(dataset, req.stockAccess))
 })
 
 r.get('/run-rates', async (_req, res) => {
@@ -79,7 +116,7 @@ r.get('/item/:id', async (req, res) => {
   }
 
   const dataset = await getCurrentStockDataset(prisma)
-  const item = dataset.items.find((row) => row.id === id)
+  const item = applyStockScope(dataset, req.stockAccess).items.find((row) => row.id === id)
   if (!item) {
     return res.status(404).json({ error: 'Item not found' })
   }
@@ -98,6 +135,7 @@ r.put('/template-items/:id/match-override', async (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: 'Template item not found' })
   }
+  if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only change matching for your assigned division' })
 
   await prisma.stockTemplateItem.update({
     where: { id },
@@ -133,6 +171,7 @@ r.put('/template-items/:id/required-spares', async (req, res) => {
   if (existing.rowType !== 'ITEM') {
     return res.status(400).json({ error: 'Minimum spares can only be edited for item rows' })
   }
+  if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only change minimums for your assigned division' })
 
   const fields = {
     requiredCpt: parseWholeNumber(req.body?.requiredCpt),
@@ -178,6 +217,7 @@ r.put('/template-items/:id/required-spares', async (req, res) => {
 r.post('/template-items', async (req, res) => {
   const payload = {
     sectionName: req.body?.sectionName,
+    subSectionName: req.body?.subSectionName,
     itemDescription: String(req.body?.itemDescription || '').trim(),
     stockCode: String(req.body?.stockCode || '').trim(),
     unitPriceZar: req.body?.unitPriceZar,
@@ -208,6 +248,7 @@ r.post('/template-items', async (req, res) => {
   if (!payload.division) {
     return res.status(400).json({ error: 'Division is required' })
   }
+  if (!canManageDivision(req, payload.division)) return res.status(403).json({ error: 'You can only add items to your assigned division' })
 
   const invalidField = Object.entries(payload).find(([key, value]) => key.startsWith('required') && value == null)
   if (invalidField) {
@@ -236,6 +277,9 @@ r.post('/template-items/:id/review-actions', async (req, res) => {
   }
 
   try {
+    const existing = await prisma.stockTemplateItem.findUnique({ where: { id } })
+    if (!existing) return res.status(404).json({ error: 'Template item not found' })
+    if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only review items in your assigned division' })
     const result = await applyStockTemplateReviewChanges(prisma, id, {
       deleteOriginal: Boolean(req.body?.deleteOriginal),
       additions: Array.isArray(req.body?.additions) ? req.body.additions : []
@@ -253,6 +297,9 @@ r.put('/not-wh-actions', async (req, res) => {
   if (!Number.isFinite(templateItemId)) {
     return res.status(400).json({ error: 'Invalid template item id' })
   }
+  const existing = await prisma.stockTemplateItem.findUnique({ where: { id: templateItemId } })
+  if (!existing) return res.status(404).json({ error: 'Template item not found' })
+  if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only update Not WH actions for your assigned division' })
 
   const siteId = String(req.body?.siteId || '').trim()
   if (!siteId) {
@@ -279,7 +326,105 @@ r.put('/not-wh-actions', async (req, res) => {
   }
 })
 
-r.post('/refresh', async (_req, res) => {
+r.put('/template-items/:id/cost', async (req, res) => {
+  const id = Number(req.params.id)
+  const unitCost = Number(req.body?.unitCost)
+  if (!Number.isFinite(id) || !Number.isFinite(unitCost) || unitCost < 0) {
+    return res.status(400).json({ error: 'A non-negative unit cost is required' })
+  }
+  const existing = await prisma.stockTemplateItem.findUnique({ where: { id } })
+  if (!existing) return res.status(404).json({ error: 'Template item not found' })
+  if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only edit costs for your assigned division' })
+  await prisma.stockTemplateItem.updateMany({
+    where: existing.stockCode ? { stockCode: existing.stockCode } : { id },
+    data: { unitPriceZar: unitCost.toFixed(2) }
+  })
+  invalidateStockManagementCache()
+  const dataset = applyStockScope(await getCurrentStockDataset(prisma, { forceFresh: true }), req.stockAccess)
+  refreshRunRatesInBackground()
+  res.json(dataset.items.find((row) => row.id === id))
+})
+
+r.delete('/template-items/:id', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid item id' })
+  const existing = await prisma.stockTemplateItem.findUnique({ where: { id } })
+  if (!existing) return res.status(404).json({ error: 'Template item not found' })
+  if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only delete items in your assigned division' })
+  await prisma.stockTemplateItem.delete({ where: { id } })
+  invalidateStockManagementCache()
+  refreshRunRatesInBackground()
+  res.status(204).end()
+})
+
+r.get('/redistribution/latest', async (_req, res) => {
+  res.json(await getLatestStockRedistributionPlan(prisma))
+})
+
+r.post('/redistribution/generate', requireGeneralStockAdmin, async (_req, res) => {
+  res.status(201).json(await generateStockRedistributionPlan(prisma, { source: 'manual' }))
+})
+
+r.post('/redistribution/:runId/send', requireGeneralStockAdmin, async (req, res) => {
+  try {
+    res.json(await sendStockRedistributionPlan(prisma, req.params.runId, {
+      sentBy: req.user?.email || req.user?.name || 'stock-admin'
+    }))
+  } catch (error) {
+    res.status(400).json({ error: error?.message || 'Failed to send redistribution plan' })
+  }
+})
+
+r.get('/daily-report', async (req, res) => {
+  const data = await getStockDailyReportDataset(prisma)
+  if (req.stockAccess?.all) return res.json(data)
+  const divisions = new Set(req.stockAccess?.divisions || [])
+  res.json({ ...data, reports: data.reports.filter((report) => divisions.has(report.division)) })
+})
+
+r.post('/daily-report/send', requireGeneralStockAdmin, async (req, res) => {
+  try {
+    res.json(await sendStockDailyReports(prisma, { sentBy: req.user?.email || req.user?.name || 'stock-admin' }))
+  } catch (error) {
+    res.status(400).json({ error: error?.message || 'Failed to send daily reports' })
+  }
+})
+
+r.get('/admin/contacts', requireGeneralStockAdmin, async (_req, res) => {
+  res.json(await prisma.stockDivisionContact.findMany({ orderBy: [{ division: 'asc' }, { role: 'asc' }, { email: 'asc' }] }))
+})
+
+r.post('/admin/contacts', requireGeneralStockAdmin, async (req, res) => {
+  const division = String(req.body?.division || '').trim()
+  const email = String(req.body?.email || '').trim().toLowerCase()
+  const role = String(req.body?.role || '').trim().toUpperCase()
+  if (!division || !/^\S+@\S+\.\S+$/.test(email) || !['DIVISION_HEAD', 'DIVISION_ADMIN'].includes(role)) {
+    return res.status(400).json({ error: 'Division, valid email, and contact role are required' })
+  }
+  const contact = await prisma.stockDivisionContact.upsert({
+    where: { division_email_role: { division, email, role } },
+    create: { division, email, role, fullName: String(req.body?.fullName || '').trim() || null, receivesRedistribution: Boolean(req.body?.receivesRedistribution) },
+    update: { fullName: String(req.body?.fullName || '').trim() || null, isActive: req.body?.isActive !== false, receivesRedistribution: Boolean(req.body?.receivesRedistribution) }
+  })
+  res.status(201).json(contact)
+})
+
+r.put('/admin/contacts/:id', requireGeneralStockAdmin, async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid contact id' })
+  const contact = await prisma.stockDivisionContact.update({
+    where: { id },
+    data: {
+      fullName: req.body?.fullName == null ? undefined : String(req.body.fullName).trim() || null,
+      email: req.body?.email == null ? undefined : String(req.body.email).trim().toLowerCase(),
+      isActive: req.body?.isActive == null ? undefined : Boolean(req.body.isActive),
+      receivesRedistribution: req.body?.receivesRedistribution == null ? undefined : Boolean(req.body.receivesRedistribution)
+    }
+  })
+  res.json(contact)
+})
+
+r.post('/refresh', requireGeneralStockAdmin, async (_req, res) => {
   const templateCount = await prisma.stockTemplateItem.count()
   if (!templateCount && process.env.STOCK_TEMPLATE_FILE) {
     await importStockTemplateWorkbook(prisma, process.env.STOCK_TEMPLATE_FILE)
