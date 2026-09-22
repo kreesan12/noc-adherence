@@ -1402,6 +1402,9 @@ export default function StockManagementPage() {
               Show all business units
             </Button>
           ) : null}
+          minHeight={0}
+          rootSx={{ height: 'auto', flex: '0 0 auto' }}
+          bodySx={{ minHeight: 0, py: 0.8 }}
         >
           <Box
             sx={{
