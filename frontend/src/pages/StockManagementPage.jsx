@@ -157,8 +157,8 @@ const MASTER_REGION_CELL_SX = {
   maxWidth: 96
 }
 
-function SectionCard({ rootSx = {}, ...props }) {
-  return <BaseSectionCard {...props} rootSx={{ ...rootSx, borderRadius: 1.35 }} />
+function SectionCard({ rootSx = {}, minHeight = 0, ...props }) {
+  return <BaseSectionCard {...props} minHeight={minHeight} rootSx={{ height: 'auto', ...rootSx, borderRadius: 1.35 }} />
 }
 
 function fmtCount(value) {
