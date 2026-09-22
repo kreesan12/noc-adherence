@@ -105,7 +105,12 @@ r.get('/current', async (req, res) => {
 })
 
 r.get('/run-rates', async (_req, res) => {
-  const dataset = await getStockRunRateDataset(prisma)
+  let dataset = await getStockRunRateDataset(prisma)
+  // Stored snapshots created before shared-stock run rates did not retain
+  // contributing Business Units. Rebuild once when an older snapshot is read.
+  if ((dataset.rows || []).some((row) => !Array.isArray(row.contributingDivisions))) {
+    dataset = await getStockRunRateDataset(prisma, { forceFresh: true })
+  }
   res.json(dataset)
 })
 
