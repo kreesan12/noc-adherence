@@ -981,7 +981,8 @@ export default function StockManagementPage() {
     <PageShell
       eyebrow="Stock Management"
       title="Assurance And Engineering Stock Control"
-      description="The template remains the master source, the daily stock report feeds the live counts, and warehouse stock stays separated from field-held stock so the gap logic stays operationally clean."
+      description="Business-unit minimums are measured against live shared warehouse stock; field-held stock remains separate."
+      descriptionSx={{ whiteSpace: 'nowrap' }}
       accent="#0f766e"
       shellSx={tab === 0 ? {
         height: 'calc(100dvh - 24px)',
