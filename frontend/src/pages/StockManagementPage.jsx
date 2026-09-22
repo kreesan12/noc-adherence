@@ -1461,13 +1461,6 @@ export default function StockManagementPage() {
           <Alert severity="error" sx={{ borderRadius: 2.4 }}>{runRateError}</Alert>
         ) : (
           <Stack spacing={0.82}>
-            <Alert severity={runRateData?.hasEnoughHistory ? 'info' : 'warning'} sx={{ borderRadius: 2.4 }}>
-              Hack run rates count day-to-day drops in warehouse-usable stock from the daily stock status imports.
-              {runRateData?.hasEnoughHistory
-                ? ' Restocks are shown separately so we can see movement without pretending this is a perfect consumption model.'
-                : ' We only have a starting baseline right now, so usage will become meaningful after more daily imports land.'}
-            </Alert>
-
             <Box
               sx={{
                 display: 'grid',
