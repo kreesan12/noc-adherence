@@ -78,7 +78,7 @@ import { PageShell } from '../components/ui/PageScaffold'
 import { useAuth } from '../context/AuthContext'
 import {
   AnalyticsMetricCard as Card,
-  AnalyticsSectionCard as SectionCard
+  AnalyticsSectionCard as BaseSectionCard
 } from '../components/ui/AnalyticsPrimitives'
 
 const REQUIRED_SPARE_FIELDS = [
@@ -147,6 +147,10 @@ const MASTER_REGION_CELL_SX = {
   width: 96,
   minWidth: 96,
   maxWidth: 96
+}
+
+function SectionCard({ rootSx = {}, ...props }) {
+  return <BaseSectionCard {...props} rootSx={{ ...rootSx, borderRadius: 1.35 }} />
 }
 
 function fmtCount(value) {
@@ -1082,7 +1086,7 @@ export default function StockManagementPage() {
       description="Manage business-unit minimums, shared stock, regional gaps and replenishment."
       descriptionSx={{ whiteSpace: 'nowrap' }}
       accent="#0f766e"
-      heroSx={{ borderRadius: 1.6 }}
+      heroSx={{ borderRadius: 1.35 }}
       shellSx={tab === 0 ? {
         height: 'calc(100dvh - 24px)',
         minHeight: 0,
@@ -1118,7 +1122,7 @@ export default function StockManagementPage() {
           }
         }}
       >
-        <Paper elevation={0} sx={{ p: 0.5, border: '1px solid #cbded7', borderRadius: 1.6, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.88)', boxShadow: '0 8px 20px rgba(15, 23, 42, 0.05)' }}>
+        <Paper elevation={0} sx={{ p: 0.5, border: '1px solid #cbded7', borderRadius: 1.35, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.88)', boxShadow: '0 8px 20px rgba(15, 23, 42, 0.05)' }}>
           <Tabs
             value={tab}
             onChange={(_, value) => setTab(value)}
@@ -1162,7 +1166,7 @@ export default function StockManagementPage() {
             elevation={0}
             sx={{
               p: 0.72,
-              borderRadius: 1.6,
+              borderRadius: 1.35,
               border: '1px solid #dce7e2',
               background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
             }}
