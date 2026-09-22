@@ -118,6 +118,13 @@ const MASTER_SECTION_CELL_SX = {
   whiteSpace: 'normal'
 }
 
+const MASTER_BUSINESS_CELL_SX = {
+  width: 176,
+  minWidth: 176,
+  maxWidth: 176,
+  whiteSpace: 'normal'
+}
+
 const MASTER_MATCH_CELL_SX = {
   width: 80,
   minWidth: 80,
@@ -402,6 +409,8 @@ export default function StockManagementPage() {
       return
     }
 
+    setEditingMinimums(false)
+    setEditingCost(false)
     setMinimumForm(buildRequiredSpareForm(selectedItem))
     setCostDraft(String(selectedItem.unitCost ?? 0))
   }, [selectedItem])
@@ -423,8 +432,73 @@ export default function StockManagementPage() {
 
   const searchTerm = useMemo(() => String(search || '').trim().toLowerCase(), [search])
 
+  const masterBaseRows = useMemo(() => {
+    const itemRows = (data?.items || []).filter((row) => row.rowType === 'ITEM')
+    if (divisionFilter) return itemRows
+
+    const rowsByPool = new Map()
+    itemRows.forEach((row) => {
+      const current = rowsByPool.get(row.poolKey) || []
+      current.push(row)
+      rowsByPool.set(row.poolKey, current)
+    })
+    const poolsByKey = new Map((data?.stockPools || []).map((pool) => [pool.poolKey, pool]))
+
+    return [...rowsByPool.entries()].map(([poolKey, members]) => {
+      const pool = poolsByKey.get(poolKey) || {}
+      const contributingDivisions = [...new Set(members.map((row) => row.division || 'Unassigned'))].sort()
+      const requiredConfirmedByRegion = Object.fromEntries(STOCK_REGIONS.map((region) => [
+        region,
+        Number(pool.unconfirmedRequiredByRegion?.[region] || 0) === 0
+      ]))
+      const regionalPosition = Object.fromEntries(STOCK_REGIONS.map((region) => [region, {
+        available: Number(pool.regionAvailable?.[region] || 0),
+        minimum: Number(pool.requiredByRegion?.[region] || 0),
+        aggregateMinimum: Number(pool.requiredByRegion?.[region] || 0),
+        gap: Number(pool.gapByRegion?.[region] || 0),
+        confirmed: requiredConfirmedByRegion[region]
+      }]))
+      const hasUnconfirmedRequirements = Boolean(pool.hasUnconfirmedRequirements)
+      const matchMethod = pool.matchMethod || members[0]?.matchMethod
+      const isLowConfidence = members.some((row) => row.isLowConfidence)
+      return {
+        id: `pool:${poolKey}`,
+        rowType: 'POOL',
+        poolKey,
+        sectionName: members[0]?.sectionName || 'General',
+        subSectionName: [...new Set(members.map((row) => row.subSectionName).filter(Boolean))].join(', ') || null,
+        itemDescription: pool.itemDescription || members[0]?.itemDescription,
+        stockCode: pool.stockCode || members[0]?.stockCode,
+        division: contributingDivisions.join(', '),
+        contributingDivisions,
+        memberRows: members,
+        requiredByRegion: pool.requiredByRegion || {},
+        requiredConfirmedByRegion,
+        requiredTotal: Number(pool.requiredTotal || 0),
+        aggregateRequiredTotal: Number(pool.requiredTotal || 0),
+        availableTotal: Number(pool.availableTotal || 0),
+        allAvailableTotal: Number(pool.allAvailableTotal || 0),
+        notInWarehouses: Number(pool.notInWarehouses || 0),
+        orderedStock: Number(pool.orderedStock || 0),
+        shortage: Number(pool.shortage || 0),
+        unitCost: Number(pool.unitCost || 0),
+        gapCost: Number(pool.gapCost || 0),
+        regionalPosition,
+        matchMethod,
+        matchScore: Number(pool.matchScore || members[0]?.matchScore || 0),
+        matchStatus: matchMethod === 'unmatched' ? 'Unmatched' : (isLowConfidence ? 'Needs review' : 'Matched'),
+        isLowConfidence,
+        hasUnconfirmedRequirements,
+        unconfirmedRegions: pool.unconfirmedRegions || [],
+        requirementStatus: hasUnconfirmedRequirements ? `Unconfirmed: ${(pool.unconfirmedRegions || []).join(', ')}` : 'Confirmed',
+        belowMinimum: Boolean(pool.belowMinimum),
+        zeroAvailable: Boolean(pool.zeroAvailable),
+        siteBreakdown: pool.siteBreakdown || []
+      }
+    })
+  }, [data, divisionFilter])
+
   const matchesItemFilters = (row) => {
-    if (row.rowType !== 'ITEM') return false
     if (divisionFilter && row.division !== divisionFilter) return false
     if (stockFilter === 'low' && !row.belowMinimum) return false
     if (stockFilter === 'healthy' && row.belowMinimum) return false
@@ -439,19 +513,20 @@ export default function StockManagementPage() {
       row.stockCode,
       row.sectionName,
       row.division,
+      ...(row.contributingDivisions || []),
       row.matchedItemNo,
       row.matchedItemDescription
     ].some((value) => String(value || '').toLowerCase().includes(searchTerm))
   }
 
   const filteredItemRows = useMemo(() => {
-    return (data?.items || []).filter((row) => matchesItemFilters(row))
-  }, [data, divisionFilter, stockFilter, matchFilter, searchTerm])
+    return masterBaseRows.filter((row) => matchesItemFilters(row))
+  }, [masterBaseRows, divisionFilter, stockFilter, matchFilter, searchTerm])
 
   const divisionGroups = useMemo(() => {
     const map = new Map()
     filteredItemRows.forEach((row) => {
-      const key = row.division || 'Unassigned'
+      const key = divisionFilter ? (row.division || 'Unassigned') : 'All Business Units'
       const current = map.get(key) || {
         division: key,
         rows: [],
@@ -1766,7 +1841,7 @@ export default function StockManagementPage() {
                       size="small"
                       stickyHeader
                       sx={{
-                        minWidth: 2050,
+                        minWidth: 2120,
                         tableLayout: 'fixed',
                         '& .MuiTableCell-root': {
                           py: 0.34,
@@ -1793,7 +1868,7 @@ export default function StockManagementPage() {
                           <TableCell sx={MASTER_SECTION_CELL_SX}>Sub Section</TableCell>
                           <TableCell sx={MASTER_ITEM_CELL_SX}>Stock Item</TableCell>
                           <TableCell sx={MASTER_SECTION_CELL_SX}>Stock Code</TableCell>
-                          <TableCell sx={MASTER_SECTION_CELL_SX}>Business Unit</TableCell>
+                          <TableCell sx={MASTER_BUSINESS_CELL_SX}>Business Unit(s)</TableCell>
                           <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Req.</TableCell>
                           <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Avail.</TableCell>
                           <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>WH Avail.</TableCell>
@@ -1854,7 +1929,13 @@ export default function StockManagementPage() {
                                   sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.65, fontSize: 9.9 } }}
                                 />
                               </TableCell>
-                              <TableCell title={row.division || 'Unassigned'} sx={{ ...MASTER_SECTION_CELL_SX, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.division || 'Unassigned'}</TableCell>
+                              <TableCell title={row.division || 'Unassigned'} sx={MASTER_BUSINESS_CELL_SX}>
+                                {row.rowType === 'POOL' ? (
+                                  <Stack direction="row" spacing={0.3} useFlexGap flexWrap="wrap">
+                                    {(row.contributingDivisions || []).map((division) => <Chip key={division} size="small" label={division} sx={{ height: 18, '& .MuiChip-label': { px: 0.55, fontSize: 9.4, fontWeight: 800 } }} />)}
+                                  </Stack>
+                                ) : row.division || 'Unassigned'}
+                              </TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>{fmtCount(row.requiredTotal)}</TableCell>
                               <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>
                                 <Typography component="span" sx={{ fontWeight: 800, color: tone.color }}>
@@ -2478,10 +2559,10 @@ export default function StockManagementPage() {
             <Stack spacing={1.1}>
               <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
                 <Chip label={selectedItem.stockCode || 'No stock code'} />
-                <Chip label={`Business unit: ${selectedItem.division || 'Unassigned'}`} color="primary" />
+                <Chip label={selectedItem.rowType === 'POOL' ? `Business units: ${(selectedItem.contributingDivisions || []).join(', ')}` : `Business unit: ${selectedItem.division || 'Unassigned'}`} color="primary" />
                 <Chip label={selectedItem.matchStatus} color={matchTone(selectedItem)} />
-                <Chip label={`This BU minimum ${fmtCount(selectedItem.requiredTotal)}`} sx={{ fontWeight: 800, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
-                <Chip label={`All BU minimum ${fmtCount(selectedItem.aggregateRequiredTotal)}`} sx={{ fontWeight: 800 }} />
+                <Chip label={`${selectedItem.rowType === 'POOL' ? 'Consolidated' : 'This BU'} minimum ${fmtCount(selectedItem.requiredTotal)}`} sx={{ fontWeight: 800, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                {selectedItem.rowType === 'ITEM' ? <Chip label={`All BU minimum ${fmtCount(selectedItem.aggregateRequiredTotal)}`} sx={{ fontWeight: 800 }} /> : null}
                 <Chip
                   label={selectedItem.requirementStatus || 'Confirmed'}
                   sx={{
@@ -2497,7 +2578,7 @@ export default function StockManagementPage() {
                 <Chip label={`Unit cost ${fmtMoney(selectedItem.unitCost)}`} />
                 <Chip label={`Gap cost ${fmtMoney(selectedItem.gapCost)}`} />
               </Stack>
-              {editingCost ? (
+              {editingCost && selectedItem.rowType === 'ITEM' ? (
                 <Stack direction="row" spacing={0.7} alignItems="center">
                   <TextField size="small" label="Unit cost (ZAR)" value={costDraft} onChange={(event) => setCostDraft(event.target.value)} inputProps={{ inputMode: 'decimal' }} sx={{ maxWidth: 180 }} />
                   <Button size="small" variant="contained" onClick={saveUnitCost} disabled={savingCost}>{savingCost ? 'Saving...' : 'Save cost'}</Button>
@@ -2507,15 +2588,17 @@ export default function StockManagementPage() {
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                      Business-unit minimums by region
+                      {selectedItem.rowType === 'POOL' ? 'Consolidated minimums by region' : 'Business-unit minimums by region'}
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.74 }}>
-                      This business unit owns these minimums. Physical stock is shared across every business unit using this stock code, so the shared pool total and gap are shown alongside each regional minimum.
+                      {selectedItem.rowType === 'POOL'
+                        ? 'This is the read-only shared-stock view. It consolidates every business unit using this item, while physical stock is counted once.'
+                        : 'This business unit owns these minimums. Physical stock is shared across every business unit using this stock code, so the shared pool total and gap are shown alongside each regional minimum.'}
                     </Typography>
                   </Box>
                   <Chip
                     size="small"
-                    label={`This BU total ${fmtCount(selectedItem.requiredTotal)}`}
+                    label={`${selectedItem.rowType === 'POOL' ? 'Consolidated' : 'This BU'} total ${fmtCount(selectedItem.requiredTotal)}`}
                     sx={{ fontWeight: 800 }}
                   />
                 </Stack>
@@ -2547,8 +2630,8 @@ export default function StockManagementPage() {
                           <Typography variant="caption" sx={{ display: 'block', opacity: 0.68 }}>
                             {region}
                           </Typography>
-                          <Typography variant="caption" sx={{ display: 'block', fontWeight: 800 }}>This BU min {fmtCount(selectedItem.requiredByRegion?.[region] || 0)}</Typography>
-                          <Typography variant="caption" sx={{ display: 'block' }}>All BU min {fmtCount(selectedItem.regionalPosition?.[region]?.aggregateMinimum || 0)}</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', fontWeight: 800 }}>{selectedItem.rowType === 'POOL' ? 'Consolidated' : 'This BU'} min {fmtCount(selectedItem.requiredByRegion?.[region] || 0)}</Typography>
+                          {selectedItem.rowType === 'ITEM' ? <Typography variant="caption" sx={{ display: 'block' }}>All BU min {fmtCount(selectedItem.regionalPosition?.[region]?.aggregateMinimum || 0)}</Typography> : null}
                           <Typography variant="caption" sx={{ display: 'block', color: '#0f766e', fontWeight: 800 }}>Shared WH {fmtCount(selectedItem.regionalPosition?.[region]?.available || 0)}</Typography>
                           <Typography variant="caption" sx={{ display: 'block', color: Number(selectedItem.regionalPosition?.[region]?.gap || 0) > 0 ? '#b91c1c' : '#166534', fontWeight: 800 }}>Shared gap {fmtCount(selectedItem.regionalPosition?.[region]?.gap || 0)}</Typography>
                         </Box>
@@ -2645,6 +2728,20 @@ export default function StockManagementPage() {
                   </Stack>
                 ) : null}
               </Paper>
+              {selectedItem.rowType === 'POOL' ? (
+                <Paper variant="outlined" sx={{ p: 1.05, borderRadius: 1.35 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Business-unit minimum breakdown</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Read-only in the consolidated view. Use a Business Unit card on the Master page to open one of these records for editing.</Typography>
+                  <TableContainer sx={{ mt: 0.7, maxHeight: 280, overflow: 'auto' }}>
+                    <Table size="small" stickyHeader sx={{ minWidth: 1040 }}>
+                      <TableHead><TableRow><TableCell>Business Unit</TableCell><TableCell>Item configuration</TableCell>{STOCK_REGIONS.map((region) => <TableCell key={region} align="right">{region} min</TableCell>)}<TableCell align="right">Total</TableCell><TableCell>Confirmation</TableCell></TableRow></TableHead>
+                      <TableBody>
+                        {(selectedItem.memberRows || []).map((member) => <TableRow key={member.id}><TableCell>{member.division}</TableCell><TableCell>{member.itemDescription}</TableCell>{STOCK_REGIONS.map((region) => <TableCell key={region} align="right">{fmtCount(member.requiredByRegion?.[region] || 0)}</TableCell>)}<TableCell align="right">{fmtCount(member.requiredTotal)}</TableCell><TableCell><Chip size="small" label={member.hasUnconfirmedRequirements ? `Unconfirmed: ${(member.unconfirmedRegions || []).join(', ')}` : 'Confirmed'} color={member.hasUnconfirmedRequirements ? 'warning' : 'success'} /></TableCell></TableRow>)}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Paper>
+              ) : null}
               <Divider />
               <Box>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Shared physical stock by site</Typography>
