@@ -984,6 +984,7 @@ export default function StockManagementPage() {
       description="Manage business-unit minimums, shared stock, regional gaps and replenishment."
       descriptionSx={{ whiteSpace: 'nowrap' }}
       accent="#0f766e"
+      heroSx={{ borderRadius: 1.6 }}
       shellSx={tab === 0 ? {
         height: 'calc(100dvh - 24px)',
         minHeight: 0,
@@ -1019,7 +1020,7 @@ export default function StockManagementPage() {
           }
         }}
       >
-        <Paper elevation={0} sx={{ p: 0.5, border: '1px solid #cbded7', borderRadius: 3, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.88)', boxShadow: '0 8px 20px rgba(15, 23, 42, 0.05)' }}>
+        <Paper elevation={0} sx={{ p: 0.5, border: '1px solid #cbded7', borderRadius: 1.6, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.88)', boxShadow: '0 8px 20px rgba(15, 23, 42, 0.05)' }}>
           <Tabs
             value={tab}
             onChange={(_, value) => setTab(value)}
@@ -1063,7 +1064,7 @@ export default function StockManagementPage() {
             elevation={0}
             sx={{
               p: 0.72,
-              borderRadius: 2.45,
+              borderRadius: 1.6,
               border: '1px solid #dce7e2',
               background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
             }}
@@ -1403,7 +1404,7 @@ export default function StockManagementPage() {
             </Button>
           ) : null}
           minHeight={0}
-          rootSx={{ height: 'auto', flex: '0 0 auto' }}
+          rootSx={{ height: 'auto', flex: '0 0 auto', borderRadius: 1.6 }}
           bodySx={{ minHeight: 0, py: 0.8 }}
         >
           <Box
@@ -1417,7 +1418,7 @@ export default function StockManagementPage() {
               <Paper
                 key={businessUnit.division}
                 variant="outlined"
-                sx={{ p: 1, borderRadius: 2.25, display: 'grid', gap: 0.65, borderColor: divisionFilter === businessUnit.division ? '#0f766e' : '#dce7e2', bgcolor: divisionFilter === businessUnit.division ? 'rgba(15, 118, 110, 0.05)' : 'transparent' }}
+                sx={{ p: 1, borderRadius: 1.35, display: 'grid', gap: 0.65, borderColor: divisionFilter === businessUnit.division ? '#0f766e' : '#dce7e2', bgcolor: divisionFilter === businessUnit.division ? 'rgba(15, 118, 110, 0.05)' : 'transparent' }}
               >
                 <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
                   <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{businessUnit.division}</Typography>
@@ -1667,7 +1668,7 @@ export default function StockManagementPage() {
           title="Master Stock Table"
           subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
           action={<Chip size="small" label={`${fmtCount(filteredItemRows.length)} visible items`} sx={{ fontWeight: 700 }} />}
-          rootSx={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}
+          rootSx={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 1.6 }}
           bodySx={{ p: 1.05, minHeight: 0, flex: 1, overflow: 'hidden', display: 'flex' }}
         >
           <Stack spacing={0.55} sx={{ width: '100%', minHeight: 0, flex: 1, overflow: 'hidden' }}>
@@ -1685,7 +1686,7 @@ export default function StockManagementPage() {
                   })
                 }}
                 sx={{
-                  borderRadius: '14px !important',
+                  borderRadius: '10px !important',
                   border: '1px solid #e2e8f0',
                   boxShadow: 'none',
                   minWidth: 0,
