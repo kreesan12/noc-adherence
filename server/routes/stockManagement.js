@@ -105,11 +105,30 @@ r.get('/current', async (req, res) => {
 })
 
 r.get('/run-rates', async (_req, res) => {
-  let dataset = await getStockRunRateDataset(prisma)
-  // Stored snapshots created before shared-stock run rates did not retain
-  // contributing Business Units. Rebuild once when an older snapshot is read.
+  const dataset = await getStockRunRateDataset(prisma)
+  // Older stored movement snapshots do not include Business Units. Enrich the
+  // response from the small current template table; never rebuild history in a
+  // user-facing request.
   if ((dataset.rows || []).some((row) => !Array.isArray(row.contributingDivisions))) {
-    dataset = await getStockRunRateDataset(prisma, { forceFresh: true })
+    const templateItems = await prisma.stockTemplateItem.findMany({
+      where: { rowType: 'ITEM' },
+      select: { id: true, stockCode: true, division: true }
+    })
+    const keyFor = (stockCode, id) => {
+      const code = String(stockCode || '').toUpperCase().replace(/[^A-Z0-9]+/g, '')
+      return code ? `code:${code}` : `id:${id}`
+    }
+    const divisionsByPool = new Map()
+    templateItems.forEach((item) => {
+      const key = keyFor(item.stockCode, item.id)
+      const divisions = divisionsByPool.get(key) || new Set()
+      if (item.division) divisions.add(item.division)
+      divisionsByPool.set(key, divisions)
+    })
+    dataset.rows = dataset.rows.map((row) => ({
+      ...row,
+      contributingDivisions: [...(divisionsByPool.get(keyFor(row.stockCode, row.templateItemId)) || new Set())].sort()
+    }))
   }
   res.json(dataset)
 })
