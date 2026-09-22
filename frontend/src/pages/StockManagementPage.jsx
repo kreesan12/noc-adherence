@@ -32,7 +32,6 @@ import {
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
-import SyncRoundedIcon from '@mui/icons-material/SyncRounded'
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined'
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
@@ -65,7 +64,6 @@ import {
   fetchStockRedistributionPlan,
   generateStockRedistributionPlan,
   fetchStockRunRates,
-  refreshStockDashboard,
   sendStockDailyReport,
   sendStockRedistributionPlan,
   updateStockDivisionContact,
@@ -74,7 +72,6 @@ import {
   updateStockMatchOverride,
   updateStockRequiredSpares
 } from '../api/stockManagement'
-import { FilterStrip, PageShell } from '../components/ui/PageScaffold'
 import {
   AnalyticsMetricCard as Card,
   AnalyticsSectionCard as SectionCard
@@ -275,7 +272,6 @@ function normalizeCompare(value) {
 
 export default function StockManagementPage() {
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportingLowStock, setExportingLowStock] = useState(false)
   const [exportingRegional, setExportingRegional] = useState(false)
@@ -287,7 +283,7 @@ export default function StockManagementPage() {
   const [runRateMonth, setRunRateMonth] = useState('')
   const [runRateRegionFilter, setRunRateRegionFilter] = useState('')
   const [runRateSearch, setRunRateSearch] = useState('')
-  const [tab, setTab] = useState(2)
+  const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
   const [divisionFilter, setDivisionFilter] = useState('')
   const [stockFilter, setStockFilter] = useState('')
@@ -383,9 +379,9 @@ export default function StockManagementPage() {
   }, [])
 
   useEffect(() => {
-    if (tab === 6 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
-    if (tab === 7 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
-    if (tab === 8 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
+    if (tab === 4 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
+    if (tab === 5 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
+    if (tab === 6 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
   }, [tab])
 
   useEffect(() => {
@@ -520,7 +516,7 @@ export default function StockManagementPage() {
       const next = { ...current }
       divisionGroups.forEach((group, index) => {
         if (typeof next[group.division] !== 'boolean') {
-          next[group.division] = index < 4
+          next[group.division] = index < 1
         }
       })
       return next
@@ -554,30 +550,6 @@ export default function StockManagementPage() {
       loadRunRates().catch(console.error)
     }
   }, [tab, runRateData, runRateLoading])
-
-  const doRefresh = async () => {
-    setRefreshing(true)
-    try {
-      const result = await refreshStockDashboard()
-      await loadData({ showLoading: false })
-      setRunRateData(null)
-      if (tab === 1) {
-        await loadRunRates()
-      }
-      setToast({
-        severity: 'success',
-        message: `Stock refresh complete: ${fmtCount(result.statusRowCount)} rows processed`
-      })
-    } catch (err) {
-      console.error(err)
-      setToast({
-        severity: 'error',
-        message: err?.response?.data?.error || err?.message || 'Stock refresh failed'
-      })
-    } finally {
-      setRefreshing(false)
-    }
-  }
 
   const generateRedistribution = async () => {
     setRedistributionLoading(true)
@@ -783,7 +755,7 @@ export default function StockManagementPage() {
       const result = await createStockTemplateItem(createForm)
       setData(result.dataset)
       setCreateForm(createTemplateFormState())
-      setTab(2)
+      setTab(0)
       setToast({
         severity: 'success',
         message: `${createForm.itemDescription} added to the master template`
@@ -996,86 +968,7 @@ export default function StockManagementPage() {
   ]
 
   return (
-    <PageShell
-      eyebrow="Stock Management"
-      title="Assurance And Engineering Stock Control"
-      description="The template remains the master source, the daily stock report feeds the live counts, and warehouse stock stays separated from field-held stock so the gap logic stays operationally clean."
-      accent="#0f766e"
-      actions={(
-        <FilterStrip>
-          <TextField
-            size="small"
-            label="Search Stock"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Description, code, division, matched item..."
-            sx={{ minWidth: 220 }}
-            InputProps={{
-              startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
-            }}
-          />
-          <TextField
-            size="small"
-            select
-            label="Business Unit / Division"
-            value={divisionFilter}
-            onChange={(e) => setDivisionFilter(e.target.value)}
-            sx={{ minWidth: 126 }}
-          >
-            <MenuItem value="">All Business Units</MenuItem>
-            {divisions.map((division) => (
-              <MenuItem key={division} value={division}>{division}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            size="small"
-            select
-            label="Stock Status"
-            value={stockFilter}
-            onChange={(e) => setStockFilter(e.target.value)}
-            sx={{ minWidth: 124 }}
-          >
-            <MenuItem value="">All</MenuItem>
-            <MenuItem value="low">Below Minimum</MenuItem>
-            <MenuItem value="healthy">Above Minimum</MenuItem>
-            <MenuItem value="zero">Zero Available</MenuItem>
-            <MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
-          </TextField>
-          <TextField
-            size="small"
-            select
-            label="Match Quality"
-            value={matchFilter}
-            onChange={(e) => setMatchFilter(e.target.value)}
-            sx={{ minWidth: 124 }}
-          >
-            <MenuItem value="">All</MenuItem>
-            <MenuItem value="matched">Matched</MenuItem>
-            <MenuItem value="review">Needs Review</MenuItem>
-            <MenuItem value="unmatched">Unmatched</MenuItem>
-          </TextField>
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<SyncRoundedIcon />}
-            onClick={doRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? 'Refreshing...' : 'Run Daily Refresh'}
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<FileDownloadOutlinedIcon />}
-            onClick={doExport}
-            disabled={exporting}
-          >
-            {exporting ? 'Exporting...' : 'Export Master Workbook'}
-          </Button>
-        </FilterStrip>
-      )}
-      stats={stockShellStats}
-    >
+    <Box sx={{ p: { xs: 1.1, md: 1.35 }, display: 'grid', gap: 1.05 }}>
       <Stack
         spacing={0.78}
         sx={{
@@ -1101,6 +994,7 @@ export default function StockManagementPage() {
           }
         }}
       >
+        {tab === 0 ? (
         <Paper
           elevation={0}
           sx={{
@@ -1111,16 +1005,6 @@ export default function StockManagementPage() {
           }}
         >
           <Stack spacing={0.65}>
-          {Number(summary.requiredTotal || 0) === 0 ? (
-            <Alert severity="warning" sx={{ borderRadius: 2.5 }}>
-              Minimum spares are still zero across the imported template. Open an item in Stock Master and use `Edit minimum spares` to set the baseline.
-            </Alert>
-          ) : null}
-          {Number(summary.unconfirmedRequirementItemCount || 0) > 0 ? (
-            <Alert severity="warning" sx={{ borderRadius: 2.5 }}>
-              {fmtCount(summary.unconfirmedRequirementItemCount)} template items carry unconfirmed regional minimums. Their gaps are still shown, but review them before placing orders.
-            </Alert>
-          ) : null}
           <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap">
             <TextField
               size="small"
@@ -1175,16 +1059,6 @@ export default function StockManagementPage() {
             </TextField>
             <Button
               size="small"
-              variant="contained"
-              startIcon={<SyncRoundedIcon />}
-              onClick={doRefresh}
-              disabled={refreshing}
-              sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
-            >
-              {refreshing ? 'Refreshing...' : 'Run Daily Refresh'}
-            </Button>
-            <Button
-              size="small"
               variant="outlined"
               startIcon={<FileDownloadOutlinedIcon />}
               onClick={doExport}
@@ -1194,15 +1068,9 @@ export default function StockManagementPage() {
               {exporting ? 'Exporting...' : 'Export Master Workbook'}
             </Button>
           </Stack>
-          <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap">
-            <Chip size="small" label={`Rows in stock report ${fmtCount(latestImport?.statusRowCount || 0)}`} sx={{ fontWeight: 700 }} />
-            <Chip size="small" label={`Matched items ${fmtCount(summary.matchedItemCount)}`} sx={{ fontWeight: 700, bgcolor: '#dcfce7', color: '#166534' }} />
-            <Chip size="small" label={`Review items ${fmtCount(summary.lowConfidenceCount + summary.unresolvedItemCount)}`} sx={{ fontWeight: 700, bgcolor: '#ffedd5', color: '#c2410c' }} />
-            <Chip size="small" label={`Unconfirmed minimums ${fmtCount(summary.unconfirmedRequirementItemCount || 0)}`} sx={{ fontWeight: 700, bgcolor: '#fff7ed', color: '#c2410c' }} />
-            <Chip size="small" label={`Unknown-site qty ${fmtCount(summary.unknownSiteQtyTotal)}`} sx={{ fontWeight: 700, bgcolor: '#fef3c7', color: '#92400e' }} />
-          </Stack>
           </Stack>
         </Paper>
+        ) : null}
 
         <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3.1, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
           <Tabs
@@ -1231,19 +1099,17 @@ export default function StockManagementPage() {
               }
             }}
           >
-            <Tab label="Overview" />
-            <Tab label="Run Rates" />
             <Tab label="Master Stock" />
+            <Tab label="Run Rates" />
             <Tab label="Match Review" />
             <Tab label="Add Template Item" />
-            <Tab label="Not WH Workflow" />
             <Tab label="Daily Report" />
             <Tab label="Redistribution" />
             <Tab label="Stock Admin" />
           </Tabs>
         </Paper>
 
-      {tab === 0 ? (
+      {tab === -1 ? (
         <Stack spacing={0.82}>
           <Box
             sx={{
@@ -1770,7 +1636,7 @@ export default function StockManagementPage() {
         )
       ) : null}
 
-      {tab === 2 ? (
+      {tab === 0 ? (
         <SectionCard
           title="Master Stock Table"
           subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
@@ -1816,9 +1682,10 @@ export default function StockManagementPage() {
                   </Stack>
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: 0 }}>
-                  <Box sx={{ overflowX: 'auto' }}>
+                  <TableContainer sx={{ maxHeight: '62vh', overflow: 'auto' }}>
                     <Table
                       size="small"
+                      stickyHeader
                       sx={{
                         minWidth: 2050,
                         tableLayout: 'fixed',
@@ -1953,7 +1820,7 @@ export default function StockManagementPage() {
                         })}
                       </TableBody>
                     </Table>
-                  </Box>
+                  </TableContainer>
                 </AccordionDetails>
               </Accordion>
             ))}
@@ -1961,7 +1828,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 3 ? (
+      {tab === 2 ? (
         <SectionCard
           title="Match Review"
           subtitle="Review low-confidence and unmatched items, then lock in an override so the daily refresh stays stable."
@@ -2031,7 +1898,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 4 ? (
+      {tab === 3 ? (
         <SectionCard
           title="Add Template Item"
           subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
@@ -2158,7 +2025,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 5 ? (
+      {tab === -1 ? (
         <SectionCard
           title="Not WH Workflow"
           subtitle="Track field-held stock separately from usable warehouse stock. Save the next action per site line so testing and supplier-return workflows stay visible between daily refreshes."
@@ -2263,7 +2130,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 6 ? (
+      {tab === 4 ? (
         <Stack spacing={0.8}>
           <SectionCard
             title="Daily division report"
@@ -2301,7 +2168,7 @@ export default function StockManagementPage() {
         </Stack>
       ) : null}
 
-      {tab === 7 ? (
+      {tab === 5 ? (
         <SectionCard
           title="Redistribution required"
           subtitle="Shared regional stock is compared with confirmed minimums. The daily plan only marks additional quantities since the previous plan as new."
@@ -2323,7 +2190,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 8 ? (
+      {tab === 6 ? (
         <Stack spacing={0.8}>
           <SectionCard title="Stock management administration" subtitle="General stock admins manage division heads, division admins and redistribution recipients here. Division admins can only change stock in their assigned business unit.">
             <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.2fr 1.2fr 1.5fr 1fr auto' } }}>
@@ -2694,6 +2561,6 @@ export default function StockManagementPage() {
         </Alert>
       ) : null}
       </Stack>
-    </PageShell>
+    </Box>
   )
 }
