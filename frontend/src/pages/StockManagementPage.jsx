@@ -312,6 +312,7 @@ export default function StockManagementPage() {
   const [redistributionLoading, setRedistributionLoading] = useState(false)
   const [dailyReport, setDailyReport] = useState(null)
   const [dailyReportLoading, setDailyReportLoading] = useState(false)
+  const [dailyReportDetail, setDailyReportDetail] = useState(null)
   const [sendingDailyReport, setSendingDailyReport] = useState(false)
   const [divisionContacts, setDivisionContacts] = useState([])
   const [contactsLoading, setContactsLoading] = useState(false)
@@ -380,9 +381,9 @@ export default function StockManagementPage() {
   }, [])
 
   useEffect(() => {
-    if (tab === 4 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
-    if (tab === 5 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
-    if (tab === 6 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
+    if (tab === 5 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
+    if (tab === 6 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
+    if (tab === 7 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
   }, [tab])
 
   useEffect(() => {
@@ -525,6 +526,11 @@ export default function StockManagementPage() {
   }, [divisionGroups])
 
   useEffect(() => {
+    if (!divisionFilter) return
+    setDivisionExpansion((current) => ({ ...current, [divisionFilter]: true }))
+  }, [divisionFilter])
+
+  useEffect(() => {
     if (runRateData?.defaultMonth && (!runRateMonth || !runRateData.monthOptions?.includes(runRateMonth))) {
       setRunRateMonth(runRateData.defaultMonth)
     }
@@ -547,7 +553,7 @@ export default function StockManagementPage() {
   }
 
   useEffect(() => {
-    if (tab === 1 && !runRateData && !runRateLoading) {
+    if (tab === 2 && !runRateData && !runRateLoading) {
       loadRunRates().catch(console.error)
     }
   }, [tab, runRateData, runRateLoading])
@@ -1106,6 +1112,7 @@ export default function StockManagementPage() {
             }}
           >
             <Tab label="Master Stock" />
+            <Tab label="Business Units" />
             <Tab label="Run Rates" />
             <Tab label="Match Review" />
             <Tab label="Add Template Item" />
@@ -1426,6 +1433,57 @@ export default function StockManagementPage() {
       ) : null}
 
       {tab === 1 ? (
+        <SectionCard
+          title="Business Units"
+          subtitle="Open a business unit to review its own minimum commitments against the shared regional stock pool."
+        >
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 0.8,
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }
+            }}
+          >
+            {(data?.divisionSummary || []).map((businessUnit) => (
+              <Paper
+                key={businessUnit.division}
+                variant="outlined"
+                sx={{ p: 1, borderRadius: 2.25, display: 'grid', gap: 0.65, borderColor: '#dce7e2' }}
+              >
+                <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
+                  <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{businessUnit.division}</Typography>
+                  <Chip size="small" label={`${fmtCount(businessUnit.itemCount)} items`} sx={{ fontWeight: 700 }} />
+                </Stack>
+                <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                  <Chip size="small" label={`Minimum ${fmtCount(businessUnit.requiredTotal)}`} sx={{ bgcolor: '#eff6ff', color: '#1d4ed8', fontWeight: 700 }} />
+                  <Chip size="small" label={`${fmtCount(businessUnit.lowStockCount)} shared-pool gaps`} color={businessUnit.lowStockCount ? 'error' : 'success'} sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label={`${fmtCount(businessUnit.unconfirmedRequirementCount)} unconfirmed`} color={businessUnit.unconfirmedRequirementCount ? 'warning' : 'default'} sx={{ fontWeight: 700 }} />
+                </Stack>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Business-unit minimum exposure: {fmtMoney(businessUnit.gapCostTotal)}
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setSearch('')
+                    setStockFilter('')
+                    setMatchFilter('')
+                    setDivisionFilter(businessUnit.division)
+                    setDivisionExpansion((current) => ({ ...current, [businessUnit.division]: true }))
+                    setTab(0)
+                  }}
+                  sx={{ justifySelf: 'start', textTransform: 'none', fontWeight: 800 }}
+                >
+                  Open business unit stock
+                </Button>
+              </Paper>
+            ))}
+          </Box>
+        </SectionCard>
+      ) : null}
+
+      {tab === 2 ? (
         runRateLoading && !runRateData ? (
           <Paper elevation={0} sx={{ p: 3, border: '1px solid #e2e8f0', borderRadius: 2.6 }}>
             <Stack direction="row" spacing={1.2} alignItems="center">
@@ -1853,7 +1911,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 2 ? (
+      {tab === 3 ? (
         <SectionCard
           title="Match Review"
           subtitle="Review low-confidence and unmatched items, then lock in an override so the daily refresh stays stable."
@@ -1923,7 +1981,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 3 ? (
+      {tab === 4 ? (
         <SectionCard
           title="Add Template Item"
           subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
@@ -2155,7 +2213,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 4 ? (
+      {tab === 5 ? (
         <Stack spacing={0.8}>
           <SectionCard
             title="Daily division report"
@@ -2179,10 +2237,10 @@ export default function StockManagementPage() {
                         <Typography variant="caption">To: {report.recipients.join(', ') || 'No division head configured'}</Typography>
                       </Stack>
                       <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
-                        <Chip size="small" color="error" label={`${fmtCount(report.belowMinimum.length)} below minimum`} />
-                        <Chip size="small" color="warning" label={`${fmtCount(report.unconfirmed.length)} unconfirmed`} />
-                        <Chip size="small" label={`${fmtCount(report.zeroStock.length)} at zero`} />
-                        <Chip size="small" color="info" label={`${fmtCount(report.redistribution.length)} new redistribution lines`} />
+                        <Chip size="small" clickable color="error" label={`${fmtCount(report.belowMinimum.length)} below minimum`} onClick={() => setDailyReportDetail({ division: report.division, title: 'Below minimum', type: 'stock', rows: report.belowMinimum })} />
+                        <Chip size="small" clickable color="warning" label={`${fmtCount(report.unconfirmed.length)} unconfirmed`} onClick={() => setDailyReportDetail({ division: report.division, title: 'Minimums requiring confirmation', type: 'stock', rows: report.unconfirmed })} />
+                        <Chip size="small" clickable label={`${fmtCount(report.zeroStock.length)} at zero`} onClick={() => setDailyReportDetail({ division: report.division, title: 'Stock at zero', type: 'stock', rows: report.zeroStock })} />
+                        <Chip size="small" clickable color="info" label={`${fmtCount(report.redistribution.length)} new redistribution lines`} onClick={() => setDailyReportDetail({ division: report.division, title: 'Redistribution to review', type: 'redistribution', rows: report.redistribution })} />
                       </Stack>
                     </Stack>
                   </Paper>
@@ -2193,7 +2251,45 @@ export default function StockManagementPage() {
         </Stack>
       ) : null}
 
-      {tab === 5 ? (
+      <Dialog open={Boolean(dailyReportDetail)} onClose={() => setDailyReportDetail(null)} fullWidth maxWidth="md">
+        <DialogTitle>{dailyReportDetail ? `${dailyReportDetail.division} | ${dailyReportDetail.title}` : 'Daily report detail'}</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.1 }}>
+            Select an item to open its full business-unit minimum and shared-stock detail.
+          </Typography>
+          {dailyReportDetail?.rows?.length ? (
+            <TableContainer sx={{ maxHeight: '60vh' }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  {dailyReportDetail.type === 'redistribution' ? (
+                    <TableRow><TableCell>Item</TableCell><TableCell>From</TableCell><TableCell>To</TableCell><TableCell align="right">New quantity</TableCell></TableRow>
+                  ) : (
+                    <TableRow><TableCell>Item</TableCell><TableCell>Stock Code</TableCell><TableCell align="right">Business-unit minimum</TableCell><TableCell align="right">Shared WH available</TableCell><TableCell align="right">Shared gap</TableCell></TableRow>
+                  )}
+                </TableHead>
+                <TableBody>
+                  {dailyReportDetail.rows.map((row) => {
+                    const stockRow = dailyReportDetail.type === 'redistribution'
+                      ? (data?.items || []).find((item) => item.rowType === 'ITEM' && item.poolKey === row.poolKey)
+                      : row
+                    return dailyReportDetail.type === 'redistribution' ? (
+                      <TableRow key={row.id || `${row.poolKey}-${row.fromRegion}-${row.toRegion}`} hover sx={{ cursor: stockRow ? 'pointer' : 'default' }} onClick={() => stockRow && setSelectedItem(stockRow)}>
+                        <TableCell><Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography><Typography variant="caption">{row.stockCode || 'No stock code'}</Typography></TableCell><TableCell>{row.fromRegion}</TableCell><TableCell>{row.toRegion}</TableCell><TableCell align="right">{fmtCount(row.deltaQty)}</TableCell>
+                      </TableRow>
+                    ) : (
+                      <TableRow key={row.id} hover sx={{ cursor: 'pointer' }} onClick={() => setSelectedItem(row)}>
+                        <TableCell><Typography variant="body2" sx={{ fontWeight: 700 }}>{row.itemDescription}</Typography><Typography variant="caption">{row.division}</Typography></TableCell><TableCell>{row.stockCode || 'No stock code'}</TableCell><TableCell align="right">{fmtCount(row.requiredTotal)}</TableCell><TableCell align="right">{fmtCount(row.availableTotal)}</TableCell><TableCell align="right">{fmtCount(row.shortage)}</TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : <Alert severity="success">No items are currently in this section.</Alert>}
+        </DialogContent>
+      </Dialog>
+
+      {tab === 6 ? (
         <SectionCard
           title="Redistribution required"
           subtitle="Shared regional stock is compared with confirmed minimums. The daily plan only marks additional quantities since the previous plan as new."
@@ -2215,7 +2311,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 6 ? (
+      {tab === 7 ? (
         <Stack spacing={0.8}>
           <SectionCard title="Stock management administration" subtitle="General stock admins manage division heads, division admins and redistribution recipients here. Division admins can only change stock in their assigned business unit.">
             <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.2fr 1.2fr 1.5fr 1fr auto' } }}>
@@ -2257,7 +2353,7 @@ export default function StockManagementPage() {
                   }}
                   sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}
                 >
-                  {editingMinimums ? 'Close minimums' : 'Edit minimums'}
+                  {editingMinimums ? 'Close minimums' : 'Edit business-unit minimums'}
                 </Button>
                 <Button size="small" variant={editingCost ? 'contained' : 'outlined'} onClick={() => setEditingCost((current) => !current)} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.8 }}>
                   {editingCost ? 'Close cost' : 'Edit cost'}
@@ -2272,9 +2368,10 @@ export default function StockManagementPage() {
             <Stack spacing={1.1}>
               <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap">
                 <Chip label={selectedItem.stockCode || 'No stock code'} />
-                <Chip label={selectedItem.division || 'Unassigned'} />
+                <Chip label={`Business unit: ${selectedItem.division || 'Unassigned'}`} color="primary" />
                 <Chip label={selectedItem.matchStatus} color={matchTone(selectedItem)} />
-                <Chip label={`Required ${fmtCount(selectedItem.requiredTotal)}`} />
+                <Chip label={`This BU minimum ${fmtCount(selectedItem.requiredTotal)}`} sx={{ fontWeight: 800, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                <Chip label={`All BU minimum ${fmtCount(selectedItem.aggregateRequiredTotal)}`} sx={{ fontWeight: 800 }} />
                 <Chip
                   label={selectedItem.requirementStatus || 'Confirmed'}
                   sx={{
@@ -2283,10 +2380,10 @@ export default function StockManagementPage() {
                     color: selectedItem.hasUnconfirmedRequirements ? '#c2410c' : '#166534'
                   }}
                 />
-                <Chip label={`WH Available ${fmtCount(selectedItem.availableTotal)}`} />
+                <Chip label={`Shared WH available ${fmtCount(selectedItem.availableTotal)}`} />
                 <Chip label={`Not WH ${fmtCount(selectedItem.notInWarehouses)}`} />
                 <Chip label={`Ordered ${fmtCount(selectedItem.orderedStock)}`} />
-                <Chip label={`Gap ${fmtCount(selectedItem.shortage)}`} />
+                <Chip label={`Shared pool gap ${fmtCount(selectedItem.shortage)}`} color={selectedItem.shortage > 0 ? 'error' : 'success'} />
                 <Chip label={`Unit cost ${fmtMoney(selectedItem.unitCost)}`} />
                 <Chip label={`Gap cost ${fmtMoney(selectedItem.gapCost)}`} />
               </Stack>
@@ -2300,15 +2397,15 @@ export default function StockManagementPage() {
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                      Minimum Spares Baseline
+                      Business-unit minimums by region
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.74 }}>
-                      These values drive shortage monitoring and are preserved when the imported template still carries zeros.
+                      This business unit owns these minimums. Physical stock is shared across every business unit using this stock code, so the shared pool total and gap are shown alongside each regional minimum.
                     </Typography>
                   </Box>
                   <Chip
                     size="small"
-                    label={`Total required ${fmtCount(selectedItem.requiredTotal)}`}
+                    label={`This BU total ${fmtCount(selectedItem.requiredTotal)}`}
                     sx={{ fontWeight: 800 }}
                   />
                 </Stack>
@@ -2336,13 +2433,14 @@ export default function StockManagementPage() {
                       }}
                     >
                       <Stack direction="row" justifyContent="space-between" spacing={0.6} alignItems="flex-start">
-                        <Box>
+                        <Box sx={{ minWidth: 0 }}>
                           <Typography variant="caption" sx={{ display: 'block', opacity: 0.68 }}>
                             {region}
                           </Typography>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
-                            {fmtCount(selectedItem.requiredByRegion?.[region] || 0)}
-                          </Typography>
+                          <Typography variant="caption" sx={{ display: 'block', fontWeight: 800 }}>This BU min {fmtCount(selectedItem.requiredByRegion?.[region] || 0)}</Typography>
+                          <Typography variant="caption" sx={{ display: 'block' }}>All BU min {fmtCount(selectedItem.regionalPosition?.[region]?.aggregateMinimum || 0)}</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', color: '#0f766e', fontWeight: 800 }}>Shared WH {fmtCount(selectedItem.regionalPosition?.[region]?.available || 0)}</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', color: Number(selectedItem.regionalPosition?.[region]?.gap || 0) > 0 ? '#b91c1c' : '#166534', fontWeight: 800 }}>Shared gap {fmtCount(selectedItem.regionalPosition?.[region]?.gap || 0)}</Typography>
                         </Box>
                         <Chip
                           size="small"
@@ -2438,6 +2536,10 @@ export default function StockManagementPage() {
                 ) : null}
               </Paper>
               <Divider />
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Shared physical stock by site</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>These quantities are held once for the shared stock pool; they are not duplicated per business unit.</Typography>
+              </Box>
               <Box sx={{ overflowX: 'auto' }}>
                 <Table size="small" sx={{ minWidth: 760 }}>
                   <TableHead>
