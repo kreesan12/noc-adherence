@@ -125,6 +125,14 @@ const MASTER_BUSINESS_CELL_SX = {
   whiteSpace: 'normal'
 }
 
+const MASTER_CODE_CELL_SX = {
+  width: 156,
+  minWidth: 156,
+  maxWidth: 156,
+  overflow: 'hidden',
+  whiteSpace: 'normal'
+}
+
 const MASTER_MATCH_CELL_SX = {
   width: 80,
   minWidth: 80,
@@ -1825,9 +1833,9 @@ export default function StockManagementPage() {
                       // Keep the stock grid independently scrollable in both directions.
                       // Header, controls and business-unit cards occupy the top of the fixed view.
                       // This must be sized from the actual remaining lower viewport so it never clips.
-                      height: 'clamp(220px, calc(100dvh - 650px), 520px)',
+                      height: 'clamp(220px, calc(100dvh - 550px), 600px)',
                       minHeight: 220,
-                      maxHeight: 'calc(100dvh - 650px)',
+                      maxHeight: 'calc(100dvh - 550px)',
                       overflow: 'auto',
                       overscrollBehavior: 'contain',
                       scrollbarGutter: 'stable both-edges',
@@ -1871,7 +1879,7 @@ export default function StockManagementPage() {
                           <TableCell sx={MASTER_SECTION_CELL_SX}>Stock Section</TableCell>
                           <TableCell sx={MASTER_SECTION_CELL_SX}>Sub Section</TableCell>
                           <TableCell sx={MASTER_ITEM_CELL_SX}>Stock Item</TableCell>
-                          <TableCell sx={MASTER_SECTION_CELL_SX}>Stock Code</TableCell>
+                          <TableCell sx={MASTER_CODE_CELL_SX}>Stock Code</TableCell>
                           <TableCell sx={MASTER_BUSINESS_CELL_SX}>Business Unit(s)</TableCell>
                           <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Req.</TableCell>
                           <TableCell align="right" sx={MASTER_METRIC_CELL_SX}>Total Avail.</TableCell>
@@ -1924,13 +1932,13 @@ export default function StockManagementPage() {
                                   ) : null}
                                 </Stack>
                               </TableCell>
-                              <TableCell sx={MASTER_SECTION_CELL_SX}>
-                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 700 }}>{row.stockCode || 'No stock code'}</Typography>
+                              <TableCell sx={MASTER_CODE_CELL_SX}>
+                                <Typography variant="caption" title={row.stockCode || 'No stock code'} sx={{ display: 'block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{row.stockCode || 'No stock code'}</Typography>
                                 <Chip
                                   size="small"
                                   label={row.matchStatus}
                                   color={matchTone(row)}
-                                  sx={{ fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.65, fontSize: 9.9 } }}
+                                  sx={{ maxWidth: '100%', fontWeight: 700, height: 20, '& .MuiChip-label': { px: 0.65, fontSize: 9.9, overflow: 'hidden', textOverflow: 'ellipsis' } }}
                                 />
                               </TableCell>
                               <TableCell title={row.division || 'Unassigned'} sx={MASTER_BUSINESS_CELL_SX}>
