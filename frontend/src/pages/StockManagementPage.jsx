@@ -1752,10 +1752,13 @@ export default function StockManagementPage() {
                       width: '100%',
                       maxWidth: '100%',
                       minWidth: 0,
-                      maxHeight: 'calc(100vh - 250px)',
+                      // The shell has a fixed header, filter row and tabs. Keep this
+                      // viewport short enough that both scrollbars stay on-screen.
+                      maxHeight: 'calc(100dvh - 470px)',
                       overflowX: 'scroll',
                       overflowY: 'auto',
                       overscrollBehavior: 'contain',
+                      scrollbarGutter: 'stable both-edges',
                       scrollbarWidth: 'auto',
                       '&::-webkit-scrollbar': { width: 14, height: 14 },
                       '&::-webkit-scrollbar-thumb': {
