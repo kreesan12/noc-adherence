@@ -72,6 +72,7 @@ import {
   updateStockMatchOverride,
   updateStockRequiredSpares
 } from '../api/stockManagement'
+import { PageShell } from '../components/ui/PageScaffold'
 import {
   AnalyticsMetricCard as Card,
   AnalyticsSectionCard as SectionCard
@@ -968,7 +969,12 @@ export default function StockManagementPage() {
   ]
 
   return (
-    <Box sx={{ p: { xs: 1.1, md: 1.35 }, display: 'grid', gap: 1.05 }}>
+    <PageShell
+      eyebrow="Stock Management"
+      title="Assurance And Engineering Stock Control"
+      description="The template remains the master source, the daily stock report feeds the live counts, and warehouse stock stays separated from field-held stock so the gap logic stays operationally clean."
+      accent="#0f766e"
+    >
       <Stack
         spacing={0.78}
         sx={{
@@ -1658,6 +1664,7 @@ export default function StockManagementPage() {
                   borderRadius: '14px !important',
                   border: '1px solid #e2e8f0',
                   boxShadow: 'none',
+                  minWidth: 0,
                   overflow: 'hidden',
                   '&:before': { display: 'none' }
                 }}
@@ -1682,7 +1689,25 @@ export default function StockManagementPage() {
                   </Stack>
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: 0 }}>
-                  <TableContainer sx={{ maxHeight: '62vh', overflow: 'auto' }}>
+                  <TableContainer
+                    sx={{
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
+                      maxHeight: 'calc(100vh - 250px)',
+                      overflowX: 'scroll',
+                      overflowY: 'auto',
+                      overscrollBehavior: 'contain',
+                      scrollbarWidth: 'auto',
+                      '&::-webkit-scrollbar': { width: 14, height: 14 },
+                      '&::-webkit-scrollbar-thumb': {
+                        bgcolor: '#94a3b8',
+                        borderRadius: 8,
+                        border: '3px solid #f8fafc'
+                      },
+                      '&::-webkit-scrollbar-track': { bgcolor: '#e2e8f0' }
+                    }}
+                  >
                     <Table
                       size="small"
                       stickyHeader
@@ -2561,6 +2586,6 @@ export default function StockManagementPage() {
         </Alert>
       ) : null}
       </Stack>
-    </Box>
+    </PageShell>
   )
 }
