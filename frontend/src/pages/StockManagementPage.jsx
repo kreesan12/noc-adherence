@@ -981,7 +981,7 @@ export default function StockManagementPage() {
     <PageShell
       eyebrow="Stock Management"
       title="Assurance And Engineering Stock Control"
-      description="Business-unit minimums are measured against live shared warehouse stock; field-held stock remains separate."
+      description="Manage business-unit minimums, shared stock, regional gaps and replenishment."
       descriptionSx={{ whiteSpace: 'nowrap' }}
       accent="#0f766e"
       shellSx={tab === 0 ? {
@@ -1407,7 +1407,7 @@ export default function StockManagementPage() {
             sx={{
               display: 'grid',
               gap: 0.8,
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }
             }}
           >
             {(data?.divisionSummary || []).map((businessUnit) => (
@@ -1675,11 +1675,13 @@ export default function StockManagementPage() {
           bodySx={{ p: 1.05, minHeight: 0, flex: 1, overflow: 'hidden', display: 'flex' }}
         >
           <Stack spacing={0.55} sx={{ width: '100%', minHeight: 0, flex: 1, overflow: 'hidden' }}>
-            {divisionGroups.map((group) => (
+            {divisionGroups.map((group) => {
+              const isExpanded = Boolean(divisionExpansion[group.division])
+              return (
               <Accordion
                 key={group.division}
                 disableGutters
-                expanded={Boolean(divisionExpansion[group.division])}
+                expanded={isExpanded}
                 onChange={(_, expanded) => {
                   setDivisionExpansion((current) => {
                     if (!expanded) return { ...current, [group.division]: false }
@@ -1692,6 +1694,7 @@ export default function StockManagementPage() {
                   boxShadow: 'none',
                   minWidth: 0,
                   overflow: 'hidden',
+                  ...(isExpanded ? { minHeight: 0, flex: '1 1 0', display: 'flex', flexDirection: 'column' } : {}),
                   '&:before': { display: 'none' }
                 }}
               >
@@ -1714,15 +1717,15 @@ export default function StockManagementPage() {
                     <Chip size="small" label={`Gap ${fmtMoney(group.gapCostTotal)}`} sx={{ fontWeight: 700, height: 22, bgcolor: '#eff6ff', color: '#1d4ed8', '& .MuiChip-label': { px: 0.9, fontSize: 11.2 } }} />
                   </Stack>
                 </AccordionSummary>
-                <AccordionDetails sx={{ p: 0 }}>
+                <AccordionDetails sx={isExpanded ? { p: 0, minHeight: 0, flex: 1, display: 'flex' } : { p: 0 }}>
                   <TableContainer
                     sx={{
                       width: '100%',
                       maxWidth: '100%',
                       minWidth: 0,
-                      // Keep scrolling inside the master table, never on the page.
-                      height: 'min(48dvh, calc(100dvh - 500px))',
-                      maxHeight: 'min(48dvh, calc(100dvh - 500px))',
+                      // This panel consumes the remaining accordion height.
+                      height: '100%',
+                      maxHeight: '100%',
                       overflowX: 'scroll',
                       overflowY: 'auto',
                       overscrollBehavior: 'contain',
@@ -1884,7 +1887,8 @@ export default function StockManagementPage() {
                   </TableContainer>
                 </AccordionDetails>
               </Accordion>
-            ))}
+              )
+            })}
           </Stack>
         </SectionCard>
       ) : null}
