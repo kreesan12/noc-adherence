@@ -1037,7 +1037,7 @@ export default function StockManagementPage() {
           >
             <MenuItem value="">All</MenuItem>
             <MenuItem value="low">Below Minimum</MenuItem>
-            <MenuItem value="healthy">Healthy</MenuItem>
+            <MenuItem value="healthy">Above Minimum</MenuItem>
             <MenuItem value="zero">Zero Available</MenuItem>
             <MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
           </TextField>
@@ -1156,7 +1156,7 @@ export default function StockManagementPage() {
             >
               <MenuItem value="">All</MenuItem>
               <MenuItem value="low">Below Minimum</MenuItem>
-              <MenuItem value="healthy">Healthy</MenuItem>
+              <MenuItem value="healthy">Above Minimum</MenuItem>
               <MenuItem value="zero">Zero Available</MenuItem>
               <MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
             </TextField>
