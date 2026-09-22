@@ -1015,108 +1015,32 @@ export default function StockManagementPage() {
           }
         }}
       >
-        {tab === 0 ? (
-        <Paper
-          elevation={0}
-          sx={{
-            p: 0.72,
-            borderRadius: 2.45,
-            border: '1px solid #dce7e2',
-            background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
-          }}
-        >
-          <Stack spacing={0.65}>
-          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap">
-            <TextField
-              size="small"
-              label="Search Stock"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Description, code, division, matched item..."
-              sx={{ minWidth: 200 }}
-              InputProps={{
-                startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
-              }}
-            />
-            <TextField
-              size="small"
-              select
-              label="Business Unit / Division"
-              value={divisionFilter}
-              onChange={(e) => setDivisionFilter(e.target.value)}
-              sx={{ minWidth: 122 }}
-            >
-              <MenuItem value="">All Business Units</MenuItem>
-              {divisions.map((division) => (
-                <MenuItem key={division} value={division}>{division}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              size="small"
-              select
-              label="Stock Status"
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
-              sx={{ minWidth: 118 }}
-            >
-              <MenuItem value="">All</MenuItem>
-              <MenuItem value="low">Below Minimum</MenuItem>
-              <MenuItem value="healthy">Above Minimum</MenuItem>
-              <MenuItem value="zero">Zero Available</MenuItem>
-              <MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
-            </TextField>
-            <TextField
-              size="small"
-              select
-              label="Match Quality"
-              value={matchFilter}
-              onChange={(e) => setMatchFilter(e.target.value)}
-              sx={{ minWidth: 118 }}
-            >
-              <MenuItem value="">All</MenuItem>
-              <MenuItem value="matched">Matched</MenuItem>
-              <MenuItem value="review">Needs Review</MenuItem>
-              <MenuItem value="unmatched">Unmatched</MenuItem>
-            </TextField>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<FileDownloadOutlinedIcon />}
-              onClick={doExport}
-              disabled={exporting}
-              sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}
-            >
-              {exporting ? 'Exporting...' : 'Export Master Workbook'}
-            </Button>
-          </Stack>
-          </Stack>
-        </Paper>
-        ) : null}
-
-        <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3.1, overflow: 'hidden', boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)' }}>
+        <Paper elevation={0} sx={{ p: 0.5, border: '1px solid #cbded7', borderRadius: 3, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.88)', boxShadow: '0 8px 20px rgba(15, 23, 42, 0.05)' }}>
           <Tabs
             value={tab}
             onChange={(_, value) => setTab(value)}
             variant="scrollable"
             scrollButtons="auto"
             sx={{
-              minHeight: 36,
-              px: 0.75,
+              minHeight: 40,
+              px: 0.4,
+              gap: 0.3,
               '& .MuiTab-root': {
-                minHeight: 36,
+                minHeight: 34,
                 textTransform: 'none',
-                fontWeight: 700,
-                fontSize: 12.1,
-                px: 1.1,
+                fontWeight: 800,
+                fontSize: 11.8,
+                px: 1.25,
                 minWidth: 0
               },
               '& .Mui-selected': {
-                color: '#0f766e !important'
+                color: '#ffffff !important',
+                bgcolor: '#0f766e',
+                borderRadius: 2,
+                boxShadow: '0 3px 8px rgba(15, 118, 110, 0.22)'
               },
               '& .MuiTabs-indicator': {
-                height: 3,
-                borderRadius: 3,
-                bgcolor: '#0f766e'
+                display: 'none'
               }
             }}
           >
@@ -1130,6 +1054,35 @@ export default function StockManagementPage() {
             <Tab label="Stock Admin" />
           </Tabs>
         </Paper>
+
+        {tab === 0 ? (
+          <Paper
+            elevation={0}
+            sx={{
+              p: 0.72,
+              borderRadius: 2.45,
+              border: '1px solid #dce7e2',
+              background: 'linear-gradient(180deg, #fbfffe 0%, #f5faf8 100%)'
+            }}
+          >
+            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.6} useFlexGap flexWrap="wrap">
+              <TextField size="small" label="Search Stock" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Description, code, division, matched item..." sx={{ minWidth: 200 }} InputProps={{ startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} /> }} />
+              <TextField size="small" select label="Business Unit / Division" value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} sx={{ minWidth: 122 }}>
+                <MenuItem value="">All Business Units</MenuItem>
+                {divisions.map((division) => <MenuItem key={division} value={division}>{division}</MenuItem>)}
+              </TextField>
+              <TextField size="small" select label="Stock Status" value={stockFilter} onChange={(e) => setStockFilter(e.target.value)} sx={{ minWidth: 118 }}>
+                <MenuItem value="">All</MenuItem><MenuItem value="low">Below Minimum</MenuItem><MenuItem value="healthy">Above Minimum</MenuItem><MenuItem value="zero">Zero Available</MenuItem><MenuItem value="unconfirmed">Unconfirmed Minimums</MenuItem>
+              </TextField>
+              <TextField size="small" select label="Match Quality" value={matchFilter} onChange={(e) => setMatchFilter(e.target.value)} sx={{ minWidth: 118 }}>
+                <MenuItem value="">All</MenuItem><MenuItem value="matched">Matched</MenuItem><MenuItem value="review">Needs Review</MenuItem><MenuItem value="unmatched">Unmatched</MenuItem>
+              </TextField>
+              <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={doExport} disabled={exporting} sx={{ minHeight: 30, borderRadius: 2.2, textTransform: 'none', fontWeight: 800, px: 0.95 }}>
+                {exporting ? 'Exporting...' : 'Export Master Workbook'}
+              </Button>
+            </Stack>
+          </Paper>
+        ) : null}
 
       {tab === -1 ? (
         <Stack spacing={0.82}>
