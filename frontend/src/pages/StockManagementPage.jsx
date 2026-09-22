@@ -102,16 +102,16 @@ const NOT_WH_STATUS_OPTIONS = [
 ]
 
 const MASTER_ITEM_CELL_SX = {
-  width: 210,
-  minWidth: 210,
-  maxWidth: 210,
+  width: 248,
+  minWidth: 248,
+  maxWidth: 248,
   whiteSpace: 'normal'
 }
 
 const MASTER_SECTION_CELL_SX = {
-  width: 82,
-  minWidth: 82,
-  maxWidth: 82,
+  width: 112,
+  minWidth: 112,
+  maxWidth: 112,
   whiteSpace: 'normal'
 }
 
@@ -122,24 +122,21 @@ const MASTER_MATCH_CELL_SX = {
 }
 
 const MASTER_METRIC_CELL_SX = {
-  width: 54,
-  minWidth: 54,
-  maxWidth: 54,
-  whiteSpace: 'normal'
+  width: 64,
+  minWidth: 64,
+  maxWidth: 64
 }
 
 const MASTER_MONEY_CELL_SX = {
-  width: 70,
-  minWidth: 70,
-  maxWidth: 70,
-  whiteSpace: 'normal'
+  width: 84,
+  minWidth: 84,
+  maxWidth: 84
 }
 
 const MASTER_REGION_CELL_SX = {
-  width: 68,
-  minWidth: 68,
-  maxWidth: 68,
-  whiteSpace: 'normal'
+  width: 96,
+  minWidth: 96,
+  maxWidth: 96
 }
 
 function fmtCount(value) {
@@ -983,10 +980,19 @@ export default function StockManagementPage() {
       title="Assurance And Engineering Stock Control"
       description="The template remains the master source, the daily stock report feeds the live counts, and warehouse stock stays separated from field-held stock so the gap logic stays operationally clean."
       accent="#0f766e"
+      shellSx={tab === 0 ? {
+        height: 'calc(100dvh - 24px)',
+        minHeight: 0,
+        overflow: 'hidden',
+        gridTemplateRows: 'auto minmax(0, 1fr)'
+      } : {}}
     >
       <Stack
         spacing={0.78}
         sx={{
+          height: tab === 0 ? '100%' : 'auto',
+          minHeight: 0,
+          overflow: tab === 0 ? 'hidden' : 'visible',
           '& .MuiTableCell-root': {
             py: 0.5,
             px: 0.72,
@@ -1708,8 +1714,10 @@ export default function StockManagementPage() {
           title="Master Stock Table"
           subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
           action={<Chip size="small" label={`${fmtCount(filteredItemRows.length)} visible items`} sx={{ fontWeight: 700 }} />}
+          rootSx={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column' }}
+          bodySx={{ p: 1.05, minHeight: 0, flex: 1, overflow: 'hidden', display: 'flex' }}
         >
-          <Stack spacing={0.55}>
+          <Stack spacing={0.55} sx={{ width: '100%', minHeight: 0, flex: 1, overflow: 'hidden' }}>
             {divisionGroups.map((group) => (
               <Accordion
                 key={group.division}
@@ -1755,9 +1763,9 @@ export default function StockManagementPage() {
                       width: '100%',
                       maxWidth: '100%',
                       minWidth: 0,
-                      // The shell has a fixed header, filter row and tabs. Keep this
-                      // viewport short enough that both scrollbars stay on-screen.
-                      maxHeight: 'calc(100dvh - 470px)',
+                      // Keep scrolling inside the master table, never on the page.
+                      height: 'min(48dvh, calc(100dvh - 500px))',
+                      maxHeight: 'min(48dvh, calc(100dvh - 500px))',
                       overflowX: 'scroll',
                       overflowY: 'auto',
                       overscrollBehavior: 'contain',
@@ -1776,7 +1784,7 @@ export default function StockManagementPage() {
                       size="small"
                       stickyHeader
                       sx={{
-                        minWidth: 1560,
+                        minWidth: 2050,
                         tableLayout: 'fixed',
                         '& .MuiTableCell-root': {
                           py: 0.34,
