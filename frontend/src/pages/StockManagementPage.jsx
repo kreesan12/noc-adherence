@@ -384,9 +384,9 @@ export default function StockManagementPage() {
   }, [])
 
   useEffect(() => {
-    if (tab === 4 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
-    if (tab === 5 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
-    if (tab === 6 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
+    if (tab === 1 && !dailyReport && !dailyReportLoading) loadDailyReport().catch(() => {})
+    if (tab === 2 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
+    if (tab === 3 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
   }, [tab])
 
   useEffect(() => {
@@ -556,7 +556,7 @@ export default function StockManagementPage() {
   }
 
   useEffect(() => {
-    if (tab === 1 && !runRateData && !runRateLoading) {
+    if (tab === 6 && !runRateData && !runRateLoading) {
       loadRunRates().catch(console.error)
     }
   }, [tab, runRateData, runRateLoading])
@@ -1049,12 +1049,12 @@ export default function StockManagementPage() {
             }}
           >
             <Tab label="Master Stock" />
-            <Tab label="Run Rates" />
-            <Tab label="Match Review" />
-            <Tab label="Add Template Item" />
             <Tab label="Daily Report" />
             <Tab label="Redistribution" />
             <Tab label="Stock Admin" />
+            <Tab label="Match Review" />
+            <Tab label="Add Template Item" />
+            <Tab label="Run Rates" />
           </Tabs>
         </Paper>
 
@@ -1449,7 +1449,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 1 ? (
+      {tab === 6 ? (
         runRateLoading && !runRateData ? (
           <Paper elevation={0} sx={{ p: 3, border: '1px solid #e2e8f0', borderRadius: 2.6 }}>
             <Stack direction="row" spacing={1.2} alignItems="center">
@@ -1886,7 +1886,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 2 ? (
+      {tab === 4 ? (
         <SectionCard
           title="Match Review"
           subtitle="Review low-confidence and unmatched items, then lock in an override so the daily refresh stays stable."
@@ -1956,7 +1956,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 3 ? (
+      {tab === 5 ? (
         <SectionCard
           title="Add Template Item"
           subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
@@ -2188,7 +2188,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 4 ? (
+      {tab === 1 ? (
         <Stack spacing={0.8}>
           <SectionCard
             title="Daily division report"
@@ -2264,7 +2264,7 @@ export default function StockManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {tab === 5 ? (
+      {tab === 2 ? (
         <SectionCard
           title="Redistribution required"
           subtitle="Shared regional stock is compared with confirmed minimums. The daily plan only marks additional quantities since the previous plan as new."
@@ -2286,7 +2286,7 @@ export default function StockManagementPage() {
         </SectionCard>
       ) : null}
 
-      {tab === 6 ? (
+      {tab === 3 ? (
         <Stack spacing={0.8}>
           <SectionCard title="Stock management administration" subtitle="General stock admins manage division heads, division admins and redistribution recipients here. Division admins can only change stock in their assigned business unit.">
             <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.2fr 1.2fr 1.5fr 1fr auto' } }}>
