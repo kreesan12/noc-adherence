@@ -62,6 +62,8 @@ import {
   fetchStockDailyReport,
   fetchStockDivisionContacts,
   fetchStockRedistributionPlan,
+  fetchStockRedistributionRun,
+  fetchStockRedistributionRuns,
   generateStockRedistributionPlan,
   fetchStockRunRates,
   sendStockDailyReport,
@@ -247,14 +249,7 @@ function createTemplateFormState() {
     unitPriceZar: '',
     unitPriceUsd: '',
     division: '',
-    requiredCpt: '0',
-    requiredJhb: '0',
-    requiredDbn: '0',
-    requiredPel: '0',
-    requiredBfn: '0',
-    requiredGeo: '0',
-    requiredPol: '0',
-    requiredNel: '0'
+    ...Object.fromEntries(REQUIRED_SPARE_FIELDS.flatMap(({ key }) => [[key, '0'], [confirmedFieldForRequiredKey(key), false]]))
   }
 }
 
@@ -312,6 +307,9 @@ export default function StockManagementPage() {
   const [savingNotWhKey, setSavingNotWhKey] = useState('')
   const [toast, setToast] = useState(null)
   const [redistributionPlan, setRedistributionPlan] = useState(null)
+  const [redistributionRuns, setRedistributionRuns] = useState([])
+  const [redistributionHistoryPlan, setRedistributionHistoryPlan] = useState(null)
+  const [redistributionHistoryLoading, setRedistributionHistoryLoading] = useState(false)
   const [redistributionLoading, setRedistributionLoading] = useState(false)
   const [dailyReport, setDailyReport] = useState(null)
   const [dailyReportLoading, setDailyReportLoading] = useState(false)
@@ -319,6 +317,7 @@ export default function StockManagementPage() {
   const [sendingDailyReport, setSendingDailyReport] = useState(false)
   const [divisionContacts, setDivisionContacts] = useState([])
   const [contactsLoading, setContactsLoading] = useState(false)
+  const [editingContactId, setEditingContactId] = useState(null)
   const [contactForm, setContactForm] = useState({ division: '', fullName: '', email: '', role: 'DIVISION_HEAD', receivesRedistribution: false })
 
   const loadData = async ({ showLoading = true } = {}) => {
@@ -340,8 +339,9 @@ export default function StockManagementPage() {
   const loadRedistribution = async () => {
     setRedistributionLoading(true)
     try {
-      const next = await fetchStockRedistributionPlan()
+      const [next, runs] = await Promise.all([fetchStockRedistributionPlan(), fetchStockRedistributionRuns()])
       setRedistributionPlan(next)
+      setRedistributionRuns(runs)
       return next
     } catch (err) {
       setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to load redistribution plan' })
@@ -388,6 +388,12 @@ export default function StockManagementPage() {
     if (tab === 2 && !redistributionPlan && !redistributionLoading) loadRedistribution().catch(() => {})
     if (tab === 3 && !divisionContacts.length && !contactsLoading) loadContacts().catch(() => {})
   }, [tab])
+
+  useEffect(() => {
+    if (!toast || toast.severity !== 'success') return undefined
+    const timeout = window.setTimeout(() => setToast(null), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [toast])
 
   useEffect(() => {
     if (!selectedItem) {
@@ -566,6 +572,7 @@ export default function StockManagementPage() {
     try {
       const next = await generateStockRedistributionPlan()
       setRedistributionPlan(next)
+      setRedistributionRuns(await fetchStockRedistributionRuns())
       setToast({ severity: 'success', message: `Redistribution plan created with ${fmtCount(next?.recommendations?.length)} movement lines` })
     } catch (err) {
       setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to generate redistribution plan' })
@@ -588,6 +595,17 @@ export default function StockManagementPage() {
     }
   }
 
+  const openRedistributionHistory = async (runId) => {
+    setRedistributionHistoryLoading(true)
+    try {
+      setRedistributionHistoryPlan(await fetchStockRedistributionRun(runId))
+    } catch (err) {
+      setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to load redistribution plan history' })
+    } finally {
+      setRedistributionHistoryLoading(false)
+    }
+  }
+
   const sendDailyReports = async () => {
     setSendingDailyReport(true)
     try {
@@ -602,10 +620,15 @@ export default function StockManagementPage() {
 
   const saveDivisionContact = async () => {
     try {
-      await createStockDivisionContact(contactForm)
+      if (editingContactId) {
+        await updateStockDivisionContact(editingContactId, contactForm)
+      } else {
+        await createStockDivisionContact(contactForm)
+      }
+      setEditingContactId(null)
       setContactForm({ division: '', fullName: '', email: '', role: 'DIVISION_HEAD', receivesRedistribution: false })
       await loadContacts()
-      setToast({ severity: 'success', message: 'Stock-management contact saved' })
+      setToast({ severity: 'success', message: `Stock-management contact ${editingContactId ? 'updated' : 'saved'}` })
     } catch (err) {
       setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to save stock contact' })
     }
@@ -1668,7 +1691,7 @@ export default function StockManagementPage() {
           title="Master Stock Table"
           subtitle="Grouped by division. Warehouse-usable stock is separated from Not WH stock, with derived unit cost and gap cost included."
           action={<Chip size="small" label={`${fmtCount(filteredItemRows.length)} visible items`} sx={{ fontWeight: 700 }} />}
-          rootSx={{ minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 1.6 }}
+          rootSx={{ height: 'auto', minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 1.35 }}
           bodySx={{ p: 1.05, minHeight: 0, flex: 1, overflow: 'hidden', display: 'flex' }}
         >
           <Stack spacing={0.55} sx={{ width: '100%', minHeight: 0, flex: 1, overflow: 'hidden' }}>
@@ -1686,7 +1709,7 @@ export default function StockManagementPage() {
                   })
                 }}
                 sx={{
-                  borderRadius: '10px !important',
+                  borderRadius: '8px !important',
                   border: '1px solid #e2e8f0',
                   boxShadow: 'none',
                   minWidth: 0,
@@ -1720,11 +1743,11 @@ export default function StockManagementPage() {
                       width: '100%',
                       maxWidth: '100%',
                       minWidth: 0,
-                      // This panel consumes the remaining accordion height.
-                      height: '100%',
-                      maxHeight: '100%',
-                      overflowX: 'scroll',
-                      overflowY: 'auto',
+                      // Keep the stock grid independently scrollable in both directions.
+                      height: 'clamp(260px, calc(100dvh - 470px), 680px)',
+                      minHeight: 260,
+                      maxHeight: 'calc(100dvh - 470px)',
+                      overflow: 'auto',
                       overscrollBehavior: 'contain',
                       scrollbarGutter: 'stable both-edges',
                       scrollbarWidth: 'auto',
@@ -1963,15 +1986,22 @@ export default function StockManagementPage() {
       {tab === 5 ? (
         <SectionCard
           title="Add Template Item"
-          subtitle="Create a new master-template stock row with duplicate checking before save. New items join the live stock matching immediately after creation."
+          subtitle="Add one business-unit minimum record. Physical stock remains shared with the same stock code across all business units."
           action={<Chip size="small" label={`${fmtCount(sectionOptions.length)} known sections`} sx={{ fontWeight: 700 }} />}
+          minHeight={0}
+          rootSx={{ height: 'auto', borderRadius: 1.35 }}
+          bodySx={{ minHeight: 0, py: 0.9 }}
         >
-          <Stack spacing={0.8}>
+          <Stack spacing={0.9}>
+            <Alert severity="info" sx={{ borderRadius: 1.25, py: 0.1 }}>
+              Choose the business unit first, then enter only that unit’s regional minimums. Leave a region unconfirmed until its owner has verified it.
+            </Alert>
             {createDuplicateHints.length ? (
-              <Alert severity="warning" sx={{ borderRadius: 2.4 }}>
+              <Alert severity="warning" sx={{ borderRadius: 1.25 }}>
                 A possible duplicate already exists. Review the matches below before saving a new template item.
               </Alert>
             ) : null}
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Item identity and cost</Typography>
             <Box
               sx={{
                 display: 'grid',
@@ -1979,10 +2009,21 @@ export default function StockManagementPage() {
                 gridTemplateColumns: {
                   xs: '1fr',
                   md: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(5, minmax(0, 1fr))'
+                  xl: 'repeat(4, minmax(0, 1fr))'
                 }
               }}
             >
+              <TextField
+                size="small"
+                select
+                label="Business Unit / Division"
+                value={createForm.division}
+                onChange={(event) => updateCreateFormField('division', event.target.value)}
+                required
+              >
+                <MenuItem value="">Choose business unit</MenuItem>
+                {divisions.map((division) => <MenuItem key={division} value={division}>{division}</MenuItem>)}
+              </TextField>
               <TextField
                 size="small"
                 label="Template Section"
@@ -1995,13 +2036,6 @@ export default function StockManagementPage() {
                 label="Sub Section"
                 value={createForm.subSectionName}
                 onChange={(event) => updateCreateFormField('subSectionName', event.target.value)}
-              />
-              <TextField
-                size="small"
-                label="Business Unit / Division"
-                value={createForm.division}
-                onChange={(event) => updateCreateFormField('division', event.target.value)}
-                placeholder="Assurance / Engineering ..."
               />
               <TextField
                 size="small"
@@ -2028,14 +2062,44 @@ export default function StockManagementPage() {
                 value={createForm.unitPriceUsd}
                 onChange={(event) => updateCreateFormField('unitPriceUsd', event.target.value)}
               />
+            </Box>
+
+            <Divider />
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={0.5}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Business-unit minimums by region</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>A green confirmation means the region’s minimum has been verified.</Typography>
+              </Box>
+              <Chip size="small" label={`Total minimum ${fmtCount(REQUIRED_SPARE_FIELDS.reduce((total, { key }) => total + Number(createForm[key] || 0), 0))}`} sx={{ fontWeight: 800 }} />
+            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 0.65,
+                gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', xl: 'repeat(8, minmax(0, 1fr))' }
+              }}
+            >
               {REQUIRED_SPARE_FIELDS.map((field) => (
-                <TextField
+                <Paper
                   key={field.key}
-                  size="small"
-                  label={`Required ${field.region}`}
-                  value={createForm[field.key]}
-                  onChange={(event) => updateCreateFormField(field.key, event.target.value)}
-                />
+                  variant="outlined"
+                  sx={{ p: 0.65, borderRadius: 1.15, bgcolor: createForm[confirmedFieldForRequiredKey(field.key)] ? 'rgba(22, 163, 74, 0.04)' : 'rgba(249, 115, 22, 0.05)' }}
+                >
+                  <Stack spacing={0.25}>
+                    <TextField
+                      size="small"
+                      label={`${field.region} minimum`}
+                      value={createForm[field.key]}
+                      onChange={(event) => updateCreateFormField(field.key, event.target.value)}
+                      inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                    />
+                    <FormControlLabel
+                      sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 10.5 } }}
+                      control={<Checkbox size="small" checked={Boolean(createForm[confirmedFieldForRequiredKey(field.key)])} onChange={(event) => updateCreateFormField(confirmedFieldForRequiredKey(field.key), event.target.checked)} />}
+                      label="Confirmed"
+                    />
+                  </Stack>
+                </Paper>
               ))}
             </Box>
 
@@ -2046,7 +2110,7 @@ export default function StockManagementPage() {
             ) : null}
 
             {createDuplicateHints.length ? (
-              <Paper variant="outlined" sx={{ p: 0.82, borderRadius: 2.2 }}>
+              <Paper variant="outlined" sx={{ p: 0.82, borderRadius: 1.25 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 0.45, fontSize: 13 }}>
                   Possible duplicates
                 </Typography>
@@ -2078,7 +2142,7 @@ export default function StockManagementPage() {
                 startIcon={<AddCircleOutlineRoundedIcon />}
                 onClick={saveNewTemplateItem}
                 disabled={creatingTemplateItem || !createForm.itemDescription.trim() || !createForm.division.trim() || createDuplicateHints.length > 0}
-                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2.2, minHeight: 29, px: 0.95 }}
+                sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 1.25, minHeight: 29, px: 0.95 }}
               >
                 {creatingTemplateItem ? 'Saving...' : 'Create Template Item'}
               </Button>
@@ -2268,42 +2332,105 @@ export default function StockManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {tab === 2 ? (
-        <SectionCard
-          title="Redistribution required"
-          subtitle="Shared regional stock is compared with confirmed minimums. The daily plan only marks additional quantities since the previous plan as new."
-          action={(
-            <Stack direction="row" spacing={0.6}>
-              <Button size="small" variant="outlined" onClick={() => loadRedistribution().catch(() => {})} disabled={redistributionLoading}>Refresh</Button>
-              <Button size="small" variant="contained" onClick={generateRedistribution} disabled={redistributionLoading}>Generate plan</Button>
-              <Button size="small" variant="contained" color="warning" onClick={sendRedistribution} disabled={redistributionLoading || !(redistributionPlan?.recommendations || []).some((row) => Number(row.deltaQty || 0) > 0 && row.status === 'DRAFT')}>Send new movements</Button>
+      <Dialog open={Boolean(redistributionHistoryPlan)} onClose={() => setRedistributionHistoryPlan(null)} fullWidth maxWidth="lg">
+        <DialogTitle>Redistribution plan #{redistributionHistoryPlan?.id || ''}</DialogTitle>
+        <DialogContent dividers>
+          {redistributionHistoryPlan ? (
+            <Stack spacing={0.85}>
+              <Paper variant="outlined" sx={{ p: 0.85, borderRadius: 1.2 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={0.6}>
+                  <Typography variant="body2">Generated {fmtDateTime(redistributionHistoryPlan.generatedAt)} · source: {redistributionHistoryPlan.source || 'manual'}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 800 }}>{fmtCount(redistributionHistoryPlan.recommendations?.length)} movement lines</Typography>
+                </Stack>
+              </Paper>
+              <TableContainer sx={{ maxHeight: '62vh', overflow: 'auto' }}><Table size="small" stickyHeader sx={{ minWidth: 920 }}><TableHead><TableRow><TableCell>From</TableCell><TableCell>To</TableCell><TableCell>Stock code</TableCell><TableCell>Item</TableCell><TableCell align="right">Plan qty</TableCell><TableCell align="right">New qty</TableCell><TableCell>Status</TableCell><TableCell>Sent at</TableCell></TableRow></TableHead><TableBody>
+                {(redistributionHistoryPlan.recommendations || []).map((row) => <TableRow key={row.id}><TableCell>{row.fromRegion}</TableCell><TableCell>{row.toRegion}</TableCell><TableCell>{row.stockCode || 'N/A'}</TableCell><TableCell>{row.itemDescription}</TableCell><TableCell align="right">{fmtCount(row.recommendedQty)}</TableCell><TableCell align="right">{fmtCount(row.deltaQty)}</TableCell><TableCell>{row.status}</TableCell><TableCell>{row.sentAt ? fmtDateTime(row.sentAt) : '-'}</TableCell></TableRow>)}
+              </TableBody></Table></TableContainer>
             </Stack>
-          )}
-        >
-          {!redistributionPlan ? <Alert severity="info">Generate the first redistribution plan once the minimum-stock import and current stock feed are ready.</Alert> : (
-            <TableContainer sx={{ maxHeight: '62vh' }}><Table size="small" stickyHeader><TableHead><TableRow>
-              <TableCell>From</TableCell><TableCell>To</TableCell><TableCell>Stock Code</TableCell><TableCell>Item</TableCell><TableCell align="right">Plan Qty</TableCell><TableCell align="right">New Qty</TableCell><TableCell>Status</TableCell>
-            </TableRow></TableHead><TableBody>
-              {(redistributionPlan.recommendations || []).map((row) => <TableRow key={row.id}><TableCell>{row.fromRegion}</TableCell><TableCell>{row.toRegion}</TableCell><TableCell>{row.stockCode || 'N/A'}</TableCell><TableCell>{row.itemDescription}</TableCell><TableCell align="right">{fmtCount(row.recommendedQty)}</TableCell><TableCell align="right"><Chip size="small" color={row.deltaQty ? 'warning' : 'default'} label={fmtCount(row.deltaQty)} /></TableCell><TableCell>{row.status}</TableCell></TableRow>)}
-            </TableBody></Table></TableContainer>
-          )}
-        </SectionCard>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {tab === 2 ? (
+        <Stack spacing={0.8}>
+          <SectionCard
+            title="Current redistribution plan"
+            subtitle="Generate a stored plan, review its new movements, then email only those new movements to the configured recipients."
+            minHeight={0}
+            rootSx={{ height: 'auto', borderRadius: 1.35 }}
+            bodySx={{ minHeight: 0, py: 0.9 }}
+            action={(
+              <Stack direction="row" spacing={0.55}>
+                <Button size="small" variant="outlined" onClick={() => loadRedistribution().catch(() => {})} disabled={redistributionLoading} sx={{ textTransform: 'none', fontWeight: 800 }}>Refresh</Button>
+                <Button size="small" variant="contained" onClick={generateRedistribution} disabled={redistributionLoading} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 1.2 }}>Generate new plan</Button>
+              </Stack>
+            )}
+          >
+            {!redistributionPlan ? <Alert severity="info" sx={{ borderRadius: 1.25 }}>No plan has been stored yet. Generate a plan to calculate the current regional movements.</Alert> : (
+              <Stack spacing={0.8}>
+                <Paper variant="outlined" sx={{ p: 0.85, borderRadius: 1.2, bgcolor: 'rgba(15, 118, 110, 0.03)' }}>
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.7} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }}>
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Plan #{redistributionPlan.id} · generated {fmtDateTime(redistributionPlan.generatedAt)}</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Source: {redistributionPlan.source || 'manual'} · The plan is stored and remains visible in the history below.</Typography>
+                    </Box>
+                    <Stack direction="row" spacing={0.45} useFlexGap flexWrap="wrap">
+                      <Chip size="small" label={`${fmtCount(redistributionPlan.recommendations?.length)} movement lines`} sx={{ fontWeight: 800 }} />
+                      <Chip size="small" color="info" label={`${fmtCount((redistributionPlan.recommendations || []).reduce((total, row) => total + Number(row.recommendedQty || 0), 0))} total units`} sx={{ fontWeight: 800 }} />
+                      <Chip size="small" color={(redistributionPlan.recommendations || []).some((row) => Number(row.deltaQty || 0) > 0 && row.status === 'DRAFT') ? 'warning' : 'success'} label={`${fmtCount((redistributionPlan.recommendations || []).filter((row) => Number(row.deltaQty || 0) > 0 && row.status === 'DRAFT').length)} new lines awaiting email`} sx={{ fontWeight: 800 }} />
+                    </Stack>
+                  </Stack>
+                </Paper>
+                {(redistributionPlan.recommendations || []).some((row) => Number(row.deltaQty || 0) > 0 && row.status === 'DRAFT') ? (
+                  <Alert severity="warning" action={<Button color="inherit" size="small" onClick={sendRedistribution} disabled={redistributionLoading} sx={{ fontWeight: 800 }}>Send new movements</Button>} sx={{ borderRadius: 1.25 }}>
+                    Next step: review the highlighted new quantities below, then send them to the configured redistribution recipients. Sent rows remain recorded against this plan.
+                  </Alert>
+                ) : (
+                  <Alert severity="success" sx={{ borderRadius: 1.25 }}>
+                    No new movements are waiting to be emailed for this plan. Generate a new plan after stock changes to compare the next day’s movement.
+                  </Alert>
+                )}
+                <TableContainer sx={{ maxHeight: '46vh', overflow: 'auto', scrollbarGutter: 'stable both-edges' }}><Table size="small" stickyHeader sx={{ minWidth: 960 }}><TableHead><TableRow>
+                  <TableCell>From</TableCell><TableCell>To</TableCell><TableCell>Stock Code</TableCell><TableCell>Item</TableCell><TableCell align="right">Required movement</TableCell><TableCell align="right">New to send</TableCell><TableCell>Status</TableCell><TableCell>Sent</TableCell>
+                </TableRow></TableHead><TableBody>
+                  {(redistributionPlan.recommendations || []).map((row) => <TableRow key={row.id} sx={{ bgcolor: Number(row.deltaQty || 0) > 0 && row.status === 'DRAFT' ? 'rgba(245, 158, 11, 0.07)' : 'transparent' }}><TableCell>{row.fromRegion}</TableCell><TableCell>{row.toRegion}</TableCell>{/* Physical stock is shared by stock code. */}<TableCell>{row.stockCode || 'N/A'}</TableCell><TableCell>{row.itemDescription}</TableCell><TableCell align="right">{fmtCount(row.recommendedQty)}</TableCell><TableCell align="right"><Chip size="small" color={Number(row.deltaQty || 0) > 0 ? 'warning' : 'default'} label={fmtCount(row.deltaQty)} /></TableCell><TableCell><Chip size="small" color={row.status === 'SENT' ? 'success' : 'default'} label={row.status} /></TableCell><TableCell>{row.sentAt ? fmtDateTime(row.sentAt) : '-'}</TableCell></TableRow>)}
+                </TableBody></Table></TableContainer>
+              </Stack>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Saved redistribution plans" subtitle="Every generated plan is retained so you can check when it was generated, what changed, and whether movements were sent." minHeight={0} rootSx={{ height: 'auto', borderRadius: 1.35 }} bodySx={{ minHeight: 0, py: 0.85 }}>
+            {redistributionRuns.length ? (
+              <TableContainer sx={{ maxHeight: 280, overflow: 'auto', scrollbarGutter: 'stable both-edges' }}><Table size="small" stickyHeader sx={{ minWidth: 820 }}><TableHead><TableRow><TableCell>Plan</TableCell><TableCell>Generated</TableCell><TableCell>Source</TableCell><TableCell align="right">Lines</TableCell><TableCell align="right">Total units</TableCell><TableCell align="right">New units</TableCell><TableCell>Delivery status</TableCell><TableCell align="right">View</TableCell></TableRow></TableHead><TableBody>
+                {redistributionRuns.map((run) => <TableRow key={run.id} hover><TableCell>#{run.id}{run.id === redistributionPlan?.id ? <Chip size="small" label="Current" sx={{ ml: 0.55, height: 19 }} /> : null}</TableCell><TableCell>{fmtDateTime(run.generatedAt)}</TableCell><TableCell>{run.source || 'manual'}</TableCell><TableCell align="right">{fmtCount(run.movementLines)}</TableCell><TableCell align="right">{fmtCount(run.recommendedQty)}</TableCell><TableCell align="right">{fmtCount(run.newQty)}</TableCell><TableCell>{run.draftLines ? <Chip size="small" color="warning" label={`${fmtCount(run.draftLines)} awaiting email`} /> : run.sentLines ? <Chip size="small" color="success" label={`${fmtCount(run.sentLines)} sent`} /> : <Chip size="small" label="No new movements" />}</TableCell><TableCell align="right"><Button size="small" variant="outlined" onClick={() => openRedistributionHistory(run.id)} disabled={redistributionHistoryLoading} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 1.2 }}>View plan</Button></TableCell></TableRow>)}
+              </TableBody></Table></TableContainer>
+            ) : <Alert severity="info" sx={{ borderRadius: 1.25 }}>No saved redistribution plans yet.</Alert>}
+          </SectionCard>
+        </Stack>
       ) : null}
 
       {tab === 3 ? (
         <Stack spacing={0.8}>
-          <SectionCard title="Stock management administration" subtitle="General stock admins manage division heads, division admins and redistribution recipients here. Division admins can only change stock in their assigned business unit.">
-            <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.2fr 1.2fr 1.5fr 1fr auto' } }}>
-              <TextField size="small" select label="Business Unit" value={contactForm.division} onChange={(event) => setContactForm((state) => ({ ...state, division: event.target.value }))}><MenuItem value="">Choose</MenuItem>{divisions.map((division) => <MenuItem key={division} value={division}>{division}</MenuItem>)}</TextField>
+          <SectionCard title={editingContactId ? 'Edit stock-management user' : 'Add stock-management user'} subtitle="General admins manage all business units. Division admins can only change stock records assigned to their own business unit." minHeight={0} rootSx={{ height: 'auto', borderRadius: 1.35 }} bodySx={{ minHeight: 0, py: 0.9 }}>
+            <Stack spacing={0.8}>
+              <Box sx={{ display: 'grid', gap: 0.65, gridTemplateColumns: { xs: '1fr', md: '1.15fr 1.15fr 1.5fr 1fr' } }}>
+              <TextField size="small" select label="Business Unit" value={contactForm.division} disabled={Boolean(editingContactId)} onChange={(event) => setContactForm((state) => ({ ...state, division: event.target.value }))}><MenuItem value="">Choose</MenuItem>{divisions.map((division) => <MenuItem key={division} value={division}>{division}</MenuItem>)}</TextField>
               <TextField size="small" label="Full name" value={contactForm.fullName} onChange={(event) => setContactForm((state) => ({ ...state, fullName: event.target.value }))} />
               <TextField size="small" label="Email" value={contactForm.email} onChange={(event) => setContactForm((state) => ({ ...state, email: event.target.value }))} />
-              <TextField size="small" select label="Access" value={contactForm.role} onChange={(event) => setContactForm((state) => ({ ...state, role: event.target.value }))}><MenuItem value="DIVISION_HEAD">Division head</MenuItem><MenuItem value="DIVISION_ADMIN">Division admin</MenuItem></TextField>
-              <Button variant="contained" onClick={saveDivisionContact}>Add user</Button>
-            </Box>
+              <TextField size="small" select label="Access" value={contactForm.role} disabled={Boolean(editingContactId)} onChange={(event) => setContactForm((state) => ({ ...state, role: event.target.value }))}><MenuItem value="DIVISION_HEAD">Division head</MenuItem><MenuItem value="DIVISION_ADMIN">Division admin</MenuItem></TextField>
+              </Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                <FormControlLabel sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 11.5 } }} control={<Checkbox size="small" checked={Boolean(contactForm.receivesRedistribution)} onChange={(event) => setContactForm((state) => ({ ...state, receivesRedistribution: event.target.checked }))} />} label="Include this user on redistribution emails" />
+                <Stack direction="row" spacing={0.55}>
+                  {editingContactId ? <Button size="small" variant="text" onClick={() => { setEditingContactId(null); setContactForm({ division: '', fullName: '', email: '', role: 'DIVISION_HEAD', receivesRedistribution: false }) }} sx={{ textTransform: 'none', fontWeight: 800 }}>Cancel</Button> : null}
+                  <Button size="small" variant="contained" onClick={saveDivisionContact} disabled={!contactForm.division || !contactForm.email} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 1.2 }}>{editingContactId ? 'Save changes' : 'Add user'}</Button>
+                </Stack>
+              </Stack>
+            </Stack>
           </SectionCard>
-          <SectionCard title="Configured stock users" action={<Button size="small" onClick={() => loadContacts().catch(() => {})} disabled={contactsLoading}>Refresh</Button>}>
-            <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Business Unit</TableCell><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Role</TableCell><TableCell>Active</TableCell><TableCell>Redistribution recipient</TableCell></TableRow></TableHead><TableBody>
-              {divisionContacts.map((contact) => <TableRow key={contact.id}><TableCell>{contact.division}</TableCell><TableCell>{contact.fullName || '-'}</TableCell><TableCell>{contact.email}</TableCell><TableCell>{contact.role === 'DIVISION_ADMIN' ? 'Division admin' : 'Division head'}</TableCell><TableCell>{contact.isActive ? 'Yes' : 'No'}</TableCell><TableCell>{contact.receivesRedistribution ? 'Yes' : 'No'}</TableCell></TableRow>)}
+          <SectionCard title="Configured stock users" action={<Button size="small" onClick={() => loadContacts().catch(() => {})} disabled={contactsLoading} sx={{ textTransform: 'none', fontWeight: 800 }}>Refresh</Button>} minHeight={0} rootSx={{ height: 'auto', borderRadius: 1.35 }} bodySx={{ minHeight: 0, py: 0.85 }}>
+            <TableContainer sx={{ overflowX: 'auto' }}><Table size="small" sx={{ minWidth: 920 }}><TableHead><TableRow><TableCell>Business Unit</TableCell><TableCell>Name</TableCell><TableCell>Email</TableCell><TableCell>Role</TableCell><TableCell>Active</TableCell><TableCell>Redistribution recipient</TableCell><TableCell align="right">Action</TableCell></TableRow></TableHead><TableBody>
+              {divisionContacts.map((contact) => <TableRow key={contact.id}><TableCell>{contact.division}</TableCell><TableCell>{contact.fullName || '-'}</TableCell><TableCell>{contact.email}</TableCell><TableCell>{contact.role === 'DIVISION_ADMIN' ? 'Division admin' : 'Division head'}</TableCell><TableCell>{contact.isActive ? 'Yes' : 'No'}</TableCell><TableCell>{contact.receivesRedistribution ? 'Yes' : 'No'}</TableCell><TableCell align="right"><Stack direction="row" justifyContent="flex-end" spacing={0.45}><Button size="small" variant="outlined" onClick={() => { setEditingContactId(contact.id); setContactForm({ division: contact.division, fullName: contact.fullName || '', email: contact.email, role: contact.role, receivesRedistribution: contact.receivesRedistribution }) }} sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 1.2 }}>Edit</Button><Button size="small" color={contact.isActive ? 'warning' : 'success'} onClick={async () => { try { await updateStockDivisionContact(contact.id, { isActive: !contact.isActive }); await loadContacts(); setToast({ severity: 'success', message: `User ${contact.isActive ? 'deactivated' : 'activated'}` }) } catch (err) { setToast({ severity: 'error', message: err?.response?.data?.error || err?.message || 'Failed to update user' }) } }} sx={{ textTransform: 'none', fontWeight: 800 }}>{contact.isActive ? 'Deactivate' : 'Activate'}</Button></Stack></TableCell></TableRow>)}
             </TableBody></Table></TableContainer>
           </SectionCard>
         </Stack>

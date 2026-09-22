@@ -75,6 +75,16 @@ export async function fetchStockRedistributionPlan() {
   return data
 }
 
+export async function fetchStockRedistributionRuns() {
+  const { data } = await api.get('/stock-management/redistribution/runs')
+  return data
+}
+
+export async function fetchStockRedistributionRun(runId) {
+  const { data } = await api.get(`/stock-management/redistribution/${runId}`)
+  return data
+}
+
 export async function generateStockRedistributionPlan() {
   const { data } = await api.post('/stock-management/redistribution/generate')
   return data

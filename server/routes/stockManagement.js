@@ -361,6 +361,41 @@ r.get('/redistribution/latest', async (_req, res) => {
   res.json(await getLatestStockRedistributionPlan(prisma))
 })
 
+r.get('/redistribution/runs', async (_req, res) => {
+  const runs = await prisma.stockRedistributionRun.findMany({
+    take: 20,
+    orderBy: { generatedAt: 'desc' },
+    include: {
+      recommendations: {
+        select: { recommendedQty: true, deltaQty: true, status: true, sentAt: true }
+      }
+    }
+  })
+  res.json(runs.map((run) => ({
+    id: run.id,
+    generatedAt: run.generatedAt,
+    source: run.source,
+    summary: run.summary,
+    movementLines: run.recommendations.length,
+    recommendedQty: run.recommendations.reduce((total, row) => total + Number(row.recommendedQty || 0), 0),
+    newQty: run.recommendations.reduce((total, row) => total + Number(row.deltaQty || 0), 0),
+    draftLines: run.recommendations.filter((row) => row.status === 'DRAFT' && Number(row.deltaQty || 0) > 0).length,
+    sentLines: run.recommendations.filter((row) => row.status === 'SENT').length,
+    lastSentAt: run.recommendations.reduce((latest, row) => !latest || (row.sentAt && row.sentAt > latest) ? row.sentAt : latest, null)
+  })))
+})
+
+r.get('/redistribution/:runId', async (req, res) => {
+  const runId = Number(req.params.runId)
+  if (!Number.isFinite(runId)) return res.status(400).json({ error: 'Invalid redistribution plan id' })
+  const plan = await prisma.stockRedistributionRun.findUnique({
+    where: { id: runId },
+    include: { recommendations: { orderBy: [{ fromRegion: 'asc' }, { toRegion: 'asc' }, { stockCode: 'asc' }] } }
+  })
+  if (!plan) return res.status(404).json({ error: 'Redistribution plan not found' })
+  res.json(plan)
+})
+
 r.post('/redistribution/generate', requireGeneralStockAdmin, async (_req, res) => {
   res.status(201).json(await generateStockRedistributionPlan(prisma, { source: 'manual' }))
 })
