@@ -1295,6 +1295,7 @@ function buildProjectedItem(templateItem, indexes) {
     unitPriceZar: templateItem.unitPriceZar,
     unitPriceUsd: templateItem.unitPriceUsd,
     division: templateItem.division,
+    contributingDivisions: templateItem.contributingDivisions || [templateItem.division].filter(Boolean),
     subSectionName: templateItem.subSectionName || null,
     poolKey,
     requiredByRegion,
@@ -1419,15 +1420,20 @@ function buildPhysicalTemplateItems(templateItems) {
     const current = pools.get(key) || {
       ...item,
       division: 'Shared stock pool',
+      contributingDivisions: [],
       requiredCpt: 0, requiredJhb: 0, requiredDbn: 0, requiredPel: 0,
       requiredBfn: 0, requiredGeo: 0, requiredPol: 0, requiredNel: 0
     }
     for (const { valueField } of REGION_REQUIREMENT_FIELDS) {
       current[valueField] += Number(item[valueField] || 0)
     }
+    current.contributingDivisions.push(item.division || 'Unassigned')
     pools.set(key, current)
   }
-  return [...pools.values()]
+  return [...pools.values()].map((pool) => ({
+    ...pool,
+    contributingDivisions: [...new Set(pool.contributingDivisions)].sort()
+  }))
 }
 
 function buildRegionWatchlistRows(itemRows) {
@@ -1882,6 +1888,7 @@ function buildRunRateRowMeta(row, region) {
     stockCode: row.stockCode,
     sectionName: row.sectionName,
     division: row.division,
+    contributingDivisions: row.contributingDivisions || [],
     region
   }
 }
@@ -1996,6 +2003,7 @@ async function buildStockRunRateDataset(prisma) {
         stockCode: series.stockCode,
         sectionName: series.sectionName,
         division: series.division,
+        contributingDivisions: series.contributingDivisions || [],
         region: series.region,
         matchedItemNo: series.matchedItemNo,
         usageQty: 0,
@@ -2037,6 +2045,7 @@ async function buildStockRunRateDataset(prisma) {
         stockCode: bucket.stockCode,
         sectionName: bucket.sectionName,
         division: bucket.division,
+        contributingDivisions: bucket.contributingDivisions || [],
         region: bucket.region,
         matchedItemNo: bucket.matchedItemNo,
         usageQty,

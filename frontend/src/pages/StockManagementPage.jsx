@@ -300,6 +300,7 @@ export default function StockManagementPage() {
   const [runRateError, setRunRateError] = useState('')
   const [runRateMonth, setRunRateMonth] = useState('')
   const [runRateRegionFilter, setRunRateRegionFilter] = useState('')
+  const [runRateBusinessUnitFilter, setRunRateBusinessUnitFilter] = useState('')
   const [runRateSearch, setRunRateSearch] = useState('')
   const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
@@ -1034,31 +1035,41 @@ export default function StockManagementPage() {
   }))
   const selectedRunRateMonth = runRateMonth || runRateData?.defaultMonth || ''
   const runRateSearchTerm = String(runRateSearch || '').trim().toLowerCase()
-  const selectedRunRateMonthSummary = (runRateData?.monthSummary || []).find((row) => row.yearMonth === selectedRunRateMonth) || null
-  const runRateMonthChart = (runRateData?.monthSummary || []).map((row) => ({
-    month: row.yearMonth,
-    usage: Number(row.usageQty || 0),
-    projected: Number(row.projectedUsage || 0),
-    restock: Number(row.restockQty || 0)
-  }))
-  const runRateRegionChart = (selectedRunRateMonthSummary?.regionBreakdown || []).map((row) => ({
-    region: row.region,
-    usage: Number(row.usageQty || 0),
-    restock: Number(row.restockQty || 0)
-  }))
-  const runRateRowsForMonth = (runRateData?.rows || []).filter((row) => {
-    if (selectedRunRateMonth && row.yearMonth !== selectedRunRateMonth) return false
-    if (divisionFilter && row.division !== divisionFilter) return false
+  const runRateBusinessUnits = [...new Set((runRateData?.rows || []).flatMap((row) => row.contributingDivisions || []))].sort()
+  const runRateScopedRows = (runRateData?.rows || []).filter((row) => {
     if (runRateRegionFilter && row.region !== runRateRegionFilter) return false
+    if (runRateBusinessUnitFilter && !(row.contributingDivisions || []).includes(runRateBusinessUnitFilter)) return false
     if (!runRateSearchTerm) return true
     return [
       row.itemDescription,
       row.stockCode,
       row.sectionName,
-      row.division,
+      ...(row.contributingDivisions || []),
       row.matchedItemNo
     ].some((value) => String(value || '').toLowerCase().includes(runRateSearchTerm))
   })
+  const runRateRowsForMonth = runRateScopedRows.filter((row) => !selectedRunRateMonth || row.yearMonth === selectedRunRateMonth)
+  const selectedRunRateMonthSummary = runRateRowsForMonth.reduce((summary, row) => ({
+    yearMonth: selectedRunRateMonth,
+    usageQty: summary.usageQty + Number(row.usageQty || 0),
+    restockQty: summary.restockQty + Number(row.restockQty || 0),
+    projectedUsage: summary.projectedUsage + Number(row.projectedUsage || 0)
+  }), { yearMonth: selectedRunRateMonth, usageQty: 0, restockQty: 0, projectedUsage: 0 })
+  const runRateMonthChart = Object.values(runRateScopedRows.reduce((months, row) => {
+    const current = months[row.yearMonth] || { month: row.yearMonth, usage: 0, projected: 0, restock: 0 }
+    current.usage += Number(row.usageQty || 0)
+    current.projected += Number(row.projectedUsage || 0)
+    current.restock += Number(row.restockQty || 0)
+    months[row.yearMonth] = current
+    return months
+  }, {})).sort((left, right) => left.month.localeCompare(right.month))
+  const runRateRegionChart = Object.values(runRateRowsForMonth.reduce((regions, row) => {
+    const current = regions[row.region] || { region: row.region, usage: 0, restock: 0 }
+    current.usage += Number(row.usageQty || 0)
+    current.restock += Number(row.restockQty || 0)
+    regions[row.region] = current
+    return regions
+  }, {})).sort((left, right) => left.region.localeCompare(right.region))
 
   const stockShellStats = [
     {
@@ -1565,16 +1576,21 @@ export default function StockManagementPage() {
 
       {tab === 6 ? (
         runRateLoading && !runRateData ? (
-          <Paper elevation={0} sx={{ p: 3, border: '1px solid #e2e8f0', borderRadius: 2.6 }}>
+          <Paper elevation={0} sx={{ p: 3, border: '1px solid #e2e8f0', borderRadius: 1.35 }}>
             <Stack direction="row" spacing={1.2} alignItems="center">
               <CircularProgress size={22} />
               <Typography>Loading stock run rates...</Typography>
             </Stack>
           </Paper>
         ) : runRateError && !runRateData ? (
-          <Alert severity="error" sx={{ borderRadius: 2.4 }}>{runRateError}</Alert>
+          <Alert severity="error" sx={{ borderRadius: 1.35 }}>{runRateError}</Alert>
         ) : (
           <Stack spacing={0.82}>
+            <SectionCard title="Shared Stock Movement & Run Rates" subtitle="Observed changes in the shared warehouse pool. A drawdown may be usage, a transfer, a correction, or another stock adjustment; it is not presented as confirmed consumption." minHeight={0} rootSx={{ height: 'auto' }} bodySx={{ minHeight: 0, py: 0.85 }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Each stock code is counted once, even when multiple Business Units rely on it. The detail view shows the contributing Business Units and the combined regional minimum for context.
+              </Typography>
+            </SectionCard>
             <Box
               sx={{
                 display: 'grid',
@@ -1586,15 +1602,15 @@ export default function StockManagementPage() {
                 }
               }}
             >
-              <Card title="Months Tracked" value={fmtCount(runRateData?.summary?.monthsTracked || 0)} subtext="Distinct months with stock snapshot history" tone="#0f766e" icon={<Inventory2OutlinedIcon sx={{ fontSize: 16 }} />} />
-              <Card title="Snapshots" value={fmtCount(runRateData?.summary?.snapshotsTracked || 0)} subtext="Daily stock report imports captured for movement tracking" tone="#1d4ed8" icon={<ChecklistOutlinedIcon sx={{ fontSize: 16 }} />} />
-              <Card title="Current Month Use" value={fmtDecimal(runRateData?.summary?.currentMonthUsage || 0)} subtext="Warehouse-usable stock drops counted this month" tone="#dc2626" icon={<WarningAmberRoundedIcon sx={{ fontSize: 16 }} />} />
-              <Card title="Projected Use" value={fmtDecimal(runRateData?.summary?.currentMonthProjectedUsage || 0)} subtext="Simple month projection from the captured daily movement so far" tone="#7c3aed" icon={<RouteOutlinedIcon sx={{ fontSize: 16 }} />} />
+              <Paper variant="outlined" sx={{ p: 1, borderRadius: 1.35, borderTop: '3px solid #0f766e' }}><Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', fontWeight: 800 }}>Months tracked</Typography><Typography variant="h6" sx={{ fontWeight: 900 }}>{fmtCount(runRateData?.summary?.monthsTracked || 0)}</Typography><Typography variant="caption">Months with daily stock snapshots</Typography></Paper>
+              <Paper variant="outlined" sx={{ p: 1, borderRadius: 1.35, borderTop: '3px solid #1d4ed8' }}><Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', fontWeight: 800 }}>Daily snapshots</Typography><Typography variant="h6" sx={{ fontWeight: 900 }}>{fmtCount(runRateData?.summary?.snapshotsTracked || 0)}</Typography><Typography variant="caption">Imports used for movement tracking</Typography></Paper>
+              <Paper variant="outlined" sx={{ p: 1, borderRadius: 1.35, borderTop: '3px solid #dc2626' }}><Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', fontWeight: 800 }}>Observed drawdown</Typography><Typography variant="h6" sx={{ fontWeight: 900 }}>{fmtDecimal(runRateData?.summary?.currentMonthUsage || 0)}</Typography><Typography variant="caption">Shared WH decrease this month</Typography></Paper>
+              <Paper variant="outlined" sx={{ p: 1, borderRadius: 1.35, borderTop: '3px solid #7c3aed' }}><Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', fontWeight: 800 }}>Projected movement</Typography><Typography variant="h6" sx={{ fontWeight: 900 }}>{fmtDecimal(runRateData?.summary?.currentMonthProjectedUsage || 0)}</Typography><Typography variant="caption">Simple projection from captured days</Typography></Paper>
             </Box>
 
             <SectionCard
-              title="Run Rate Filters"
-              subtitle="Use month, region, and item search to inspect the movement pattern from the imported daily stock sheets."
+              title="Movement filters"
+              subtitle="Filter the shared-stock view by month, region, contributing Business Unit, or stock item."
               action={(
                 <Button
                   size="small"
@@ -1613,7 +1629,7 @@ export default function StockManagementPage() {
                   gap: 0.65,
                   gridTemplateColumns: {
                     xs: '1fr',
-                    md: 'repeat(3, minmax(0, 1fr))'
+                    md: 'repeat(4, minmax(0, 1fr))'
                   }
                 }}
               >
@@ -1640,12 +1656,16 @@ export default function StockManagementPage() {
                     <MenuItem key={region} value={region}>{region}</MenuItem>
                   ))}
                 </TextField>
+                <TextField size="small" select label="Contributing Business Unit" value={runRateBusinessUnitFilter} onChange={(event) => setRunRateBusinessUnitFilter(event.target.value)}>
+                  <MenuItem value="">All Business Units</MenuItem>
+                  {runRateBusinessUnits.map((businessUnit) => <MenuItem key={businessUnit} value={businessUnit}>{businessUnit}</MenuItem>)}
+                </TextField>
                 <TextField
                   size="small"
                   label="Search Item"
                   value={runRateSearch}
                   onChange={(event) => setRunRateSearch(event.target.value)}
-                  placeholder="Description, stock code, division..."
+                  placeholder="Description, stock code, Business Unit..."
                   InputProps={{
                     startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />
                   }}
@@ -1665,7 +1685,7 @@ export default function StockManagementPage() {
                     }
                   }}
                 >
-                  <SectionCard title="Monthly Usage Trend" subtitle="Warehouse-usable decreases are treated as stock usage, while increases show as replenishment or rebalancing.">
+                  <SectionCard title="Monthly shared-stock movement" subtitle="Drawdown is a warehouse decrease; replenishment is an increase. Both are observed movement, not confirmed consumption.">
                     <ResponsiveContainer width="100%" height={240}>
                       <BarChart data={runRateMonthChart} margin={{ left: 0, right: 12, top: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -1673,13 +1693,13 @@ export default function StockManagementPage() {
                         <YAxis tick={{ fontSize: 11 }} />
                         <Tooltip />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <Bar dataKey="usage" fill="#dc2626" radius={[4, 4, 0, 0]} name="Usage" />
+                          <Bar dataKey="usage" fill="#dc2626" radius={[4, 4, 0, 0]} name="Observed drawdown" />
                         <Bar dataKey="restock" fill="#0f766e" radius={[4, 4, 0, 0]} name="Restock" />
                       </BarChart>
                     </ResponsiveContainer>
                   </SectionCard>
 
-                  <SectionCard title={`Regional Usage For ${fmtMonthLabel(selectedRunRateMonth)}`} subtitle="Movement split by region for the selected month.">
+                  <SectionCard title={`Regional shared-stock movement for ${fmtMonthLabel(selectedRunRateMonth)}`} subtitle="Observed movement split by warehouse region for the selected period.">
                     {(runRateRegionChart || []).length ? (
                       <ResponsiveContainer width="100%" height={240}>
                         <BarChart data={runRateRegionChart} layout="vertical" margin={{ left: 12, right: 12, top: 8 }}>
@@ -1688,7 +1708,7 @@ export default function StockManagementPage() {
                           <YAxis type="category" dataKey="region" width={54} tick={{ fontSize: 11 }} />
                           <Tooltip />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
-                          <Bar dataKey="usage" fill="#dc2626" radius={[0, 4, 4, 0]} name="Usage" />
+                          <Bar dataKey="usage" fill="#dc2626" radius={[0, 4, 4, 0]} name="Observed drawdown" />
                           <Bar dataKey="restock" fill="#0f766e" radius={[0, 4, 4, 0]} name="Restock" />
                         </BarChart>
                       </ResponsiveContainer>
@@ -1701,17 +1721,17 @@ export default function StockManagementPage() {
                 </Box>
 
                 <SectionCard
-                  title="Run Rate Detail"
-                  subtitle="Month-level item and region movement from the daily stock snapshots. Usage reflects warehouse stock drops only."
+                  title="Shared-stock movement detail"
+                  subtitle="One row per shared stock pool and region. Contributing Business Units share the same physical stock and combined minimum."
                   action={<Chip size="small" label={`${fmtCount(runRateRowsForMonth.length)} rows`} sx={{ fontWeight: 700 }} />}
                 >
                   {selectedRunRateMonthSummary ? (
                     <Stack spacing={0.7}>
                       <Stack direction="row" spacing={0.55} useFlexGap flexWrap="wrap">
                         <Chip size="small" label={`${fmtMonthLabel(selectedRunRateMonthSummary.yearMonth)}`} sx={{ fontWeight: 700 }} />
-                        <Chip size="small" label={`Usage ${fmtDecimal(selectedRunRateMonthSummary.usageQty)}`} sx={{ fontWeight: 700, bgcolor: '#fee2e2', color: '#b91c1c' }} />
-                        <Chip size="small" label={`Restock ${fmtDecimal(selectedRunRateMonthSummary.restockQty)}`} sx={{ fontWeight: 700, bgcolor: '#dcfce7', color: '#166534' }} />
-                        <Chip size="small" label={`Projected ${fmtDecimal(selectedRunRateMonthSummary.projectedUsage)}`} sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+                        <Chip size="small" label={`Drawdown ${fmtDecimal(selectedRunRateMonthSummary.usageQty)}`} sx={{ fontWeight: 700, bgcolor: '#fee2e2', color: '#b91c1c' }} />
+                        <Chip size="small" label={`Replenishment ${fmtDecimal(selectedRunRateMonthSummary.restockQty)}`} sx={{ fontWeight: 700, bgcolor: '#dcfce7', color: '#166534' }} />
+                        <Chip size="small" label={`Projected movement ${fmtDecimal(selectedRunRateMonthSummary.projectedUsage)}`} sx={{ fontWeight: 700, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
                       </Stack>
                       <TableContainer sx={{ maxHeight: '54vh' }}>
                         <Table size="small" stickyHeader>
@@ -1719,15 +1739,15 @@ export default function StockManagementPage() {
                             <TableRow>
                               <TableCell>Item</TableCell>
                               <TableCell>Region</TableCell>
-                              <TableCell>Division</TableCell>
-                              <TableCell align="right">Start WH</TableCell>
-                              <TableCell align="right">End WH</TableCell>
-                              <TableCell align="right">Usage</TableCell>
-                              <TableCell align="right">Restock</TableCell>
+                              <TableCell>Contributing Business Units</TableCell>
+                              <TableCell align="right">Opening Shared WH</TableCell>
+                              <TableCell align="right">Closing Shared WH</TableCell>
+                              <TableCell align="right">Drawdown</TableCell>
+                              <TableCell align="right">Replenishment</TableCell>
                               <TableCell align="right">Net</TableCell>
-                              <TableCell align="right">Avg / Day</TableCell>
-                              <TableCell align="right">Required</TableCell>
-                              <TableCell align="right">Ord.</TableCell>
+                              <TableCell align="right">Avg Drawdown / Day</TableCell>
+                              <TableCell align="right">Combined Minimum</TableCell>
+                              <TableCell align="right">On Order</TableCell>
                               <TableCell align="right">Snapshots</TableCell>
                               <TableCell>Last Snapshot</TableCell>
                             </TableRow>
@@ -1740,7 +1760,11 @@ export default function StockManagementPage() {
                                   <Typography variant="caption" sx={{ opacity: 0.72 }}>{row.stockCode || row.matchedItemNo || 'No stock code'}</Typography>
                                 </TableCell>
                                 <TableCell>{row.region}</TableCell>
-                                <TableCell>{row.division || 'Unassigned'}</TableCell>
+                                <TableCell>
+                                  <Stack direction="row" spacing={0.3} useFlexGap flexWrap="wrap" sx={{ minWidth: 150 }}>
+                                    {(row.contributingDivisions || []).map((businessUnit) => <Chip key={businessUnit} size="small" label={businessUnit} sx={{ height: 19, '& .MuiChip-label': { px: 0.55, fontSize: 9.5, fontWeight: 800 } }} />)}
+                                  </Stack>
+                                </TableCell>
                                 <TableCell align="right">{fmtDecimal(row.startingWarehouse, 0)}</TableCell>
                                 <TableCell align="right">{fmtDecimal(row.endingWarehouse, 0)}</TableCell>
                                 <TableCell align="right">{fmtDecimal(row.usageQty)}</TableCell>
