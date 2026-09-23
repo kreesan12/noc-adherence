@@ -1176,7 +1176,6 @@ export default function StockManagementPage() {
             <Tab label="Stock Admin" />
             <Tab label="Match Review" />
             <Tab label="Add Template Item" />
-            <Tab label="Run Rates" />
           </Tabs>
         </Paper>
 

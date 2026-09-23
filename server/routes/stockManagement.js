@@ -16,7 +16,6 @@ import {
   importStockStatusFromGmail,
   importStockTemplateWorkbook,
   invalidateStockManagementCache,
-  rebuildStoredStockRunRateDataset,
   sendStockDailyReports,
   sendStockRedistributionPlan,
   upsertStockNotWarehouseAction
@@ -74,12 +73,6 @@ const NOT_WH_STATUSES = new Set([
   'HOLD',
   'SCRAP'
 ])
-
-function refreshRunRatesInBackground() {
-  void rebuildStoredStockRunRateDataset(prisma).catch((error) => {
-    console.error('[STOCK RUN RATE] Background refresh failed:', error?.message || error)
-  })
-}
 
 function parseWholeNumber(value) {
   const raw = String(value ?? '').trim()
@@ -176,7 +169,6 @@ r.put('/template-items/:id/match-override', async (req, res) => {
 
   invalidateStockManagementCache()
   const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
-  refreshRunRatesInBackground()
   const item = dataset.items.find((row) => row.id === id)
   res.json(item)
 })
@@ -233,7 +225,6 @@ r.put('/template-items/:id/required-spares', async (req, res) => {
 
   invalidateStockManagementCache()
   const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
-  refreshRunRatesInBackground()
   const item = dataset.items.find((row) => row.id === id)
   res.json(item)
 })
@@ -286,7 +277,6 @@ r.post('/template-items', async (req, res) => {
 
   try {
     const result = await createStockTemplateItem(prisma, payload)
-    refreshRunRatesInBackground()
     res.status(201).json(result)
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 500
@@ -308,7 +298,6 @@ r.post('/template-items/:id/review-actions', async (req, res) => {
       deleteOriginal: Boolean(req.body?.deleteOriginal),
       additions: Array.isArray(req.body?.additions) ? req.body.additions : []
     })
-    refreshRunRatesInBackground()
     res.json(result)
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 500
@@ -365,7 +354,6 @@ r.put('/template-items/:id/cost', async (req, res) => {
   })
   invalidateStockManagementCache()
   const dataset = applyStockScope(await getCurrentStockDataset(prisma, { forceFresh: true }), req.stockAccess)
-  refreshRunRatesInBackground()
   res.json(dataset.items.find((row) => row.id === id))
 })
 
@@ -377,7 +365,6 @@ r.delete('/template-items/:id', requireGeneralStockAdmin, async (req, res) => {
   if (!canManageDivision(req, existing.division)) return res.status(403).json({ error: 'You can only delete items in your assigned division' })
   await prisma.stockTemplateItem.delete({ where: { id } })
   invalidateStockManagementCache()
-  refreshRunRatesInBackground()
   res.status(204).end()
 })
 

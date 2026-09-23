@@ -629,7 +629,6 @@ export async function importStockTemplateWorkbook(prisma, input) {
   })
 
   invalidateStockManagementCache()
-  await rebuildStoredStockRunRateDataset(prisma)
   return { importedRows: records.length }
 }
 
@@ -978,7 +977,6 @@ export async function importMinimumStockRequirementsWorkbook(prisma, input) {
 
   invalidateStockManagementCache()
   const dataset = await getCurrentStockDataset(prisma, { forceFresh: true })
-  await rebuildStoredStockRunRateDataset(prisma)
 
   return {
     dataset,
