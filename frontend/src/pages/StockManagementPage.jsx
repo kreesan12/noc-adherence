@@ -774,10 +774,19 @@ export default function StockManagementPage() {
     if (!item || !suggestion) return
     setSavingOverride(true)
     try {
-      await updateStockMatchOverride(item.id, {
+      const savedItem = await updateStockMatchOverride(item.id, {
         matchedItemNo: suggestion.itemNo,
         matchedDescription: suggestion.itemDescription
       })
+
+      // Remove a confirmed override immediately. The full dashboard refresh
+      // below then reconciles shared-pool totals and counts without leaving a
+      // successfully matched row visible in the review list.
+      setData((current) => current ? {
+        ...current,
+        items: (current.items || []).map((row) => row.id === savedItem?.id ? savedItem : row),
+        matchReviewItems: (current.matchReviewItems || []).filter((row) => row.id !== item.id)
+      } : current)
       await loadData({ showLoading: false })
       setReviewItem(null)
       setToast({
