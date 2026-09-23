@@ -347,6 +347,9 @@ function resolveSiteRegion(siteId) {
 function resolveWarehouseField(siteId, region) {
   const cleaned = cleanCell(siteId).toUpperCase()
   if (!cleaned || !region) return null
+  // FAU sites hold faulty stock. They remain associated with their region but
+  // must never contribute to warehouse-available stock.
+  if (/(?:^|-)FAU$/.test(cleaned)) return null
   if (WAREHOUSE_ALIAS_TO_FIELD[cleaned]) return WAREHOUSE_ALIAS_TO_FIELD[cleaned]
   if (!isWarehouseLike(cleaned)) return null
 
