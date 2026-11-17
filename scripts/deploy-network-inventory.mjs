@@ -73,6 +73,8 @@ mkdir -p "$BACKUP" "$STAGE/frontend-dist"
 tar -czf "$BACKUP/app-before.tar.gz" -C "$APP" server/app.js frontend/src/App.jsx frontend/src/config/navigation.jsx
 sudo tar -czf "$BACKUP/frontend-before.tar.gz" -C /var/www/noc-adherence/current .
 tar -xzf "$STAGE/feature.tar.gz" -C "$APP"
+# Windows tar can record new directories as read-only; keep future git updates writable.
+chmod u+w "$APP/docs/network-inventory" "$APP/frontend/src/features/networkInventory" "$APP/server/migrations/network-inventory" "$APP/server/tools/networkInventory"
 cd "$APP/server"
 node --check app.js
 node --check routes/networkInventory.js
