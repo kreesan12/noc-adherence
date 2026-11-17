@@ -83,6 +83,16 @@ export function buildNavigationSections(user, vacancyCount = 0) {
       ]
     },
     {
+      title: 'NETWORK INVENTORY',
+      icon: <LanRoundedIcon fontSize="small" />,
+      items: [
+        { label: 'Ladder Audits', path: '/network-inventory/ladder', summary: 'Review ladder topology, ring protection, backhauls and data gaps.', icon: <LanRoundedIcon fontSize="small" /> },
+        { label: 'OLT Audits', path: '/network-inventory/olt', summary: 'Review OLT attachments, uplinks and ladder relationships.', icon: <Inventory2RoundedIcon fontSize="small" /> },
+        { label: 'NLD Audits', path: '/network-inventory/nld', summary: 'Review NLD-scoped inventory and ordered provider circuit chains.', icon: <MapRoundedIcon fontSize="small" /> },
+        { label: 'RISE Audits', path: '/network-inventory/rise', summary: 'Assign and review RISE inventory with topology and source evidence.', icon: <GroupWorkRoundedIcon fontSize="small" /> }
+      ]
+    },
+    {
       title: 'STAFFING AND SCHEDULING',
       icon: <GroupWorkRoundedIcon fontSize="small" />,
       items: [

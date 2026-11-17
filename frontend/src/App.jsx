@@ -56,6 +56,7 @@ const OvertimeManagerPage = lazy(() => import('./pages/OvertimeManagerPage'))
 const SignaturePage = lazy(() => import('./pages/SignaturePage'))
 const SlaReportingPage = lazy(() => import('./pages/SlaReportingPage'))
 const StockManagementPage = lazy(() => import('./pages/StockManagementPage'))
+const NetworkInventoryPage = lazy(() => import('./pages/NetworkInventoryPage'))
 
 const DRAWER_WIDTH = 236
 const NAV_STORAGE_KEY = 'noc-nav-open'
@@ -373,6 +374,7 @@ function ShellLayout() {
             <Route path="/engineering/nld-services" element={loadable(<NldServicesPage />)} />
             <Route path="/sla-reporting" element={loadable(<SlaReportingPage />)} />
             <Route path="/stock-management" element={loadable(<StockManagementPage />)} />
+            <Route path="/network-inventory/:scope?" element={loadable(<NetworkInventoryPage />)} />
             <Route path="/overtime/capture" element={loadable(<OvertimeCapturePage />)} />
             <Route path="/overtime/supervisor" element={loadable(<OvertimeSupervisorPage />)} />
             <Route path="/overtime/manager" element={loadable(<OvertimeManagerPage />)} />

@@ -35,6 +35,7 @@ import stockManagementRoutes from './routes/stockManagement.js'
 import overtimeRoutes from './routes/overtime.js'
 import overtimeExportRoutes from './routes/overtimeExportRoutes.js'
 import publicRatingGatewayRoutes from './routes/publicRatingGateway.js'
+import networkInventoryRoutes from './routes/networkInventory.js'
 import {
   createPrismaPublicRatingGatewayRepo,
   sanitizePathForLogs
@@ -218,6 +219,7 @@ function mountBusinessRoutes(app, prismaClient) {
   app.use('/api/engineering', engineeringRoutes)
   app.use('/api/sla-reporting', slaReportingRoutes)
   app.use('/api/stock-management', stockManagementRoutes)
+  app.use('/api/network-inventory', networkInventoryRoutes())
 
   app.use(
     '/api/managers',
